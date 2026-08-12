@@ -1,0 +1,6 @@
+{
+  "navigationBarTitleText": "播放列表",
+  "usingComponents": {
+    "empty": "/components/empty/empty"
+  }
+}

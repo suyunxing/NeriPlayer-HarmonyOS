@@ -1,0 +1,13 @@
+<view class="page">
+  <input
+    class="name-input"
+    placeholder="歌单名称"
+    placeholder-class="placeholder"
+    value="{{name}}"
+    bindinput="onNameInput"
+    focus="true"
+  />
+  <view class="create-btn" bindtap="onCreate">
+    <text class="create-text">创建</text>
+  </view>
+</view>

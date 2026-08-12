@@ -1,0 +1,697 @@
+package moe.ouom.neriplayer.core.api.youtube
+
+/*
+ * NeriPlayer - A unified Android player for streaming music and videos from multiple online platforms.
+ * Copyright (C) 2025-2025 NeriPlayer developers
+ * https://github.com/cwuom/NeriPlayer
+ *
+ * This software is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This software is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this software.
+ * If not, see <https://www.gnu.org/licenses/>.
+ *
+ * File: moe.ouom.neriplayer.core.api.youtube/YouTubeEjsChallengeSolver
+ * Updated: 2026/3/23
+ */
+
+
+import android.annotation.SuppressLint
+import android.content.Context
+import androidx.javascriptengine.JavaScriptIsolate
+import androidx.javascriptengine.JavaScriptSandbox
+import java.io.IOException
+import java.util.LinkedHashMap
+import java.util.UUID
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
+import kotlinx.coroutines.CancellationException
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import org.json.JSONArray
+import org.json.JSONObject
+
+internal data class YouTubeJsChallengeSolution(
+    val signature: String? = null,
+    val throttlingParameter: String? = null
+)
+
+internal enum class YouTubeJsChallengeSolveStatus {
+    SUCCESS,
+    PLAYER_JS_URL_BLANK,
+    JAVASCRIPT_SANDBOX_UNSUPPORTED,
+    JAVASCRIPT_SANDBOX_TEMPORARILY_DISABLED,
+    JAVASCRIPT_SANDBOX_CONNECTION_FAILED,
+    JAVASCRIPT_SANDBOX_TIMEOUT,
+    MISSING_SANDBOX_FEATURES,
+    PLAYER_SCRIPT_FETCH_FAILED,
+    SCRIPT_EVALUATION_FAILED,
+    INVALID_RESPONSE,
+    SIGNATURE_NOT_RESOLVED,
+    THROTTLING_NOT_RESOLVED
+}
+
+internal data class YouTubeJsChallengeSolveResult(
+    val status: YouTubeJsChallengeSolveStatus,
+    val solution: YouTubeJsChallengeSolution = YouTubeJsChallengeSolution(),
+    val detail: String? = null,
+    val cause: Throwable? = null
+) {
+    val isSuccess: Boolean
+        get() = status == YouTubeJsChallengeSolveStatus.SUCCESS
+
+    fun summary(): String {
+        return buildString {
+            append(status.name)
+            detail?.takeIf { it.isNotBlank() }?.let {
+                append(": ")
+                append(it)
+            }
+            cause?.message?.takeIf { it.isNotBlank() }?.let { message ->
+                if (detail.isNullOrBlank()) {
+                    append(": ")
+                } else {
+                    append(" (")
+                }
+                append(message)
+                if (!detail.isNullOrBlank()) {
+                    append(')')
+                }
+            }
+        }
+    }
+}
+
+internal class YouTubeEjsChallengeSolver(
+    context: Context,
+    private val okHttpClient: OkHttpClient
+) {
+    companion object {
+        private const val LIB_ASSET_PATH = "youtube/yt.solver.lib.min.js"
+        private const val CORE_ASSET_PATH = "youtube/yt.solver.core.min.js"
+        private const val SCRIPT_TIMEOUT_SECONDS = 45L
+        // 一条队列每首要缓存 sig 和 n 两条，容量按 32 算连一张歌单都装不下，
+        // 旧条目被挤掉后同一首歌会反复重解
+        private const val CACHE_CAPACITY = 512
+        private const val SANDBOX_FAILURE_COOLDOWN_MS = 10L * 60L * 1000L
+
+        // JavaScriptSandbox 每进程只能绑定一次，而播放与下载各持一个 solver 实例，
+        // 各自 createConnectedInstanceAsync 时第二个必抛 Binding to already bound service，
+        // 绑定成本高所以常驻复用，只按次创建 isolate
+        private val sharedSandboxHolder = SharedJavaScriptSandboxHolder()
+
+        private fun obtainSharedSandbox(context: Context): JavaScriptSandbox {
+            return sharedSandboxHolder.obtain(context, SCRIPT_TIMEOUT_SECONDS)
+        }
+
+        /** 沙箱失效时丢弃，下次 solve 重新绑定 */
+        private fun invalidateSharedSandbox() {
+            sharedSandboxHolder.invalidate()
+        }
+    }
+
+    private val appContext = context.applicationContext
+    private val solverLock = YouTubeJsSolveQueue()
+    private val playerScriptCacheLock = Any()
+    private val challengeCacheLock = Any()
+    private val playerScriptCache = linkedMapOf<String, String>()
+    private val playerScriptStore = runCatching { YouTubePlayerScriptStore(appContext) }.getOrNull()
+    private val signatureCache = linkedMapOf<String, String>()
+    private val throttlingCache = linkedMapOf<String, String>()
+    @Volatile
+    private var sandboxDisabledUntilMs: Long = 0L
+    @Volatile
+    private var sandboxDisabledReason: String = ""
+    private val libScript by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        appContext.assets.open(LIB_ASSET_PATH).bufferedReader().use { it.readText() }
+    }
+    private val coreScript by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        appContext.assets.open(CORE_ASSET_PATH).bufferedReader().use { it.readText() }
+    }
+
+    @SuppressLint("RequiresFeature")
+    fun solve(
+        playerJsUrl: String,
+        encryptedSignature: String? = null,
+        throttlingParameter: String? = null
+    ): YouTubeJsChallengeSolution? {
+        return solveDetailed(
+            playerJsUrl = playerJsUrl,
+            encryptedSignature = encryptedSignature,
+            throttlingParameter = throttlingParameter
+        ).solution.takeIf { solution ->
+            solution.signature != null || solution.throttlingParameter != null
+        } ?: if (encryptedSignature.isNullOrBlank() && throttlingParameter.isNullOrBlank()) {
+            YouTubeJsChallengeSolution()
+        } else {
+            null
+        }
+    }
+
+    @SuppressLint("RequiresFeature")
+    fun solveDetailed(
+        playerJsUrl: String,
+        encryptedSignature: String? = null,
+        throttlingParameter: String? = null
+    ): YouTubeJsChallengeSolveResult {
+        val resolvedPlayerJsUrl = playerJsUrl.trim()
+        val requestedSignature = encryptedSignature?.takeIf { it.isNotBlank() }
+        val requestedThrottling = throttlingParameter?.takeIf { it.isNotBlank() }
+        if (resolvedPlayerJsUrl.isBlank()) {
+            return YouTubeJsChallengeSolveResult(
+                status = YouTubeJsChallengeSolveStatus.PLAYER_JS_URL_BLANK,
+                detail = "playerJsUrl is blank"
+            )
+        }
+        if (requestedSignature == null && requestedThrottling == null) {
+            return YouTubeJsChallengeSolveResult(
+                status = YouTubeJsChallengeSolveStatus.SUCCESS,
+                solution = YouTubeJsChallengeSolution()
+            )
+        }
+
+        val signatureKey = requestedSignature?.let { cacheKey(resolvedPlayerJsUrl, it) }
+        val throttlingKey = requestedThrottling?.let { cacheKey(resolvedPlayerJsUrl, it) }
+        val cachedSignature = signatureKey?.let { getCached(signatureCache, it) }
+        val cachedThrottling = throttlingKey?.let { getCached(throttlingCache, it) }
+        if ((requestedSignature == null || cachedSignature != null) &&
+            (requestedThrottling == null || cachedThrottling != null)
+        ) {
+            return YouTubeJsChallengeSolveResult(
+                status = YouTubeJsChallengeSolveStatus.SUCCESS,
+                solution = YouTubeJsChallengeSolution(
+                    signature = cachedSignature,
+                    throttlingParameter = cachedThrottling
+                )
+            )
+        }
+
+        val resolved = solverLock.withNewestFirst {
+            val warmSignature = signatureKey?.let { getCached(signatureCache, it) }
+            val warmThrottling = throttlingKey?.let { getCached(throttlingCache, it) }
+            if ((requestedSignature == null || warmSignature != null) &&
+                (requestedThrottling == null || warmThrottling != null)
+            ) {
+                return@withNewestFirst YouTubeJsChallengeSolveResult(
+                    status = YouTubeJsChallengeSolveStatus.SUCCESS,
+                    solution = YouTubeJsChallengeSolution(
+                        signature = warmSignature,
+                        throttlingParameter = warmThrottling
+                    )
+                )
+            }
+
+            val nowMs = System.currentTimeMillis()
+            if (nowMs < sandboxDisabledUntilMs) {
+                return@withNewestFirst YouTubeJsChallengeSolveResult(
+                    status = YouTubeJsChallengeSolveStatus.JAVASCRIPT_SANDBOX_TEMPORARILY_DISABLED,
+                    detail = sandboxDisabledReason.ifBlank {
+                        "JavaScriptSandbox disabled for ${sandboxDisabledUntilMs - nowMs}ms"
+                    }
+                )
+            }
+
+            if (!JavaScriptSandbox.isSupported()) {
+                return@withNewestFirst sandboxFailureResult(
+                    status = YouTubeJsChallengeSolveStatus.JAVASCRIPT_SANDBOX_UNSUPPORTED,
+                    detail = "JavaScriptSandbox is not supported on this device"
+                )
+            }
+
+            val sandbox = runCatching {
+                obtainSharedSandbox(appContext)
+            }.getOrElse { error ->
+                // 丢弃可能半初始化的实例
+                invalidateSharedSandbox()
+                return@withNewestFirst sandboxFailureResult(
+                    status = if (error.isTimeoutFailure()) {
+                        YouTubeJsChallengeSolveStatus.JAVASCRIPT_SANDBOX_TIMEOUT
+                    } else {
+                        YouTubeJsChallengeSolveStatus.JAVASCRIPT_SANDBOX_CONNECTION_FAILED
+                    },
+                    detail = "Failed to connect JavaScriptSandbox",
+                    cause = error
+                )
+            }
+            try {
+                val hasPromiseSupport = sandbox.isFeatureSupported(JavaScriptSandbox.JS_FEATURE_PROMISE_RETURN)
+                val hasArrayBufferSupport = sandbox.isFeatureSupported(
+                    JavaScriptSandbox.JS_FEATURE_PROVIDE_CONSUME_ARRAY_BUFFER
+                )
+                if (!hasPromiseSupport || !hasArrayBufferSupport) {
+                    return@withNewestFirst sandboxFailureResult(
+                        status = YouTubeJsChallengeSolveStatus.MISSING_SANDBOX_FEATURES,
+                        detail = "promise=$hasPromiseSupport, arrayBuffer=$hasArrayBufferSupport"
+                    )
+                }
+
+                val isolate = sandbox.createIsolate()
+                try {
+                    val playerScript = runCatching {
+                        getPlayerScript(resolvedPlayerJsUrl)
+                    }.getOrElse { error ->
+                        propagateYouTubeJsChallengeCancellation(error)
+                        return@withNewestFirst YouTubeJsChallengeSolveResult(
+                            status = YouTubeJsChallengeSolveStatus.PLAYER_SCRIPT_FETCH_FAILED,
+                            detail = "playerJsUrl=$resolvedPlayerJsUrl",
+                            cause = error
+                        )
+                    }
+                    val responseJson = runCatching {
+                        isolate.evaluateJavaScriptAsync(
+                            buildString {
+                                append(libScript)
+                                append('\n')
+                                append("Object.assign(globalThis, lib);\n")
+                                append(coreScript)
+                            }
+                        ).get(SCRIPT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+
+                        val playerDataName = "player_js_${UUID.randomUUID().toString().replace("-", "")}"
+                        isolate.provideNamedData(playerDataName, playerScript.toByteArray(Charsets.UTF_8))
+                        isolate.evaluateJavaScriptAsync(
+                            buildSolveScript(
+                                playerDataName = playerDataName,
+                                encryptedSignature = if (warmSignature == null) requestedSignature else null,
+                                throttlingParameter = if (warmThrottling == null) requestedThrottling else null
+                            )
+                        ).get(SCRIPT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                    }.getOrElse { error ->
+                        propagateYouTubeJsChallengeCancellation(error)
+                        return@withNewestFirst sandboxFailureResult(
+                            status = if (error.isTimeoutFailure()) {
+                                YouTubeJsChallengeSolveStatus.JAVASCRIPT_SANDBOX_TIMEOUT
+                            } else {
+                                YouTubeJsChallengeSolveStatus.SCRIPT_EVALUATION_FAILED
+                            },
+                            detail = "playerJsUrl=$resolvedPlayerJsUrl",
+                            cause = error
+                        )
+                    }
+
+                    val parsedResult = parseYouTubeJsChallengeSolveResponse(
+                        responseJson = responseJson,
+                        requestedSignature = if (warmSignature == null) requestedSignature else null,
+                        requestedThrottling = if (warmThrottling == null) requestedThrottling else null
+                    )
+                    if (!parsedResult.isSuccess) {
+                        return@withNewestFirst parsedResult
+                    }
+
+                    parsedResult.solution.signature?.let { solved ->
+                        signatureKey?.let { putCached(signatureCache, it, solved) }
+                    }
+                    parsedResult.solution.throttlingParameter?.let { solved ->
+                        throttlingKey?.let { putCached(throttlingCache, it, solved) }
+                    }
+
+                    return@withNewestFirst YouTubeJsChallengeSolveResult(
+                        status = YouTubeJsChallengeSolveStatus.SUCCESS,
+                        solution = YouTubeJsChallengeSolution(
+                            signature = warmSignature ?: parsedResult.solution.signature,
+                            throttlingParameter = warmThrottling ?: parsedResult.solution.throttlingParameter
+                        )
+                    )
+                } finally {
+                    closeQuietly(isolate)
+                }
+            } catch (error: Throwable) {
+                // isolate 抛出一般意味着共享沙箱已死，丢弃后下次重新绑定
+                invalidateSharedSandbox()
+                throw error
+            }
+            // 不在此处 close，关闭会连带影响另一个 solver 实例
+        }
+        return resolved
+    }
+
+    suspend fun solveDetailedAsync(
+        playerJsUrl: String,
+        encryptedSignature: String? = null,
+        throttlingParameter: String? = null
+    ): YouTubeJsChallengeSolveResult {
+        return solverLock.withNewestFirstCancellable {
+            solveDetailed(
+                playerJsUrl = playerJsUrl,
+                encryptedSignature = encryptedSignature,
+                throttlingParameter = throttlingParameter
+            )
+        }
+    }
+
+    fun warmPlayerScript(playerJsUrl: String): Boolean {
+        val resolvedPlayerJsUrl = playerJsUrl.trim()
+        if (resolvedPlayerJsUrl.isBlank()) {
+            return false
+        }
+        return runCatching {
+            solverLock.withNewestFirst {
+                getPlayerScript(resolvedPlayerJsUrl)
+            }
+            true
+        }.getOrDefault(false)
+    }
+
+    suspend fun warmPlayerScriptAsync(playerJsUrl: String): Boolean {
+        val resolvedPlayerJsUrl = playerJsUrl.trim()
+        if (resolvedPlayerJsUrl.isBlank()) {
+            return false
+        }
+        return runCatching {
+            solverLock.withNewestFirstCancellable {
+                getPlayerScript(resolvedPlayerJsUrl)
+            }
+            true
+        }.getOrDefault(false)
+    }
+
+    private fun buildSolveScript(
+        playerDataName: String,
+        encryptedSignature: String?,
+        throttlingParameter: String?
+    ): String {
+        val requests = JSONArray().apply {
+            encryptedSignature?.let { challenge ->
+                put(
+                    JSONObject()
+                        .put("type", "sig")
+                        .put("challenges", JSONArray().put(challenge))
+                )
+            }
+            throttlingParameter?.let { challenge ->
+                put(
+                    JSONObject()
+                        .put("type", "n")
+                        .put("challenges", JSONArray().put(challenge))
+                )
+            }
+        }
+        val input = JSONObject()
+            .put("type", "player")
+            .put("requests", requests)
+            .put("output_preprocessed", false)
+
+        return """
+            const _input = $input;
+            const _decodeUtf8FromBuffer = (buffer) => {
+              const _bytes = new Uint8Array(buffer);
+              if (typeof TextDecoder !== "undefined") {
+                return new TextDecoder("utf-8").decode(_bytes);
+              }
+              let _result = "";
+              for (let _index = 0; _index < _bytes.length;) {
+                const _byte1 = _bytes[_index++];
+                if (_byte1 < 0x80) {
+                  _result += String.fromCharCode(_byte1);
+                  continue;
+                }
+                if (_byte1 < 0xE0 && _index < _bytes.length) {
+                  const _byte2 = _bytes[_index++];
+                  _result += String.fromCharCode(((_byte1 & 0x1F) << 6) | (_byte2 & 0x3F));
+                  continue;
+                }
+                if (_byte1 < 0xF0 && _index + 1 < _bytes.length) {
+                  const _byte2 = _bytes[_index++];
+                  const _byte3 = _bytes[_index++];
+                  _result += String.fromCharCode(
+                    ((_byte1 & 0x0F) << 12) |
+                    ((_byte2 & 0x3F) << 6) |
+                    (_byte3 & 0x3F)
+                  );
+                  continue;
+                }
+                if (_index + 2 < _bytes.length) {
+                  const _byte2 = _bytes[_index++];
+                  const _byte3 = _bytes[_index++];
+                  const _byte4 = _bytes[_index++];
+                  let _codePoint =
+                    ((_byte1 & 0x07) << 18) |
+                    ((_byte2 & 0x3F) << 12) |
+                    ((_byte3 & 0x3F) << 6) |
+                    (_byte4 & 0x3F);
+                  _codePoint -= 0x10000;
+                  _result += String.fromCharCode(
+                    0xD800 + (_codePoint >> 10),
+                    0xDC00 + (_codePoint & 0x3FF)
+                  );
+                  continue;
+                }
+                _result += String.fromCharCode(_byte1);
+              }
+              return _result;
+            };
+            android.consumeNamedDataAsArrayBuffer("$playerDataName").then((buffer) => {
+              _input.player = _decodeUtf8FromBuffer(buffer);
+              return JSON.stringify(jsc(_input));
+            });
+        """.trimIndent()
+    }
+
+    private fun getPlayerScript(playerJsUrl: String): String {
+        synchronized(playerScriptCacheLock) {
+            playerScriptCache[playerJsUrl]?.let { cached ->
+                playerScriptCache.remove(playerJsUrl)
+                playerScriptCache[playerJsUrl] = cached
+                return cached
+            }
+        }
+        // 存档读取与网络请求都放在锁外, 不阻塞 sig/n 的缓存命中
+        playerScriptStore?.read(playerJsUrl)?.let { persisted ->
+            synchronized(playerScriptCacheLock) {
+                putPlayerScriptCacheLocked(playerJsUrl, persisted)
+            }
+            return persisted
+        }
+        val request = Request.Builder()
+            .url(playerJsUrl)
+            .header("User-Agent", "Mozilla/5.0")
+            .build()
+        val script = okHttpClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                throw IOException("Failed to fetch player JS: ${response.code}")
+            }
+            response.body.readTextWithLimit(YOUTUBE_TEXT_RESPONSE_MAX_BYTES)
+        }
+        synchronized(playerScriptCacheLock) {
+            putPlayerScriptCacheLocked(playerJsUrl, script)
+        }
+        playerScriptStore?.write(playerJsUrl, script)
+        return script
+    }
+
+    private fun getCached(cache: LinkedHashMap<String, String>, key: String): String? {
+        synchronized(challengeCacheLock) {
+            val value = cache.remove(key) ?: return null
+            cache[key] = value
+            return value
+        }
+    }
+
+    private fun putCached(cache: LinkedHashMap<String, String>, key: String, value: String) {
+        synchronized(challengeCacheLock) {
+            cache.remove(key)
+            cache[key] = value
+            while (cache.size > CACHE_CAPACITY) {
+                val eldestKey = cache.entries.firstOrNull()?.key ?: break
+                cache.remove(eldestKey)
+            }
+        }
+    }
+
+    private fun putPlayerScriptCacheLocked(playerJsUrl: String, script: String) {
+        playerScriptCache.remove(playerJsUrl)
+        playerScriptCache[playerJsUrl] = script
+        while (playerScriptCache.size > CACHE_CAPACITY) {
+            val eldestKey = playerScriptCache.entries.firstOrNull()?.key ?: break
+            playerScriptCache.remove(eldestKey)
+        }
+    }
+
+    private fun cacheKey(playerJsUrl: String, challenge: String): String {
+        return "$playerJsUrl::$challenge"
+    }
+
+    private fun sandboxFailureResult(
+        status: YouTubeJsChallengeSolveStatus,
+        detail: String,
+        cause: Throwable? = null
+    ): YouTubeJsChallengeSolveResult {
+        val result = YouTubeJsChallengeSolveResult(
+            status = status,
+            detail = detail,
+            cause = cause
+        )
+        if (shouldTemporarilyDisableSandbox(result)) {
+            sandboxDisabledReason = result.summary()
+            sandboxDisabledUntilMs = System.currentTimeMillis() + SANDBOX_FAILURE_COOLDOWN_MS
+        }
+        return result
+    }
+
+    private fun shouldTemporarilyDisableSandbox(result: YouTubeJsChallengeSolveResult): Boolean {
+        // 冷却期内 EJS 全线不可用，NewPipe 又常因 player.js 变更被跳过，
+        // 两者同时失效则 n/sig 无任何求解路径
+        if (result.cause?.isRecoverableSandboxFailure() == true) {
+            return false
+        }
+        return when (result.status) {
+            YouTubeJsChallengeSolveStatus.JAVASCRIPT_SANDBOX_UNSUPPORTED,
+            YouTubeJsChallengeSolveStatus.JAVASCRIPT_SANDBOX_CONNECTION_FAILED,
+            YouTubeJsChallengeSolveStatus.JAVASCRIPT_SANDBOX_TIMEOUT,
+            YouTubeJsChallengeSolveStatus.MISSING_SANDBOX_FEATURES -> true
+            YouTubeJsChallengeSolveStatus.SCRIPT_EVALUATION_FAILED -> {
+                result.cause?.containsSandboxRuntimeFailure() == true
+            }
+            else -> false
+        }
+    }
+
+    /** Binding to already bound service 是并发撞车，与设备能力无关，冷却它会误伤整条链 */
+    private fun Throwable.isRecoverableSandboxFailure(): Boolean {
+        val message = message.orEmpty()
+        if (
+            message.contains("already bound", ignoreCase = true) ||
+            message.contains("Binding to already", ignoreCase = true)
+        ) {
+            return true
+        }
+        return cause?.isRecoverableSandboxFailure() == true
+    }
+
+    private fun Throwable.isTimeoutFailure(): Boolean {
+        return this is TimeoutException || cause?.isTimeoutFailure() == true
+    }
+
+    private fun Throwable.containsSandboxRuntimeFailure(): Boolean {
+        val message = buildString {
+            append(javaClass.name)
+            append(' ')
+            append(this@containsSandboxRuntimeFailure.message.orEmpty())
+        }
+        if (
+            message.contains("VMBridge", ignoreCase = true) ||
+            message.contains("NoClassDefFoundError", ignoreCase = true) ||
+            message.contains("JavaScriptSandbox", ignoreCase = true)
+        ) {
+            return true
+        }
+        return cause?.containsSandboxRuntimeFailure() == true
+    }
+
+    private fun closeQuietly(isolate: JavaScriptIsolate) {
+        runCatching { isolate.close() }
+    }
+
+    private fun closeQuietly(sandbox: JavaScriptSandbox) {
+        runCatching { sandbox.close() }
+    }
+
+    private class SharedJavaScriptSandboxHolder {
+        private val lock = Any()
+
+        @Volatile
+        private var sandbox: JavaScriptSandbox? = null
+
+        fun obtain(context: Context, timeoutSeconds: Long): JavaScriptSandbox {
+            sandbox?.let { return it }
+            val appContext = context.applicationContext
+            return synchronized(lock) {
+                sandbox ?: JavaScriptSandbox
+                    .createConnectedInstanceAsync(appContext)
+                    .get(timeoutSeconds, TimeUnit.SECONDS)
+                    .also { sandbox = it }
+            }
+        }
+
+        fun invalidate() {
+            synchronized(lock) {
+                val stale = sandbox
+                sandbox = null
+                runCatching { stale?.close() }
+            }
+        }
+    }
+}
+
+internal fun propagateYouTubeJsChallengeCancellation(error: Throwable) {
+    when (error) {
+        is CancellationException -> throw error
+        is InterruptedException -> {
+            Thread.currentThread().interrupt()
+            throw error
+        }
+    }
+}
+
+internal fun parseYouTubeJsChallengeSolveResponse(
+    responseJson: String,
+    requestedSignature: String?,
+    requestedThrottling: String?
+): YouTubeJsChallengeSolveResult {
+    if (responseJson.isBlank()) {
+        return YouTubeJsChallengeSolveResult(
+            status = YouTubeJsChallengeSolveStatus.INVALID_RESPONSE,
+            detail = "responseJson is blank"
+        )
+    }
+    val root = runCatching { JSONObject(responseJson) }.getOrElse { error ->
+        return YouTubeJsChallengeSolveResult(
+            status = YouTubeJsChallengeSolveStatus.INVALID_RESPONSE,
+            detail = "responseJson is not valid JSON",
+            cause = error
+        )
+    }
+    if (root.optString("type") != "result") {
+        return YouTubeJsChallengeSolveResult(
+            status = YouTubeJsChallengeSolveStatus.INVALID_RESPONSE,
+            detail = "root.type=${root.optString("type")}"
+        )
+    }
+
+    var resolvedSignature: String? = null
+    var resolvedThrottling: String? = null
+    val responses = root.optJSONArray("responses") ?: JSONArray()
+    for (index in 0 until responses.length()) {
+        val response = responses.optJSONObject(index) ?: continue
+        if (response.optString("type") != "result") {
+            continue
+        }
+        val data = response.optJSONObject("data") ?: continue
+        val keys = data.keys()
+        while (keys.hasNext()) {
+            val challenge = keys.next()
+            val value = data.optString(challenge).takeIf { it.isNotBlank() } ?: continue
+            when (challenge) {
+                requestedSignature -> resolvedSignature = value
+                requestedThrottling -> resolvedThrottling = value
+            }
+        }
+    }
+    if (requestedSignature != null && resolvedSignature == null) {
+        return YouTubeJsChallengeSolveResult(
+            status = YouTubeJsChallengeSolveStatus.SIGNATURE_NOT_RESOLVED,
+            detail = "missing signature result for requested challenge"
+        )
+    }
+    if (requestedThrottling != null && resolvedThrottling == null) {
+        return YouTubeJsChallengeSolveResult(
+            status = YouTubeJsChallengeSolveStatus.THROTTLING_NOT_RESOLVED,
+            detail = "missing throttling result for requested challenge"
+        )
+    }
+    return YouTubeJsChallengeSolveResult(
+        status = YouTubeJsChallengeSolveStatus.SUCCESS,
+        solution = YouTubeJsChallengeSolution(
+            signature = resolvedSignature,
+            throttlingParameter = resolvedThrottling
+        )
+    )
+}

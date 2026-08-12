@@ -1,0 +1,11 @@
+<view class="song-row" bindtap="onTap">
+  <text class="row-index" has:if="{{showIndex}}">{{index + 1}}</text>
+  <image class="row-cover" src="{{song.coverUrl || song.customCoverUrl}}" mode="aspectFill" has:if="{{song.coverUrl || song.customCoverUrl}}"></image>
+  <view class="row-cover placeholder" has:else></view>
+  <view class="row-info">
+    <text class="row-name" max-lines="1">{{song.customName || song.name}}</text>
+    <text class="row-artist" max-lines="1">{{song.customArtist || song.artist}}</text>
+  </view>
+  <text class="row-duration">{{durationText}}</text>
+  <text class="row-menu" catchtap="onMenu">⋯</text>
+</view>

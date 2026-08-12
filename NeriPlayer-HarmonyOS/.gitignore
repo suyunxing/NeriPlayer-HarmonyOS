@@ -1,0 +1,13 @@
+/.hvigor
+/.idea
+/.preview
+/build
+/entry/build
+**/build
+/oh_modules
+**/oh_modules
+/local.properties
+/.obsidian
+*.har
+*.hap
+*.app

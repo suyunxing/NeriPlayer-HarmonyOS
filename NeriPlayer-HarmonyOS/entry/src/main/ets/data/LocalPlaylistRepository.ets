@@ -1,0 +1,123 @@
+import { AppPreferences } from './AppPreferences';
+import { Playlist } from '../model/Playlist';
+import { MusicPlatform } from '../model/MusicPlatform';
+import { SongItem } from '../model/SongItem';
+import { stableKeyOf } from '../model/SongIdentity';
+
+/**
+ * Local playlist + favorites repository, mirroring LocalPlaylistRepository and
+ * FavoritePlaylistRepository. Membership is stable song keys.
+ */
+export class LocalPlaylistRepository {
+  static readonly FAVORITES_ID: string = 'favorites';
+  private static readonly KEY: string = 'playlists';
+
+  static async loadAll(): Promise<Playlist[]> {
+    const json = await AppPreferences.getString(LocalPlaylistRepository.KEY, '[]');
+    const playlists: Playlist[] = [];
+    try {
+      const rawList = JSON.parse(json) as Object[];
+      for (const raw of rawList) {
+        playlists.push(Playlist.fromJson(JSON.stringify(raw)));
+      }
+    } catch (error) {
+      const e = error as Error;
+      console.warn(`LocalPlaylistRepository.loadAll failed: ${e.message}`);
+    }
+    return playlists;
+  }
+
+  private static async saveAll(playlists: Playlist[]): Promise<void> {
+    const json = JSON.stringify(playlists.map((item: Playlist) => Playlist.fromJson(item.toJson())));
+    await AppPreferences.putString(LocalPlaylistRepository.KEY, json);
+  }
+
+  static async ensureFavorites(): Promise<Playlist> {
+    const playlists = await LocalPlaylistRepository.loadAll();
+    const existing = playlists.find((item: Playlist) => item.id === LocalPlaylistRepository.FAVORITES_ID);
+    if (existing !== undefined) {
+      return existing;
+    }
+    const favorites = new Playlist(LocalPlaylistRepository.FAVORITES_ID, 'Favorites', MusicPlatform.LOCAL);
+    playlists.unshift(favorites);
+    await LocalPlaylistRepository.saveAll(playlists);
+    return favorites;
+  }
+
+  static async createPlaylist(name: string): Promise<Playlist> {
+    const playlists = await LocalPlaylistRepository.loadAll();
+    const playlist = new Playlist(`local_${Date.now()}`, name, MusicPlatform.LOCAL);
+    playlists.unshift(playlist);
+    await LocalPlaylistRepository.saveAll(playlists);
+    return playlist;
+  }
+
+  static async addSong(playlistId: string, song: SongItem): Promise<boolean> {
+    const playlists = await LocalPlaylistRepository.loadAll();
+    const playlist = playlists.find((item: Playlist) => item.id === playlistId);
+    if (playlist === undefined) {
+      return false;
+    }
+    const songKey = stableKeyOf(song);
+    if (playlist.songKeys.indexOf(songKey) >= 0) {
+      return false;
+    }
+    playlist.songKeys.unshift(songKey);
+    playlist.songs.unshift(song);
+    playlist.updatedAt = Date.now();
+    await LocalPlaylistRepository.saveAll(playlists);
+    return true;
+  }
+
+  static async removeSong(playlistId: string, songKey: string): Promise<boolean> {
+    const playlists = await LocalPlaylistRepository.loadAll();
+    const playlist = playlists.find((item: Playlist) => item.id === playlistId);
+    if (playlist === undefined) {
+      return false;
+    }
+    const index = playlist.songKeys.indexOf(songKey);
+    if (index < 0) {
+      return false;
+    }
+    playlist.songKeys.splice(index, 1);
+    playlist.songs.splice(index, 1);
+    playlist.updatedAt = Date.now();
+    await LocalPlaylistRepository.saveAll(playlists);
+    return true;
+  }
+
+  static async addFavorite(song: SongItem): Promise<boolean> {
+    await LocalPlaylistRepository.ensureFavorites();
+    return LocalPlaylistRepository.addSong(LocalPlaylistRepository.FAVORITES_ID, song);
+  }
+
+  static async removeFavorite(song: SongItem): Promise<boolean> {
+    return LocalPlaylistRepository.removeSong(LocalPlaylistRepository.FAVORITES_ID, stableKeyOf(song));
+  }
+
+  static async isFavorite(song: SongItem): Promise<boolean> {
+    const playlists = await LocalPlaylistRepository.loadAll();
+    const favorites = playlists.find((item: Playlist) => item.id === LocalPlaylistRepository.FAVORITES_ID);
+    if (favorites === undefined) {
+      return false;
+    }
+    return favorites.songKeys.indexOf(stableKeyOf(song)) >= 0;
+  }
+
+  static async renamePlaylist(playlistId: string, name: string): Promise<void> {
+    const playlists = await LocalPlaylistRepository.loadAll();
+    const playlist = playlists.find((item: Playlist) => item.id === playlistId);
+    if (playlist === undefined) {
+      return;
+    }
+    playlist.name = name;
+    playlist.updatedAt = Date.now();
+    await LocalPlaylistRepository.saveAll(playlists);
+  }
+
+  static async removePlaylist(playlistId: string): Promise<void> {
+    const playlists = await LocalPlaylistRepository.loadAll();
+    const filtered = playlists.filter((item: Playlist) => item.id !== playlistId);
+    await LocalPlaylistRepository.saveAll(filtered);
+  }
+}

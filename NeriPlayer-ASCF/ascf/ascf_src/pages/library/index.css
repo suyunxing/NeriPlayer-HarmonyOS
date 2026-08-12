@@ -1,0 +1,97 @@
+.page {
+  min-height: 100vh;
+  background: #121212;
+  padding-bottom: 240rpx;
+}
+
+.grid {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  padding: 32rpx 16rpx 0;
+}
+
+.grid-item {
+  width: 50%;
+  box-sizing: border-box;
+  padding: 24rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.grid-num {
+  color: #ffffff;
+  font-size: 44rpx;
+  font-weight: 700;
+}
+
+.grid-label {
+  color: #9e9e9e;
+  font-size: 24rpx;
+  margin-top: 8rpx;
+}
+
+.notice {
+  margin: 8rpx 32rpx 24rpx;
+  background: #1f3a2f;
+  border-radius: 16rpx;
+  padding: 20rpx 24rpx;
+}
+
+.notice-text {
+  color: #9fd6b6;
+  font-size: 24rpx;
+  line-height: 1.6;
+}
+
+.section {
+  margin-top: 16rpx;
+}
+
+.section-head {
+  padding: 0 32rpx 12rpx;
+}
+
+.section-title {
+  color: #ffffff;
+  font-size: 32rpx;
+  font-weight: 600;
+}
+
+.top-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  padding: 16rpx 32rpx;
+}
+
+.top-index {
+  width: 56rpx;
+  color: #9e9e9e;
+  font-size: 26rpx;
+  text-align: center;
+}
+
+.top-info {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.top-name {
+  color: #ffffff;
+  font-size: 28rpx;
+}
+
+.top-artist {
+  color: #9e9e9e;
+  font-size: 22rpx;
+  margin-top: 4rpx;
+}
+
+.top-count {
+  color: #757575;
+  font-size: 22rpx;
+}

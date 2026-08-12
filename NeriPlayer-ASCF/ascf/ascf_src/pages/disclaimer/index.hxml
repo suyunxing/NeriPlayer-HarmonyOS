@@ -1,0 +1,20 @@
+<view class="page">
+  <view class="title"><text>免责声明</text></view>
+  <view class="body">
+    <text class="text">
+      NeriPlayer 是一个开源学习项目（移植自 GitHub 项目 cwuom/NeriPlayer）。
+
+      本项目仅用于个人学习与技术研究，不提供任何音乐内容。所有歌曲、歌词、封面等数据来自第三方平台公开接口，版权归原作者所有。
+
+      请遵守相关法律法规与平台服务条款，下载或播放的内容请勿用于商业用途。如涉及侵权，请与内容权利人联系。
+    </text>
+  </view>
+  <view class="actions">
+    <view class="btn primary" bindtap="onAgree">
+      <text class="btn-text">同意并继续</text>
+    </view>
+    <view class="btn" bindtap="onDisagree">
+      <text class="btn-text secondary">不同意</text>
+    </view>
+  </view>
+</view>

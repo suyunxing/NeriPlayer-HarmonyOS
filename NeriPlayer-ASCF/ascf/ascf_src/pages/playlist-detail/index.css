@@ -1,0 +1,51 @@
+.page {
+  min-height: 100vh;
+  background: #121212;
+  padding-bottom: 40rpx;
+}
+
+.header {
+  padding: 32rpx;
+  display: flex;
+  flex-direction: column;
+}
+
+.name {
+  color: #ffffff;
+  font-size: 40rpx;
+  font-weight: 700;
+}
+
+.desc {
+  color: #9e9e9e;
+  font-size: 24rpx;
+  margin-top: 12rpx;
+}
+
+.count {
+  color: #757575;
+  font-size: 24rpx;
+  margin-top: 12rpx;
+}
+
+.actions {
+  display: flex;
+  flex-direction: row;
+  margin-top: 24rpx;
+}
+
+.action-btn {
+  background: #242424;
+  border-radius: 36rpx;
+  padding: 16rpx 36rpx;
+  margin-right: 16rpx;
+}
+
+.action-btn.danger {
+  background: #3a1f1f;
+}
+
+.action-text {
+  color: #ffffff;
+  font-size: 26rpx;
+}

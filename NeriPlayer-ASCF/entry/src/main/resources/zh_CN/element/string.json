@@ -1,0 +1,16 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "NeriPlayer 音乐播放器 (ASCF)"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "NeriPlayer 音乐播放器 (ASCF)"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "NeriPlayer"
+    }
+  ]
+}

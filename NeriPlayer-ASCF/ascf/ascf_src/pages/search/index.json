@@ -1,0 +1,7 @@
+{
+  "navigationBarTitleText": "搜索",
+  "usingComponents": {
+    "song-row": "/components/song-row/song-row",
+    "empty": "/components/empty/empty"
+  }
+}

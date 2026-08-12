@@ -1,0 +1,2 @@
+# NeriPlayer obfuscation rules (release builds).
+# Keep third-party entry points and reflection targets when enabled.

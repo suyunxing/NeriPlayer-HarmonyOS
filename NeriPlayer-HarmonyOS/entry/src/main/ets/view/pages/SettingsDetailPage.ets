@@ -1,0 +1,428 @@
+import { promptAction } from '@kit.ArkUI';
+import { SettingsRepository } from '../../data/SettingsRepository';
+import { DownloadsRepository } from '../../data/DownloadsRepository';
+import { PlayerManager } from '../../player/PlayerManager';
+import { Theme } from '../Theme';
+import { SettingRow } from '../components/Ui';
+import { SETTING_PLAYBACK, SETTING_DOWNLOAD, SETTING_LYRICS, SETTING_APPEARANCE,
+  SETTING_TRAFFIC, SETTING_STORAGE, SETTING_ACCOUNTS, SETTING_SYNC, SETTING_DEBUG,
+  SETTING_ABOUT } from './SettingsPage';
+import { Router } from '../Router';
+
+const SPEEDS: number[] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
+const QUALITIES: string[] = ['standard', 'high', 'exhigh', 'lossless', 'hires'];
+
+@Component
+export struct SettingsDetailPage {
+  @StorageLink('route.param') section: string = '';
+
+  @StorageProp('np.playback_speed') speed: number = 1.0;
+  @StorageProp('np.audio_quality') quality: string = 'standard';
+  @StorageProp('np.lyric_font_size') lyricFontSize: number = 16;
+  @StorageProp('np.lyric_offset_ms') lyricOffsetMs: number = 0;
+  @StorageProp('np.lyric_translation') lyricTranslation: boolean = true;
+  @StorageProp('np.lyric_phonetic') lyricPhonetic: boolean = false;
+  @StorageProp('np.lyric_blur') lyricBlur: boolean = true;
+  @StorageProp('np.download_concurrency') downloadConcurrency: number = 6;
+  @StorageProp('np.download_match_lyrics') downloadMatchLyrics: boolean = true;
+  @StorageProp('np.save_traffic') saveTraffic: boolean = false;
+  @StorageProp('np.cover_policy') coverPolicy: string = 'always';
+  @StorageProp('np.always_record_logs') alwaysRecordLogs: boolean = false;
+
+  @State cacheBytes: number = 0;
+
+  private title(): string {
+    if (this.section === SETTING_PLAYBACK) {
+      return '播放设置';
+    }
+    if (this.section === SETTING_DOWNLOAD) {
+      return '下载设置';
+    }
+    if (this.section === SETTING_LYRICS) {
+      return '歌词设置';
+    }
+    if (this.section === SETTING_APPEARANCE) {
+      return '外观与动效';
+    }
+    if (this.section === SETTING_TRAFFIC) {
+      return '流量与封面';
+    }
+    if (this.section === SETTING_STORAGE) {
+      return '存储与缓存';
+    }
+    if (this.section === SETTING_ACCOUNTS) {
+      return '账号与登录';
+    }
+    if (this.section === SETTING_SYNC) {
+      return '同步';
+    }
+    if (this.section === SETTING_DEBUG) {
+      return '开发者';
+    }
+    if (this.section === SETTING_ABOUT) {
+      return '关于';
+    }
+    return '设置';
+  }
+
+  async aboutToAppear(): Promise<void> {
+    const tasks = await DownloadsRepository.loadAll();
+    let bytes = 0;
+    for (const task of tasks) {
+      bytes += task.downloadedBytes;
+    }
+    this.cacheBytes = bytes;
+  }
+
+  private setSpeed(value: number): void {
+    SettingsRepository.setNumber(SettingsRepository.KEY_PLAYBACK_SPEED, value);
+    PlayerManager.setSpeed(value);
+  }
+
+  private adjustLyricOffset(deltaMs: number): void {
+    const next = this.lyricOffsetMs + deltaMs;
+    SettingsRepository.setNumber(SettingsRepository.KEY_LYRIC_OFFSET_MS, next);
+  }
+
+  @Builder
+  header() {
+    Row({ space: 8 }) {
+      Button('‹')
+        .width(38)
+        .height(38)
+        .type(ButtonType.Circle)
+        .backgroundColor(Color.Transparent)
+        .fontColor(Theme.textPrimary(Theme.isDark()))
+        .fontSize(20)
+        .onClick(() => Router.pop())
+      Text(this.title())
+        .fontSize(20)
+        .fontWeight(FontWeight.Bold)
+        .fontColor(Theme.textPrimary(Theme.isDark()))
+    }
+    .width('100%')
+    .padding({ left: 8, right: 12, top: 8, bottom: 8 })
+  }
+
+  @Builder
+  optionRow(label: string, value: string, onTap: () => void) {
+    SettingRow({ title: label, subtitle: value, onTap: onTap })
+  }
+
+  build() {
+    Column() {
+      this.header()
+
+      Scroll() {
+        Column({ space: 1 }) {
+          if (this.section === SETTING_PLAYBACK) {
+            Text('播放速度')
+              .fontSize(13)
+              .fontColor(Theme.textSecondary(Theme.isDark()))
+              .width('100%')
+              .margin({ left: 6, top: 10, bottom: 6 })
+            Row({ space: 8 }) {
+              ForEach(SPEEDS, (speedValue: number) => {
+                Button(speedValue === 1.0 ? '1.0x' : `${speedValue}x`)
+                  .height(34)
+                  .fontSize(13)
+                  .layoutWeight(1)
+                  .fontColor(this.speed === speedValue ? Theme.onPrimary(Theme.isDark()) : Theme.textSecondary(Theme.isDark()))
+                  .backgroundColor(this.speed === speedValue ? Theme.primary(Theme.isDark()) : Theme.surface(Theme.isDark()))
+                  .borderRadius(17)
+                  .onClick(() => this.setSpeed(speedValue))
+              }, (speedValue: number) => `${speedValue}`)
+            }
+            .width('100%')
+            .padding(10)
+            .backgroundColor(Theme.surface(Theme.isDark()))
+            .borderRadius(Theme.cardRadius())
+
+            Text('默认音质')
+              .fontSize(13)
+              .fontColor(Theme.textSecondary(Theme.isDark()))
+              .width('100%')
+              .margin({ left: 6, top: 14, bottom: 6 })
+            Column({ space: 1 }) {
+              ForEach(QUALITIES, (qualityValue: string) => {
+                SettingRow({
+                  title: qualityLabel(qualityValue),
+                  subtitle: this.quality === qualityValue ? '当前选择' : '',
+                  showArrow: false,
+                  onTap: () => SettingsRepository.setString(SettingsRepository.KEY_AUDIO_QUALITY, qualityValue)
+                })
+              }, (qualityValue: string) => qualityValue)
+            }
+            .width('100%')
+            .backgroundColor(Theme.surface(Theme.isDark()))
+            .borderRadius(Theme.cardRadius())
+            .clip(true)
+
+            SettingRow({
+              title: '随机播放',
+              subtitle: '在播放页切换，此处仅显示状态',
+              icon: '🔀',
+              showArrow: false,
+              onTap: () => PlayerManager.setShuffle(!AppStorage.get<boolean>('player.shuffle'))
+            })
+          } else if (this.section === SETTING_DOWNLOAD) {
+            Text('下载并发数')
+              .fontSize(13)
+              .fontColor(Theme.textSecondary(Theme.isDark()))
+              .width('100%')
+              .margin({ left: 6, top: 10, bottom: 6 })
+            Row({ space: 8 }) {
+              ForEach([1, 2, 4, 6, 8], (concurrency: number) => {
+                Button(`${concurrency}`)
+                  .height(34)
+                  .fontSize(13)
+                  .layoutWeight(1)
+                  .fontColor(this.downloadConcurrency === concurrency ? Theme.onPrimary(Theme.isDark()) : Theme.textSecondary(Theme.isDark()))
+                  .backgroundColor(this.downloadConcurrency === concurrency ? Theme.primary(Theme.isDark()) : Theme.surface(Theme.isDark()))
+                  .borderRadius(17)
+                  .onClick(() => SettingsRepository.setNumber(SettingsRepository.KEY_DOWNLOAD_CONCURRENCY, concurrency))
+              }, (concurrency: number) => `${concurrency}`)
+            }
+            .width('100%')
+            .padding(10)
+            .backgroundColor(Theme.surface(Theme.isDark()))
+            .borderRadius(Theme.cardRadius())
+
+            SettingRow({
+              title: '下载完成后匹配歌词',
+              subtitle: this.downloadMatchLyrics ? '已开启' : '已关闭',
+              icon: '♪',
+              showArrow: false,
+              onTap: () => SettingsRepository.setBoolean(SettingsRepository.KEY_DOWNLOAD_MATCH_LYRICS, !this.downloadMatchLyrics)
+            })
+            SettingRow({
+              title: '下载目录',
+              subtitle: '应用沙箱 Download 目录（当前版本）',
+              icon: '📁',
+              onTap: () => promptAction.openToast({ message: '目录选择待移植' })
+            })
+          } else if (this.section === SETTING_LYRICS) {
+            SettingRow({
+              title: '歌词字号',
+              subtitle: `${this.lyricFontSize} sp`,
+              icon: '🔠',
+              onTap: () => {
+                const next = this.lyricFontSize >= 24 ? 14 : this.lyricFontSize + 2;
+                SettingsRepository.setNumber(SettingsRepository.KEY_LYRIC_FONT_SIZE, next);
+              }
+            })
+            SettingRow({
+              title: '歌词偏移',
+              subtitle: this.lyricOffsetMs > 0 ? `提前 ${this.lyricOffsetMs} ms` :
+                (this.lyricOffsetMs < 0 ? `延后 ${-this.lyricOffsetMs} ms` : '无偏移'),
+              icon: '⏱',
+              onTap: () => this.adjustLyricOffset(250)
+            })
+            Row({ space: 10 }) {
+              Button('-250ms')
+                .layoutWeight(1)
+                .height(36)
+                .fontSize(13)
+                .backgroundColor(Theme.surface(Theme.isDark()))
+                .fontColor(Theme.textPrimary(Theme.isDark()))
+                .onClick(() => this.adjustLyricOffset(-250))
+              Button('+250ms')
+                .layoutWeight(1)
+                .height(36)
+                .fontSize(13)
+                .backgroundColor(Theme.surface(Theme.isDark()))
+                .fontColor(Theme.textPrimary(Theme.isDark()))
+                .onClick(() => this.adjustLyricOffset(250))
+              Button('重置')
+                .layoutWeight(1)
+                .height(36)
+                .fontSize(13)
+                .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+                .fontColor(Theme.textPrimary(Theme.isDark()))
+                .onClick(() => SettingsRepository.setNumber(SettingsRepository.KEY_LYRIC_OFFSET_MS, 0))
+            }
+            .width('100%')
+            .padding(10)
+            .backgroundColor(Theme.surface(Theme.isDark()))
+            .borderRadius(Theme.cardRadius())
+
+            SettingRow({
+              title: '显示翻译',
+              subtitle: this.lyricTranslation ? '已开启' : '已关闭',
+              icon: '🌐',
+              showArrow: false,
+              onTap: () => SettingsRepository.setBoolean(SettingsRepository.KEY_LYRIC_TRANSLATION, !this.lyricTranslation)
+            })
+            SettingRow({
+              title: '音译显示',
+              subtitle: this.lyricPhonetic ? '已开启' : '已关闭',
+              icon: '🗣',
+              showArrow: false,
+              onTap: () => SettingsRepository.setBoolean(SettingsRepository.KEY_LYRIC_PHONETIC, !this.lyricPhonetic)
+            })
+            SettingRow({
+              title: '歌词模糊效果',
+              subtitle: this.lyricBlur ? '已开启' : '已关闭',
+              icon: '🌫',
+              showArrow: false,
+              onTap: () => SettingsRepository.setBoolean(SettingsRepository.KEY_LYRIC_BLUR, !this.lyricBlur)
+            })
+          } else if (this.section === SETTING_APPEARANCE) {
+            SettingRow({
+              title: '语言',
+              subtitle: '简体中文（更多语言待移植）',
+              icon: '🌐',
+              onTap: () => promptAction.openToast({ message: '语言切换待移植' })
+            })
+            SettingRow({
+              title: '高级毛玻璃',
+              subtitle: '封面背景模糊（Now Playing）',
+              icon: '✨',
+              showArrow: false,
+              onTap: () => promptAction.openToast({ message: '高级毛玻璃待移植' })
+            })
+          } else if (this.section === SETTING_TRAFFIC) {
+            SettingRow({
+              title: '省流量模式',
+              subtitle: this.saveTraffic ? '已开启' : '已关闭',
+              icon: '📶',
+              showArrow: false,
+              onTap: () => SettingsRepository.setBoolean(SettingsRepository.KEY_SAVE_TRAFFIC, !this.saveTraffic)
+            })
+            SettingRow({
+              title: '封面加载策略',
+              subtitle: this.coverPolicy === 'always' ? '始终加载' :
+                (this.coverPolicy === 'wifi' ? '仅 Wi-Fi' : '不加载'),
+              icon: '🖼',
+              onTap: () => {
+                const next = this.coverPolicy === 'always' ? 'wifi' : (this.coverPolicy === 'wifi' ? 'off' : 'always');
+                SettingsRepository.setString(SettingsRepository.KEY_COVER_POLICY, next);
+              }
+            })
+          } else if (this.section === SETTING_STORAGE) {
+            SettingRow({
+              title: '缓存占用',
+              subtitle: this.cacheBytes > 0 ? `${(this.cacheBytes / 1024 / 1024).toFixed(1)} MB` : '暂无下载缓存',
+              icon: '🗄',
+              showArrow: false,
+              onTap: () => {
+              }
+            })
+            SettingRow({
+              title: '清理下载任务',
+              subtitle: '清除已完成任务记录',
+              icon: '🧹',
+              onTap: async () => {
+                await DownloadsRepository.clearCompleted();
+                promptAction.openToast({ message: '已清除已完成任务' });
+                await this.aboutToAppear();
+              }
+            })
+          } else if (this.section === SETTING_ACCOUNTS) {
+            SettingRow({
+              title: '网易云音乐',
+              subtitle: '未登录 · 二维码登录待移植',
+              icon: '🎵',
+              onTap: () => promptAction.openToast({ message: '网易云登录待移植' })
+            })
+            SettingRow({
+              title: 'Bilibili',
+              subtitle: '未登录 · 二维码登录待移植',
+              icon: '📺',
+              onTap: () => promptAction.openToast({ message: 'Bilibili 登录待移植' })
+            })
+            SettingRow({
+              title: 'YouTube',
+              subtitle: '未登录 · Cookie 会话待移植',
+              icon: '▶',
+              onTap: () => promptAction.openToast({ message: 'YouTube 登录待移植' })
+            })
+          } else if (this.section === SETTING_SYNC) {
+            SettingRow({
+              title: 'GitHub 同步',
+              subtitle: '自建私有仓库元数据同步（待移植）',
+              icon: '🐙',
+              onTap: () => promptAction.openToast({ message: 'GitHub 同步待移植' })
+            })
+            SettingRow({
+              title: 'WebDAV 同步',
+              subtitle: '远端文件元数据同步（待移植）',
+              icon: '🗂',
+              onTap: () => promptAction.openToast({ message: 'WebDAV 同步待移植' })
+            })
+            SettingRow({
+              title: '一起听服务器',
+              subtitle: '自定义服务器地址（待移植）',
+              icon: '👥',
+              onTap: () => promptAction.openToast({ message: 'Listen Together 待移植' })
+            })
+          } else if (this.section === SETTING_DEBUG) {
+            SettingRow({
+              title: '始终记录日志',
+              subtitle: this.alwaysRecordLogs ? '已开启' : '已关闭',
+              icon: '📝',
+              showArrow: false,
+              onTap: () => SettingsRepository.setBoolean(SettingsRepository.KEY_ALWAYS_RECORD_LOGS, !this.alwaysRecordLogs)
+            })
+            SettingRow({
+              title: '打开调试工具',
+              subtitle: 'API 探测、播放统计与崩溃模拟',
+              icon: '🔧',
+              onTap: () => Router.push(Router.DEBUG)
+            })
+          } else if (this.section === SETTING_ABOUT) {
+            Column({ space: 8 }) {
+              Text('NeriPlayer')
+                .fontSize(30)
+                .fontWeight(FontWeight.Bold)
+                .fontColor(Theme.textPrimary(Theme.isDark()))
+                .margin({ top: 20 })
+              Text('欢迎回来！')
+                .fontSize(15)
+                .fontColor(Theme.textSecondary(Theme.isDark()))
+              Text('版本 1.0.0 (HarmonyOS 6.1.1 / API 24)')
+                .fontSize(13)
+                .fontColor(Theme.textDisabled(Theme.isDark()))
+              Text('多源在线播放：网易云 / Bilibili / YouTube Music；本地音乐、歌词、歌单与统计。\n本项目仅供学习与研究使用，请勿用于任何非法用途。')
+                .fontSize(13)
+                .fontColor(Theme.textSecondary(Theme.isDark()))
+                .textAlign(TextAlign.Center)
+                .margin({ top: 10 })
+              Text('GPL-3.0 · github.com/cwuom/NeriPlayer')
+                .fontSize(12)
+                .fontColor(Theme.primary(Theme.isDark()))
+                .margin({ top: 6 })
+            }
+            .width('100%')
+            .padding(20)
+            .alignItems(HorizontalAlign.Center)
+          }
+        }
+        .width('100%')
+        .padding({ left: 14, right: 14, bottom: 24 })
+      }
+      .layoutWeight(1)
+      .scrollBar(BarState.Off)
+      .width('100%')
+    }
+    .width('100%')
+    .height('100%')
+    .backgroundColor(Theme.background(Theme.isDark()))
+  }
+}
+
+function qualityLabel(quality: string): string {
+  if (quality === 'standard') {
+    return '标准';
+  }
+  if (quality === 'high') {
+    return '较高';
+  }
+  if (quality === 'exhigh') {
+    return '极高';
+  }
+  if (quality === 'lossless') {
+    return '无损';
+  }
+  return 'Hi-Res';
+}
