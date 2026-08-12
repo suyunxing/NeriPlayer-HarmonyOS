@@ -1,0 +1,11 @@
+{
+  "modelVersion": "6.1.1",
+  "name": "neriplayer_harmonyos",
+  "version": "1.0.0",
+  "description": "NeriPlayer (HarmonyOS native port) - a multi-source online/local audio player for HarmonyOS NEXT.",
+  "main": "",
+  "author": "NeriPlayer developers",
+  "license": "GPL-3.0",
+  "dependencies": {},
+  "devDependencies": {}
+}

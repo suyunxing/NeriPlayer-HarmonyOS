@@ -1,0 +1,6 @@
+{
+  "navigationBarTitleText": "设置",
+  "usingComponents": {
+    "mini-player": "/components/mini-player/mini-player"
+  }
+}

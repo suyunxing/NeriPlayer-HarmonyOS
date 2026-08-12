@@ -1,0 +1,55 @@
+.page {
+  min-height: 100vh;
+  background: #121212;
+  padding: 60rpx 40rpx;
+}
+
+.title {
+  color: #ffffff;
+  font-size: 44rpx;
+  font-weight: 700;
+  text-align: center;
+}
+
+.body {
+  margin-top: 48rpx;
+  background: #1e1e1e;
+  border-radius: 20rpx;
+  padding: 32rpx;
+}
+
+.text {
+  color: #cfcfcf;
+  font-size: 26rpx;
+  line-height: 1.9;
+  white-space: pre-line;
+}
+
+.actions {
+  margin-top: 48rpx;
+  display: flex;
+  flex-direction: column;
+}
+
+.btn {
+  border-radius: 44rpx;
+  padding: 24rpx;
+  display: flex;
+  justify-content: center;
+  margin-bottom: 20rpx;
+  background: #242424;
+}
+
+.btn.primary {
+  background: #4a90d9;
+}
+
+.btn-text {
+  color: #ffffff;
+  font-size: 30rpx;
+  font-weight: 600;
+}
+
+.btn-text.secondary {
+  color: #9e9e9e;
+}

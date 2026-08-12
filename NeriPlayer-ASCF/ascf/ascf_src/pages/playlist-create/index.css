@@ -1,0 +1,32 @@
+.page {
+  min-height: 100vh;
+  background: #121212;
+  padding: 32rpx;
+}
+
+.name-input {
+  background: #242424;
+  border-radius: 16rpx;
+  padding: 24rpx 28rpx;
+  color: #ffffff;
+  font-size: 28rpx;
+}
+
+.placeholder {
+  color: #757575;
+}
+
+.create-btn {
+  margin-top: 32rpx;
+  background: #4a90d9;
+  border-radius: 16rpx;
+  padding: 24rpx;
+  display: flex;
+  justify-content: center;
+}
+
+.create-text {
+  color: #ffffff;
+  font-size: 28rpx;
+  font-weight: 600;
+}

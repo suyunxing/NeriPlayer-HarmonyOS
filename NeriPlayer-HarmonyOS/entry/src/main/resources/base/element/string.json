@@ -1,0 +1,24 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "NeriPlayer entry module"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "NeriPlayer audio player"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "NeriPlayer"
+    },
+    {
+      "name": "keep_background_running_reason",
+      "value": "Keep audio playing in the background."
+    },
+    {
+      "name": "read_audio_reason",
+      "value": "Scan local audio files for the local library."
+    }
+  ]
+}

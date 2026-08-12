@@ -1,0 +1,25 @@
+{
+  "network-security-config": {
+    "base-config": {
+      "cleartextTrafficPermitted": true,
+      "trust-anchors": [
+        {
+          "certificates": "system"
+        }
+      ]
+    },
+    "domain-config": [
+      {
+        "domains": [
+          "music.163.com",
+          "api.bilibili.com",
+          "music.youtube.com",
+          "lrclib.net",
+          "*.music.126.net",
+          "*.bilivideo.com"
+        ],
+        "cleartextTrafficPermitted": true
+      }
+    ]
+  }
+}

@@ -1,0 +1,62 @@
+.mini-player {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 100rpx;
+  height: 110rpx;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  background: #242424;
+  border-top: 1rpx solid #333333;
+  padding: 0 24rpx;
+  z-index: 100;
+}
+
+.cover {
+  width: 76rpx;
+  height: 76rpx;
+  border-radius: 12rpx;
+  background: #3a3a3a;
+  flex-shrink: 0;
+}
+
+.placeholder {
+  width: 76rpx;
+  height: 76rpx;
+  border-radius: 12rpx;
+  background: #3a3a3a;
+}
+
+.info {
+  flex: 1;
+  margin-left: 20rpx;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.title {
+  color: #ffffff;
+  font-size: 28rpx;
+  font-weight: 600;
+}
+
+.artist {
+  color: #9e9e9e;
+  font-size: 22rpx;
+  margin-top: 4rpx;
+}
+
+.play-btn {
+  width: 88rpx;
+  height: 88rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.play-icon {
+  color: #ffffff;
+  font-size: 36rpx;
+}

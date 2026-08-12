@@ -1,0 +1,41 @@
+.page {
+  min-height: 100vh;
+  background: #121212;
+  padding: 80rpx 40rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.title {
+  color: #ffffff;
+  font-size: 44rpx;
+  font-weight: 700;
+}
+
+.body {
+  margin-top: 48rpx;
+  background: #1e1e1e;
+  border-radius: 20rpx;
+  padding: 32rpx;
+}
+
+.text {
+  color: #cfcfcf;
+  font-size: 26rpx;
+  line-height: 1.9;
+  white-space: pre-line;
+}
+
+.btn {
+  margin-top: 48rpx;
+  background: #4a90d9;
+  border-radius: 44rpx;
+  padding: 24rpx 80rpx;
+}
+
+.btn-text {
+  color: #ffffff;
+  font-size: 28rpx;
+  font-weight: 600;
+}

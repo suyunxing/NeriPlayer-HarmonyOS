@@ -1,0 +1,10 @@
+{
+  "name": "entry",
+  "version": "1.0.0",
+  "description": "NeriPlayer entry module",
+  "main": "",
+  "author": "NeriPlayer developers",
+  "license": "GPL-3.0",
+  "dependencies": {},
+  "devDependencies": {}
+}

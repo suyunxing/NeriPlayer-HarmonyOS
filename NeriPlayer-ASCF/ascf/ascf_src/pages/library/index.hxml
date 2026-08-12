@@ -1,0 +1,51 @@
+<view class="page">
+  <view class="grid">
+    <view class="grid-item" bindtap="onPlaylistsTap">
+      <text class="grid-num">{{playlistCount}}</text>
+      <text class="grid-label">播放列表</text>
+    </view>
+    <view class="grid-item">
+      <text class="grid-num">{{historyCount}}</text>
+      <text class="grid-label">历史记录</text>
+    </view>
+    <view class="grid-item" bindtap="onDownloadsTap">
+      <text class="grid-num">{{downloadCount}}</text>
+      <text class="grid-label">下载</text>
+    </view>
+    <view class="grid-item">
+      <text class="grid-num">{{totalListenHours}}</text>
+      <text class="grid-label">累计收听(小时)</text>
+    </view>
+  </view>
+
+  <view class="notice" has:if="{{localNotice}}" bindtap="onLocalNoticeTap">
+    <text class="notice-text">
+      元服务受系统限制，无法直接扫描手机本地音乐文件。已下载的歌曲可在「下载」中播放。
+    </text>
+  </view>
+
+  <view class="section">
+    <view class="section-head">
+      <text class="section-title">常听歌曲</text>
+    </view>
+    <view has:if="{{topSongs.length > 0}}">
+      <view
+        class="top-row"
+        has:for="{{topSongs}}"
+        has:key="key"
+        data-index="{{index}}"
+        bindtap="onTopSongTap"
+      >
+        <text class="top-index">{{index + 1}}</text>
+        <view class="top-info">
+          <text class="top-name" max-lines="1">{{item.name}}</text>
+          <text class="top-artist" max-lines="1">{{item.artist}}</text>
+        </view>
+        <text class="top-count">{{item.playCount}}次</text>
+      </view>
+    </view>
+    <empty has:else text="多听几首歌，这里会出现你的常听"></empty>
+  </view>
+
+  <mini-player id="miniPlayer" bind:open="onOpenPlayer" bind:toggle="onTogglePlayer"></mini-player>
+</view>

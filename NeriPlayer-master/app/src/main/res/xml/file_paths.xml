@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <files-path
+        name="managed_local_media_internal"
+        path="NeriPlayer/" />
+    <external-files-path
+        name="managed_local_media_external"
+        path="Music/NeriPlayer/" />
+    <cache-path
+        name="shared_local_media"
+        path="shared_media_exports/" />
+    <cache-path
+        name="lyric_share_cards"
+        path="lyric_share_cards/" />
+</paths>
