@@ -1,5 +1,7 @@
 # HarmonyOS 6.0～7.0 ArkTS 迁移路线图
 
+> 本文是战略路线图。任务级执行计划与跨会话进度看板见 `docs/PORTING_EXECUTION_PLAN.md`（2026-08-16 创建，含两侧审计基线、里程碑任务清单与验证协议）。
+
 ## 目标与约束
 
 目标是把 NeriPlayer 迁移为 HarmonyOS 普通应用，主语言 ArkTS、UI 使用 ArkUI、应用模型使用 Stage 模型。迁移以行为兼容和可测试性为目标，不逐行翻译 Kotlin，也不把 ASCF 元服务当成主实现。

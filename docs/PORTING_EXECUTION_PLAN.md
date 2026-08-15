@@ -1,0 +1,322 @@
+# NeriPlayer → HarmonyOS 完整移植执行计划（GLM-5.3 执行版）
+
+> 创建：2026-08-16。执行者：GLM-5.3（ZCode agent）。本文档是**任务级执行计划兼跨会话进度看板**，与既有文档分工如下，冲突时以本文档的任务排序为准、以仓库源码为最终事实：
+>
+> - 战略路线图：`docs/HARMONYOS_PORTING_PLAN.md`（架构原则、阶段划分，本文档细化其执行）。
+> - 能力状态：`docs/FEATURE_MATRIX.md`（本文档的进度以矩阵状态为准同步更新）。
+> - 环境与构建：根 `AGENTS.md` + `docs/hm.md`（命令与版本事实）。
+> - 原型历史：`NeriPlayer-HarmonyOS/PORTING.md`。
+>
+> **使用方式**：每次会话按 §1 工作循环执行；每完成一个任务，在 §6 对应条目打 `[x]` 并追加一行证据（日期 + 命令 + 结果）；无法完成时写明阻塞原因。不确定的事实先查源码/文档，禁止凭记忆推断。
+
+---
+
+## 1. 执行守则（每个会话必读）
+
+...（其余内容与之前相同，保留完整）
+
+> 创建：2026-08-16。执行者：GLM-5.3（ZCode agent）。本文档是**任务级执行计划兼跨会话进度看板**，与既有文档分工如下，冲突时以本文档的任务排序为准、以仓库源码为最终事实：
+>
+> - 战略路线图：`docs/HARMONYOS_PORTING_PLAN.md`（架构原则、阶段划分，本文档细化其执行）。
+> - 能力状态：`docs/FEATURE_MATRIX.md`（本文档的进度以矩阵状态为准同步更新）。
+> - 环境与构建：根 `AGENTS.md` + `docs/hm.md`（命令与版本事实）。
+> - 原型历史：`NeriPlayer-HarmonyOS/PORTING.md`。
+>
+> **使用方式**：每次会话按 §1 工作循环执行；每完成一个任务，在 §6 对应条目打 `[x]` 并追加一行证据（日期 + 命令 + 结果）；无法完成时写明阻塞原因。不确定的事实先查源码/文档，禁止凭记忆推断。
+
+---
+
+## 1. 执行守则（每个会话必读）
+
+### 1.1 会话启动清单
+
+1. 读根 `AGENTS.md`（工作约定）→ 本文档 §6 看板 → `git status --short`（识别用户已有修改，不得覆盖）。
+2. 按 §6 里程碑顺序选择下一个未完成任务；同一会话只做 1~3 个强相关任务，保证每步可验证。
+3. 修改 `NeriPlayer-HarmonyOS/`；`NeriPlayer-master/` 只读参照，不逐行翻译 Kotlin，抽语义重写。
+
+### 1.2 单任务工作循环
+
+1. **定位参照**：在 Android 快照找到对应类/测试（§3.2 有索引），确认行为语义（用子代理 `Explore` 跨文件搜索，节约主模型成本）。
+2. **核对 API**：涉及新 Kit/权限时，用 `doc-researcher` 或华为官方文档核对 API 24 可用性与签名，记录 URL；不得凭记忆写平台 API。
+3. **实现**：ArkTS 严格模式（§4.4 规则）；新代码放入职责最接近的目录（§4.3 目标结构）；错误保留可诊断上下文；监听器/句柄/计时器在成功与失败路径都释放。
+4. **测试**：纯逻辑必须配 `entry/src/test/`（hypium）确定性用例，优先从 Android JVM 测试（§4.5）提取 fixture；涉及 Ability/权限/AVPlayer/AVSession/后台的补 `entry/src/ohosTest/`。
+5. **验证**（按最低验证要求，命令见 §2）：构建 + 单测 + codelinter 必做；播放/网络/权限/文件/后台类任务加模拟器 smoke；不能执行时明确标注「未验证」。
+6. **收尾**：勾选看板 + 证据行；同步 `FEATURE_MATRIX.md` 对应行状态；交付说明按 AGENTS.md §交付说明。**不自行 commit/push**（除非用户明确要求）。
+
+### 1.3 完成定义（DoD）
+
+一个任务算完成，必须同时满足：主线 debug 构建通过；相关单测（新增+存量）全绿；codelinter 无新增 error；看板已勾选并附证据；FEATURE_MATRIX 状态已如实更新。占位实现、UI 入口不写为「完成」。
+
+### 1.4 红线（继承 AGENTS.md，重点强调）
+
+- 不提交密钥/口令/Cookie/签名材料/绝对路径；token 类凭据只能走 `@ohos.security.asset`（§7.1）。
+- `.ps1` 纯 ASCII；日志脱敏；GPL-3.0 来源说明保留。
+- 不把「历史验证过」当「当前已验证」；不修改 Android 快照/ASCF/package 目录。
+
+---
+
+## 2. 环境与命令速查（2026-08-14 已全链验证，详见 hm.md §7.5）
+
+| 项 | 值 |
+| --- | --- |
+| 主力工程 | `D:\HarmonyOS\Project\Neriplayer\NeriPlayer-HarmonyOS`（API 24 = 6.1.1(24) Release 基线） |
+| CLI 工具 | `D:\HarmonyOS\Tools\command-line-tools\bin\`（ohpm.bat / hvigorw.bat / codelinter.bat / Emulator.bat） |
+| 完整 API 24 SDK | `D:\HarmonyOS\Tools\command-line-tools\sdk\default`（hdc 在 `openharmony\toolchains\`） |
+| 26 Studio | `D:\HarmonyOS\Tools\devecostudio-windows-26.0.0.621\DevEco Studio`（仅贡献 jbr java 给 hap-sign-tool） |
+
+```powershell
+# 以下均从 NeriPlayer-HarmonyOS 目录执行（PowerShell；子进程调 pwsh 优先于 powershell 5.1）
+$cli = 'D:\HarmonyOS\Tools\command-line-tools\bin'
+& "$cli\ohpm.bat" install --all
+& "$cli\hvigorw.bat" assembleHap --mode module -p module=entry@default -p product=default -p buildMode=debug --no-daemon   # 构建
+& "$cli\hvigorw.bat" test --mode module -p product=default -p buildMode=debug --no-daemon                                   # 本地单测
+& "$cli\hvigorw.bat" assembleHap --mode module -p module=entry@ohosTest -p product=default -p buildMode=debug --no-daemon   # 设备测试 HAP
+& "$cli\codelinter.bat" .                                                                                                   # 静态检查（基线 17 warn + 1 suggestion，无 error）
+
+# 签名 + 安装模拟器（需用户级 NERIPLAYER_SIGNING_PASSWORD、DEVECO_SDK_HOME、DEVECO_STUDIO_HOME 已持久化）
+.\sign-local.ps1 -HvigorwPath 'D:\HarmonyOS\Tools\command-line-tools\bin\hvigorw.bat'
+
+# 模拟器：Emulator.bat 冷启动后先 tconn；ohosTest 用 aa test
+hdc tconn 127.0.0.1:5555
+hdc -t 127.0.0.1:5555 shell "aa test -b moe.ouom.neriplayer -m entry_test -s unittest OpenHarmonyTestRunner -s class ActsAbilityTest#assertContain -s timeout 15000"
+```
+
+**平台坑**：26 Studio 的 hvigor 不能构建 6.1.1(24) 工程（错误 00303031），构建必须用 CLT 的 hvigorw.bat；Git Bash 下调 hdc 设备路径加 `MSYS_NO_PATHCONV=1`，`hdc file recv` 本地目标用相对路径；.ps1 禁非 ASCII 字符（GBK 解析会静默吞代码行）。静态语法分析可用 `deveco-mcp` 的 `check` 工具（PROJECT_PATH 已指向主力工程）。
+
+---
+
+## 3. 两侧基线事实（2026-08-16 审计结论，避免重复调研）
+
+### 3.1 Android 参照（`NeriPlayer-master/`，commit 快照 d66d465f，2026-07-31）
+
+规模：`app/src/main` 946 个 Kotlin 文件约 18.6 万行 + C/C++ 约 5.67 万行；JVM 测试 285 文件约 4.94 万行。**无 Room**，数据层 = 文件 JSON + DataStore Preferences + (加密)SharedPreferences。播放栈 = 普通 Service + MediaSessionCompat + ExoPlayer（非 MediaSessionService）。
+
+| 域 | 规模 | 关键类（`app/src/main/java/moe/ouom/neriplayer/` 下） |
+| --- | --- | --- |
+| 播放核心 | `core/player/` ~110 文件 | `PlayerManager.kt`(2564 行单例状态机)、`service/AudioPlayerService.kt`(2649)、`playback/PlayerManagerPlaybackExtensions.kt`(shuffle bag/history/future)、`audio/focus/StartupAudioFocusController`、`persistence/PlayerManagerPersistenceExtensions.kt`+`model/PersistedPlayerState.kt`、`url/PlayerUrlResolver`、`timer/SleepTimerManager`、`prefetch/*`、`policy/**`(18+ 策略类) |
+| 平台 API | `core/api/` 30 文件 | `netease/NeteaseClient.kt`(909，WEAPI/EAPI/LinuxAPI)、`netease/NeteaseCrypto.kt`、`netease/NeteaseQrLoginClient`、`bili/BiliClient.kt`(1567，DASH 解析)、`bili/BiliQrLoginClient`、`youtube/YouTubeMusicClient.kt`(2995，proto 构造+手写 JSON 解析)、`youtube/YouTubeMusicPlaybackRepository`、`youtube/YouTubeEjsChallengeSolver`(androidx JavaScriptSandbox 跑 assets/`yt.solver*.js`)、`youtube/YouTubeWebPoTokenProvider`、`lyrics/`(LRCLIB/AMLL TTML) |
+| 数据层 | `data/` 114 文件 | `settings/SettingsStore`+KSP 生成 schema、`history/PlayHistoryRepository`(filesDir JSON)、`local/playlist/LocalPlaylistFileStorage`(主文件+.bak+.sync-pending)、`sync/`(SyncCoordinator、GitHubSyncManager、WebDavSyncManager、全部 merge policy 纯逻辑、`github/GitHubRepositorySyncTransport`、`webdav/WebDavApiClient`、`github/SecureTokenStorage`=Keystore+EncryptedSharedPreferences)、`auth/{netease,bili,youtube}/` Cookie 仓库、`platform/` 各平台缓存仓库 |
+| 下载 | `core/download/` 60+ 文件 | `GlobalDownloadManager.kt`(~1500，启动恢复/终结/回滚)、`core/player/download/AudioDownloadManager`(`DownloadTransportKind{DIRECT,CHUNKED_RANGE,HLS}`、`DownloadStage`、HLS 续传状态)、`task/DownloadTaskStore`、`storage/commit|migration|working|atomic|tree|snapshot|sidecar/` |
+| 一起听 | `listentogether/` 58 文件 | `protocol/`、`network/ws/ListenTogetherWebSocketClient`+`reconnect/`、`session/`、`playback/sync/`；**服务端在空子模块 np-submodule/NeriPlayer-LTW，外部依赖** |
+| USB 独占 | ~9.9k Kotlin + 5.7 万 C++ | `core/player/usb/`、`app/src/main/cpp/usb/`(UAC1/UAC2/反馈时钟)、内置 libusb |
+| UI | `ui/` 170 文件 6.86 万行 | `NeriApp.kt`(~3300，唯一 NavHost)、`screen/tab|host|playlist|artist|settings|debug|safemode/`、`viewmodel/` 30 文件、`theme/NeriTheme`(material-kolor 动态取色)、`component/lyrics/AdvancedLyricsView` 等 |
+| 其他 | — | `core/startup/`(阶段编排+SafeMode)、`core/crash/`、悬浮歌词 `core/player/lyrics/FloatingLyricsOverlayManager`(SYSTEM_ALERT_WINDOW)、`activity/auth/` WebView 登录页、`tools_pub/ytmusic_api_probe.py`(2183 行 API 探针) |
+
+四个 np-submodule 目录均为空（一起听服务端、歌词 core/ui、miuix）→ 快照无法独立 Gradle 构建，**不尝试构建 Android 工程**，只读源码与测试。
+
+### 3.2 鸿蒙现状（`NeriPlayer-HarmonyOS/`，56 文件 7698 行，2026-08-16 静态审计）
+
+**真实现**：AVPlayer 播放全链路（`player/PlayerManager.ets` 662 行：状态机/seek/切歌/重试/速度/fd 句柄管理/统计埋点）、队列+随机+循环+QueueState 序列化（`:296-321,644-655`）、AVSession 基础（5 命令+浅元数据）、网易云 weapi+风控回退+取流+歌词+歌单（`network/NeteaseApi.ets` 344 行）、B 站搜索+DASH 取流（123 行）、YTM 搜索（innertube）、LRCLIB/网易歌词、LRC 解析+翻译合并（3 条单测）、17 个页面骨架全路由、8 个 preferences 仓库、设置双通道持久化、AudioViewPicker 本地导入、纯 ArkTS weapi 加密（AES+RSA）、Cookie 罐 HttpClient。
+
+**空位/缺陷**（移植主战场，行号为审计时点）：
+
+| 编号 | 缺口 | 位置 |
+| --- | --- | --- |
+| G1 | 音频中断/焦点：完全无处理 | 全仓无 audioInterrupt |
+| G2 | 睡眠定时只有 UI 层 setTimeout 正分钟；「播完当前/列表」不实现 | `NowPlayingPage.ets:106-117` |
+| G3 | AVSession 元数据无封面/时长/缓冲，状态只有 PLAY/PAUSE，无 off/release | `AVSessionManager.ets` |
+| G4 | BackgroundTaskRunner 纯占位（未调 startBackgroundRunning，靠 backgroundModes） | `BackgroundTaskRunner.ets:4-10` |
+| G5 | **疑点：队列跨冷启动恢复疑似失效**——`player.queueJson` 只写 AppStorage（内存态），未落 preferences | `PlayerManager.ets:644-655` |
+| G6 | YouTube 取流直接抛错（无 signature/n、PoToken、HLS、EJS） | `YouTubeMusicApi.ets:171-177` |
+| G7 | 下载只有任务目录 UI，无传输引擎 | `DownloadsRepository.ets:7-10` |
+| G8 | 三平台登录、同步（GitHub/WebDAV）、一起听、动态取色、悬浮歌词、USB：全部占位 toast | `SettingsDetailPage.ets:321-358` 等（§5e 清单见 PORTING.md） |
+| G9 | 数据层无 schema 版本/迁移/原子写/损坏恢复；集合整段 JSON 存单键全量读写 | `data/AppPreferences.ets` |
+| G10 | NetEase 自动换 B 站源已写未接线 | `StreamResolver.ets:53-54` |
+| G11 | B 站缺 WBI 签名/登录/收藏夹/分 P；网易云缺 eapi/登录/用户歌单 | `BiliApi.ets`、`NeteaseApi.ets` |
+| G12 | LRC 不支持 [offset:]/逐字/元数据头；歌词偏移设置未消费 | `LrcParser.ets` |
+| G13 | 测试仅 3 条 LRC 单测 + 1 条 ohosTest 骨架 | `entry/src/test` |
+
+---
+
+## 4. 总体策略
+
+### 4.1 排序原则
+
+1. **纯逻辑优先**：能脱离设备确定性测试的先做（加密、解析、合并策略、状态机、命名规划）——Android 侧约 40-50% 是纯逻辑，这是性价比最高的部分。
+2. **垂直切片**：每个里程碑交付「用户可感知 + 可自动化验证」的闭环，而非横向铺文件。
+3. **依赖驱动**：登录→高音质取流/用户歌单；schema 版本化→下载/同步；合并策略→同步；JS 运行时决策→YouTube。
+4. **风险隔离**：YouTube 取流、USB、悬浮歌词是研究性任务，单独决策点（§5），不阻塞主线。
+
+### 4.2 里程碑总览与依赖（预估新增/改动 ArkTS 行数仅作规模感，非承诺）
+
+| 里程碑 | 内容 | 预估规模 | 依赖 |
+| --- | --- | --- | --- |
+| M1 | 播放核心补强（中断/睡眠/AVSession/后台/队列恢复）+ 队列状态机抽取 | ~1.5k 行 | 无 |
+| M2 | 数据层版本化、原子写、损坏恢复、Android 格式对齐 | ~1.2k | 无（M3/M5 地基） |
+| M3 | 下载管线（DIRECT/RANGE/HLS、断点恢复、原子提交、编目） | ~2.5k | M2 |
+| M4 | 平台登录与凭据（网易云/B 站 QR、cookie 仓库、asset 存储） | ~2k | 无 |
+| M5 | 同步（合并策略族移植、GitHub Contents API、WebDAV、凭据） | ~3k | M2、M4 |
+| M6 | YouTube 取流（JS 运行时 spike → signature/n → PoToken → HLS） | ~3k + 研究 | D2 决策 |
+| M7 | 一起听客户端（协议、WebSocket、重连、校时） | ~2.5k | M1；外部服务端 |
+| M8 | 视觉与歌词增强（动态取色、模糊、逐字/TTML、偏移、WaveformSlider） | ~2k | 无，可穿插 |
+| M9 | USB 独占可行性研究 + 发布门槛（矩阵/无障碍/合规） | 研究为主 | D5 决策 |
+
+M1→M2→M3 是主线路径；M4 与 M2 可并行；M8 任务小可作穿插调剂；M6/M7/M9 允许随时暂停。
+
+### 4.3 目标目录结构（在现有目录内增量扩展，不发起全量重构）
+
+```text
+entry/src/main/ets/
+├── player/            现有 + queue/QueueEngine.ets（纯状态机）、SleepTimer.ets
+├── data/              现有 + auth/（各平台 cookie/token 仓库）、schema/（版本与迁移）
+├── download/          新增：引擎、传输、提交、编目（M3）
+├── sync/              新增：合并策略（纯逻辑）、github/、webdav/（M5）
+├── network/           现有 + ytm/（M6 拆分）、auth/（登录流程）
+├── listentogether/    新增（M7，对齐 Android 包名）
+└── view/              现有页面持续补齐
+```
+
+### 4.4 ArkTS 严格模式转换规则（高频坑）
+
+- 禁 `any`/`unknown`；对象字面量必须可推断到明确接口/类；JSON 解析走手写 `fromJson`（沿用 `SongItem.ets` 模式），解析处兜底默认值。
+- 集合用 `Array<T>`/`Map<K,V>`；禁 `Record` 隐式索引访问，必要处显式断言并处理 undefined。
+- 异步统一 `Promise`/`async/await`；`@ohos.*` API 用 Promise 形态；错误信息携带上下文（`Logger`）。
+- 闭包不捕获页面组件引用；`on` 监听配对 `off`；`fs` 句柄、`http` 请求、计时器必须释放。
+- 平台 API（时间/随机/网络/文件）经小型适配层隔离，使核心逻辑可在 `entry/src/test` 用 fake 测试（沿用 AGENTS.md 约定）。
+
+### 4.5 测试策略与 Android 用例对齐表
+
+fixture 从 Android JVM 测试（`app/src/test/`）摘取**小样本**内嵌进 ArkTS 测试文件（不依赖运行时文件加载）。每个里程碑至少对齐下列高价值测试语义：
+
+| 域 | Android 测试（app/src/test） | 鸿蒙目标 |
+| --- | --- | --- |
+| 随机/循环 | `PlayerManagerShuffleQueueRemapTest`、`PlayerRepeatModePolicyTest` | `test/QueueEngine.test.ets`（M1.1） |
+| weapi 加密 | NeteaseCrypto 相关向量 | `test/NeteaseCrypto.test.ets`（M4 顺手补） |
+| 同步合并 | `data/sync/github/**` merge/serializer/causal token 测试 | `test/SyncMerge.test.ets`（M5.1） |
+| 下载 | `DownloadTaskStoreTest`、`ManagedDownloadNamingTest` | `test/Download*.test.ets`（M3.x） |
+| 歌词 | `AmllTtmlClientTest`、`LyricTimestampNormalizerTest` | `test/LrcParser.test.ets` 扩展（M8） |
+| 稳定键 | `SystemPlaylistIdentityTest` | 已有 SongIdentity，补测（M2.2） |
+| 一起听 | `listentogether/**` 10 个 | `test/ListenTogether*.test.ets`（M7.1） |
+
+---
+
+## 5. 关键决策点（执行到该处时先决策并记录，格式：决策/理由/日期）
+
+| # | 决策点 | 默认方案（无用户输入时按此执行） |
+| --- | --- | --- |
+| D1 | 同步数据线格式：Android `SyncDataSerializer` 用 kotlinx protobuf 二进制 | 先实现**最小 protobuf wire-format 读写器（纯 ArkTS）**并用 Android 端生成的 fixture 做字节级兼容测试；若 fixture 无法获得，升级 schema 版本改 JSON 并在 Android 导入工具中做转换。禁止静默不兼容。 |
+| D2 | YouTube JS 运行时：Android 用 androidx JavaScriptSandbox 跑 yt.solver | **优先方案 A：ArkWeb Web 组件离屏加载本地 HTML + registerJavaScriptProxy/runJavaScript 执行 solver JS**（资产从 Android `app/src/main/assets/youtube/` 复制，GPL 兼容）；备选 B：NAPI 内嵌 QuickJS（重，仅当 A 不可行）。M6.1 spike 产出对比记录后定案。 |
+| D3 | 下载落盘位置 | 默认应用沙箱 `files/Download/`（自管目录树，对齐 Android ManagedDownloadTree 语义）+ 后续提供「导出/分享」；用户可见目录选择（DocumentViewPicker + 持久授权）作为可选增强，避免一开始绑定 URI 生命周期复杂度。 |
+| D4 | 悬浮/状态栏歌词 | 普通应用无 SYSTEM_ALERT_WINDOW 等价物：降级为「应用内 overlay 迷你歌词 + 通知文本歌词（如可行）」，在 FEATURE_MATRIX 记录降级结论，不承诺系统级悬浮。 |
+| D5 | USB 独占音频 | 先做可行性 spike（`@ohos.usbManager` 等时传输/独占策略/syscap + 真机），大概率不可行→官方结论+降级（USB DAC 走系统音频路径）。C++ 5.7 万行**不预移植**。 |
+| D6 | B 站接口加固（WBI 签名） | 当前搜索/DASH 可用则暂不移植 WBI；遇到风控再按 Android `BiliClient` 对齐补齐，并在 DebugPage 加探针。 |
+| D7 | 一起听服务端 | 外部依赖：需用户提供服务器地址（上游 np-submodule/NeriPlayer-LTW 为空）。客户端先行 + 对着协议测试开发，服务端联通验证延后。 |
+
+---
+
+## 6. 里程碑任务看板
+
+> 格式：`- [ ] Mx.y 任务名`。完成时改 `[x]` 并在下一行缩进追加 `- 证据：2026-MM-DD <命令/验证摘要>`。
+
+### M1 播放核心补强（对齐「首个可交付垂直切片」，战略计划阶段 2）
+
+- [ ] M1.0 复核 G5：模拟器实测队列跨冷启动是否恢复（播放→杀进程→重启看队列）；若失效，把 QueueState 落盘到 preferences（PlayerManager 在 publishQueue 时节流写，启动 restoreQueue 改读 preferences），并补「重启恢复队列+播放位置」ohosTest。
+- [ ] M1.1 抽取纯队列状态机 `player/queue/QueueEngine.ets`：移植 Android shuffle bag/history/future 结构（`PlayerManagerPlaybackExtensions.kt`：`rebuildShuffleBag`、next/prev 推进、种子化随机）与 RepeatMode 策略，替换 `PlayerManager.ets:296-321` 的即时洗牌；使队列快照可完整序列化/恢复（含随机种子）。测试对齐 `PlayerManagerShuffleQueueRemapTest`/`PlayerRepeatModePolicyTest`。
+- [ ] M1.2 音频中断处理（G1）：按 API 24 文档核对 AVPlayer/AVSession 的中断模式与事件挂载方式（doc-researcher，记录 URL），实现：瞬态抢占→暂停并记住恢复意图，永久抢占/设备切换→暂停+UI 同步；对齐 `StartupAudioFocusController` 语义。ohosTest + 真机/模拟器双媒体 app 竞争 smoke。
+- [ ] M1.3 睡眠定时下沉 `player/SleepTimer.ets`（G2）：对齐 `SleepTimerManager`——正分钟定时、播完当前、播完列表三种模式，接 PlayerManager 完成回调；NowPlayingPage 改为调用；单测用 fake 计时器。
+- [ ] M1.4 AVSession 补全（G3）：元数据加封面（PixelMap/URI 按 API 24 能力定）、时长、assetId 稳定化；状态映射 LOADING/PLAY/PAUSE/COMPLETED；倍速同步；补 `off`/`release` 清理；核对控制中心/锁屏显示（模拟器截图验证）。对齐 `AudioPlayerService` 的 MediaSessionCompat.Callback 全集（如支持 loop 命令则接 RepeatMode）。
+- [ ] M1.5 后台播放合规（G4）：核对 API 24 `backgroundTaskManager.startBackgroundRunning` 与 `backgroundModes: audioPlayback` 的关系（是否必须调用/缓存配额），把 BackgroundTaskRunner 改为真调用或删除占位类；熄屏 30 分钟长播 smoke（模拟器）+ 记录结论。
+- [ ] M1.6 取流健壮性：把 `StreamResolver.resolveNeteaseFallback` 接入 PlayerManager 失败路径（G10，加设置开关「网易失效自动换源」）；`PlayerUrlResolver` 的质量降级语义对齐（exhigh→high→standard 已有，补错误分类）。
+- [ ] M1.7 里程碑验收：模拟器全流程 smoke（搜→播→中断→恢复→熄屏→锁屏控制→重启恢复队列）；FEATURE_MATRIX 五行状态更新；hm.md 记录验证。
+
+### M2 数据层版本化与跨端兼容（战略计划阶段 3 的本地部分）
+
+- [ ] M2.1 `data/schema/`：定义 `SchemaVersion` 常量与 `migrate(key, rawJson)` 框架；所有集合型仓库读路径统一走「读→校验版本→迁移→缓存」；写路径加节流防抖。
+- [ ] M2.2 格式对齐 Android：从 `PlayHistoryRepository`/`LocalPlaylistFileStorage`/`PlaybackStatsCounterStore` 提取 Gson 字段名，校对鸿蒙 JSON 字段一致性（历史/歌单/统计三个格式），用 Android fixture 单测跨端兼容；补 `SongIdentity.stableKey` 测试（对齐 `SystemPlaylistIdentityTest`）。
+- [ ] M2.3 原子写与备份：preferences 写入前存 `.bak` 键（或文件级 tmp+rename 方案，按数据大小决策）；JSON.parse 失败→用备份恢复→再失败重建默认+落错误日志（对齐 ReplaceFileCorruptionHandler/.bak 语义）。
+- [ ] M2.4 歌单 `.sync-pending` 语义预埋（为 M5）：变更标记读写接口先建（纯逻辑+单测），同步接入留 M5。
+- [ ] M2.5 验收：损坏数据注入测试（篡改 preferences JSON→启动应恢复不崩）；升级 fixture（v0→v1）测试。
+
+### M3 下载管线（战略计划阶段 5 前半）
+
+- [ ] M3.1 纯状态机先行：`download/` 下移植 `DownloadTransportKind{DIRECT,CHUNKED_RANGE,HLS}`、`DownloadStage{TRANSFERRING,WAITING_RETRY,FINALIZING}`、`DownloadStatus{QUEUED,DOWNLOADING,WAITING_NETWORK,COMPLETED,FAILED,CANCELLED}`、attemptId 防重（参照 `AudioDownloadManager.kt:295-330`、`DownloadTaskModels.kt`）；单测对齐 `DownloadTaskStoreTest`。
+- [ ] M3.2 HttpClient 传输能力：新增流式下载方法（`requestInStream`/dataReceive），支持 Range、If-Range(ETag/Last-Modified)、总长/已收字节回调；超时/断网→`WAITING_NETWORK`；大文件写 `fs` 分块追加。单测用本地 HTTP fixture 或 mock。
+- [ ] M3.3 下载引擎 `download/DownloadEngine.ets`：并发控制（消费 `np.download_concurrency` 设置）、任务调度、断点续传（DIRECT/RANGE：`.part` sidecar 记 offset+etag；HLS：playlist fingerprint+nextSegmentIndex，对齐 `serializeHlsResumeState`）、重试退避、完成校验（长度/哈希按源能力）。
+- [ ] M3.4 原子提交与目录树：`storage/commit` 语义——working 目录写完→校验→rename 到正式目录树（`download/naming` 对齐 `ManagedDownloadNaming`）→更新编目 `DownloadedSongCatalog`；失败回滚清理。D3 决策落盘位置。
+- [ ] M3.5 启动恢复：`recoverPendingDownloadsForStartup` 语义——启动时扫任务目录，`DOWNLOADING/WAITING_NETWORK` 按网络状态续传或挂起；网络监听用 `util/NetworkStatus` 扩展（断网暂停、恢复续传）。
+- [ ] M3.6 接线 UI：DownloadsPage 真实进度/暂停/恢复/取消；SongRow「下载」走引擎；下载完成曲目入本地库可播（LOCAL 平台路径）；DebugPage 加下载探针。元数据 tag 写入：HarmonyOS 无公开 tag 写 API→sidecar 元数据+编目承担，FEATURE_MATRIX 记录降级。
+- [ ] M3.7 验收：模拟器下载网易云曲目→中途杀进程→重启恢复→完成→离线播放；断网暂停/恢复；单测全绿。
+
+### M4 平台登录与凭据（战略计划阶段 4 登录部分）
+
+- [ ] M4.1 凭据基建 `data/auth/`+`@ohos.security.asset`：Asset Store 存取适配层（错误分类/降级到加密 preferences 的兜底策略需记录）；日志与导出全程脱敏。
+- [ ] M4.2 网易云 QR 登录：`/weapi/login/qrcode/unikey` 创建 + 轮询 check（对齐 `NeteaseQrLoginClient`）；二维码渲染用纯 ArkTS QR 生成器（自写 ~200 行，避免第三方依赖）；cookie 入 asset+HttpClient 种子（MUSIC_U）；登录后 `getSongUrl` 携带 MUSIC_U 重试（缓解 weapi 风控，PORTING.md 待办 1）。UI：SettingsDetailPage 账号区（占位在 `:321-339`）。
+- [ ] M4.3 网易云登录态收益：用户歌单列表+导入、每日推荐（按 `NeteaseClient` 端点清单逐个补）；`np.netease_logged` 键真实写点。
+- [ ] M4.4 B 站 QR 登录：`/x/passport-login/web/qrcode/*`（对齐 `BiliQrLoginClient`）；buvid3 种子 cookie；登录后收藏夹浏览（`BiliClient` 收藏夹分页端点）。D6 决定是否补 WBI。
+- [ ] M4.5 验收：模拟器完成扫码登录（备用路径：DebugPage 粘贴 cookie 导入）→高音质完整曲目播放→重启会话保持→注销清理；ohosTest 覆盖 cookie 仓库持久化（对齐 `NeteaseCookieRepositoryAndroidTest` 语义）。
+
+### M5 同步（战略计划阶段 5 后半）
+
+- [ ] M5.1 纯合并策略族移植 `sync/`：`SyncPlaylistSongMergePolicy`、`SyncSongMetadataMergePolicy`、`SyncPlaybackStatsMergePolicy`、`SyncPlaylistDeletionPolicy`、`SyncDataChangeDetector`、`SyncCausalToken`——全部纯逻辑+单测（Android fixture 对齐）；D1 线格式决策落地（最小 protobuf wire 读写器 + 字节级 fixture 测试，或 JSON v2+迁移记录）。
+- [ ] M5.2 序列化与快照：`SyncDataSerializer` 语义（版本字段、向后兼容读）；快照构建（歌单/历史/统计/设置的导出模型）。
+- [ ] M5.3 GitHub 传输 `sync/github/`：Contents API——createBinaryBlob/createSyncFileTree/commit（对齐 `GitHubRepositorySyncTransport`）；PAT 存 asset（对齐 `SecureTokenStorage` 键名 github_token/repo/device_id）；401/限流错误分类；UI 配置页+手动同步按钮。
+- [ ] M5.4 WebDAV 传输 `sync/webdav/`：PROPFIND/GET/PUT + ETag 条件写（HttpClient 扩展自定义 method）；并发 token 回退（对齐 `WebDavConcurrencyFallbackPolicy`）。
+- [ ] M5.5 SyncCoordinator：互斥、三路合并执行、`.sync-pending` 消费（接 M2.4）、上传重试（对齐 `SyncUploadRetryExecutor`）；同步报告 UI（成功/冲突/失败明细）。
+- [ ] M5.6 验收：模拟器实例 A 写→同步→构造远端冲突→实例 B 同步合并结果与 Android 策略测试一致；token 失效/断网路径明确报错；单测全绿。
+
+### M6 YouTube 取流（研究驱动，D2 决策）
+
+- [ ] M6.0 spike：`tools_pub/ytmusic_api_probe.py` 跑通记录当前可用 client/格式（用户环境执行，输出存 docs）；同步调研 ArkWeb 执行外部 JS 的能力边界（runJavaScript 时序/离屏/生命周期），产出 D2 决策记录。
+- [ ] M6.1 方案 A 落地（若 D2=A）：`network/ytm/SolverRuntime.ets`——隐藏 Web 组件加载 rawfile HTML，JSBridge 调 solver（资产自 Android assets 复制）；signature/n 参数解算入队（对齐 `YouTubeJsSolveQueue`）。
+- [ ] M6.2 取流链路：`YouTubeMusicPlaybackRepository` 语义——多 client 回退（`selectUsablePlayerClients`）、PoToken（`YouTubeWebPoTokenProvider` 语义，Web 会话 key）、限流退避、bootstrap 缓存（`YouTubeBootstrapStore`）；错误分类（需要登录/受限/网络/解析）。
+- [ ] M6.3 兜底链：direct URL→solver→HLS 降级（`TODO(port)` 分层注释处即 `YouTubeMusicApi.ets:171`）；NewPipe extractor 兜底视工作量另行决策。
+- [ ] M6.4 YouTube 登录（可选）：Web 组件 cookie 导出入 `data/auth/youtube/`（对齐 `YouTubeAuthRepository`/`YouTubeCookieRotator` 最小集）。
+- [ ] M6.5 验收：模拟器实测 YTM 搜索→取流→播放；DebugPage YTM 探针；FEATURE_MATRIX YouTube 行状态更新。
+
+### M7 一起听客户端（D7 外部依赖：服务端地址）
+
+- [ ] M7.1 协议与纯逻辑 `listentogether/protocol/`：信封/事件/房间模型 + 校验（对齐 Android `protocol/`、`validation/`）+ 邀请链接解析；单测对齐 `listentogether/**` 10 个测试。
+- [ ] M7.2 WebSocket 客户端：`@ohos.net.webSocket`（对齐 `ListenTogetherWebSocketClient` onOpen/onMessage/onClosed + `ListenTogetherReconnectPolicy` 指数退避）；服务器地址设置项接线（占位在 `SettingsDetailPage.ets:355-357`）。
+- [ ] M7.3 会话与播放同步：`ListenTogetherSessionManager` 语义（加入/离开/主持权切换）+ 播放对齐（`ListenTogetherPlayerSyncPlanner`/`StateApplier`：position 校正、时钟偏移估计、阈值内不抖动）；与 PlayerManager 通过监听器集成，不依赖页面。
+- [ ] M7.4 UI：房间页/邀请分享；最小可用（不追求 Android 全部 58 文件规模）。
+- [ ] M7.5 验收：双模拟器实例同房间同步播放偏差 <300ms；断线重连恢复；单测全绿。（依赖 D7 服务端，无则标注「待外部依赖」收尾）
+
+### M8 视觉与歌词增强（可穿插，无硬依赖）
+
+- [ ] M8.1 动态取色：封面 `image.createImageSource`→降采样 PixelMap→纯 ArkTS Palette 语义（Vibrant/Muted/Dominant，对齐 `CoverArtColorCache`）→Theme 覆盖层；设置开关接线（占位 `SettingsPage.ets:95`）；低端机降采样降级。
+- [ ] M8.2 LRC 增强（G12）：`[offset:]` 标签、元数据头保留、逐字（Word LRC）、`np.lyric_offset_ms` 设置消费；单测对齐 `LyricTimestampNormalizerTest`。
+- [ ] M8.3 AMLL TTML 歌词：`AmllTtmlClient` 语义（逐字/翻译/音译），作为高阶歌词源接入 LyricApi 分发。
+- [ ] M8.4 高级模糊/玻璃：backgroundBlurStyle/visualEffect 路径（AGSL shader 无直接对应，D 级降级记录）；NowPlaying 背景效果对齐 Android `ui/effect/glass` 的可用子集。
+- [ ] M8.5 UI 打磨包：WaveformSlider（播放心形/波形进度，Android `ui/component/playback/`）、歌词分享卡片、音译显示、MiniPlayer 增强。
+- [ ] M8.6 悬浮/状态栏歌词按 D4 降级实现；蓝牙 AVRCP 歌词调研后同样按能力降级。
+
+### M9 USB 可行性 + 发布门槛（战略计划阶段 6/7）
+
+- [ ] M9.1 USB spike（D5）：API 24 `usbManager`/USB DDK 文档核对（等时传输、接口独占、普通应用权限）→ 真机枚举 UAC 设备试探 → 结论记录（大概率降级：USB DAC 走系统路径，独占模式不做）。
+- [ ] M9.2 崩溃诊断闭环：HiAppEvent 订阅/导出（对齐 `core/crash`+SafeMode 导出占位 `SafeModePage.ets:26-30`）、ANR(AppFreeze) 日志收集、DebugPage 日志查看。
+- [ ] M9.3 发布矩阵：phone/tablet/2in1 布局回归、返回栈/转场、无障碍（文本缩放/触控目标）、功耗与内存冒烟、隐私声明与市场合规清单（第三方源条款）。
+- [ ] M9.4 API 26 前瞻（可选）：SDK Manager 下载 API 26 镜像后在 7.0 跑回归；7.0-only 能力走 capability adapter，不污染 24 基线。
+
+### 收尾常设任务（不编号，每里程碑末执行）
+
+- FEATURE_MATRIX.md / PORTING.md / hm.md 状态同步；`git diff --check`；交付说明。
+
+---
+
+## 7. 跨领域事项
+
+### 7.1 安全与凭据
+
+- 所有 token/cookie/PAT：`@ohos.security.asset`（核对 API 24 可用性与配额），禁止明文 preferences；键名对齐 Android（github_token/repo/device_id、MUSIC_U、SESSDATA 等）以便用户从 Android 迁移。
+- 日志脱敏（Cookie/Token/完整请求头/用户路径）；DebugPage 探针输出同样过滤。
+
+### 7.2 与 Android 数据互通
+
+- 提供「从 Android 导入」显式工具（战略计划阶段 5）：用户通过 picker 选择 Android 侧导出的 JSON/备份文件→按 M2.2 对齐的格式解析入库；禁止隐式猜测。
+
+### 7.3 上游同步
+
+- Android 快照基线 d66d465f（2026-07-31），上游仍在活跃开发。**冻结基线移植**；如需同步，按 AGENTS.md 以 commit 为单位走同步流程并更新 §3.1。
+
+### 7.4 成本控制（用户全局规则）
+
+- 跨文件搜索/代码定位→`Explore`；外部 API/报错调研→`doc-researcher`；跑构建/测试/读日志→`test-runner`；识图→`image-analyst`。主模型只做设计、写码与整合。
+
+---
+
+## 8. 进度记录协议
+
+- 每任务完成：`[x]` + 证据行（日期、命令、结果摘要）。
+- 每里程碑完成：在本节追加一行 `M< n> 完成：YYYY-MM-DD <验证摘要>`。
+- 计划本身修订：直接编辑并在文首更新日期；重大变更（里程碑增删、决策点变更）需在 §5 表格记录决策依据。
+- 阻塞：任务保持 `[ ]`，追加 `- 阻塞：YYYY-MM-DD <原因/所需输入>`。
