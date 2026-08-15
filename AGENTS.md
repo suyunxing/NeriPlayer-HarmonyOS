@@ -19,7 +19,7 @@
 开始工作前先阅读与任务相关的文件，并按以下顺序判断事实：
 
 1. 当前源码、构建配置、可重复执行的测试结果。
-2. `docs/hm.md`（HarmonyOS 开发与迁移指南：版本矩阵、构建命令、2026-08-13 验证记录）、`docs/PROJECT_AUDIT.md`、`docs/FEATURE_MATRIX.md`、`docs/HARMONYOS_PORTING_PLAN.md`。
+2. `docs/hm.md`（HarmonyOS 开发与迁移指南：版本矩阵、构建命令、2026-08-13 验证记录）、`docs/PROJECT_AUDIT.md`、`docs/FEATURE_MATRIX.md`、`docs/HARMONYOS_PORTING_PLAN.md`、`docs/PORTING_EXECUTION_PLAN.md`（任务级执行计划与进度看板，开始移植任务前先读其 §1/§6）。
 3. 根目录 `README.md`。
 4. 各原型目录中的 `README.md`、`PORTING.md` 和历史日志。
 
