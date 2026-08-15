@@ -3,6 +3,7 @@ param(
     [switch]$SkipInstall,
     [string]$DevEcoHome = $env:DEVECO_STUDIO_HOME,
     [string]$SdkHome = $env:DEVECO_SDK_HOME,
+    [string]$HvigorwPath = $env:DEVECO_HVIGORW,
     [string]$KeystorePath,
     [string]$KeystorePassword = $env:NERIPLAYER_SIGNING_PASSWORD,
     [string[]]$DeviceIds = @(),
@@ -62,7 +63,13 @@ $toolchainsDir = Join-Path $sdkHomeResolved "default\openharmony\toolchains"
 $hapTool = Join-Path $toolchainsDir "lib\hap-sign-tool.jar"
 $java = Join-Path $DevEcoHome "jbr\bin\java.exe"
 $hdc = Join-Path $toolchainsDir "hdc.exe"
-$hvigorw = Join-Path $DevEcoHome "tools\hvigor\bin\hvigorw.bat"
+# DevEco Studio 26.0.0 Beta2 hvigor cannot build a 6.1.1(24) project.
+# Builds must use the matching command-line-tools hvigorw
+# (override via -HvigorwPath or env DEVECO_HVIGORW; falls back to the Studio hvigor).
+$hvigorw = $HvigorwPath
+if (-not $hvigorw) {
+    $hvigorw = Join-Path $DevEcoHome "tools\hvigor\bin\hvigorw.bat"
+}
 $profilePem = Join-Path $toolchainsDir "lib\OpenHarmonyProfileDebug.pem"
 $signDir = Join-Path $projectRoot "signing"
 if (-not $KeystorePath) {
@@ -104,6 +111,7 @@ $env:DEVECO_SDK_HOME = $sdkHomeResolved
 
 try {
     Write-Host "==> 1/5 Build unsigned HAP"
+    Write-Host "==> hvigorw: $hvigorw"
     Push-Location $projectRoot
     try {
         & $hvigorw assembleHap --mode module -p module=entry@default -p product=default -p buildMode=debug --no-daemon

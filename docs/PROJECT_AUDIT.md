@@ -81,3 +81,15 @@
 3. 在可用的 DevEco 环境执行一次删除缓存后的干净构建，并保存命令、SDK 版本和结果摘要。
 4. 在 HarmonyOS 6.x 与 7.x 各选至少一个真实目标版本，建立编译与设备测试矩阵。
 5. 为数据模型、LRC、稳定歌曲键、队列状态机和网络解析器优先建立 ArkTS 单元测试。
+
+## 勘误与进展（2026-08-14 复核）
+
+正文为 2026-08-12 审计时点的事实，以下为 2026-08-14 复核后的更新，冲突时以本节为准：
+
+- **单元测试**：正文"未发现 ArkTS 单元测试"已过时。`entry/src/test/` 已建立（`@ohos/hypium` 1.0.28），覆盖 LRC 解析/翻译合并/时间格式化 3 用例，2026-08-13 实测 3/3 通过；`ohosTest` 仍未建立。
+- **源码规模**：56 个 `.ets/.ts` 文件、约 7,698 行（2026-08-14 实测），正文 7,142 行为审计时点数字。
+- **Android 快照行数口径**：`cat|wc` 直接统计 `app/src/main` Kotlin 约 185,771 行（含空行），与正文 172,517 行存在口径差异，下次审计应统一统计方式。
+- **"当前阻塞"三条的后续**：2026-08-13 已完成干净构建、单元测试、调试签名、模拟器安装与 smoke test（记录见 `hm.md` §7.4）；2026-08-14 工具链迁至 `D:\HarmonyOS\Tools\` 后完成修复与全链复验——用户级 PATH 与 `DEVECO_SDK_HOME`/`HOS_SDK_HOME`/`DEVECO_STUDIO_HOME` 已修正，`local.properties` 指向 `D:/HarmonyOS/Tools/command-line-tools/sdk/default`，`build-profile.json5` 显式补齐 `compileSdkVersion`，新建 `entry/src/ohosTest/` 设备测试骨架（模拟器实测 1/1 通过），签名口令重置并存于用户级环境变量；完整验证记录见 `hm.md` §7.5。
+- **版本映射**：官方文档已复核（见 `hm.md` §2）：HarmonyOS 6.0.0→API 20、6.1.0→23、6.1.1→24（最新稳定 Release，即本项目基线）、HarmonyOS 7.0→开发套件 26.0.0（API 26，Beta）。正文"6.0 与 7.0 的 API Level 必须复核"的待办已落定。
+- **Git 状态**：工作区根目录已初始化 Git（基线提交 `ef89b16`，2026-08-12，remote 指向上游且禁推）。正文"目录在审计前没有 `.git` 历史"仅描述审计时点；三个子工程目录本身仍是无 `.git` 的文件快照。
+- **文档一致性**：2026-08-13 工作区中 `NeriPlayer-HarmonyOS/README.md` 与 `PORTING.md` 曾被改为声称"所有功能已完整移植"，与代码证据（`YouTubeMusicApi.ets` 取流抛错、下载传输未实现、无 WebSocket/NAPI 模块）矛盾，已于 2026-08-14 按本审计与 `hm.md` §3.2 的能力表更正。后续不得再将占位实现描述为功能闭环。

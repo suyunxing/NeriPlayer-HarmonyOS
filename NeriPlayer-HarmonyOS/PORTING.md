@@ -28,10 +28,14 @@
 | 迷你播放器 | 播放中显示当前歌曲 + 进度条 + 来源角标，点击进入 NowPlaying 页 |
 | 崩溃安全模式 | 标记后重启进入 SafeMode（代码路径，未实测崩溃注入） |
 
-⏳ 待完善（按优先级）：
+## 当前状态（2026-08-13 复核）
+
+2026-08-13 在本机 6.1.1 Release 工具链完成可重复验证：`ohpm install --all`、`hvigorw clean`、Debug `assembleHap` 构建成功（存在 6 条"Function may throw exceptions"非阻塞警告，分布在 `LibraryPage.ets`、`PlaylistDetailPage.ets`、`DebugPage.ets`）；ArkTS 单元测试 3/3 通过（`entry/src/test/`，LRC 解析/翻译合并/时间格式化）；调试签名、模拟器安装、冷启动与设置页 smoke test 通过。完整记录见 `../docs/hm.md` §7.4。
+
+该验证只覆盖构建、启动、安全区和设置页入口，不代表下述能力已完成。当前待办（代码中均有 porting seam 标注，不得在文档中标为已完成）：
 
 1. **weapi 风控**：`weapi/cloudsearch/get/web` 在本模拟器网络环境返回 `{"code":50000005}`（无浏览器指纹/IP 风控），目前靠旧版接口回退可用；后续可补 eapi 路径或二维码登录后携带 `MUSIC_U` 重试。
-2. **YouTube 取流**：仍缺 signature/n 参数、PoToken 与 EJS 引擎，仅搜索可用。
+2. **YouTube 取流**：仍缺 signature/n 参数、PoToken 与 EJS 引擎，仅搜索可用（`YouTubeMusicApi.ets` 取流当前直接抛错）。
 3. **下载管线**：`DownloadsPage` 与任务目录已完成，需移植 Range 断点续传 + 实际文件落盘。
 4. **同步**：GitHub / WebDAV 同步待移植。
 5. **一起听 / USB 独占 / 悬浮歌词**：待移植（USB 需 NAPI C++）。
@@ -67,7 +71,10 @@ NeriPlayer-HarmonyOS/
 DevEco Studio 6.1.1 的 `build-profile.json5` 不再接受明文签名口令（要求加密串 + material 目录），因此工程保持 `signingConfigs: []`，由脚本用 SDK 自带的 OpenHarmony 调试证书手动签名：
 
 ```powershell
-# 前置：本机 DevEco Studio 6.1.1（含 SDK、Hvigor、ohpm、hdc），模拟器已启动
+# 前置（2026-08-14 本机布局）：API 24 SDK 与 CLI 在 D:\HarmonyOS\Tools\command-line-tools\，
+# sign-local.ps1 还需要 Studio 布局中的 jbr 与 hvigor，因此显式设置以下两个环境变量。
+$env:DEVECO_SDK_HOME = 'D:\HarmonyOS\Tools\command-line-tools\sdk'
+$env:DEVECO_STUDIO_HOME = 'D:\HarmonyOS\Tools\devecostudio-windows-26.0.0.621\DevEco Studio'
 .\sign-local.ps1          # 构建 -> 签名 -> 安装到 127.0.0.1:5555
 .\sign-local.ps1 -SkipInstall
 ```
