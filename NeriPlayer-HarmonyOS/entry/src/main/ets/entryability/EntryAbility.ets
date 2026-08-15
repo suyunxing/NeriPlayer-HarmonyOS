@@ -64,8 +64,10 @@ export default class EntryAbility extends UIAbility {
   private applyEdgeToEdge(windowStage: window.WindowStage): void {
     try {
       const mainWindow = windowStage.getMainWindowSync();
-      mainWindow.setWindowLayoutFullScreen(true);
-      mainWindow.setWindowSystemBarEnable(['status']);
+      // Keep the app inside the system safe area. The previous immersive layout
+      // placed page headers under the status bar on API 24 phone emulators.
+      mainWindow.setWindowLayoutFullScreen(false);
+      mainWindow.setWindowSystemBarEnable(['status', 'navigation']);
       mainWindow.setWindowSystemBarProperties({
         statusBarColor: '#00000000',
         statusBarContentColor: '#FFFFFF',
