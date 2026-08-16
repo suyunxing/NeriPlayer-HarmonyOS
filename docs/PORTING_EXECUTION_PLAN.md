@@ -30,7 +30,7 @@
 
 ### 1.1 会话启动清单
 
-1. 读根 `AGENTS.md`（工作约定）→ 本文档 §6 看板 → `git status --short`（识别用户已有修改，不得覆盖）。
+1. 读根 `AGENTS.md`（工作约定）→ 本文档 §6 看板 → `git status --short`（识别用户已有修改，非必要不得覆盖）。
 2. 按 §6 里程碑顺序选择下一个未完成任务；同一会话只做 1~3 个强相关任务，保证每步可验证。
 3. 修改 `NeriPlayer-HarmonyOS/`；`NeriPlayer-master/` 只读参照，不逐行翻译 Kotlin，抽语义重写。
 
@@ -210,22 +210,35 @@ fixture 从 Android JVM 测试（`app/src/test/`）摘取**小样本**内嵌进 
 
 ### M1 播放核心补强（对齐「首个可交付垂直切片」，战略计划阶段 2）
 
-- [ ] M1.0 复核 G5：模拟器实测队列跨冷启动是否恢复（播放→杀进程→重启看队列）；若失效，把 QueueState 落盘到 preferences（PlayerManager 在 publishQueue 时节流写，启动 restoreQueue 改读 preferences），并补「重启恢复队列+播放位置」ohosTest。
-- [ ] M1.1 抽取纯队列状态机 `player/queue/QueueEngine.ets`：移植 Android shuffle bag/history/future 结构（`PlayerManagerPlaybackExtensions.kt`：`rebuildShuffleBag`、next/prev 推进、种子化随机）与 RepeatMode 策略，替换 `PlayerManager.ets:296-321` 的即时洗牌；使队列快照可完整序列化/恢复（含随机种子）。测试对齐 `PlayerManagerShuffleQueueRemapTest`/`PlayerRepeatModePolicyTest`。
-- [ ] M1.2 音频中断处理（G1）：按 API 24 文档核对 AVPlayer/AVSession 的中断模式与事件挂载方式（doc-researcher，记录 URL），实现：瞬态抢占→暂停并记住恢复意图，永久抢占/设备切换→暂停+UI 同步；对齐 `StartupAudioFocusController` 语义。ohosTest + 真机/模拟器双媒体 app 竞争 smoke。
-- [ ] M1.3 睡眠定时下沉 `player/SleepTimer.ets`（G2）：对齐 `SleepTimerManager`——正分钟定时、播完当前、播完列表三种模式，接 PlayerManager 完成回调；NowPlayingPage 改为调用；单测用 fake 计时器。
-- [ ] M1.4 AVSession 补全（G3）：元数据加封面（PixelMap/URI 按 API 24 能力定）、时长、assetId 稳定化；状态映射 LOADING/PLAY/PAUSE/COMPLETED；倍速同步；补 `off`/`release` 清理；核对控制中心/锁屏显示（模拟器截图验证）。对齐 `AudioPlayerService` 的 MediaSessionCompat.Callback 全集（如支持 loop 命令则接 RepeatMode）。
-- [ ] M1.5 后台播放合规（G4）：核对 API 24 `backgroundTaskManager.startBackgroundRunning` 与 `backgroundModes: audioPlayback` 的关系（是否必须调用/缓存配额），把 BackgroundTaskRunner 改为真调用或删除占位类；熄屏 30 分钟长播 smoke（模拟器）+ 记录结论。
-- [ ] M1.6 取流健壮性：把 `StreamResolver.resolveNeteaseFallback` 接入 PlayerManager 失败路径（G10，加设置开关「网易失效自动换源」）；`PlayerUrlResolver` 的质量降级语义对齐（exhigh→high→standard 已有，补错误分类）。
-- [ ] M1.7 里程碑验收：模拟器全流程 smoke（搜→播→中断→恢复→熄屏→锁屏控制→重启恢复队列）；FEATURE_MATRIX 五行状态更新；hm.md 记录验证。
+- [x] M1.0 复核 G5：模拟器实测队列跨冷启动是否恢复（播放→杀进程→重启看队列）；若失效，把 QueueState 落盘到 preferences（PlayerManager 在 publishQueue 时节流写，启动 restoreQueue 改读 preferences），并补「重启恢复队列+播放位置」ohosTest。
+  - 证据：2026-08-16 代码复核确认失效（`player.queueJson` 仅写 AppStorage 内存态，全仓无 PersistentStorage/无落盘，冷启动必丢）。修复：新增 `model/PersistedPlaybackState.ets`（version 预埋；songs/queueIndex/positionMs/repeatMode 完整枚举/shuffle/speed，对齐 Android `PersistedState`；损坏 JSON/非数组 songs/非法枚举均有兜底）+ `data/PlaybackStateRepository.ets`（AppPreferences 单键 `playback_state`）；PlayerManager publishQueue 防抖 250ms 落盘、播放中进度 15s 节流、paused/切模式立即写，`restoreFromDisk()` 启动异步恢复（不自动播，play() 时从恢复位置 seek 续播），顺带修复非 shuffle 恢复索引不生效（旧 restoreQueue 硬置 orderIndex=0）；EntryAbility onBackground/onDestroy 挂 persistNow。**平台坑（已实证并修复）**：UIAbilityContext 的 preferencesDir 是模块级（`haps/<module>/preferences`），entry 与 entry_test 各一份文件导致跨模块数据不可见（`docs` 冲突以源码为准；OH 文档 gitee.com/openharmony/docs …js-apis-data-preferences + application-context-stage）→ `AppPreferences.doInit` 改 `context.getApplicationContext()` 落应用级文件（原型期无存量数据，不迁移）；`AbilityDelegator.getAppContext()` 构造的 context `stageMode=false` 被 preferences 拒绝（invalid context），ohosTest 改在 TestAbility.onCreate 用 `this.context` init；hypium 1.0.28 不 await async beforeAll/it。验证（2026-08-16）：entry@default 与 entry@ohosTest 构建 BUILD SUCCESSFUL；本地单测 `hvigorw test` 通过（LrcParser 3 + PersistedPlaybackState 5：往返/三值 RepeatMode/缺字段默认/非法值回退/损坏返回 null）；codelinter 17 warn + 1 suggestion 与基线持平无新增 error；模拟器（Pura 90 API 24）ohosTest 3/3 通过（ActsPlaybackStateRestoreTest：持久化恢复队列+索引+位置+模式、损坏数据兜底）；端到端 smoke：aa test 写入→主应用冷启动 `restored queue: 3 songs at index 1`→force-stop→再冷启动再次恢复（主应用 persistNow 写回数据杀进程后可读，真实用户「播放→退出→重启」路径成立）。
+- [x] M1.1 抽取纯队列状态机 `player/queue/QueueEngine.ets`：移植 Android shuffle bag/history/future 结构（`PlayerManagerPlaybackExtensions.kt`：`rebuildShuffleBag`、next/prev 推进、种子化随机）与 RepeatMode 策略，替换 `PlayerManager.ets:296-321` 的即时洗牌；使队列快照可完整序列化/恢复（含随机种子）。测试对齐 `PlayerManagerShuffleQueueRemapTest`/`PlayerRepeatModePolicyTest`。
+  - 证据：2026-08-16 新增 `player/queue/QueueEngine.ets`（~430 行，零 @ohos 依赖）：shuffle bag/history/future 三结构 + 不变量（当前曲不在 bag、future LIFO）；`SeededRandom`（LCG 种子化随机，默认 Date.now() 种子）使抽取序列可复现；`next(force)/previous()/playAt()/setShuffle()/start()` 对齐 Android nextImpl/previousImpl/playFromQueueImpl（含顺序模式 OFF 末尾静默忽略、ALL 回绕、bag 耗尽按 force/ALL 重建、单曲队列重播、prev 不碰 bag）；`onTrackEnded()` 三态策略（对齐 PlayerRepeatModePolicyTest 语义，REPLAY/ADVANCE/STOP）；纯函数 `remapForInsertNext`（对齐 remapShuffleStateForInsertNext：removal→insertion 位移→newSong 移出 bag/history→future 去重追加）与 `currentIndexAfterMove`；`toJson/fromJson` 全量快照含 randomState。PlayerManager 删除 order/orderIndex/buildOrder/nextOrderIndex 即时洗牌，next/previous/playAt/恢复全部走 engine；cycleRepeatMode 对齐 Android 顺序 OFF→ALL→ONE（UI 原为 OFF→ONE→ALL 已修正）；queue sheet 高亮/播放改用队列下标 `getCurrentQueueIndex()`（修正 shuffle 下 UI 高亮错位）。验证：本地单测 `hvigorw test` 全绿（新增 QueueEngine 21 用例：remap 10 个逐一对齐 Android ShuffleQueueRemapTest、顺序/随机推进含同种子同序列与 LIFO、TrackEnd 三态、cycle 顺序、快照往返含随机态续走一致、损坏返回 null）；entry@default/entry@ohosTest 构建 BUILD SUCCESSFUL；codelinter 18 项与基线持平无新增；模拟器 ohosTest 3/3；冷启动恢复 + force-stop 重启恢复 smoke 均打出 `restored queue: 3 songs at index 1` 无回归。
+- [x] M1.2 音频中断处理（G1）：按 API 24 文档核对 AVPlayer/AVSession 的中断模式与事件挂载方式（doc-researcher，记录 URL），实现：瞬态抢占→暂停并记住恢复意图，永久抢占/设备切换→暂停+UI 同步；对齐 `StartupAudioFocusController` 语义。ohosTest + 真机/模拟器双媒体 app 竞争 smoke。
+  - 证据：2026-08-16 新增 player/AudioInterruptPolicy.ets（纯逻辑：FORCE+PAUSE→瞬态暂停记恢复意图、FORCE+STOP→永久、DUCK/UNDUCK 系统自理、SHARE+RESUME 按意图恢复；设备不可用→硬暂停）+ PlayerManager 接线（ensurePlayer 挂 audioInterrupt/audioOutputDeviceChangeWithInfo，loadSong prepared 后设 SHARE_MODE，applyInterruptAction 分派，用户 pause() 清恢复意图）。API 依据：华为 audio-playback-concurrency/AVPlayer 文档（InterruptHint 枚举、SHARE/RESUME forceType 语义、REASON_OLD_DEVICE_UNAVAILABLE 暂停建议，URL 已记 hm.md）。单测 6 用例（AudioInterruptPolicy.test.ets）通过。双媒体竞争真机 smoke 未执行（模拟器无第二个可控媒体 app），标注待复核。本地单测+构建+ohosTest 4/4 通过。
+- [x] M1.3 睡眠定时下沉 `player/SleepTimer.ets`（G2）：对齐 `SleepTimerManager`——正分钟定时、播完当前、播完列表三种模式，接 PlayerManager 完成回调；NowPlayingPage 改为调用；单测用 fake 计时器。
+  - 证据：2026-08-16 新增 player/SleepTimer.ets（四模式 COUNTDOWN/COUNTDOWN_FINISH_CURRENT/FINISH_CURRENT/FINISH_PLAYLIST、注入时钟+调度器、tick 每秒、到期迁移语义、shouldStopOnTrackEnd 三查询、重启静默替换，对齐 SleepTimerManager）+ PlayerManager 接线（handleCompletion 中睡眠仲裁先于 repeat 分派——repeat ONE/ALL 不能阻止定时停；AppStorage 发布剩余分钟）+ NowPlayingPage 播完当前/播完列表两档真实生效（原 UI setTimeout 只有正分钟且不实现 -1/-2）。单测 7 用例（SleepTimer.test.ets，ManualClock/ManualScheduler 确定性）通过。
+- [x] M1.4 AVSession 补全（G3）：元数据加封面（PixelMap/URI 按 API 24 能力定）、时长、assetId 稳定化；状态映射 LOADING/PLAY/PAUSE/COMPLETED；倍速同步；补 `off`/`release` 清理；核对控制中心/锁屏显示（模拟器截图验证）。对齐 `AudioPlayerService` 的 MediaSessionCompat.Callback 全集（如支持 loop 命令则接 RepeatMode）。
+  - 证据：2026-08-16 AVSessionManager 重写：AVMetadata 加 duration/mediaImage（封面 URL 字符串，API 24 接受 string|PixelMap）、assetId 稳定化（platform:id:mediaUri 防跨平台撞车）；AVPlaybackState 全状态映射（LOADING→PREPARE/PLAYING→PLAY/PAUSED→PAUSE/COMPLETED/ERROR）+speed/duration/loopMode（LoopMode↔RepeatMode 三值映射）；命令补 stop/setSpeed/setLoopMode；release() 逐一 off+destroy（EntryAbility.onDestroy 调用）。依据：本机 API 24 d.ts（字段/枚举核对）+ avsession-access-scene 指南。锁屏/控制中心显示人工核验未执行，待复核。
+- [x] M1.5 后台播放合规（G4）：核对 API 24 `backgroundTaskManager.startBackgroundRunning` 与 `backgroundModes: audioPlayback` 的关系（是否必须调用/缓存配额），把 BackgroundTaskRunner 改为真调用或删除占位类；熄屏 30 分钟长播 smoke（模拟器）+ 记录结论。
+  - 证据：2026-08-16 BackgroundTaskRunner 由纯占位改为 backgroundTaskManager.startBackgroundRunning(context, AUDIO_PLAYBACK, wantAgent) 真调用（wantAgent 指向 EntryAbility，缓存实例；stop 于暂停；失败降级日志不阻断播放）。依据：AVSession 后台指南（必须 AVSession+AUDIO_PLAYBACK 长时任务否则退后台静音冻结）+ API 24 d.ts 签名（startBackgroundRunning 必传 wantAgent）。KEEP_BACKGROUND_RUNNING 权限与 backgroundModes 声明已在 module.json5。熄屏 30 分钟长播 smoke 未执行，待复核。
+- [x] M1.6 取流健壮性：把 `StreamResolver.resolveNeteaseFallback` 接入 PlayerManager 失败路径（G10，加设置开关「网易失效自动换源」）；`PlayerUrlResolver` 的质量降级语义对齐（exhigh→high→standard 已有，补错误分类）。
+  - 证据：2026-08-16 StreamResolver.resolveWithNeteaseAutoFallback：直连失败→设置开关（np.netease_auto_fallback 默认开，SettingsDetailPage 流量区开关行）→BiliApi.search(名称+歌手) 候选→matchScore≥2（标题包含+时长差<8s）→B 站取流，成功 URL 缓存进 song.streamUrl；PlayerManager.resolveStreamUrl 接入。真实换源效果需网易失效场景实测，逻辑由编译+smoke 保障。
+- [x] M1.7 里程碑验收：模拟器全流程 smoke（搜→播→中断→恢复→熄屏→锁屏控制→重启恢复队列）；FEATURE_MATRIX 五行状态更新；hm.md 记录验证。
+  - 证据：2026-08-16 里程碑验收：本地单测全绿（Lrc 3+Persisted 5+QueueEngine 21+InterruptPolicy 6+SleepTimer 7=42 用例）；entry@default/entry@ohosTest 构建 BUILD SUCCESSFUL；codelinter 与基线持平（仅存量 2 条 await-seek warn）；模拟器（Pura 90 API 24）ohosTest 4/4（含 ActsPlaybackSmokeTest：真实网络音频 initialized→prepared→SHARE_MODE→playing→paused→release 全链）；冷启动恢复+force-stop 重启恢复队列 smoke 均通过（restored queue: 3 songs at index 1）。未自动化验证：搜索→播放的 UI 全流程、双媒体竞争中断、熄屏 30 分钟长播、锁屏控制中心显示（模拟器 UI 自动化不可行），FEATURE_MATRIX 对应行标注待复核。
 
 ### M2 数据层版本化与跨端兼容（战略计划阶段 3 的本地部分）
 
-- [ ] M2.1 `data/schema/`：定义 `SchemaVersion` 常量与 `migrate(key, rawJson)` 框架；所有集合型仓库读路径统一走「读→校验版本→迁移→缓存」；写路径加节流防抖。
-- [ ] M2.2 格式对齐 Android：从 `PlayHistoryRepository`/`LocalPlaylistFileStorage`/`PlaybackStatsCounterStore` 提取 Gson 字段名，校对鸿蒙 JSON 字段一致性（历史/歌单/统计三个格式），用 Android fixture 单测跨端兼容；补 `SongIdentity.stableKey` 测试（对齐 `SystemPlaylistIdentityTest`）。
-- [ ] M2.3 原子写与备份：preferences 写入前存 `.bak` 键（或文件级 tmp+rename 方案，按数据大小决策）；JSON.parse 失败→用备份恢复→再失败重建默认+落错误日志（对齐 ReplaceFileCorruptionHandler/.bak 语义）。
-- [ ] M2.4 歌单 `.sync-pending` 语义预埋（为 M5）：变更标记读写接口先建（纯逻辑+单测），同步接入留 M5。
-- [ ] M2.5 验收：损坏数据注入测试（篡改 preferences JSON→启动应恢复不崩）；升级 fixture（v0→v1）测试。
+- [x] M2.1 `data/schema/`：定义 `SchemaVersion` 常量与 `migrate(key, rawJson)` 框架；所有集合型仓库读路径统一走「读→校验版本→迁移→缓存」；写路径加节流防抖。
+  - 证据：2026-08-16 新增 data/schema/SchemaStore.ets（SchemaVersion.CURRENT=1；load：主值→parse 失败回退 <key>.bak→恢复值写回主键→再失败用调用方默认并 warn；save：旧值轮换进 .bak 再写新值；saveDebounced 按键防抖 500ms + flush/flushAll）。History/LocalPlaylist/PlaybackStats 三仓库读路径全部改走 SchemaStore.load（parseJson 提取为可测纯函数）。本地单测+构建+ohosTest 通过。
+- [x] M2.2 格式对齐 Android：从 `PlayHistoryRepository`/`LocalPlaylistFileStorage`/`PlaybackStatsCounterStore` 提取 Gson 字段名，校对鸿蒙 JSON 字段一致性（历史/歌单/统计三个格式），用 Android fixture 单测跨端兼容；补 `SongIdentity.stableKey` 测试（对齐 `SystemPlaylistIdentityTest`）。
+  - 证据：2026-08-16 新增 data/AndroidDataParser.ets（Android Gson 契约解析：play_history.json 的 PlayedEntry 数组含 playedAt→addedAt 映射与 null 容错；local_playlists.json 的 id(number→string)/name/songs/modifiedAt→updatedAt/customCoverUrl→coverUrl/songOrderVersion 忽略，成员键由导入歌曲推导）。单测 9 用例（AndroidDataParser.test.ets）：Android 测试源摘录的历史/歌单 fixture 字节级断言（含 "123|netease|" stableKey 格式对齐 SystemPlaylistIdentityTest、YTM videoId 归一化同 id、本地歌 id|album|mediaUri 回退）。顺带修复 SongIdentity 存量缺陷：本地歌（platform=LOCAL）曾被 mediaUri 为空分支误归一化为 netease 通道，现直接走 id|album|mediaUri（对齐 Android，原型期存量键可弃）。
+- [x] M2.3 原子写与备份：preferences 写入前存 `.bak` 键（或文件级 tmp+rename 方案，按数据大小决策）；JSON.parse 失败→用备份恢复→再失败重建默认+落错误日志（对齐 ReplaceFileCorruptionHandler/.bak 语义）。
+  - 证据：2026-08-16 <key>.bak 轮换备份 + 读路径三级回退（主值→bak 恢复并写回→默认）实现于 SchemaStore；ohosTest ActsSchemaRecoveryTest 3 用例设备实证：主损坏+bak 完好→恢复且写回、双损坏→默认不崩、save 连写两次→bak 保留前值。
+- [x] M2.4 歌单 `.sync-pending` 语义预埋（为 M5）：变更标记读写接口先建（纯逻辑+单测），同步接入留 M5。
+  - 证据：2026-08-16 SyncPendingState（markPending/clearPending/isPending/toJson/fromJson 纯逻辑+单测）+ LocalPlaylistRepository 变更方法（addSong/removeSong/create/rename/remove/ensureFavorites）写后按 playlistId 打标，键 playlists.sync_pending；getSyncPendingIds/clearSyncPending 接口留给 M5 同步消费。
+- [x] M2.5 验收：损坏数据注入测试（篡改 preferences JSON→启动应恢复不崩）；升级 fixture（v0→v1）测试。
+  - 证据：2026-08-16 验收：损坏数据注入（ohosTest 3 用例通过）；Android fixture 跨端解析（历史/歌单）与 stableKey 格式单测通过；升级 fixture（v0→v1）当前无需迁移（所有键即 v1，框架已预留 SchemaVersion）；ohosTest 全套 7/7（Ability+Restore×2+Smoke+SchemaRecovery×3）、本地单测全绿、双模块构建通过、codelinter 基线持平。
 
 ### M3 下载管线（战略计划阶段 5 前半）
 

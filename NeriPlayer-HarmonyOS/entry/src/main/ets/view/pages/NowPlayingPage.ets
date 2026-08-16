@@ -40,6 +40,8 @@ export struct NowPlayingPage {
   @State showQueue: boolean = false;
   @State showSleep: boolean = false;
   @State sleepLabel: string = '关闭';
+  @StorageLink('player.sleepActive') sleepActive: boolean = false;
+  @StorageLink('player.sleepRemainingMin') sleepRemainingMin: number = 0;
   @State sliderPosition: number = 0;
   @State sliding: boolean = false;
 
@@ -99,20 +101,29 @@ export struct NowPlayingPage {
   }
 
   private cycleRepeat(): void {
-    const next = (this.repeatMode + 1) % 3;
-    PlayerManager.setRepeatMode(next as RepeatMode);
+    PlayerManager.cycleRepeatMode();
   }
 
-  private setSleep(option: [string, number]): void {
-    this.sleepLabel = option[0];
+  private sleepButtonText(): string {
+    if (!this.sleepActive) {
+      return '定时';
+    }
+    if (this.sleepRemainingMin > 0) {
+      return `${this.sleepRemainingMin} 分钟`;
+    }
+    return this.sleepLabel === '关闭' ? '定时' : this.sleepLabel;
+  }
+
+  private setSleep(option: [string, number]): void {    this.sleepLabel = option[0];
     this.showSleep = false;
     if (option[1] > 0) {
-      setTimeout(() => {
-        if (this.status === PlaybackStatus.PLAYING) {
-          PlayerManager.pause();
-          this.sleepLabel = '关闭';
-        }
-      }, option[1] * 60000);
+      PlayerManager.setSleepCountdown(option[1]);
+    } else if (option[1] === -1) {
+      PlayerManager.setSleepFinishCurrent();
+    } else if (option[1] === -2) {
+      PlayerManager.setSleepFinishPlaylist();
+    } else {
+      PlayerManager.cancelSleepTimer();
     }
   }
 
@@ -313,7 +324,7 @@ export struct NowPlayingPage {
               .backgroundColor('#33FFFFFF')
               .borderRadius(16)
               .onClick(() => this.cycleSpeed())
-            Button('🌙 ' + (this.sleepLabel === '关闭' ? '定时' : this.sleepLabel))
+            Button('🌙 ' + this.sleepButtonText())
               .height(32)
               .fontSize(12)
               .fontColor('#FFFFFF')
@@ -355,7 +366,7 @@ export struct NowPlayingPage {
       if (this.showQueue) {
         QueueSheet({
           queueJson: this.queueJson,
-          currentOrderIndex: PlayerManager.getOrderIndex(),
+          currentOrderIndex: PlayerManager.getCurrentQueueIndex(),
           onClose: () => {
             this.showQueue = false;
           },

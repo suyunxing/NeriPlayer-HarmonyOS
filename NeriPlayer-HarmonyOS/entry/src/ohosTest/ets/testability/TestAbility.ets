@@ -4,6 +4,7 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window } from '@kit.ArkUI';
 import { Hypium } from '@ohos/hypium';
 import testsuite from '../test/List.test';
+import { AppPreferences } from '../../../main/ets/data/AppPreferences';
 
 const ON_DESTROY_ERROR = -2;
 
@@ -22,6 +23,9 @@ export default class TestAbility extends UIAbility {
     let abilityDelegatorArguments: abilityDelegatorRegistry.AbilityDelegatorArgs;
     abilityDelegatorArguments = abilityDelegatorRegistry.getArguments();
     hilog.info(0x0000, 'testTag', '%{public}s', 'start run testcase!!!');
+    // AbilityDelegator.getAppContext() is rejected by @ohos.data.preferences
+    // ("invalid context"), so initialize the store from the ability context.
+    AppPreferences.init(this.context);
     Hypium.hypiumTest(this.abilityDelegator, abilityDelegatorArguments, testsuite);
   }
 

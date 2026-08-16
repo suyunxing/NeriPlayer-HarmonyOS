@@ -1,6 +1,6 @@
 import { SongItem } from '../../model/SongItem';
 import { LocalPlaylistRepository } from '../../data/LocalPlaylistRepository';
-import { DownloadsRepository } from '../../data/DownloadsRepository';
+import { DownloadEngine } from '../../download/DownloadEngine';
 import { Theme } from '../Theme';
 import { formatDuration, platformName } from './Ui';
 
@@ -34,8 +34,8 @@ export struct SongRow {
     this.menuOpen = false;
   }
 
-  private async download(): Promise<void> {
-    await DownloadsRepository.enqueue(this.song());
+  private download(): void {
+    DownloadEngine.enqueue([this.song()]);
     this.menuOpen = false;
   }
 

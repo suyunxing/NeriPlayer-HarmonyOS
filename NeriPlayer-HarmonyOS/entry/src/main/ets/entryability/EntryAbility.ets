@@ -3,6 +3,8 @@ import { window } from '@kit.ArkUI';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { SettingsRepository } from '../data/SettingsRepository';
 import { PlayerManager } from '../player/PlayerManager';
+import { AVSessionManager } from '../player/AVSessionManager';
+import { DownloadEngine } from '../download/DownloadEngine';
 import { SystemBars } from '../util/SystemBars';
 
 const TAG: string = 'EntryAbility';
@@ -15,10 +17,13 @@ export default class EntryAbility extends UIAbility {
     AppStorage.setOrCreate('abilityContext', this.context);
     AppStorage.setOrCreate('systemDark', false);
     PlayerManager.initialize(this.context);
+    DownloadEngine.init(this.context);
   }
 
   onDestroy(): void {
     PlayerManager.flushPlaybackStatsAsync();
+    PlayerManager.persistNow();
+    AVSessionManager.release();
     hilog.info(DOMAIN, TAG, 'Ability onDestroy');
   }
 
@@ -41,6 +46,7 @@ export default class EntryAbility extends UIAbility {
 
   onBackground(): void {
     PlayerManager.flushPlaybackStatsAsync();
+    PlayerManager.persistNow();
   }
 
   onConfigurationUpdate(newConfig: Configuration): void {

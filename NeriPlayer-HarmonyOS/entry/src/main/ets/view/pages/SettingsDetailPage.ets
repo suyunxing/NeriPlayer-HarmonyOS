@@ -26,6 +26,7 @@ export struct SettingsDetailPage {
   @StorageProp('np.download_concurrency') downloadConcurrency: number = 6;
   @StorageProp('np.download_match_lyrics') downloadMatchLyrics: boolean = true;
   @StorageProp('np.save_traffic') saveTraffic: boolean = false;
+  @StorageProp('np.netease_auto_fallback') neteaseAutoFallback: boolean = true;
   @StorageProp('np.cover_policy') coverPolicy: string = 'always';
   @StorageProp('np.always_record_logs') alwaysRecordLogs: boolean = false;
 
@@ -282,6 +283,13 @@ export struct SettingsDetailPage {
               onTap: () => promptAction.openToast({ message: '高级毛玻璃待移植' })
             })
           } else if (this.section === SETTING_TRAFFIC) {
+            SettingRow({
+              title: '网易失效自动换源',
+              subtitle: this.neteaseAutoFallback ? '已开启：网易取流失败时自动匹配 B 站音源' : '已关闭',
+              icon: '🔄',
+              showArrow: false,
+              onTap: () => SettingsRepository.setBoolean(SettingsRepository.KEY_NETEASE_AUTO_FALLBACK, !this.neteaseAutoFallback)
+            })
             SettingRow({
               title: '省流量模式',
               subtitle: this.saveTraffic ? '已开启' : '已关闭',
