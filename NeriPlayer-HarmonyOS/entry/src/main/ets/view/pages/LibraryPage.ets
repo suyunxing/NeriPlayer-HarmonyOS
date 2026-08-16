@@ -4,7 +4,7 @@ import { Playlist } from '../../model/Playlist';
 import { SongItem } from '../../model/SongItem';
 import { LocalPlaylistRepository } from '../../data/LocalPlaylistRepository';
 import { HistoryRepository } from '../../data/HistoryRepository';
-import { DownloadsRepository } from '../../data/DownloadsRepository';
+import { DownloadStorage } from '../../download/DownloadStorage';
 import { PlaybackStatsRepository } from '../../data/PlaybackStatsRepository';
 import { LocalMediaScanner } from '../../data/LocalMediaScanner';
 import { PlayerManager } from '../../player/PlayerManager';
@@ -32,8 +32,8 @@ export struct LibraryPage {
     const playlists = await LocalPlaylistRepository.loadAll();
     this.playlists = playlists;
     this.favorites = playlists.find((item: Playlist) => item.id === LocalPlaylistRepository.FAVORITES_ID) ?? null;
-    const tasks = await DownloadsRepository.loadAll();
-    this.downloadCount = tasks.length;
+    const catalog = await DownloadStorage.getCatalog();
+    this.downloadCount = catalog.length;
     this.localSongCount = (await LocalMediaScanner.loadCached()).length;
     this.playCount = await PlaybackStatsRepository.getTotalPlayCount();
     const listenMs = await PlaybackStatsRepository.getTotalListenMs();
@@ -107,8 +107,8 @@ export struct LibraryPage {
           })
           StatCard({
             icon: '⤓',
-            value: `${this.downloadCount} 个任务`,
-            label: '下载管理',
+            value: `${this.downloadCount} 首`,
+            label: '已下载',
             onTap: () => Router.push(Router.DOWNLOADS)
           })
           StatCard({
@@ -145,7 +145,7 @@ export struct LibraryPage {
           })
           SettingRow({
             title: '下载管理',
-            subtitle: this.downloadCount > 0 ? `${this.downloadCount} 个下载任务` : '暂无下载任务',
+            subtitle: this.downloadCount > 0 ? `已下载 ${this.downloadCount} 首` : '暂无下载内容',
             icon: '⤓',
             onTap: () => Router.push(Router.DOWNLOADS)
           })

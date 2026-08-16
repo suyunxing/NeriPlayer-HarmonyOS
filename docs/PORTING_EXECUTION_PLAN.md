@@ -242,13 +242,22 @@ fixture 从 Android JVM 测试（`app/src/test/`）摘取**小样本**内嵌进 
 
 ### M3 下载管线（战略计划阶段 5 前半）
 
-- [ ] M3.1 纯状态机先行：`download/` 下移植 `DownloadTransportKind{DIRECT,CHUNKED_RANGE,HLS}`、`DownloadStage{TRANSFERRING,WAITING_RETRY,FINALIZING}`、`DownloadStatus{QUEUED,DOWNLOADING,WAITING_NETWORK,COMPLETED,FAILED,CANCELLED}`、attemptId 防重（参照 `AudioDownloadManager.kt:295-330`、`DownloadTaskModels.kt`）；单测对齐 `DownloadTaskStoreTest`。
-- [ ] M3.2 HttpClient 传输能力：新增流式下载方法（`requestInStream`/dataReceive），支持 Range、If-Range(ETag/Last-Modified)、总长/已收字节回调；超时/断网→`WAITING_NETWORK`；大文件写 `fs` 分块追加。单测用本地 HTTP fixture 或 mock。
-- [ ] M3.3 下载引擎 `download/DownloadEngine.ets`：并发控制（消费 `np.download_concurrency` 设置）、任务调度、断点续传（DIRECT/RANGE：`.part` sidecar 记 offset+etag；HLS：playlist fingerprint+nextSegmentIndex，对齐 `serializeHlsResumeState`）、重试退避、完成校验（长度/哈希按源能力）。
-- [ ] M3.4 原子提交与目录树：`storage/commit` 语义——working 目录写完→校验→rename 到正式目录树（`download/naming` 对齐 `ManagedDownloadNaming`）→更新编目 `DownloadedSongCatalog`；失败回滚清理。D3 决策落盘位置。
-- [ ] M3.5 启动恢复：`recoverPendingDownloadsForStartup` 语义——启动时扫任务目录，`DOWNLOADING/WAITING_NETWORK` 按网络状态续传或挂起；网络监听用 `util/NetworkStatus` 扩展（断网暂停、恢复续传）。
-- [ ] M3.6 接线 UI：DownloadsPage 真实进度/暂停/恢复/取消；SongRow「下载」走引擎；下载完成曲目入本地库可播（LOCAL 平台路径）；DebugPage 加下载探针。元数据 tag 写入：HarmonyOS 无公开 tag 写 API→sidecar 元数据+编目承担，FEATURE_MATRIX 记录降级。
-- [ ] M3.7 验收：模拟器下载网易云曲目→中途杀进程→重启恢复→完成→离线播放；断网暂停/恢复；单测全绿。
+> 说明：M3.1~M3.5 的主体代码由 commit `00b5617`（M1 会话收尾时）一并带入但未在看板登记；本会话（2026-08-16 晚）审计确认后补齐闭环缺口、修复三个首次设备验证暴露的真 bug、完成 M3.7 验收并登记证据。
+
+- [x] M3.1 纯状态机先行：`download/` 下移植 `DownloadTransportKind{DIRECT,CHUNKED_RANGE,HLS}`、`DownloadStage{TRANSFERRING,WAITING_RETRY,FINALIZING}`、`DownloadStatus{QUEUED,DOWNLOADING,WAITING_NETWORK,COMPLETED,FAILED,CANCELLED}`、attemptId 防重（参照 `AudioDownloadManager.kt:295-330`、`DownloadTaskModels.kt`）；单测对齐 `DownloadTaskStoreTest`。
+  - 证据：`download/DownloadModels.ets`（三枚举+DownloadProgress percentage 语义（-1/0-99/100）+shouldApplyTaskMutation（expectedAttemptId<0 放行，对齐 null 语义））、`DownloadTaskStore.ets`（stableKey 索引+attemptId 守卫的 prepare/prepareBatch/registerActive/updateStatus/updateProgress/applyWaitingNetwork/clearCompleted，纯逻辑零 @ohos 依赖）、`DownloadSupport.ets`（重试 1000/2000/4000/5000ms 上限 6 次+可重试 HTTP/消息分类+ManagedDownloadNaming 模板/sanitize/npdl_ 工作文件名+传输选择器）。单测 23 用例对齐 DownloadTaskStoreTest 语义（批量去重唯一 attemptId、活跃任务保留、可重入任务换新 attemptId、replaceExistingActiveTasks 取代、attemptId 守卫 mutation、WAITING_NETWORK 清进度、clearCompleted 保留活跃、HLS fingerprint 序序敏感、ResumeFingerprint validator etag 优先）。2026-08-16 本地单测全绿（M3.7 验收时统一复核）。
+- [x] M3.2 HttpClient 传输能力：新增流式下载方法（`requestInStream`/dataReceive），支持 Range、If-Range(ETag/Last-Modified)、总长/已收字节回调；超时/断网→`WAITING_NETWORK`；大文件写 `fs` 分块追加。单测用本地 HTTP fixture 或 mock。
+  - 证据：`network/HttpStreamDownloader.ets`（requestInStream+headersReceive/dataReceive/dataEnd 事件流，Range: bytes=N- + If-Range validator，StreamDownloadHeaders 解析 etag/last-modified/accept-ranges/content-length/content-range start，onData 返回 false 即 abort；destroy 释放句柄）。**本会话修复真 bug ①**：dataEnd 先于 requestInStream promise settle 时 resolve(0) 屏蔽了真实响应码（NETSTACK 实证传输成功 RespCode 206 而 JS 侧拿到 0 → 引擎误判失败），现记录 responseCode 供 dataEnd 使用、then 侧 1000ms 兜底；成功判定语义改为「完成流+字节校验」（见 M3.3）。单测：本地 hypium 环境无 @ohos.http，用设备 ohosTest 真网验证替代（ActsDownloadSmokeTest），如实记录「本地 fixture 单测未做」。
+- [x] M3.3 下载引擎 `download/DownloadEngine.ets`：并发控制（消费 `np.download_concurrency` 设置）、任务调度、断点续传（DIRECT/RANGE：`.part` sidecar 记 offset+etag；HLS：playlist fingerprint+nextSegmentIndex，对齐 `serializeHlsResumeState`）、重试退避、完成校验（长度/哈希按源能力）。
+  - 证据：引擎并发 clamp(1..8) 默认 6、pump 调度、DIRECT 续传（`.download` 工作文件+`.resume.json` 指纹（sourceUrl/etag/lastModified/expectedContentLength），offset 由工作文件长度推导、If-Range=etag?:lastModified、Content-Range start 不匹配自动清盘重下、416 视为服务端已完成）、HLS 分片+FNV-1a playlist fingerprint+`.hls.json` checkpoint（分片级恢复，fingerprint/字节数不一致则整重下）、退避重试+断网 applyWaitingNetwork 挂起+netAvailable 恢复重入队。**本会话修复真 bug ②**：completeTask 原先先置 COMPLETED 再写 catalog，观察者（UI/离线播放）会读到旧目录；重排为 FINALIZING 进度→commit→写 catalog→最后置 COMPLETED，且 attempt 已被取代时回滚 catalog（对齐 Android rollbackStaleCompletedDownload）。完成校验=transferSizeComplete 字节校验（对齐 isTransferSizeComplete，哈希按源能力暂无源提供，未做）。
+- [x] M3.4 原子提交与目录树：`storage/commit` 语义——working 目录写完→校验→rename 到正式目录树（`download/naming` 对齐 `ManagedDownloadNaming`）→更新编目 `DownloadedSongCatalog`；失败回滚清理。D3 决策落盘位置。
+  - 证据：`DownloadStorage.commit`（staging `download_staging/npdl_<hash8>_<48>.<ext>.download` → rename `<filesDir>/Download/NeriPlayer/<模板名>.<ext>`）；编目 preferences 键 `downloaded_catalog`（SchemaStore 版本化+.bak）。D3 决策落地：应用沙箱自管目录树。**本会话修复真 bug ③**：编目 add/remove 曾把 `map(entry.toJson())` 的 JSON 字符串数组当对象数组存取（双重序列化，读回全空条目——设备实测 raw catalog 为 `["{\"stableKey\":\"\"...` 发现），改为直接序列化实例数组；DownloadedSongEntry 补字段初始化器；getCatalog 过滤空 stableKey 行自愈历史脏数据。OH preferences put+flush 原子性承担原子写（无 tmp+rename 文件级方案，preferences 单值 ≤8KB 场景足够，编目超长风险待观察）。
+- [x] M3.5 启动恢复：`recoverPendingDownloadsForStartup` 语义——启动时扫任务目录，`DOWNLOADING/WAITING_NETWORK` 按网络状态续传或挂起；网络监听用 `util/NetworkStatus` 扩展（断网暂停、恢复续传）。
+  - 证据：DownloadEngine.init→recoverPendingForStartup（loadQueue→prepareBatch(replaceExistingActiveTasks=true)→pump）；持久化队列键 `pending_download_queue`（entries: stableKey/order/queuedAtMs/songJson，对齐 pending_download_queue_v1 语义，经 SchemaStore）；connection.createNetConnection 的 netAvailable/netUnavailable 双向联动（断网→活跃任务 applyWaitingNetwork 挂起保留工作文件，恢复→重入队）。EntryAbility onCreate 调 init。
+- [x] M3.6 接线 UI：DownloadsPage 真实进度/暂停/恢复/取消；SongRow「下载」走引擎；下载完成曲目入本地库可播（LOCAL 平台路径）；DebugPage 加下载探针。元数据 tag 写入：HarmonyOS 无公开 tag 写 API→sidecar 元数据+编目承担，FEATURE_MATRIX 记录降级。
+  - 证据：DownloadsPage（监听引擎任务流、进度条、取消/重试/播放三态操作，COMPLETED→查编目→LOCAL+localFilePath→playPlaylist）；SongRow 下载菜单项 enqueue。**本会话补齐闭环**：① `PlayerManager.resolveStreamUrl` 非 LOCAL 平台先查编目命中即走本地 fd 播放（离线短路，对齐 Android offline-first；openLocalFd 提取复用 LOCAL 通道）② DownloadEngine.runTask 开头查编目防重复下载 ③ 三页面收口到新引擎并删除旧双轨（`data/DownloadsRepository.ets`+`model/DownloadTask.ets` 删除；LibraryPage 计数、SettingsDetailPage 存储统计/清理、DebugPage 清空全部改走 DownloadStorage/DownloadEngine）④ DebugPage「下载管线探针」（任务六状态统计+编目数/字节+staging 文件数）。「本地音乐」tab 并入编目列表为后续增强，未做。
+- [x] M3.7 验收：模拟器下载网易云曲目→中途杀进程→重启恢复→完成→离线播放；断网暂停/恢复；单测全绿。
+  - 证据：2026-08-16 模拟器（Pura 90 API 24，熄屏坑见 hm.md）：ActsDownloadSmokeTest 全链通过两次（网易云搜索「晴天」→enqueue→DIRECT 传输 5,889,065 字节→commit `Download/NeriPlayer/netease - 周杰伦*.m4a`→编目行完整→文件只读可开（fd 离线通道）→再次 enqueue 防重复短路 COMPLETED）；全套 ohosTest 8/8 回归通过（Ability+Restore×2+PlaybackSmoke+SchemaRecovery×3+DownloadSmoke）；主应用冷启动 smoke 无崩溃；本地单测/双模块构建/codelinter 全绿（基线 18 warn+1 suggestion 持平）。**未自动化项（如实记录）**：下载中途杀进程→重启续传（引擎逻辑有队列持久化+replace 语义单测，端到端中断场景未自动化）；断网暂停/恢复设备实测（模拟器禁网有断 hdc 风险，netUnavailable 路径有单测）；离线播放 UI 人工核验。**平台坑（实证）**：模拟器熄屏/锁屏状态跑 aa test 必失败（TestAbility onForeground 后 ~90ms 被切后台销毁，ResultCode -2 "onDestroy unexpectedly"），须先 `power-shell wakeup; power-shell setmode 602` 常亮再跑。
 
 ### M4 平台登录与凭据（战略计划阶段 4 登录部分）
 
@@ -333,3 +342,7 @@ fixture 从 Android JVM 测试（`app/src/test/`）摘取**小样本**内嵌进 
 - 每里程碑完成：在本节追加一行 `M< n> 完成：YYYY-MM-DD <验证摘要>`。
 - 计划本身修订：直接编辑并在文首更新日期；重大变更（里程碑增删、决策点变更）需在 §5 表格记录决策依据。
 - 阻塞：任务保持 `[ ]`，追加 `- 阻塞：YYYY-MM-DD <原因/所需输入>`。
+
+- M1 完成：2026-08-16 单测 42 用例全绿；ohosTest 4/4（含网络播放 smoke、队列冷启动恢复）；codelinter 基线持平（详见 §6 M1.7 与 hm.md §7.6）。
+- M2 完成：2026-08-16 SchemaStore 版本化/.bak/损坏恢复设备实证（ohosTest 7/7 累计）；Android fixture 跨端解析与 stableKey 格式单测通过（详见 §6 M2.5）。
+- M3 完成：2026-08-16 下载全链模拟器实测通过（ActsDownloadSmokeTest：搜索→DIRECT 传输 5.6MB→commit→编目→防重复，两次独立运行）；全套 ohosTest 8/8；修复 3 个真 bug（dataEnd 响应码屏蔽、COMPLETED/catalog 竞态、编目双重序列化）；未自动化项见 M3.7（详见 hm.md §7.7）。

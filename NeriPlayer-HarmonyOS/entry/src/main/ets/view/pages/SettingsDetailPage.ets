@@ -1,6 +1,7 @@
 import { promptAction } from '@kit.ArkUI';
 import { SettingsRepository } from '../../data/SettingsRepository';
-import { DownloadsRepository } from '../../data/DownloadsRepository';
+import { DownloadStorage } from '../../download/DownloadStorage';
+import { DownloadEngine } from '../../download/DownloadEngine';
 import { PlayerManager } from '../../player/PlayerManager';
 import { Theme } from '../Theme';
 import { SettingRow } from '../components/Ui';
@@ -67,10 +68,10 @@ export struct SettingsDetailPage {
   }
 
   async aboutToAppear(): Promise<void> {
-    const tasks = await DownloadsRepository.loadAll();
+    const catalog = await DownloadStorage.getCatalog();
     let bytes = 0;
-    for (const task of tasks) {
-      bytes += task.downloadedBytes;
+    for (const entry of catalog) {
+      bytes += DownloadStorage.fileSize(entry.audioPath);
     }
     this.cacheBytes = bytes;
   }
@@ -321,7 +322,7 @@ export struct SettingsDetailPage {
               subtitle: '清除已完成任务记录',
               icon: '🧹',
               onTap: async () => {
-                await DownloadsRepository.clearCompleted();
+                DownloadEngine.clearFinished();
                 promptAction.openToast({ message: '已清除已完成任务' });
                 await this.aboutToAppear();
               }

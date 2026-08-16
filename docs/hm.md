@@ -564,6 +564,17 @@ $hdc = 'D:\HarmonyOS\Tools\command-line-tools\sdk\default\openharmony\toolchains
   - hypium 1.0.28 不 await async beforeAll/it 钩子（beforeAll 内异步初始化不可靠，用例内自行 await 幂等 init）。
 - 未自动化（模拟器 UI 自动化不可行，待人工/真机复核）：搜索→播放 UI 全流程、双媒体竞争中断、熄屏 30 分钟长播、锁屏/控制中心封面显示。
 
+### 7.7 2026-08-16 M3 下载管线验证记录（Pura 90 模拟器，API 24）
+
+- ActsDownloadSmokeTest 两次通过：网易云搜索「晴天」→DownloadEngine.enqueue→DIRECT 传输 5,889,065 字节→commit 至 `<filesDir>/Download/NeriPlayer/netease - 周杰伦*.m4a`→编目完整→文件只读可开→再次 enqueue 防重复短路。全套 ohosTest 8/8（Ability+Restore×2+PlaybackSmoke+SchemaRecovery×3+DownloadSmoke）。
+- 主应用冷启动 smoke（含离线短路/双轨收口改动）无崩溃；本地单测通过（含 DownloadTaskStore 域 23 用例，两轮验证退出码 0）；entry@default/entry@ohosTest BUILD SUCCESSFUL；codelinter 18 warn+1 suggestion 与基线持平。
+- ohosTest HAP 签名：与 sign-local.ps1 相同的 hap-sign-tool sign-app 命令手动签 `entry-ohosTest-unsigned.hap`（复用 signing/ 材料+同一 UDID），debug profile 无模块限制，entry/entry_test 共用可行。
+- 平台事实（API 24 实证）：
+  - **模拟器熄屏/锁屏跑 aa test 必失败**：TestAbility onForeground 后 ~90ms 被切后台销毁，输出 `TestFinished-ResultCode: -2 TestAbility onDestroy unexpectedly!`，hypium 无任何用例执行痕迹（hilog 特征：完整 onCreate→onWindowStageCreate→onForeground→onBackground→onDestroy 链）。跑设备测试前必须 `hdc shell "power-shell wakeup; power-shell setmode 602"`（唤醒+常亮），锁屏时另加 uinput 上滑解锁。
+  - `http.requestInStream` 的 promise 与 dataEnd 事件时序不保证先后：传输成功（NETSTACK RespCode 206、字节完整）时 promise 可能晚于 dataEnd settle，若 dataEnd 固定 resolve(0) 会屏蔽真实响应码——流式下载成功判定应以「dataEnd 到达+接收字节校验」为准，响应码仅作错误分类（HttpStreamDownloader/DownloadEngine.transferSizeComplete 按此实现，对齐 Android isTransferSizeComplete）。
+  - ArkTS 类字段须有初始化器（`x: string = ''`）+ constructor 赋值后才可靠参与 JSON.stringify(this)；`JSON.stringify(arr.map(e => e.toJson()))` 会产生 JSON 字符串数组的双重序列化，按对象数组解析时静默退化为全空条目（下载编目 bug 根因，已修复并加空行自愈过滤）。
+- 未自动化（待复核）：下载中途杀进程→重启续传端到端（队列持久化+replace 恢复语义有单测）；断网暂停/恢复设备实测（模拟器禁网有断 hdc 风险，netUnavailable 路径有单测）；离线播放 UI 人工核验；编目单值超长（>8KB）场景。
+
 
 每次 SDK 或上游 Android 更新，都更新本文件的核验日期、版本矩阵、源码状态和测试结果。
 新增能力必须附官方页面 URL、适用 API、代码位置、验证设备、失败日志和降级方案。

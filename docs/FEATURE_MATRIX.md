@@ -23,7 +23,7 @@
 | YouTube Music | API、EJS/解析器 | `YouTubeMusicApi.ets` | 部分 | signature/n、PoToken、HLS、登录态 |
 | 歌词解析与同步 | lyric API/组件 | `LrcParser.ets`、`LyricView.ets` | 原型 | 双语、逐字、偏移、超长歌词性能 |
 | 本地媒体导入 | MediaStore/DocumentFile | `LocalMediaScanner.ets` | 原型 | READ_AUDIO 授权、真机元数据、失效 URI |
-| 下载与断点恢复 | `core/download` | 下载仓库/页面 | 未开始 | Range/HLS、校验、原子提交、空间不足 |
+| 下载与断点恢复 | `core/download` | `download/*.ets`、`network/HttpStreamDownloader.ets`、DownloadsPage | 部分 | 2026-08-16 全链落地并模拟器实测（搜索→下载 5.6MB→编目→防重复，ohosTest 8/8）：DIRECT Range/If-Range 续传、HLS checkpoint、重试退避、原子 commit、启动恢复、网络感知、离线播放短路、DebugPage 探针。断网暂停/恢复与杀进程中断恢复为单测覆盖、设备端未自动化；元数据 tag 写入降级为 sidecar 编目；空间不足处理未做 |
 | 分享/文件访问 | FileProvider | HarmonyOS 文件/分享能力 | 未开始 | URI 授权、外部应用、隐私沙箱 |
 | GitHub/WebDAV 同步 | `data/sync` | 待建 `sync` 层 | 未开始 | ETag、条件写、冲突合并、凭据存储 |
 | 平台登录 | auth activities/repositories | 待建 `auth` 层 | 未开始 | QR/Web/Cookie、安全存储、注销 |

@@ -48,6 +48,11 @@ export class HttpStreamDownloader {
       let received = 0;
       let headersSeen = false;
       let settled = false;
+      // Latest response code known from the requestInStream promise. dataEnd
+      // may fire before that promise settles, in which case the download
+      // resolves 0 ("completed, code not yet known") — callers must treat a
+      // completed stream as success and validate by received size instead.
+      let responseCode = 0;
       const finish = (fn: () => void): void => {
         if (settled) {
           return;
@@ -92,7 +97,7 @@ export class HttpStreamDownloader {
         }
       });
       request.on('dataEnd', () => {
-        finish(() => resolve(0));
+        finish(() => resolve(responseCode));
       });
       const header: Record<string, string> = {
         'User-Agent': HttpClient.DEFAULT_UA
@@ -109,10 +114,11 @@ export class HttpStreamDownloader {
         connectTimeout: timeoutMs,
         readTimeout: timeoutMs
       }).then((code: number) => {
+        responseCode = code;
         if (code >= 200 && code < 300) {
-          // dataEnd will settle the promise; guard against a stack that
-          // skips dataEnd.
-          setTimeout(() => finish(() => resolve(code)), 100);
+          // dataEnd normally settles the promise with the recorded code;
+          // this timeout only guards stacks that skip dataEnd.
+          setTimeout(() => finish(() => resolve(code)), 1000);
           return;
         }
         finish(() => resolve(code));
