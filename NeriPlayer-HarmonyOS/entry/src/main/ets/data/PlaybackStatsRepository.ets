@@ -1,4 +1,5 @@
 import { AppPreferences } from './AppPreferences';
+import { SchemaStore } from './schema/SchemaStore';
 
 /**
  * Per-track playback statistics with a bounded daily-bucket window,
@@ -42,7 +43,7 @@ export class PlaybackStatsRepository {
     }
     all.daily = trimmed;
     const json = JSON.stringify(all);
-    await AppPreferences.putString(PlaybackStatsRepository.KEY, json);
+    await SchemaStore.save(PlaybackStatsRepository.KEY, json, (value: string) => value);
   }
 
   static async getPlayCount(songKey: string): Promise<number> {
@@ -73,33 +74,30 @@ export class PlaybackStatsRepository {
     await AppPreferences.putString(PlaybackStatsRepository.KEY, '{}');
   }
 
-  private static async loadStats(): Promise<StatsRoot> {
-    const json = await AppPreferences.getString(PlaybackStatsRepository.KEY, '{}');
-    try {
-      const parsed = JSON.parse(json) as Record<string, Object>;
-      const root = new StatsRoot();
-      const tracks = parsed['tracks'] as Record<string, Object> | undefined;
-      if (tracks !== undefined) {
-        for (const key of Object.keys(tracks)) {
-          const raw = tracks[key] as Record<string, Object>;
-          const stats = new TrackStats();
-          stats.playCount = Number(raw['playCount'] ?? 0);
-          stats.listenMs = Number(raw['listenMs'] ?? 0);
-          stats.firstPlayedAt = Number(raw['firstPlayedAt'] ?? 0);
-          stats.lastPlayedAt = Number(raw['lastPlayedAt'] ?? 0);
-          root.tracks[key] = stats;
-        }
+  static parseJson(json: string): StatsRoot | null {
+    const parsed = JSON.parse(json) as Record<string, Object>;
+    const root = new StatsRoot();
+    const tracks = parsed['tracks'] as Record<string, Object> | undefined;
+    if (tracks !== undefined) {
+      for (const key of Object.keys(tracks)) {
+        const raw = tracks[key] as Record<string, Object>;
+        const stats = new TrackStats();
+        stats.playCount = Number(raw['playCount'] ?? 0);
+        stats.listenMs = Number(raw['listenMs'] ?? 0);
+        stats.firstPlayedAt = Number(raw['firstPlayedAt'] ?? 0);
+        stats.lastPlayedAt = Number(raw['lastPlayedAt'] ?? 0);
+        root.tracks[key] = stats;
       }
-      const daily = parsed['daily'] as Record<string, Record<string, number>> | undefined;
-      if (daily !== undefined) {
-        root.daily = daily;
-      }
-      return root;
-    } catch (error) {
-      const e = error as Error;
-      console.warn(`PlaybackStatsRepository.loadStats failed: ${e.message}`);
-      return new StatsRoot();
     }
+    const daily = parsed['daily'] as Record<string, Record<string, number>> | undefined;
+    if (daily !== undefined) {
+      root.daily = daily;
+    }
+    return root;
+  }
+
+  private static async loadStats(): Promise<StatsRoot> {
+    return SchemaStore.load<StatsRoot>(PlaybackStatsRepository.KEY, new StatsRoot(), PlaybackStatsRepository.parseJson);
   }
 
   private static dayKey(timeMs: number): string {

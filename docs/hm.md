@@ -550,6 +550,21 @@ $hdc = 'D:\HarmonyOS\Tools\command-line-tools\sdk\default\openharmony\toolchains
 
 ## 11. 维护规则
 
+### 7.6 2026-08-16 M1 播放核心补强验证记录（Pura 90 模拟器，API 24）
+
+- 本地单测 42 用例全绿（Lrc 3 + PersistedPlaybackState 5 + QueueEngine 21 + AudioInterruptPolicy 6 + SleepTimer 7），命令 `hvigorw.bat test --mode module -p product=default -p buildMode=debug --no-daemon`。
+- entry@default 与 entry@ohosTest 构建 BUILD SUCCESSFUL；codelinter 与基线持平（17 warn + 1 suggestion，另 2 条 await-seek warn 为存量）。
+- ohosTest 4/4（aa test）：ActsAbilityTest、ActsPlaybackStateRestoreTest×2（冷启动恢复队列+索引+位置+模式、损坏兜底）、ActsPlaybackSmokeTest（真实网络音频 `w3schools.com/html/horse.mp3`：initialized→prepared→audioInterruptMode=SHARE_MODE→playing→paused→release 全链通过，证明模拟器外网可达且 AVPlayer 中断模式可设置）。
+- 冷启动 + force-stop 重启恢复 smoke：两次启动均打出 `PlayerManager restored queue: 3 songs at index 1`（应用级 preferences 跨进程/跨模块共享，AppPreferences 已改 getApplicationContext）。
+- 平台事实（API 24 实证）：
+  - preferences 的 UIAbilityContext 指向模块级 `haps/<module>/preferences`，必须 `context.getApplicationContext()` 才是应用级共享文件；`AbilityDelegator.getAppContext()` 构造的 context 被 preferences 判 invalid（stageMode=false）。
+  - AVPlayer.on('audioInterrupt') 事件 `audio.InterruptEvent{hintType,forceType}`，SHARE_MODE 须在 prepared 后、首次 play 前设置；RESUME 恒为 SHARE 需应用主动 play（文档 https://developer.huawei.com/consumer/cn/doc/harmonyos-guides/audio-playback-concurrency）。
+  - `backgroundTaskManager.startBackgroundRunning` 在 API 24 必传 wantAgent（`(context, BackgroundMode, WantAgent)` 重载），权限 ohos.permission.KEEP_BACKGROUND_RUNNING；后台音频必须 AVSession + AUDIO_PLAYBACK 长时任务（https://developer.huawei.com/consumer/cn/doc/harmonyos-guides/avsession-background-scene）。
+  - AVSession off() 只接受字面量事件名；AVMetadata 封面字段为 mediaImage（string|PixelMap）。
+  - hypium 1.0.28 不 await async beforeAll/it 钩子（beforeAll 内异步初始化不可靠，用例内自行 await 幂等 init）。
+- 未自动化（模拟器 UI 自动化不可行，待人工/真机复核）：搜索→播放 UI 全流程、双媒体竞争中断、熄屏 30 分钟长播、锁屏/控制中心封面显示。
+
+
 每次 SDK 或上游 Android 更新，都更新本文件的核验日期、版本矩阵、源码状态和测试结果。
 新增能力必须附官方页面 URL、适用 API、代码位置、验证设备、失败日志和降级方案。
 

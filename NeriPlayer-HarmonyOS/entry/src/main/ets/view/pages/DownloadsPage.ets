@@ -1,43 +1,87 @@
-import { promptAction } from '@kit.ArkUI';
-import { DownloadTask, DownloadStatus } from '../../model/DownloadTask';
-import { DownloadsRepository } from '../../data/DownloadsRepository';
+import { DownloadEngine, DownloadEngineListener } from '../../download/DownloadEngine';
+import { DownloadStatus, DownloadTask } from '../../download/DownloadModels';
+import { DownloadStorage } from '../../download/DownloadStorage';
+import { PlayerManager } from '../../player/PlayerManager';
+import { SongItem } from '../../model/SongItem';
+import { MusicPlatform } from '../../model/MusicPlatform';
+import { stableKeyOf } from '../../model/SongIdentity';
 import { Theme } from '../Theme';
 import { EmptyState } from '../components/Ui';
 import { Router } from '../Router';
 
+class DownloadsListener implements DownloadEngineListener {
+  private page: WeakRef<DownloadsPage> | null = null;
+
+  attach(page: DownloadsPage): void {
+    this.page = new WeakRef<DownloadsPage>(page);
+  }
+
+  onTasksChanged(): void {
+    const target = this.page !== null ? this.page.deref() : undefined;
+    if (target !== undefined) {
+      target.tasks = DownloadEngine.getTasks().slice();
+    }
+  }
+}
+
 @Component
 export struct DownloadsPage {
   @State tasks: DownloadTask[] = [];
-  @State loaded: boolean = false;
+  private listener: DownloadsListener = new DownloadsListener();
 
-  async aboutToAppear(): Promise<void> {
-    await this.reload();
+  aboutToAppear(): void {
+    this.listener.attach(this);
+    DownloadEngine.addListener(this.listener);
+    this.tasks = DownloadEngine.getTasks().slice();
   }
 
-  private async reload(): Promise<void> {
-    this.tasks = await DownloadsRepository.loadAll();
-    this.loaded = true;
+  private statusLabel(task: DownloadTask): string {
+    switch (task.status) {
+      case DownloadStatus.QUEUED:
+        return '排队中';
+      case DownloadStatus.DOWNLOADING:
+        return task.progress !== null && task.progress.percentage() >= 0
+          ? `下载中 ${task.progress.percentage()}%` : '下载中';
+      case DownloadStatus.WAITING_NETWORK:
+        return '等待网络';
+      case DownloadStatus.COMPLETED:
+        return '已完成';
+      case DownloadStatus.FAILED:
+        return '失败';
+      default:
+        return '已取消';
+    }
   }
 
-  private statusLabel(status: DownloadStatus): string {
-    if (status === DownloadStatus.DOWNLOADING) {
-      return '下载中';
+  private actionLabel(task: DownloadTask): string {
+    if (task.status === DownloadStatus.QUEUED || task.status === DownloadStatus.DOWNLOADING) {
+      return '取消';
     }
-    if (status === DownloadStatus.COMPLETED) {
-      return '已完成';
+    if (task.status === DownloadStatus.WAITING_NETWORK || task.status === DownloadStatus.FAILED
+      || task.status === DownloadStatus.CANCELLED) {
+      return '重试';
     }
-    if (status === DownloadStatus.FAILED) {
-      return '失败';
-    }
-    if (status === DownloadStatus.PAUSED) {
-      return '已暂停';
-    }
-    return '等待中';
+    return '播放';
   }
 
-  private async removeTask(id: string): Promise<void> {
-    await DownloadsRepository.remove(id);
-    await this.reload();
+  private async onAction(task: DownloadTask): Promise<void> {
+    const key = stableKeyOf(task.song);
+    if (task.status === DownloadStatus.QUEUED || task.status === DownloadStatus.DOWNLOADING) {
+      DownloadEngine.cancel(key);
+      return;
+    }
+    if (task.status === DownloadStatus.COMPLETED) {
+      // Play the committed local file from the download catalog.
+      const entry = await DownloadStorage.findCatalogEntry(task.song);
+      if (entry !== null && entry.audioPath.length > 0) {
+        const local = SongItem.fromJson(task.song.toJson());
+        local.platform = MusicPlatform.LOCAL;
+        local.localFilePath = entry.audioPath;
+        PlayerManager.playPlaylist([local], 0);
+      }
+      return;
+    }
+    DownloadEngine.resume(key);
   }
 
   build() {
@@ -56,31 +100,17 @@ export struct DownloadsPage {
           .fontWeight(FontWeight.Bold)
           .fontColor(Theme.textPrimary(Theme.isDark()))
           .layoutWeight(1)
-        Button('清空')
+        Button('清空记录')
           .height(32)
           .fontSize(13)
           .backgroundColor(Theme.surface(Theme.isDark()))
           .fontColor(Theme.danger(Theme.isDark()))
-          .onClick(async () => {
-            await DownloadsRepository.clearAll();
-            await this.reload();
-            promptAction.openToast({ message: '已清空下载任务' });
-          })
+          .onClick(() => DownloadEngine.clearFinished())
       }
       .width('100%')
       .padding({ left: 8, right: 14, top: 8, bottom: 8 })
 
-      if (!this.loaded) {
-        Column() {
-          LoadingProgress()
-            .width(36)
-            .height(36)
-            .color(Theme.primary(Theme.isDark()))
-        }
-        .layoutWeight(1)
-        .width('100%')
-        .justifyContent(FlexAlign.Center)
-      } else if (this.tasks.length === 0) {
+      if (this.tasks.length === 0) {
         EmptyState({
           icon: '⤓',
           title: '暂无下载任务',
@@ -121,7 +151,7 @@ export struct DownloadsPage {
                   }
                 }
 
-                Column({ space: 3 }) {
+                Column({ space: 4 }) {
                   Text(task.song.displayName)
                     .fontSize(14)
                     .fontWeight(FontWeight.Medium)
@@ -129,43 +159,39 @@ export struct DownloadsPage {
                     .maxLines(1)
                     .textOverflow({ overflow: TextOverflow.Ellipsis })
                     .width('100%')
-                  Text(task.fileName)
+                  Text(this.statusLabel(task))
                     .fontSize(11)
-                    .fontColor(Theme.textDisabled(Theme.isDark()))
-                    .maxLines(1)
-                    .textOverflow({ overflow: TextOverflow.Ellipsis })
-                    .width('100%')
-                  Row({ space: 8 }) {
-                    Text(this.statusLabel(task.status))
-                      .fontSize(11)
-                      .fontColor(task.status === DownloadStatus.FAILED
-                        ? Theme.danger(Theme.isDark())
-                        : (task.status === DownloadStatus.COMPLETED
-                          ? Theme.success(Theme.isDark())
-                          : Theme.textSecondary(Theme.isDark())))
-                    if (task.status === DownloadStatus.DOWNLOADING || task.status === DownloadStatus.PAUSED) {
-                      Text(`${task.progressPercent}%`)
-                        .fontSize(11)
-                        .fontColor(Theme.textSecondary(Theme.isDark()))
-                    }
+                    .fontColor(task.status === DownloadStatus.FAILED
+                      ? Theme.danger(Theme.isDark())
+                      : (task.status === DownloadStatus.COMPLETED
+                        ? Theme.success(Theme.isDark())
+                        : Theme.textSecondary(Theme.isDark())))
+                  if (task.status === DownloadStatus.DOWNLOADING && task.progress !== null
+                    && task.progress.percentage() >= 0) {
+                    Progress({ value: task.progress.percentage(), total: 100, type: ProgressType.Linear })
+                      .height(4)
+                      .width('100%')
+                      .color(Theme.primary(Theme.isDark()))
                   }
                 }
                 .layoutWeight(1)
                 .alignItems(HorizontalAlign.Start)
 
-                Button('删除')
+                Button(this.actionLabel(task))
                   .height(30)
                   .fontSize(12)
                   .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
-                  .fontColor(Theme.danger(Theme.isDark()))
-                  .onClick(() => this.removeTask(task.id))
+                  .fontColor(Theme.textPrimary(Theme.isDark()))
+                  .onClick(() => {
+                    this.onAction(task);
+                  })
               }
               .width('100%')
               .padding(10)
               .backgroundColor(Theme.surface(Theme.isDark()))
               .borderRadius(Theme.cardRadius())
             }
-          }, (task: DownloadTask) => task.id)
+          }, (task: DownloadTask) => `${stableKeyOf(task.song)}:${task.attemptId}`)
         }
         .layoutWeight(1)
         .scrollBar(BarState.Off)

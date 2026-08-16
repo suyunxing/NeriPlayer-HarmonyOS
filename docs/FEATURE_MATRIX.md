@@ -11,13 +11,13 @@
 | --- | --- | --- | --- | --- |
 | 启动/免责声明/引导 | `core/startup`、相关 UI | `pages/Index.ets`、启动页面 | 原型 | 冷启动、升级、崩溃恢复状态测试 |
 | 主导航与多设备布局 | `navigation`、`ui/screen` | `view/Router.ets`、`MainShell.ets` | 原型 | phone/tablet/2in1 断点与返回栈 |
-| 歌曲/歌单/稳定键 | `data/model`、本地歌单 | `model`、`data` | 部分 | 用 Android fixture 做跨端序列化契约测试 |
-| 设置/历史/统计 | DataStore 与仓库 | preferences 仓库 | 原型 | 版本迁移、并发写、损坏恢复 |
-| AVPlayer 基础播放 | Media3/ExoPlayer 服务 | `player/PlayerManager.ets` | 待复核 | 本地/HTTP/HLS、seek、切源、耳机事件 |
-| 播放队列/随机/循环 | 播放策略模块 | PlayerManager/QueueState | 原型 | 确定性队列状态机测试 |
-| AVSession/系统控制 | MediaSession | `AVSessionManager.ets` | 原型 | 锁屏、耳机、控制中心、应用被杀 |
-| 后台连续播放 | 前台服务 | 后台任务 + audioPlayback | 原型 | 权限拒绝、熄屏、长时运行、系统回收 |
-| 音频焦点/中断 | audio focus 策略 | 待完善 | 未开始 | 来电、导航播报、其他播放器竞争 |
+| 歌曲/歌单/稳定键 | `data/model`、本地歌单 | `model`、`data` | 部分 | 2026-08-16 stableKey 对齐测试+本地歌身份缺陷修复；Android fixture 跨端解析（历史/歌单）已测；「从 Android 导入」UI 入口待建 |
+| 设置/历史/统计 | DataStore 与仓库 | preferences 仓库 | 部分 | 2026-08-16 SchemaStore 版本化+.bak 备份+损坏恢复（ohosTest 实证）；写防抖；Android 统计格式导入待补 |
+| AVPlayer 基础播放 | Media3/ExoPlayer 服务 | `player/PlayerManager.ets` | 部分 | 2026-08-16 ohosTest 实测网络音频 initialized→prepared→playing→paused→release 全链；seek/切源/耳机事件待复核 |
+| 播放队列/随机/循环 | 播放策略模块 | PlayerManager/QueueEngine | 部分 | 队列+位置+模式跨冷启动恢复与纯队列状态机（shuffle bag/history/future、种子化随机、remap）已有单测+ohosTest+模拟器实证（2026-08-16）；「下一首播放」插入/拖拽排序的 UI 接线待后续里程碑 |
+| AVSession/系统控制 | MediaSession | `AVSessionManager.ets` | 部分 | 2026-08-16 补封面/时长/全状态映射/loop/speed 命令与 release 清理；锁屏/控制中心人工核验待复核 |
+| 后台连续播放 | 前台服务 | 后台任务 + audioPlayback | 部分 | 2026-08-16 改为真实 AUDIO_PLAYBACK 长时任务申请/取消；熄屏长播 smoke 待复核 |
+| 音频焦点/中断 | audio focus 策略 | `AudioInterruptPolicy.ets` | 部分 | 2026-08-16 瞬态/永久/duck/设备拔出策略+接线+6 单测；双媒体竞争真机验证待复核 |
 | 网易云搜索/歌词/取流 | `core/api/netease` | `network/Netease*.ets` | 原型 | 登录态、风控、限流、会员内容 |
 | Bilibili 搜索/取流 | `core/api/bili` | `network/BiliApi.ets` | 原型 | DASH 格式、Cookie、区域/权限错误 |
 | YouTube Music | API、EJS/解析器 | `YouTubeMusicApi.ets` | 部分 | signature/n、PoToken、HLS、登录态 |

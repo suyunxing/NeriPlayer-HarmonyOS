@@ -1,6 +1,7 @@
 import { Logger } from '../app/Logger';
 import { SongItem } from '../model/SongItem';
 import { MusicPlatform } from '../model/MusicPlatform';
+import { SettingsRepository } from '../data/SettingsRepository';
 import { BiliApi } from './BiliApi';
 import { NeteaseApi } from './NeteaseApi';
 import { YouTubeMusicApi } from './YouTubeMusicApi';
@@ -47,8 +48,41 @@ export class StreamResolver {
   }
 
   /**
-   * Future: NetEase auto source switch — score Bilibili candidates by title,
-   * artist, duration and pick the best fallback (PlayerManagerNeteaseAutoSourceSwitch).
+   * NetEase auto source switch (PlayerManagerNeteaseAutoSourceSwitch):
+   * when the Netease stream is unplayable and the setting is enabled,
+   * search Bilibili for candidates and fall back to the best match.
+   * A successful fallback URL is cached on the song for later resolves.
+   */
+  static async resolveWithNeteaseAutoFallback(song: SongItem): Promise<string> {
+    const direct = await StreamResolver.resolve(song);
+    if (direct.length > 0) {
+      return direct;
+    }
+    if (song.platform !== MusicPlatform.NETEASE) {
+      return '';
+    }
+    if (!SettingsRepository.getBoolean(SettingsRepository.KEY_NETEASE_AUTO_FALLBACK, true)) {
+      return '';
+    }
+    try {
+      const keyword = `${song.displayName} ${song.displayArtist}`.trim();
+      const candidates = await BiliApi.search(keyword, 10);
+      const url = await StreamResolver.resolveNeteaseFallback(song, candidates);
+      if (url.length > 0) {
+        song.streamUrl = url;
+        Logger.info(`StreamResolver: netease auto-fallback matched a bilibili source for ${song.displayName}`);
+      }
+      return url;
+    } catch (error) {
+      const e = error as Error;
+      Logger.warn(`StreamResolver netease auto-fallback failed: ${e.message}`);
+      return '';
+    }
+  }
+
+  /**
+   * Scores Bilibili candidates by title and duration and resolves the best
+   * fallback (PlayerManagerNeteaseAutoSourceSwitch).
    */
   static async resolveNeteaseFallback(song: SongItem, candidates: SongItem[]): Promise<string> {
     Logger.debug('StreamResolver.resolveNeteaseFallback: auto source switch not wired to UI yet');
