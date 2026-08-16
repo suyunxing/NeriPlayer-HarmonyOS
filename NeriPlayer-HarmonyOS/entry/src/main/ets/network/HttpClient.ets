@@ -1,6 +1,12 @@
 import { http } from '@kit.NetworkKit';
 import { Logger } from '../app/Logger';
 
+export class HttpFormResult {
+  text: string = '';
+  responseCode: number = 0;
+  headerText: string = '';
+}
+
 /**
  * Shared HTTP client (equivalent of the shared OkHttpClient in the Android app).
  */
@@ -126,6 +132,60 @@ export class HttpClient {
     }
   }
 
+  /**
+   * POST form returning body text AND the raw response header text (callers
+   * need specific headers such as NetEase x-refresh-token during QR login).
+   */
+  static async postFormDetailed(
+    url: string,
+    form: Record<string, string>,
+    timeoutMs: number = 15000,
+    extraHeaders: Record<string, string> = {},
+    useCookies: boolean = false
+  ): Promise<HttpFormResult> {
+    const request = http.createHttp();
+    try {
+      const header: Record<string, string> = {
+        'User-Agent': HttpClient.DEFAULT_UA,
+        'Content-Type': 'application/x-www-form-urlencoded'
+      };
+      for (const key of Object.keys(extraHeaders)) {
+        header[key] = extraHeaders[key];
+      }
+      if (useCookies) {
+        HttpClient.applyCookieHeader(url, header);
+      }
+      const response = await request.request(url, {
+        method: http.RequestMethod.POST,
+        header: header,
+        extraData: HttpClient.encodeForm(form),
+        connectTimeout: timeoutMs,
+        readTimeout: timeoutMs,
+        expectDataType: http.HttpDataType.STRING
+      });
+      const code = response.responseCode;
+      const text = response.result as string;
+      const headerText = typeof response.header === 'string' ? response.header : JSON.stringify(response.header ?? '');
+      if (useCookies) {
+        HttpClient.captureCookies(url, headerText);
+      }
+      if (code < 200 || code >= 300) {
+        throw new Error(`HTTP ${code} for POST ${url}`);
+      }
+      const result = new HttpFormResult();
+      result.text = text;
+      result.responseCode = code;
+      result.headerText = headerText;
+      return result;
+    } catch (error) {
+      const e = error as Error;
+      Logger.warn(`HttpClient.postFormDetailed failed: ${e.message}`);
+      throw e;
+    } finally {
+      request.destroy();
+    }
+  }
+
   private static encodeForm(form: Record<string, string>): string {
     const parts: string[] = [];
     for (const key of Object.keys(form)) {
@@ -137,6 +197,33 @@ export class HttpClient {
   static getCookies(url: string): string {
     const host = HttpClient.hostOf(url);
     return HttpClient.cookies[host] ?? '';
+  }
+
+  /** Removes a single cookie by name from the jar entry of this URL's host. */
+  static removeCookie(url: string, name: string): void {
+    const host = HttpClient.hostOf(url);
+    const existing = HttpClient.cookies[host] ?? '';
+    if (existing.length === 0) {
+      return;
+    }
+    const merged: Record<string, string> = {};
+    for (const pair of existing.split(';')) {
+      const trimmed = pair.trim();
+      const eq = trimmed.indexOf('=');
+      if (eq > 0 && trimmed.substring(0, eq) !== name) {
+        merged[trimmed.substring(0, eq)] = trimmed.substring(eq + 1);
+      }
+    }
+    const parts: string[] = [];
+    for (const key of Object.keys(merged)) {
+      parts.push(`${key}=${merged[key]}`);
+    }
+    HttpClient.cookies[host] = parts.join('; ');
+  }
+
+  /** Clears the whole jar entry for this URL's host (logout). */
+  static clearCookies(url: string): void {
+    HttpClient.cookies[HttpClient.hostOf(url)] = '';
   }
 
   static seedCookies(url: string, cookieHeader: string): void {

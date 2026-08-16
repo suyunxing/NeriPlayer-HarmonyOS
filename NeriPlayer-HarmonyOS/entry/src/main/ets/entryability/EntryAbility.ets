@@ -5,6 +5,7 @@ import { SettingsRepository } from '../data/SettingsRepository';
 import { PlayerManager } from '../player/PlayerManager';
 import { AVSessionManager } from '../player/AVSessionManager';
 import { DownloadEngine } from '../download/DownloadEngine';
+import { NeteaseCookieRepository } from '../data/auth/NeteaseCookieRepository';
 import { SystemBars } from '../util/SystemBars';
 
 const TAG: string = 'EntryAbility';
@@ -18,6 +19,7 @@ export default class EntryAbility extends UIAbility {
     AppStorage.setOrCreate('systemDark', false);
     PlayerManager.initialize(this.context);
     DownloadEngine.init(this.context);
+    NeteaseCookieRepository.init();
   }
 
   onDestroy(): void {
