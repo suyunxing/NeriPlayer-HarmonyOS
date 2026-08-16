@@ -9,6 +9,7 @@ import { QueueState } from '../model/QueueState';
 import { MusicPlatform } from '../model/MusicPlatform';
 import { stableKeyOf } from '../model/SongIdentity';
 import { StreamResolver } from '../network/StreamResolver';
+import { DownloadStorage } from '../download/DownloadStorage';
 import { HistoryRepository } from '../data/HistoryRepository';
 import { PlaybackStatsRepository } from '../data/PlaybackStatsRepository';
 import { PlaybackStateRepository } from '../data/PlaybackStateRepository';
@@ -456,25 +457,39 @@ export class PlayerManager {
   }
 
   private static async resolveStreamUrl(song: SongItem): Promise<string> {
-    if (song.platform === MusicPlatform.LOCAL) {
-      const uri = song.localFilePath.length > 0 ? song.localFilePath : song.mediaUri;
-      if (uri.length === 0) {
-        return '';
+    if (song.platform !== MusicPlatform.LOCAL) {
+      // A completed download short-circuits network resolution so catalog
+      // tracks stay playable offline (Android offline-first semantics).
+      const downloaded = await DownloadStorage.findCatalogEntry(song);
+      if (downloaded !== null) {
+        const localUrl = PlayerManager.openLocalFd(downloaded.audioPath);
+        if (localUrl.length > 0) {
+          return localUrl;
+        }
       }
-      try {
-        PlayerManager.closeLocalFile();
-        const file = fileIo.openSync(uri, fileIo.OpenMode.READ_ONLY);
-        PlayerManager.localFile = file;
-        return `fd://${file.fd}`;
-      } catch (error) {
-        const e = error as Error;
-        Logger.warn(`open local audio fd failed: ${e.message}`);
-        return '';
-      }
+      // NetEase songs fall back to a matched Bilibili source when the direct
+      // stream is unavailable and the setting is on.
+      return StreamResolver.resolveWithNeteaseAutoFallback(song);
     }
-    // NetEase songs fall back to a matched Bilibili source when the direct
-    // stream is unavailable and the setting is on.
-    return StreamResolver.resolveWithNeteaseAutoFallback(song);
+    const uri = song.localFilePath.length > 0 ? song.localFilePath : song.mediaUri;
+    return PlayerManager.openLocalFd(uri);
+  }
+
+  /** Opens a sandbox audio file for AVPlayer; '' when unreadable. */
+  private static openLocalFd(uri: string): string {
+    if (uri.length === 0) {
+      return '';
+    }
+    try {
+      PlayerManager.closeLocalFile();
+      const file = fileIo.openSync(uri, fileIo.OpenMode.READ_ONLY);
+      PlayerManager.localFile = file;
+      return `fd://${file.fd}`;
+    } catch (error) {
+      const e = error as Error;
+      Logger.warn(`open local audio fd failed: ${e.message}`);
+      return '';
+    }
   }
 
   private static closeLocalFile(): void {

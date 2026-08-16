@@ -68,10 +68,12 @@ export class HlsResumeState {
 
 /** Catalog entry for a committed download. */
 export class DownloadedSongEntry {
-  stableKey: string;
-  audioPath: string;
-  songJson: string;
-  committedAt: number;
+  // Field initializers are required: ArkTS JSON.stringify of a class
+  // instance without them serializes type defaults, not constructor values.
+  stableKey: string = '';
+  audioPath: string = '';
+  songJson: string = '';
+  committedAt: number = 0;
 
   constructor(stableKey: string, audioPath: string, songJson: string, committedAt: number) {
     this.stableKey = stableKey;
@@ -177,6 +179,15 @@ export class DownloadStorage {
     }
   }
 
+  /** Number of files (audio + sidecars) parked in the staging directory. */
+  static stagingFileCount(): number {
+    try {
+      return fileIo.listFileSync(DownloadStorage.stagingDir()).length;
+    } catch (error) {
+      return 0;
+    }
+  }
+
   /** Appends a chunk to the working file, creating it when absent. */
   static appendChunk(workingPath: string, chunk: ArrayBuffer): number {
     try {
@@ -242,7 +253,10 @@ export class DownloadStorage {
     const key = stableKeyOf(song);
     const next = entries.filter((entry: DownloadedSongEntry) => entry.stableKey !== key);
     next.push(new DownloadedSongEntry(key, audioPath, song.toJson(), Date.now()));
-    const json = JSON.stringify(next.map((entry: DownloadedSongEntry) => entry.toJson()));
+    // Serialize the instances directly: mapping through toJson() first would
+    // double-encode rows as a JSON string array, which getCatalog's object
+    // parser then degrades into all-empty entries.
+    const json = JSON.stringify(next);
     await SchemaStore.save('downloaded_catalog', json, (value: string) => value);
   }
 
@@ -254,7 +268,11 @@ export class DownloadStorage {
       }
       const entries: DownloadedSongEntry[] = [];
       for (const raw of rawList) {
-        entries.push(DownloadedSongEntry.fromRecord(raw as Record<string, Object>));
+        const entry = DownloadedSongEntry.fromRecord(raw as Record<string, Object>);
+        // Drop entries written before the serializer fix (all-empty rows).
+        if (entry.stableKey.length > 0) {
+          entries.push(entry);
+        }
       }
       return entries;
     });
@@ -275,7 +293,7 @@ export class DownloadStorage {
     const key = stableKeyOf(song);
     const entries = await DownloadStorage.getCatalog();
     const next = entries.filter((entry: DownloadedSongEntry) => entry.stableKey !== key);
-    const json = JSON.stringify(next.map((entry: DownloadedSongEntry) => entry.toJson()));
+    const json = JSON.stringify(next);
     await SchemaStore.save('downloaded_catalog', json, (value: string) => value);
   }
 

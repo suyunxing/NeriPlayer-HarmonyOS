@@ -127,6 +127,13 @@ export class DownloadEngine {
     DownloadEngine.notifyChanged();
   }
 
+  /** Debug/reset path: drops every task regardless of status (files stay). */
+  static clearAllTasks(): void {
+    DownloadEngine.store.clearAll();
+    DownloadEngine.persistQueue();
+    DownloadEngine.notifyChanged();
+  }
+
   // ----------------------------------------------------------------------
   // Scheduling
   // ----------------------------------------------------------------------
@@ -168,6 +175,15 @@ export class DownloadEngine {
     const songKey = stableKeyOf(task.song);
     DownloadEngine.store.registerActive(songKey, task.attemptId);
     DownloadEngine.notifyChanged();
+
+    // Already in the catalog with a readable file: skip re-transferring.
+    const cached = await DownloadStorage.findCatalogEntry(task.song);
+    if (cached !== null && DownloadStorage.fileSize(cached.audioPath) > 0) {
+      DownloadEngine.store.updateStatus(songKey, task.attemptId, DownloadStatus.COMPLETED);
+      DownloadEngine.persistQueue();
+      DownloadEngine.notifyChanged();
+      return;
+    }
 
     let url = '';
     try {
@@ -244,7 +260,7 @@ export class DownloadEngine {
             const progress = new DownloadProgress();
             progress.attemptId = task.attemptId;
             progress.stage = DownloadStage.TRANSFERRING;
-            progress.bytesRead = received;
+            progress.bytesRead = resumeStart + received;
             const current = DownloadEngine.store.getTask(songKey);
             progress.totalBytes = current !== null && current.progress !== null
               ? current.progress.totalBytes
@@ -262,9 +278,15 @@ export class DownloadEngine {
           // Already complete on the server side.
           await DownloadEngine.completeTask(songKey, task.attemptId, task.song, workingPath, ext);
           return;
-        } else if (code === 206 || (code >= 200 && code < 300)) {
-          await DownloadEngine.completeTask(songKey, task.attemptId, task.song, workingPath, ext);
-          return;
+        } else if (code === 0 || code === 206 || (code >= 200 && code < 300)) {
+          // code 0: the stream completed via dataEnd before the response
+          // code settled — validate by received size (Android
+          // isTransferSizeComplete semantics) instead of trusting the code.
+          if (DownloadEngine.transferSizeComplete(songKey, workingPath)) {
+            await DownloadEngine.completeTask(songKey, task.attemptId, task.song, workingPath, ext);
+            return;
+          }
+          failure = 'incomplete transfer';
         } else if (!DownloadRetryPolicy.isRetryableHttpError(code)) {
           await DownloadEngine.failTask(songKey, task.attemptId, task.song, `HTTP ${code}`);
           return;
@@ -280,7 +302,8 @@ export class DownloadEngine {
       }
       // Retryable failure: back off, or park on network loss.
       if (!DownloadRetryPolicy.isRetryableMessage(failure)
-        && !failure.startsWith('HTTP') && !failure.startsWith('restart')) {
+        && !failure.startsWith('HTTP') && !failure.startsWith('restart')
+        && !failure.startsWith('incomplete')) {
         await DownloadEngine.failTask(songKey, task.attemptId, task.song, failure);
         return;
       }
@@ -372,16 +395,31 @@ export class DownloadEngine {
   private static async completeTask(
     songKey: string, attemptId: number, song: SongItem, workingPath: string, ext: string
   ): Promise<void> {
-    if (!DownloadEngine.store.updateStatus(songKey, attemptId, DownloadStatus.COMPLETED)) {
-      DownloadStorage.deleteWorkingSet(workingPath);
-      return;
-    }
+    // Finalize first, flip to COMPLETED last: observers (UI, offline
+    // playback) treat COMPLETED as "catalog row already visible" — the same
+    // ordering as Android finalizeCompletedDownload.
+    const finalizing = new DownloadProgress();
+    finalizing.attemptId = attemptId;
+    finalizing.stage = DownloadStage.FINALIZING;
+    finalizing.bytesRead = DownloadStorage.fileSize(workingPath);
+    finalizing.totalBytes = finalizing.bytesRead;
+    DownloadEngine.store.updateProgress(songKey, attemptId, finalizing);
+    DownloadEngine.notifyChanged();
+
     const finalPath = DownloadStorage.commit(song, workingPath, ext);
     if (finalPath.length === 0) {
       DownloadEngine.store.updateStatus(songKey, attemptId, DownloadStatus.FAILED);
+      DownloadEngine.notifyChanged();
       return;
     }
     await DownloadStorage.addCatalogEntry(song, finalPath);
+    if (!DownloadEngine.store.updateStatus(songKey, attemptId, DownloadStatus.COMPLETED)) {
+      // The attempt was superseded while finalizing: roll the catalog back
+      // (Android rollbackStaleCompletedDownload semantics; the orphan file
+      // stays on disk until the user clears storage).
+      await DownloadStorage.removeCatalogEntry(song);
+      return;
+    }
     DownloadEngine.persistQueue();
     DownloadEngine.notifyChanged();
     Logger.info(`DownloadEngine: completed ${song.displayName} -> ${finalPath}`);
@@ -396,6 +434,21 @@ export class DownloadEngine {
 
   private static isCancelled(songKey: string, attemptId: number): boolean {
     return !DownloadEngine.store.isAttemptActive(songKey, attemptId);
+  }
+
+  /**
+   * Size validation for a finished transfer: positive local size, and when
+   * the source advertised a total, the file must reach it (Android
+   * isTransferSizeComplete).
+   */
+  private static transferSizeComplete(songKey: string, workingPath: string): boolean {
+    const size = DownloadStorage.fileSize(workingPath);
+    if (size <= 0) {
+      return false;
+    }
+    const task = DownloadEngine.store.getTask(songKey);
+    const expected = task !== null && task.progress !== null ? task.progress.totalBytes : -1;
+    return expected <= 0 || size >= expected;
   }
 
   private static guessExtension(url: string): string {
