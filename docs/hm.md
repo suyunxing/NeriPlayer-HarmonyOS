@@ -435,6 +435,24 @@ $hdc = 'D:\HarmonyOS\Tools\command-line-tools\sdk\default\openharmony\toolchains
 本轮发现并已解决的阻塞：① 用户级 PATH 与 `DEVECO_SDK_HOME` 等三个环境变量残留迁移前旧路径（已修）；② DevEco 26 Beta2 的 hvigor 不能构建 6.1.1(24) 工程（构建固定走 CLT hvigorw，26 Studio 仅提供 jbr java）；③ `sign-local.ps1` 加入中文注释后因 PowerShell 5.1 按 GBK 解析无 BOM UTF-8 而静默失效（仓库 `.ps1` 必须纯 ASCII，已写入 AGENTS.md）；④ 调试密钥旧口令未知（已用 SDK stock 密钥对重加密为新 33 位口令，存用户级 `NERIPLAYER_SIGNING_PASSWORD`，原文件有备份）。
 仍未就绪：API 26 模拟器镜像未下载（鸿蒙 7.0 设备侧验证需先在 SDK Manager 补齐）；真机测试未执行。
 
+### 7.8 2026-08-17 M4.1/M4.2 平台登录与凭据验证记录（Pura 90 模拟器，API 24）
+
+| 项 | 结果 |
+| --- | --- |
+| entry@default / entry@ohosTest 构建 | 双 BUILD SUCCESSFUL（CLT hvigorw 6.24.4） |
+| 本地单测 `hvigorw test` | 全绿（存量 42 + QrEncoder 5 + NeteaseAuth 7 = 54 用例） |
+| codelinter | 18 warn + 1 suggestion，与基线持平，0 error，新增文件零缺陷 |
+| 模拟器 ohosTest（全套） | **14/14**（原 8 + 新增 ActsCredentialStoreTest 3 + ActsNeteaseCookieRepositoryTest 2 + ActsNeteaseQrLoginTest 1） |
+| 主应用冷启动 | force-stop 后 aa start 存活（EntryAbility 接 NeteaseCookieRepository.init() 无崩溃） |
+
+要点与坑：
+
+- **`@ohos.security.asset` 在 API 24 模拟器可用**：ActsCredentialStoreTest 实证 put→get→remove 往返与 backendName='asset'（add 用 CONFLICT_RESOLUTION=OVERWRITE 免 update 分支；query 用 RETURN_TYPE=ALL 取 SECRET Uint8Array 后 `util.TextDecoder.decodeToString`）。降级链路已实现但本环境未触发：服务不可用类错误码（24000001/10/11/12/13/17）→ 会话内存（设置页显示 backend 状态），明文 preferences 存凭据被红线禁止。
+- **QR 生成器**（`util/QrEncoder.ets`，字节模式/ECC M/v1-10）：与 segno 参考实现字节级对齐是唯一验收标准。调试中确认的规范细节：v1 无定位图案；定位中心表 `ALIGNMENT_POS[version-2]`（v3=(6,22) 而非 (6,26)）；格式信息必须先于数据放置（否则数据位占用格式区）；segno `make()` 默认 `boost_error=True` 会静默升纠错级（夹具必须 `boost_error=False`）；码字流整字节对齐时 segno 补一个 0x00 再开始 EC/11 交替；自动掩码评分须在格式/版本信息未写入（视为亮）的矩阵上进行。4 夹具（v1/v3/v9/v10）+152 组合扫描+10 自动掩码载荷全部一致（开发用 Node 原型验证后转录）。
+- **QR 登录真网 smoke**：createSession（weapi /weapi/login/qrcode/unikey）→ qrContent 含 codekey；checkLogin（/weapi/login/qrcode/client/login）对未扫码的 fresh key 返回 801。803 确认路径（jar cookie 经 /weapi/w/nuser/account/get 校验 + x-refresh-token 头兜底种 MUSIC_U）需真机扫码，未自动化。
+- **ohosTest HAP 手动签名**（复用 §7.7 结论）：sign-local.ps1 生成 signing/ 材料后，对 `entry-ohosTest-unsigned.hap` 用相同 hap-sign-tool sign-app 命令（本记录实测 `-compatibleVersion 9`）签名安装即可。
+- 模拟器跑 aa test 前仍须 `power-shell wakeup; power-shell setmode 602`（§7.7 坑）。
+
 ## 8. 测试计划
 
 ### 8.1 纯逻辑测试

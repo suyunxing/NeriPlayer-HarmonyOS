@@ -4,6 +4,7 @@ import { SongItem } from '../model/SongItem';
 import { MusicPlatform } from '../model/MusicPlatform';
 import { HttpClient } from './HttpClient';
 import { NeteaseCrypto } from './NeteaseCrypto';
+import { NeteaseCookieRepository } from '../data/auth/NeteaseCookieRepository';
 
 interface NeteaseArtist {
   name: string;
@@ -111,6 +112,9 @@ export class NeteaseApi {
   }
 
   private static async doEnsureSession(): Promise<void> {
+    // Login cookies (MUSIC_U etc.) go into the jar before the homepage GET so
+    // the server sees the authenticated session and re-issues __csrf.
+    NeteaseCookieRepository.seedHttpClient();
     try {
       await HttpClient.getText(`${Constants.NETEASE_BASE}/`, NeteaseApi.headers(), 15000, true);
     } catch (error) {
@@ -119,8 +123,13 @@ export class NeteaseApi {
     }
     // The web client always carries these two cookies, even when logged out.
     HttpClient.seedCookies(`${Constants.NETEASE_BASE}/`, 'os=pc; appver=8.10.35');
-    Logger.info(`netease session cookies: ${HttpClient.getCookies(`${Constants.NETEASE_BASE}/`)}`);
     NeteaseApi.sessionReady = true;
+  }
+
+  /** Forces the next request to re-establish the weapi session. */
+  static resetSession(): void {
+    NeteaseApi.sessionReady = false;
+    NeteaseApi.sessionPromise = null;
   }
 
   private static async weapiUrl(path: string): Promise<string> {
@@ -260,6 +269,22 @@ export class NeteaseApi {
   }
 
   private static async requestSongUrl(id: number, level: string): Promise<string> {
+    let response = await NeteaseApi.callSongUrl(id, level);
+    // Logged-in flow hitting a 301 ("not logged in"): refresh the weapi
+    // session (re-seed MUSIC_U, fetch a fresh __csrf) and retry once,
+    // mirroring Android getSongDownloadUrl.
+    if (response.code === 301 && NeteaseCookieRepository.isLoggedIn()) {
+      Logger.warn(`NeteaseApi song url got 301 while logged in, refreshing session`);
+      NeteaseApi.resetSession();
+      response = await NeteaseApi.callSongUrl(id, level);
+    }
+    if (response.data !== undefined && response.data.length > 0) {
+      return response.data[0].url ?? '';
+    }
+    return '';
+  }
+
+  private static async callSongUrl(id: number, level: string): Promise<NeteaseUrlResponse> {
     const payload: Record<string, Object> = {};
     payload['ids'] = `[${id}]`;
     payload['level'] = level;
@@ -274,10 +299,10 @@ export class NeteaseApi {
       true
     );
     const response = JSON.parse(text) as NeteaseUrlResponse;
-    if (response.data !== undefined && response.data.length > 0) {
-      return response.data[0].url ?? '';
+    if (response.code === undefined) {
+      response.code = -1;
     }
-    return '';
+    return response;
   }
 
   private static async fetchSongDetail(ids: number[]): Promise<NeteaseSong[]> {
