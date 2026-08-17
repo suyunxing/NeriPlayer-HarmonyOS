@@ -8,9 +8,13 @@ import { DownloadStorage } from '../../download/DownloadStorage';
 import { PlaybackStatsRepository } from '../../data/PlaybackStatsRepository';
 import { LocalMediaScanner } from '../../data/LocalMediaScanner';
 import { PlayerManager } from '../../player/PlayerManager';
+import { NeteaseApi } from '../../network/NeteaseApi';
+import { NeteasePlaylistSummary } from '../../network/NeteasePlaylistParser';
+import { NeteaseCookieRepository } from '../../data/auth/NeteaseCookieRepository';
 import { Router } from '../Router';
 import { Theme } from '../Theme';
 import { SettingRow, EmptyState, SongCountChip } from '../components/Ui';
+import { SETTING_ACCOUNTS } from './SettingsPage';
 
 @Component
 export struct LibraryPage {
@@ -23,6 +27,10 @@ export struct LibraryPage {
   @State listenMinutes: number = 0;
   @State showCreateDialog: boolean = false;
   @State newPlaylistName: string = '';
+  @State neteaseLogged: boolean = false;
+  @State neteasePlaylists: NeteasePlaylistSummary[] = [];
+  @State neteaseLoading: boolean = false;
+  @State neteaseError: string = '';
 
   async aboutToAppear(): Promise<void> {
     await this.reload();
@@ -39,6 +47,25 @@ export struct LibraryPage {
     const listenMs = await PlaybackStatsRepository.getTotalListenMs();
     this.listenHours = Math.floor(listenMs / 3600000);
     this.listenMinutes = Math.floor((listenMs % 3600000) / 60000);
+    this.neteaseLogged = NeteaseCookieRepository.isLoggedIn();
+    if (this.neteaseLogged) {
+      this.refreshNeteasePlaylists();
+    }
+  }
+
+  private refreshNeteasePlaylists(): void {
+    this.neteaseLoading = true;
+    this.neteaseError = '';
+    NeteaseApi.getUserPlaylists(0, 100)
+      .then((items: NeteasePlaylistSummary[]) => {
+        this.neteasePlaylists = items;
+      })
+      .catch((error: Error) => {
+        this.neteaseError = error.message;
+      })
+      .finally(() => {
+        this.neteaseLoading = false;
+      });
   }
 
   private async createPlaylist(): Promise<void> {
@@ -216,6 +243,93 @@ export struct LibraryPage {
           .clip(true)
         }
 
+        if (this.neteaseLogged) {
+          Row() {
+            Text('网易云歌单')
+              .fontSize(18)
+              .fontWeight(FontWeight.Bold)
+              .fontColor(Theme.textPrimary(Theme.isDark()))
+              .layoutWeight(1)
+            Button(this.neteaseLoading ? '加载中…' : '刷新')
+              .height(32)
+              .fontSize(13)
+              .backgroundColor(Theme.surface(Theme.isDark()))
+              .fontColor(Theme.textPrimary(Theme.isDark()))
+              .enabled(!this.neteaseLoading)
+              .onClick(() => this.refreshNeteasePlaylists())
+          }
+          .width('100%')
+          .margin({ top: 12 })
+
+          if (this.neteaseError.length > 0) {
+            Column({ space: 8 }) {
+              Text(`加载失败：${this.neteaseError}`)
+                .fontSize(13)
+                .fontColor(Theme.textSecondary(Theme.isDark()))
+              Button('重试')
+                .height(32)
+                .fontSize(13)
+                .backgroundColor(Theme.primary(Theme.isDark()))
+                .onClick(() => this.refreshNeteasePlaylists())
+            }
+            .width('100%')
+            .padding(16)
+          } else if (this.neteasePlaylists.length === 0) {
+            EmptyState({
+              icon: '🎵',
+              title: this.neteaseLoading ? '正在加载歌单…' : '暂无歌单',
+              subtitle: '下拉刷新或在网易云 App 创建歌单后刷新'
+            })
+          } else {
+            Column({ space: 1 }) {
+              ForEach(this.neteasePlaylists, (item: NeteasePlaylistSummary) => {
+                Row({ space: 12 }) {
+                  if (item.coverUrl.length > 0) {
+                    Image(item.coverUrl)
+                      .width(44)
+                      .height(44)
+                      .borderRadius(8)
+                      .objectFit(ImageFit.Cover)
+                      .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+                  } else {
+                    Text('♪')
+                      .fontSize(20)
+                      .width(44)
+                      .height(44)
+                      .textAlign(TextAlign.Center)
+                      .fontColor(Theme.primary(Theme.isDark()))
+                      .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+                      .borderRadius(8)
+                  }
+                  Column({ space: 2 }) {
+                    Text(item.name)
+                      .fontSize(15)
+                      .fontWeight(FontWeight.Medium)
+                      .fontColor(Theme.textPrimary(Theme.isDark()))
+                      .maxLines(1)
+                      .textOverflow({ overflow: TextOverflow.Ellipsis })
+                    Text(item.trackCount > 0 ? `${item.trackCount} 首` : '空歌单')
+                      .fontSize(12)
+                      .fontColor(Theme.textSecondary(Theme.isDark()))
+                  }
+                  .layoutWeight(1)
+                  .alignItems(HorizontalAlign.Start)
+                  Text('›')
+                    .fontSize(18)
+                    .fontColor(Theme.textDisabled(Theme.isDark()))
+                }
+                .width('100%')
+                .padding({ left: 14, right: 14, top: 10, bottom: 10 })
+                .backgroundColor(Theme.surface(Theme.isDark()))
+                .onClick(() => Router.push(Router.NETEASE_PLAYLIST, `${item.id}`))
+              }, (item: NeteasePlaylistSummary) => `${item.id}`)
+            }
+            .width('100%')
+            .borderRadius(Theme.cardRadius())
+            .clip(true)
+          }
+        }
+
         Row() {
           Text('本地音频')
             .fontSize(18)
@@ -249,9 +363,17 @@ export struct LibraryPage {
         Column({ space: 1 }) {
           SettingRow({
             title: '网易云音乐',
-            subtitle: '登录与歌单同步（待移植）',
+            subtitle: this.neteaseLogged
+              ? `已登录 · ${this.neteasePlaylists.length} 个歌单`
+              : '未登录 · 点击扫码登录，同步我的歌单',
             icon: '🎵',
-            onTap: () => promptAction.openToast({ message: '网易云登录待移植' })
+            onTap: () => {
+              if (!this.neteaseLogged) {
+                Router.push(Router.SETTINGS_DETAIL, SETTING_ACCOUNTS);
+              } else if (this.neteasePlaylists.length === 0 && !this.neteaseLoading) {
+                this.refreshNeteasePlaylists();
+              }
+            }
           })
           SettingRow({
             title: 'Bilibili',

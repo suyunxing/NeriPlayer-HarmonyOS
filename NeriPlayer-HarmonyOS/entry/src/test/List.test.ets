@@ -7,6 +7,8 @@ import androidDataParserTest from './ets/test/AndroidDataParser.test';
 import downloadTaskStoreTest from './ets/test/DownloadTaskStore.test';
 import qrEncoderTest from './ets/test/QrEncoder.test';
 import neteaseAuthTest from './ets/test/NeteaseAuth.test';
+import neteasePlaylistParserTest from './ets/test/NeteasePlaylistParser.test';
+import playlistMergeTest from './ets/test/PlaylistMerge.test';
 
 export default function testsuite(): void {
   lrcParserTest();
@@ -18,4 +20,6 @@ export default function testsuite(): void {
   downloadTaskStoreTest();
   qrEncoderTest();
   neteaseAuthTest();
+  neteasePlaylistParserTest();
+  playlistMergeTest();
 }

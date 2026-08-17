@@ -5,6 +5,15 @@ import { MusicPlatform } from '../model/MusicPlatform';
 import { HttpClient } from './HttpClient';
 import { NeteaseCrypto } from './NeteaseCrypto';
 import { NeteaseCookieRepository } from '../data/auth/NeteaseCookieRepository';
+import {
+  NeteasePlaylistSummary,
+  ParsedNeteasePlaylists,
+  NeteasePlaylistOverview,
+  parseUserPlaylistsResponse,
+  parseRecommendPlaylistsResponse,
+  parseNeteaseUserId,
+  shouldFallbackRecommendToAnonymous
+} from './NeteasePlaylistParser';
 
 interface NeteaseArtist {
   name: string;
@@ -63,6 +72,7 @@ interface NeteasePlaylist {
   name: string;
   description?: string;
   coverImgUrl?: string;
+  trackCount?: number;
   tracks?: NeteaseSong[];
   trackIds?: NeteaseTrackId[];
 }
@@ -84,6 +94,10 @@ export class NeteaseApi {
     'Mozilla/5.0 (Linux; Android 10; NeriPlayer) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36';
   private static sessionReady: boolean = false;
   private static sessionPromise: Promise<void> | null = null;
+  // Cached account uid, valid only while the login state it was fetched
+  // under still holds (avoids stale ids across logout/relogin).
+  private static cachedUserId: number = 0;
+  private static cachedUserIdForLogin: boolean = false;
 
   private static headers(): Record<string, string> {
     const header: Record<string, string> = {};
@@ -244,15 +258,104 @@ export class NeteaseApi {
   }
 
   static async getPlaylistDetail(id: number): Promise<SongItem[]> {
+    const overview = await NeteaseApi.getPlaylistOverview(id);
+    return overview.songs;
+  }
+
+  /**
+   * Home recommendations via /weapi/personalized/playlist. When the logged-in
+   * jar trips a 301/risk-control code the call retries anonymously once,
+   * mirroring Android HomeViewModel.refreshRecommend.
+   */
+  static async getRecommendedPlaylists(limit: number = 30): Promise<NeteasePlaylistSummary[]> {
+    const logged = NeteaseCookieRepository.isLoggedIn();
+    let parsed = await NeteaseApi.callRecommend(limit);
+    if (logged && parsed.code !== 200 && shouldFallbackRecommendToAnonymous(parsed.code)) {
+      Logger.warn(`NeteaseApi recommend code=${parsed.code} while logged in, retrying anonymously`);
+      // The jar is shared: drop only MUSIC_U for this request, then restore.
+      HttpClient.removeCookie(`${Constants.NETEASE_BASE}/`, 'MUSIC_U');
+      try {
+        parsed = await NeteaseApi.callRecommend(limit);
+      } finally {
+        NeteaseCookieRepository.seedHttpClient();
+      }
+    }
+    return parsed.items;
+  }
+
+  private static async callRecommend(limit: number): Promise<ParsedNeteasePlaylists> {
+    const payload: Record<string, Object> = {};
+    payload['limit'] = `${limit}`;
+    const params = await NeteaseCrypto.weapiParams(payload);
+    const url = await NeteaseApi.weapiUrl('/weapi/personalized/playlist');
+    const text = await HttpClient.postForm(url, params, 15000, NeteaseApi.headers(), true);
+    return parseRecommendPlaylistsResponse(text, 30);
+  }
+
+  /**
+   * Current account uid from /weapi/w/nuser/account/get. Throws when the
+   * session is anonymous (301) or the payload has no profile, mirroring
+   * Android getCurrentUserId.
+   */
+  static async getCurrentUserId(): Promise<number> {
+    const logged = NeteaseCookieRepository.isLoggedIn();
+    if (NeteaseApi.cachedUserId > 0 && NeteaseApi.cachedUserIdForLogin === logged) {
+      return NeteaseApi.cachedUserId;
+    }
+    const payload: Record<string, Object> = {};
+    const params = await NeteaseCrypto.weapiParams(payload);
+    const url = await NeteaseApi.weapiUrl('/weapi/w/nuser/account/get');
+    const text = await HttpClient.postForm(url, params, 15000, NeteaseApi.headers(), true);
+    const uid = parseNeteaseUserId(text);
+    NeteaseApi.cachedUserId = uid;
+    NeteaseApi.cachedUserIdForLogin = logged;
+    return uid;
+  }
+
+  /**
+   * The logged-in user's playlists via /weapi/user/playlist (library tab).
+   * A 301 while logged in refreshes the weapi session and retries once.
+   */
+  static async getUserPlaylists(offset: number = 0, limit: number = 30): Promise<NeteasePlaylistSummary[]> {
+    const uid = await NeteaseApi.getCurrentUserId();
+    let parsed = await NeteaseApi.callUserPlaylists(uid, offset, limit);
+    if (parsed.code === 301 && NeteaseCookieRepository.isLoggedIn()) {
+      Logger.warn('NeteaseApi user playlists got 301 while logged in, refreshing session');
+      NeteaseApi.resetSession();
+      parsed = await NeteaseApi.callUserPlaylists(uid, offset, limit);
+    }
+    return parsed.items;
+  }
+
+  private static async callUserPlaylists(uid: number, offset: number, limit: number): Promise<ParsedNeteasePlaylists> {
+    const payload: Record<string, Object> = {};
+    payload['uid'] = `${uid}`;
+    payload['offset'] = `${offset}`;
+    payload['limit'] = `${limit}`;
+    payload['includeVideo'] = 'true';
+    const params = await NeteaseCrypto.weapiParams(payload);
+    const url = await NeteaseApi.weapiUrl('/weapi/user/playlist');
+    const text = await HttpClient.postForm(url, params, 15000, NeteaseApi.headers(), true);
+    return parseUserPlaylistsResponse(text);
+  }
+
+  /** Remote playlist header + fully resolved songs for the detail page. */
+  static async getPlaylistOverview(id: number): Promise<NeteasePlaylistOverview> {
     const text = await HttpClient.getText(
       `${Constants.NETEASE_BASE}/api/v6/playlist/detail?id=${id}`,
       NeteaseApi.headers()
     );
     const response = JSON.parse(text) as NeteasePlaylistResponse;
+    const overview = new NeteasePlaylistOverview();
     const playlist = response.playlist;
     if (playlist === undefined) {
-      return [];
+      overview.id = id;
+      return overview;
     }
+    overview.id = playlist.id;
+    overview.name = playlist.name;
+    overview.coverUrl = (playlist.coverImgUrl ?? '').replace('http://', 'https://');
+    overview.trackCount = playlist.trackCount ?? 0;
     let songs = playlist.tracks ?? [];
     if (songs.length === 0 && playlist.trackIds !== undefined) {
       const ids: number[] = [];
@@ -261,11 +364,10 @@ export class NeteaseApi {
       }
       songs = await NeteaseApi.fetchSongDetail(ids);
     }
-    const items: SongItem[] = [];
     for (const song of songs) {
-      items.push(NeteaseApi.toSongItem(song));
+      overview.songs.push(NeteaseApi.toSongItem(song));
     }
-    return items;
+    return overview;
   }
 
   private static async requestSongUrl(id: number, level: string): Promise<string> {
