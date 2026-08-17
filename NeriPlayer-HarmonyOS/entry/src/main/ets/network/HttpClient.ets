@@ -1,5 +1,6 @@
 import { http } from '@kit.NetworkKit';
 import { Logger } from '../app/Logger';
+import { HttpHeaderParser } from './HttpHeaderParser';
 
 export class HttpFormResult {
   text: string = '';
@@ -42,7 +43,7 @@ export class HttpClient {
       const code = response.responseCode;
       const text = response.result as string;
       if (useCookies) {
-        HttpClient.captureCookies(url, response.header as string);
+        HttpClient.captureCookies(url, HttpHeaderParser.toHeaderText(response.header));
       }
       if (code < 200 || code >= 300) {
         throw new Error(`HTTP ${code} for GET ${url}`);
@@ -87,7 +88,7 @@ export class HttpClient {
       const code = response.responseCode;
       const text = response.result as string;
       if (useCookies) {
-        HttpClient.captureCookies(url, response.header as string);
+        HttpClient.captureCookies(url, HttpHeaderParser.toHeaderText(response.header));
       }
       if (code < 200 || code >= 300) {
         throw new Error(`HTTP ${code} for POST ${url}`);
@@ -165,7 +166,10 @@ export class HttpClient {
       });
       const code = response.responseCode;
       const text = response.result as string;
-      const headerText = typeof response.header === 'string' ? response.header : JSON.stringify(response.header ?? '');
+      // HarmonyOS returns response.header as an Object (set-cookie is an
+      // array); normalize to "Key: value" lines so header consumers (cookie
+      // capture, NetEase x-refresh-token lookup) can parse it uniformly.
+      const headerText = HttpHeaderParser.toHeaderText(response.header);
       if (useCookies) {
         HttpClient.captureCookies(url, headerText);
       }
@@ -276,16 +280,10 @@ export class HttpClient {
         }
       }
     }
-    const setCookiePattern = /set-cookie:\s*([^;\r\n]+)/gi;
-    let match = setCookiePattern.exec(responseHeader);
-    while (match !== null) {
-      const pair = match[1].trim();
-      const eq = pair.indexOf('=');
-      if (eq > 0) {
-        merged[pair.substring(0, eq)] = pair.substring(eq + 1);
-      }
-      match = setCookiePattern.exec(responseHeader);
-    }
+    HttpHeaderParser.extractCookiePairs(responseHeader)
+      .forEach((value: string, key: string) => {
+        merged[key] = value;
+      });
     const parts: string[] = [];
     for (const key of Object.keys(merged)) {
       parts.push(`${key}=${merged[key]}`);
