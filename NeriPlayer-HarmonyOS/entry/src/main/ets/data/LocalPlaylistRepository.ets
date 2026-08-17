@@ -1,7 +1,7 @@
 import { AppPreferences } from './AppPreferences';
 import { SchemaStore } from './schema/SchemaStore';
 import { SyncPendingState } from './AndroidDataParser';
-import { Playlist } from '../model/Playlist';
+import { Playlist, mergePlaylistSongs } from '../model/Playlist';
 import { MusicPlatform } from '../model/MusicPlatform';
 import { SongItem } from '../model/SongItem';
 import { stableKeyOf } from '../model/SongIdentity';
@@ -68,6 +68,40 @@ export class LocalPlaylistRepository {
     playlists.unshift(playlist);
     await LocalPlaylistRepository.saveAll(playlists, playlist.id);
     return playlist;
+  }
+
+  /**
+   * Creates a playlist pre-filled with songs in one save (remote playlist
+   * import path): each song is appended once, keyed by stable song key.
+   */
+  static async createPlaylistWithSongs(
+    name: string,
+    songs: SongItem[],
+    source: MusicPlatform = MusicPlatform.LOCAL
+  ): Promise<Playlist> {
+    const playlists = await LocalPlaylistRepository.loadAll();
+    const playlist = new Playlist(`local_${Date.now()}`, name, source);
+    const merge = mergePlaylistSongs(playlist.songKeys, playlist.songs, songs);
+    playlist.songKeys = merge.keys;
+    playlist.songs = merge.songs;
+    playlists.unshift(playlist);
+    await LocalPlaylistRepository.saveAll(playlists, playlist.id);
+    return playlist;
+  }
+
+  /** Batch import into an existing playlist; returns how many songs were added. */
+  static async importSongs(playlistId: string, songs: SongItem[]): Promise<number> {
+    const playlists = await LocalPlaylistRepository.loadAll();
+    const playlist = playlists.find((item: Playlist) => item.id === playlistId);
+    if (playlist === undefined) {
+      return 0;
+    }
+    const merge = mergePlaylistSongs(playlist.songKeys, playlist.songs, songs);
+    playlist.songKeys = merge.keys;
+    playlist.songs = merge.songs;
+    playlist.updatedAt = Date.now();
+    await LocalPlaylistRepository.saveAll(playlists, playlistId);
+    return merge.addedCount;
   }
 
   static async addSong(playlistId: string, song: SongItem): Promise<boolean> {

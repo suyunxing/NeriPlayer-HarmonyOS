@@ -1,5 +1,6 @@
 import { MusicPlatform } from './MusicPlatform';
 import { SongItem } from './SongItem';
+import { stableKeyOf } from './SongIdentity';
 
 /**
  * Playlist model shared by local playlists, favorites, and remote platform playlists.
@@ -57,4 +58,39 @@ export class Playlist {
     }
     return playlist;
   }
+}
+
+/** Result of appending songs to a playlist: synced key/song lists + count. */
+export class PlaylistSongMerge {
+  keys: string[] = [];
+  songs: SongItem[] = [];
+  addedCount: number = 0;
+}
+
+/**
+ * Appends `additions` to a playlist in order, skipping entries whose stable
+ * key is already present (or duplicated inside the batch). Pure so batch
+ * imports stay unit-testable.
+ */
+export function mergePlaylistSongs(existingKeys: string[], existingSongs: SongItem[], additions: SongItem[]): PlaylistSongMerge {
+  const merge = new PlaylistSongMerge();
+  const seen = new Set<string>();
+  for (const key of existingKeys) {
+    seen.add(key);
+    merge.keys.push(key);
+  }
+  for (const song of existingSongs) {
+    merge.songs.push(song);
+  }
+  for (const song of additions) {
+    const key = stableKeyOf(song);
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    merge.keys.push(key);
+    merge.songs.push(song);
+    merge.addedCount += 1;
+  }
+  return merge;
 }
