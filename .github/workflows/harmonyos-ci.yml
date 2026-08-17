@@ -1,0 +1,100 @@
+# HarmonyOS 工程持续集成：安装依赖 → 本地单测 → debug/release HAP 构建（不签名）。
+# 工具链：ErBWs/ohos-sdk 镜像的 HarmonyOS Command Line Tools 6.1.1.280
+#        （SDK 6.1.1.125 / API 24，与本机 CLT 6.1.1.300 同基线，构建命令与 docs/hm.md 一致）。
+# 产物为 unsigned HAP；签名仅在本地通过 sign-local.ps1 完成（证书与口令不入库）。
+name: HarmonyOS CI
+
+on:
+  push:
+    branches: [dev]
+    paths:
+      - 'NeriPlayer-HarmonyOS/**'
+      - '.github/workflows/harmonyos-ci.yml'
+  pull_request:
+    branches: [dev]
+    paths:
+      - 'NeriPlayer-HarmonyOS/**'
+      - '.github/workflows/harmonyos-ci.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: harmonyos-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: build & test (API 24)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: NeriPlayer-HarmonyOS
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # OpenHarmony SDK 部分工具链依赖 libGL
+      - name: Install SDK runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1-mesa-dev
+
+      - name: Set up HarmonyOS CLI tools 6.1.1.280 (SDK 6.1.1.125, API 24)
+        id: ohos
+        uses: ErBWs/setup-ohos@v2
+        with:
+          version: 6.1.1.280
+          cache: true
+
+      - name: Show toolchain versions
+        run: |
+          echo "SDK ${{ steps.ohos.outputs.sdk-version }} / API ${{ steps.ohos.outputs.api-version }}"
+          hvigorw --version || true
+          ohpm --version
+
+      - name: Cache ohpm / hvigor user packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.ohpm
+            ~/.hvigor
+          key: ohpm-hvigor-${{ runner.os }}-${{ hashFiles('NeriPlayer-HarmonyOS/oh-package.json5', 'NeriPlayer-HarmonyOS/hvigor/hvigor-config.json5') }}
+          restore-keys: |
+            ohpm-hvigor-${{ runner.os }}-
+
+      - name: Install project dependencies
+        run: ohpm install --all
+
+      - name: Run local unit tests
+        run: hvigorw test --mode module -p product=default -p buildMode=debug --no-daemon
+
+      - name: Build debug HAP (unsigned)
+        run: |
+          hvigorw assembleHap --mode module -p module=entry@default -p product=default -p buildMode=debug --no-daemon
+          cp entry/build/default/outputs/default/entry-default-unsigned.hap \
+             entry/build/default/outputs/default/entry-default-unsigned-debug.hap
+
+      - name: Build release HAP (unsigned)
+        run: |
+          hvigorw assembleHap --mode module -p module=entry@default -p product=default -p buildMode=release --no-daemon
+          cp entry/build/default/outputs/default/entry-default-unsigned.hap \
+             entry/build/default/outputs/default/entry-default-unsigned-release.hap
+
+      - name: Upload HAP artifacts (unsigned)
+        uses: actions/upload-artifact@v4
+        with:
+          name: hap-unsigned-${{ github.run_number }}
+          path: |
+            NeriPlayer-HarmonyOS/entry/build/default/outputs/default/entry-default-unsigned-debug.hap
+            NeriPlayer-HarmonyOS/entry/build/default/outputs/default/entry-default-unsigned-release.hap
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report-${{ github.run_number }}
+          path: NeriPlayer-HarmonyOS/entry/.test/default/outputs/test/
+          retention-days: 7
+          if-no-files-found: ignore
