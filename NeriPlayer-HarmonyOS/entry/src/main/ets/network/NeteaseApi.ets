@@ -1,7 +1,6 @@
 import { Constants } from '../app/Constants';
 import { Logger } from '../app/Logger';
 import { SongItem } from '../model/SongItem';
-import { MusicPlatform } from '../model/MusicPlatform';
 import { HttpClient } from './HttpClient';
 import { NeteaseCrypto } from './NeteaseCrypto';
 import { NeteaseCookieRepository } from '../data/auth/NeteaseCookieRepository';
@@ -9,31 +8,13 @@ import {
   NeteasePlaylistSummary,
   ParsedNeteasePlaylists,
   NeteasePlaylistOverview,
+  NeteaseSong,
   parseUserPlaylistsResponse,
   parseRecommendPlaylistsResponse,
   parseNeteaseUserId,
-  shouldFallbackRecommendToAnonymous
+  shouldFallbackRecommendToAnonymous,
+  neteaseSongToSongItem
 } from './NeteasePlaylistParser';
-
-interface NeteaseArtist {
-  name: string;
-}
-
-interface NeteaseAlbum {
-  id: number;
-  name: string;
-  picUrl?: string;
-}
-
-interface NeteaseSong {
-  id: number;
-  name: string;
-  artists: NeteaseArtist[];
-  album: NeteaseAlbum;
-  duration?: number;
-  dt?: number;
-  url?: string;
-}
 
 interface NeteaseSearchResponse {
   code: number;
@@ -437,26 +418,9 @@ export class NeteaseApi {
   }
 
   private static toSongItem(song: NeteaseSong): SongItem {
-    const artistNames: string[] = [];
-    if (song.artists !== undefined) {
-      for (const artist of song.artists) {
-        artistNames.push(artist.name);
-      }
-    }
-    const item = new SongItem(
-      song.id,
-      song.name,
-      artistNames.join(' / '),
-      song.album !== undefined ? song.album.name : '',
-      song.album !== undefined ? song.album.id : 0,
-      song.duration ?? song.dt ?? 0,
-      song.album !== undefined ? (song.album.picUrl ?? '') : '',
-      '',
-      MusicPlatform.NETEASE
-    );
-    item.channelId = 'netease';
-    item.audioId = `${song.id}`;
-    return item;
+    // cloudsearch returns artists/album while playlist/song-detail return the
+    // short ar/al shape; the pure mapper in NeteasePlaylistParser covers both.
+    return neteaseSongToSongItem(song);
   }
 }
 

@@ -3,7 +3,9 @@ import {
   parseUserPlaylistsResponse,
   parseRecommendPlaylistsResponse,
   parseNeteaseUserId,
-  shouldFallbackRecommendToAnonymous
+  shouldFallbackRecommendToAnonymous,
+  neteaseSongToSongItem,
+  NeteaseSong
 } from '../../../main/ets/network/NeteasePlaylistParser';
 
 /**
@@ -134,6 +136,57 @@ export default function neteasePlaylistParserTest(): void {
         threwProfile = (error as Error).message.indexOf('profile.userId') >= 0;
       }
       expect(threwProfile).assertTrue();
+    });
+  });
+
+  describe('NeteaseSongMapper', () => {
+    it('mapsShortShapeFromPlaylistAndSongDetail', 0, () => {
+      // Shape returned by /api/v6/playlist/detail (verified 2026-08-17):
+      // ar/al/dt instead of artists/album/duration, http cover urls.
+      const raw = JSON.parse(`{"id":185868,"name":"Happy","dt":232780,`
+        + `"ar":[{"id":41151,"name":"Pharrell Williams"}],`
+        + `"al":{"id":2767233,"name":"G I R L","picUrl":"http://p4.music.126.net/s38NM0QqXYzMHtt1y9NxlQ==/109951168143732458.jpg"}}`) as NeteaseSong;
+      const item = neteaseSongToSongItem(raw);
+      expect(item.id).assertEqual(185868);
+      expect(item.name).assertEqual('Happy');
+      expect(item.artist).assertEqual('Pharrell Williams');
+      expect(item.album).assertEqual('G I R L');
+      expect(item.albumId).assertEqual(2767233);
+      expect(item.durationMs).assertEqual(232780);
+      expect(item.coverUrl).assertEqual('https://p4.music.126.net/s38NM0QqXYzMHtt1y9NxlQ==/109951168143732458.jpg');
+      expect(item.audioId).assertEqual('185868');
+    });
+
+    it('mapsFullShapeFromCloudsearch', 0, () => {
+      // Shape returned by /weapi/cloudsearch/get/web.
+      const raw = JSON.parse(`{"id":1,"name":"晴天","duration":269000,`
+        + `"artists":[{"id":6452,"name":"周杰伦"}],`
+        + `"album":{"id":18918,"name":"叶惠美","picUrl":"https://p3.music.126.net/x/1.jpg"}}`) as NeteaseSong;
+      const item = neteaseSongToSongItem(raw);
+      expect(item.artist).assertEqual('周杰伦');
+      expect(item.album).assertEqual('叶惠美');
+      expect(item.albumId).assertEqual(18918);
+      expect(item.durationMs).assertEqual(269000);
+      expect(item.coverUrl).assertEqual('https://p3.music.126.net/x/1.jpg');
+    });
+
+    it('joinsMultipleArtistsAndFallsBackToPicStr', 0, () => {
+      const raw = JSON.parse(`{"id":9,"name":"N","dt":1000,`
+        + `"ar":[{"name":"A"},{"name":"B"},{"name":""}],`
+        + `"al":{"id":7,"name":"AL","picStr":"http://p/2.jpg"}}`) as NeteaseSong;
+      const item = neteaseSongToSongItem(raw);
+      expect(item.artist).assertEqual('A / B');
+      expect(item.coverUrl).assertEqual('https://p/2.jpg');
+    });
+
+    it('missingAlbumYieldsEmptyCoverFields', 0, () => {
+      const raw = JSON.parse(`{"id":3,"name":"Bare","dt":500}`) as NeteaseSong;
+      const item = neteaseSongToSongItem(raw);
+      expect(item.artist).assertEqual('');
+      expect(item.album).assertEqual('');
+      expect(item.albumId).assertEqual(0);
+      expect(item.coverUrl).assertEqual('');
+      expect(item.durationMs).assertEqual(500);
     });
   });
 }

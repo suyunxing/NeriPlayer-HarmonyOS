@@ -1,4 +1,5 @@
 import { SongItem } from '../model/SongItem';
+import { MusicPlatform } from '../model/MusicPlatform';
 
 /**
  * Pure parsers for the NetEase playlist/account responses, ported from
@@ -152,4 +153,68 @@ export class NeteasePlaylistOverview {
   coverUrl: string = '';
   trackCount: number = 0;
   songs: SongItem[] = [];
+}
+
+/**
+ * NetEase song JSON comes in two field shapes: cloudsearch uses full names
+ * (artists/album/duration) while /api/v6/playlist/detail and
+ * /api/v3/song/detail use short ones (ar/al/dt). Verified against the live
+ * endpoints on 2026-08-17; one mapper covers both.
+ */
+export interface NeteaseArtist {
+  name: string;
+}
+
+export interface NeteaseAlbum {
+  id: number;
+  name: string;
+  picUrl?: string;
+  /** Some endpoints (dj/radio tracks) expose the cover only as picStr. */
+  picStr?: string;
+}
+
+export interface NeteaseSong {
+  id: number;
+  name: string;
+  artists?: NeteaseArtist[];
+  ar?: NeteaseArtist[];
+  album?: NeteaseAlbum;
+  al?: NeteaseAlbum;
+  duration?: number;
+  dt?: number;
+  url?: string;
+}
+
+/** Maps either raw song shape into the app SongItem (https covers only). */
+export function neteaseSongToSongItem(song: NeteaseSong): SongItem {
+  const artists = song.artists !== undefined ? song.artists : (song.ar ?? []);
+  const album = song.album !== undefined ? song.album : song.al;
+  const artistNames: string[] = [];
+  for (const artist of artists) {
+    if (artist.name.length > 0) {
+      artistNames.push(artist.name);
+    }
+  }
+  let albumId = 0;
+  let albumName = '';
+  let coverUrl = '';
+  if (album !== undefined && album !== null) {
+    albumId = album.id ?? 0;
+    albumName = album.name ?? '';
+    coverUrl = toHttps(album.picUrl ?? album.picStr ?? '');
+  }
+  const item = new SongItem(
+    song.id,
+    song.name,
+    artistNames.join(' / '),
+    albumName,
+    albumId,
+    song.duration ?? song.dt ?? 0,
+    coverUrl,
+    '',
+    MusicPlatform.NETEASE
+  );
+  item.channelId = 'netease';
+  item.audioId = `${song.id}`;
+  return item;
 }
