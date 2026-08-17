@@ -9,6 +9,7 @@ import qrEncoderTest from './ets/test/QrEncoder.test';
 import neteaseAuthTest from './ets/test/NeteaseAuth.test';
 import neteasePlaylistParserTest from './ets/test/NeteasePlaylistParser.test';
 import playlistMergeTest from './ets/test/PlaylistMerge.test';
+import httpHeaderParserTest from './ets/test/HttpHeaderParser.test';
 
 export default function testsuite(): void {
   lrcParserTest();
@@ -22,4 +23,5 @@ export default function testsuite(): void {
   neteaseAuthTest();
   neteasePlaylistParserTest();
   playlistMergeTest();
+  httpHeaderParserTest();
 }
