@@ -4,8 +4,30 @@ import { DownloadStorage } from '../../download/DownloadStorage';
 import { DownloadEngine } from '../../download/DownloadEngine';
 import { PlayerManager } from '../../player/PlayerManager';
 import { NeteaseCookieRepository } from '../../data/auth/NeteaseCookieRepository';
-import { NeteaseQrLoginClient, NeteaseQrSession } from '../../network/NeteaseQrLogin';
-import { encodeQr, QrMatrix } from '../../util/QrEncoder';
+import { BiliCookieRepository } from '../../data/auth/BiliCookieRepository';
+import {
+  NeteaseQrLoginClient,
+  NeteaseQrSession,
+  NETEASE_QR_CONFIRMED,
+  NETEASE_QR_EXPIRED,
+  NETEASE_QR_SCANNED,
+  NETEASE_QR_WAITING
+} from '../../network/NeteaseQrLogin';
+import {
+  BiliQrLoginClient,
+  BiliQrSession,
+  BILI_QR_CONFIRMED,
+  BILI_QR_EXPIRED,
+  BILI_QR_SCANNED,
+  BILI_QR_WAITING
+} from '../../network/BiliQrLogin';
+import {
+  QrLoginPanel,
+  QrLoginPanelController,
+  QrLoginSessionRef,
+  QrPollOutcome,
+  QrPollOutcomeCode
+} from '../components/QrLoginPanel';
 import { Theme } from '../Theme';
 import { SettingRow } from '../components/Ui';
 import { SETTING_PLAYBACK, SETTING_DOWNLOAD, SETTING_LYRICS, SETTING_APPEARANCE,
@@ -15,7 +37,8 @@ import { Router } from '../Router';
 
 const SPEEDS: number[] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
 const QUALITIES: string[] = ['standard', 'high', 'exhigh', 'lossless', 'hires'];
-const QR_POLL_INTERVAL_MS: number = 2000;
+const NETEASE_QR_POLL_INTERVAL_MS: number = 2000;
+const BILI_QR_POLL_INTERVAL_MS: number = 1500;
 
 @Component
 export struct SettingsDetailPage {
@@ -35,18 +58,14 @@ export struct SettingsDetailPage {
   @StorageProp('np.cover_policy') coverPolicy: string = 'always';
   @StorageProp('np.always_record_logs') alwaysRecordLogs: boolean = false;
   @StorageLink('np.netease_logged') neteaseLogged: boolean = false;
+  @StorageLink('np.bilibili_logged') biliLogged: boolean = false;
 
   @State cacheBytes: number = 0;
-  @State qrPanelOpen: boolean = false;
-  @State qrStatus: string = '';
-  @State qrBusy: boolean = false;
-  @State qrMatrix: QrMatrix | null = null;
 
-  private qrSession: NeteaseQrSession | null = null;
-  private qrTimerId: number = -1;
-  private qrCanvasCtx: CanvasRenderingContext2D =
-    new CanvasRenderingContext2D(new RenderingContextSettings(true));
-  private pasteDialogController: CustomDialogController | null = null;
+  private neteaseQrController: QrLoginPanelController = new QrLoginPanelController();
+  private biliQrController: QrLoginPanelController = new QrLoginPanelController();
+  private neteasePasteController: CustomDialogController | null = null;
+  private biliPasteController: CustomDialogController | null = null;
 
   private title(): string {
     if (this.section === SETTING_PLAYBACK) {
@@ -91,88 +110,44 @@ export struct SettingsDetailPage {
     this.cacheBytes = bytes;
   }
 
-  aboutToDisappear(): void {
-    this.stopQrPolling();
+  // ---- NetEase QR login (state machine lives in QrLoginPanel) ------------
+
+  private async createNeteaseQrSession(): Promise<QrLoginSessionRef> {
+    const session = await NeteaseQrLoginClient.createSession();
+    const ref = new QrLoginSessionRef();
+    ref.key = session.key;
+    ref.qrContent = session.qrContent;
+    ref.token = session.chainId;
+    return ref;
   }
 
-  // ---- NetEase QR login -------------------------------------------------
-
-  private startNeteaseLogin(): void {
-    if (this.qrBusy) {
-      return;
+  private async pollNeteaseQr(session: QrLoginSessionRef): Promise<QrPollOutcome> {
+    const native = new NeteaseQrSession();
+    native.key = session.key;
+    native.qrContent = session.qrContent;
+    native.chainId = session.token;
+    const result = await NeteaseQrLoginClient.checkLogin(native);
+    const outcome = new QrPollOutcome();
+    outcome.message = result.message;
+    if (result.code === NETEASE_QR_SCANNED) {
+      outcome.code = QrPollOutcomeCode.SCANNED;
+    } else if (result.code === NETEASE_QR_CONFIRMED) {
+      outcome.code = QrPollOutcomeCode.CONFIRMED;
+    } else if (result.code === NETEASE_QR_EXPIRED) {
+      outcome.code = QrPollOutcomeCode.EXPIRED;
+    } else {
+      outcome.code = QrPollOutcomeCode.WAITING;
     }
-    this.qrPanelOpen = true;
-    this.qrStatus = '正在生成二维码...';
-    this.createQrSession();
+    return outcome;
   }
 
-  private async createQrSession(): Promise<void> {
-    this.qrBusy = true;
-    this.stopQrPolling();
-    try {
-      this.qrSession = await NeteaseQrLoginClient.createSession();
-      this.qrMatrix = encodeQr(this.qrSession.qrContent).matrix;
-      this.qrStatus = '请用网易云音乐 App 扫码';
-      this.drawQr();
-      this.qrTimerId = setInterval(() => {
-        this.pollQrOnce();
-      }, QR_POLL_INTERVAL_MS);
-    } catch (error) {
-      const e = error as Error;
-      this.qrStatus = `二维码创建失败：${e.message}`;
-      promptAction.openToast({ message: '二维码创建失败' });
+  private onNeteaseConfirmed(): boolean {
+    const saved = NeteaseCookieRepository.saveFromQrLogin(NeteaseQrLoginClient.currentCookies());
+    if (saved) {
+      this.neteaseLogged = true;
+      promptAction.openToast({ message: '网易云登录成功' });
     }
-    this.qrBusy = false;
-  }
-
-  private async pollQrOnce(): Promise<void> {
-    if (this.qrSession === null || this.qrBusy) {
-      return;
-    }
-    this.qrBusy = true;
-    try {
-      const result = await NeteaseQrLoginClient.checkLogin(this.qrSession);
-      if (result.code === 801) {
-        this.qrStatus = '请用网易云音乐 App 扫码';
-      } else if (result.code === 802) {
-        this.qrStatus = '已扫码，请在手机上确认';
-      } else if (result.code === 803) {
-        const saved = NeteaseCookieRepository.saveFromQrLogin(result.cookies);
-        this.stopQrPolling();
-        this.qrSession = null;
-        if (saved) {
-          this.neteaseLogged = true;
-          this.qrPanelOpen = false;
-          this.qrStatus = '';
-          promptAction.openToast({ message: '网易云登录成功' });
-        } else {
-          this.qrStatus = '登录校验失败，请重试';
-        }
-      } else if (result.code === 800) {
-        this.qrStatus = '二维码已过期，正在刷新...';
-        this.stopQrPolling();
-        this.createQrSession();
-      }
-    } catch (error) {
-      const e = error as Error;
-      this.qrStatus = `轮询失败：${e.message}`;
-    }
-    this.qrBusy = false;
-  }
-
-  private stopQrPolling(): void {
-    if (this.qrTimerId >= 0) {
-      clearInterval(this.qrTimerId);
-      this.qrTimerId = -1;
-    }
-  }
-
-  private cancelNeteaseLogin(): void {
-    this.stopQrPolling();
-    this.qrSession = null;
-    this.qrMatrix = null;
-    this.qrPanelOpen = false;
-    this.qrStatus = '';
+    return saved;
   }
 
   private confirmNeteaseLogout(): void {
@@ -196,31 +171,13 @@ export struct SettingsDetailPage {
     });
   }
 
-  private drawQr(): void {
-    const m = this.qrMatrix;
-    if (m === null) {
-      return;
-    }
-    const ctx = this.qrCanvasCtx;
-    const canvasSize = 260;
-    const scale = Math.floor(canvasSize / (m.size + 8)); // include quiet zone
-    const offset = Math.floor((canvasSize - m.size * scale) / 2);
-    ctx.fillStyle = '#FFFFFF';
-    ctx.fillRect(0, 0, canvasSize, canvasSize);
-    ctx.fillStyle = '#000000';
-    for (let i = 0; i < m.size; i++) {
-      for (let j = 0; j < m.size; j++) {
-        if (m.isDark(i, j)) {
-          ctx.fillRect(offset + j * scale, offset + i * scale, scale, scale);
-        }
-      }
-    }
-  }
-
-  private openPasteDialog(): void {
-    if (this.pasteDialogController === null) {
-      this.pasteDialogController = new CustomDialogController({
+  private openNeteasePasteDialog(): void {
+    if (this.neteasePasteController === null) {
+      this.neteasePasteController = new CustomDialogController({
         builder: PasteCookieDialog({
+          title: '粘贴网易云 Cookie',
+          hint: '从浏览器或 Android 端导出的 Cookie 文本，需包含 MUSIC_U。格式：k1=v1; k2=v2',
+          placeholder: 'MUSIC_U=...; __csrf=...; os=pc',
           onConfirm: (text: string) => {
             const saved = NeteaseCookieRepository.saveFromPastedText(text);
             if (saved) {
@@ -235,7 +192,89 @@ export struct SettingsDetailPage {
         customStyle: false
       });
     }
-    this.pasteDialogController.open();
+    this.neteasePasteController.open();
+  }
+
+  // ---- Bilibili QR login --------------------------------------------------
+
+  private async createBiliQrSession(): Promise<QrLoginSessionRef> {
+    const session = await BiliQrLoginClient.createSession();
+    const ref = new QrLoginSessionRef();
+    ref.key = session.key;
+    ref.qrContent = session.qrContent;
+    return ref;
+  }
+
+  private async pollBiliQr(session: QrLoginSessionRef): Promise<QrPollOutcome> {
+    const native = new BiliQrSession();
+    native.key = session.key;
+    const result = await BiliQrLoginClient.checkLogin(native);
+    const outcome = new QrPollOutcome();
+    outcome.message = result.message;
+    if (result.code === BILI_QR_SCANNED) {
+      outcome.code = QrPollOutcomeCode.SCANNED;
+    } else if (result.code === BILI_QR_CONFIRMED) {
+      outcome.code = QrPollOutcomeCode.CONFIRMED;
+    } else if (result.code === BILI_QR_EXPIRED) {
+      outcome.code = QrPollOutcomeCode.EXPIRED;
+    } else {
+      outcome.code = QrPollOutcomeCode.WAITING;
+    }
+    return outcome;
+  }
+
+  private onBiliConfirmed(): boolean {
+    const saved = BiliCookieRepository.saveFromQrLogin(BiliQrLoginClient.currentCookies());
+    if (saved) {
+      this.biliLogged = true;
+      promptAction.openToast({ message: 'Bilibili 登录成功' });
+    }
+    return saved;
+  }
+
+  private confirmBiliLogout(): void {
+    AlertDialog.show({
+      title: '退出登录',
+      message: '确定退出 Bilibili 登录？',
+      primaryButton: {
+        value: '取消',
+        action: () => {
+        }
+      },
+      secondaryButton: {
+        value: '退出',
+        fontColor: Theme.danger(Theme.isDark()),
+        action: () => {
+          BiliCookieRepository.clear();
+          this.biliLogged = false;
+          promptAction.openToast({ message: '已退出 Bilibili 登录' });
+        }
+      }
+    });
+  }
+
+  private openBiliPasteDialog(): void {
+    if (this.biliPasteController === null) {
+      this.biliPasteController = new CustomDialogController({
+        builder: PasteCookieDialog({
+          title: '粘贴 Bilibili Cookie',
+          hint: '从浏览器导出的 Cookie 文本，需包含 SESSDATA。格式：k1=v1; k2=v2',
+          placeholder: 'SESSDATA=...; bili_jct=...; DedeUserID=...',
+          onConfirm: (text: string) => {
+            const saved = BiliCookieRepository.saveFromPastedText(text);
+            if (saved) {
+              this.biliLogged = true;
+              promptAction.openToast({ message: 'Cookie 导入成功' });
+            } else {
+              promptAction.openToast({ message: '导入失败：需要包含有效的 SESSDATA' });
+            }
+          }
+        }),
+        autoCancel: true,
+        customStyle: false
+      });
+    }
+    this.biliPasteController.open();
   }
 
   private setSpeed(value: number): void {
@@ -500,59 +539,51 @@ export struct SettingsDetailPage {
                 if (this.neteaseLogged) {
                   this.confirmNeteaseLogout();
                 } else {
-                  this.startNeteaseLogin();
+                  this.neteaseQrController.open();
                 }
               }
             })
-            if (this.qrPanelOpen) {
-              Column({ space: 10 }) {
-                if (this.qrMatrix !== null) {
-                  Canvas(this.qrCanvasCtx)
-                    .width(260)
-                    .height(260)
-                    .backgroundColor('#FFFFFF')
-                    .borderRadius(12)
-                    .onReady(() => {
-                      this.drawQr();
-                    })
-                }
-                Text(this.qrStatus)
-                  .fontSize(13)
-                  .fontColor(Theme.textSecondary(Theme.isDark()))
-                  .textAlign(TextAlign.Center)
-                Row({ space: 10 }) {
-                  Button('刷新')
-                    .height(36)
-                    .fontSize(13)
-                    .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
-                    .fontColor(Theme.textPrimary(Theme.isDark()))
-                    .onClick(() => this.createQrSession())
-                  Button('取消')
-                    .height(36)
-                    .fontSize(13)
-                    .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
-                    .fontColor(Theme.textPrimary(Theme.isDark()))
-                    .onClick(() => this.cancelNeteaseLogin())
-                }
-              }
-              .width('100%')
-              .padding(16)
-              .backgroundColor(Theme.surface(Theme.isDark()))
-              .borderRadius(Theme.cardRadius())
-              .alignItems(HorizontalAlign.Center)
-              .margin({ bottom: 8 })
-            }
+            QrLoginPanel({
+              controller: this.neteaseQrController,
+              createSession: (): Promise<QrLoginSessionRef> => this.createNeteaseQrSession(),
+              pollSession: (session: QrLoginSessionRef): Promise<QrPollOutcome> => this.pollNeteaseQr(session),
+              onConfirmed: (): boolean => this.onNeteaseConfirmed(),
+              scanHint: '请用网易云音乐 App 扫码',
+              pollIntervalMs: NETEASE_QR_POLL_INTERVAL_MS
+            })
             SettingRow({
               title: '粘贴 Cookie 导入（网易云）',
               subtitle: '扫码不可用时的备用登录方式',
               icon: '📋',
-              onTap: () => this.openPasteDialog()
+              onTap: () => this.openNeteasePasteDialog()
             })
             SettingRow({
               title: 'Bilibili',
-              subtitle: '未登录 · 二维码登录待移植',
+              subtitle: this.biliLogged
+                ? `已登录 · 凭据存储：${BiliCookieRepository.backendName()}`
+                : '未登录 · 点击扫码登录',
               icon: '📺',
-              onTap: () => promptAction.openToast({ message: 'Bilibili 登录待移植' })
+              onTap: () => {
+                if (this.biliLogged) {
+                  this.confirmBiliLogout();
+                } else {
+                  this.biliQrController.open();
+                }
+              }
+            })
+            QrLoginPanel({
+              controller: this.biliQrController,
+              createSession: (): Promise<QrLoginSessionRef> => this.createBiliQrSession(),
+              pollSession: (session: QrLoginSessionRef): Promise<QrPollOutcome> => this.pollBiliQr(session),
+              onConfirmed: (): boolean => this.onBiliConfirmed(),
+              scanHint: '请用哔哩哔哩客户端扫码',
+              pollIntervalMs: BILI_QR_POLL_INTERVAL_MS
+            })
+            SettingRow({
+              title: '粘贴 Cookie 导入（Bilibili）',
+              subtitle: '扫码不可用时的备用登录方式',
+              icon: '📋',
+              onTap: () => this.openBiliPasteDialog()
             })
             SettingRow({
               title: 'YouTube',
@@ -654,19 +685,22 @@ function qualityLabel(quality: string): string {
 struct PasteCookieDialog {
   controller?: CustomDialogController;
   @State cookieText: string = '';
+  title: string = '粘贴 Cookie';
+  hint: string = '';
+  placeholder: string = '';
   onConfirm: (text: string) => void = () => {
   };
 
   build() {
     Column({ space: 14 }) {
-      Text('粘贴网易云 Cookie')
+      Text(this.title)
         .fontSize(17)
         .fontWeight(FontWeight.Bold)
         .fontColor(Theme.textPrimary(Theme.isDark()))
-      Text('从浏览器或 Android 端导出的 Cookie 文本，需包含 MUSIC_U。格式：k1=v1; k2=v2')
+      Text(this.hint)
         .fontSize(12)
         .fontColor(Theme.textSecondary(Theme.isDark()))
-      TextArea({ placeholder: 'MUSIC_U=...; __csrf=...; os=pc', text: this.cookieText })
+      TextArea({ placeholder: this.placeholder, text: this.cookieText })
         .height(110)
         .fontSize(13)
         .onChange((value: string) => {

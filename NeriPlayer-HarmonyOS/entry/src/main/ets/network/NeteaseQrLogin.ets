@@ -73,19 +73,7 @@ function parseQrJson(text: string): QrHttpResponse {
 }
 
 function jarCookies(): Map<string, string> {
-  const out = new Map<string, string>();
-  const header = HttpClient.getCookies(QR_ORIGIN);
-  if (header.length === 0) {
-    return out;
-  }
-  for (const pair of header.split(';')) {
-    const trimmed = pair.trim();
-    const eq = trimmed.indexOf('=');
-    if (eq > 0) {
-      out.set(trimmed.substring(0, eq), trimmed.substring(eq + 1));
-    }
-  }
-  return out;
+  return HttpClient.getCookiesMap(QR_ORIGIN);
 }
 
 function csrfFromJar(): string {

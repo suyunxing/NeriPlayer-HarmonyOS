@@ -10,6 +10,8 @@ import neteaseAuthTest from './ets/test/NeteaseAuth.test';
 import neteasePlaylistParserTest from './ets/test/NeteasePlaylistParser.test';
 import playlistMergeTest from './ets/test/PlaylistMerge.test';
 import httpHeaderParserTest from './ets/test/HttpHeaderParser.test';
+import biliAuthTest from './ets/test/BiliAuth.test';
+import biliFavParserTest from './ets/test/BiliFavParser.test';
 
 export default function testsuite(): void {
   lrcParserTest();
@@ -24,4 +26,6 @@ export default function testsuite(): void {
   neteasePlaylistParserTest();
   playlistMergeTest();
   httpHeaderParserTest();
+  biliAuthTest();
+  biliFavParserTest();
 }

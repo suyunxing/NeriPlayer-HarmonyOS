@@ -11,6 +11,9 @@ import { PlayerManager } from '../../player/PlayerManager';
 import { NeteaseApi } from '../../network/NeteaseApi';
 import { NeteasePlaylistSummary } from '../../network/NeteasePlaylistParser';
 import { NeteaseCookieRepository } from '../../data/auth/NeteaseCookieRepository';
+import { BiliApi } from '../../network/BiliApi';
+import { BiliFavFolderSummary } from '../../network/BiliFavParser';
+import { BiliCookieRepository } from '../../data/auth/BiliCookieRepository';
 import { Router } from '../Router';
 import { Theme } from '../Theme';
 import { SettingRow, EmptyState, SongCountChip } from '../components/Ui';
@@ -31,6 +34,10 @@ export struct LibraryPage {
   @State neteasePlaylists: NeteasePlaylistSummary[] = [];
   @State neteaseLoading: boolean = false;
   @State neteaseError: string = '';
+  @State biliLogged: boolean = false;
+  @State biliFolders: BiliFavFolderSummary[] = [];
+  @State biliLoading: boolean = false;
+  @State biliError: string = '';
 
   async aboutToAppear(): Promise<void> {
     await this.reload();
@@ -51,6 +58,30 @@ export struct LibraryPage {
     if (this.neteaseLogged) {
       this.refreshNeteasePlaylists();
     }
+    this.biliLogged = BiliCookieRepository.isLoggedIn();
+    if (this.biliLogged) {
+      this.refreshBiliFavFolders();
+    }
+  }
+
+  private refreshBiliFavFolders(): void {
+    const mid = BiliCookieRepository.getMid();
+    if (mid <= 0) {
+      this.biliError = '无法获取用户 mid（DedeUserID 缺失）';
+      return;
+    }
+    this.biliLoading = true;
+    this.biliError = '';
+    BiliApi.getUserFavFolders(mid)
+      .then((folders: BiliFavFolderSummary[]) => {
+        this.biliFolders = folders;
+      })
+      .catch((error: Error) => {
+        this.biliError = error.message;
+      })
+      .finally(() => {
+        this.biliLoading = false;
+      });
   }
 
   private refreshNeteasePlaylists(): void {
@@ -330,6 +361,92 @@ export struct LibraryPage {
           }
         }
 
+        if (this.biliLogged) {
+          Row() {
+            Text('B 站收藏夹')
+              .fontSize(18)
+              .fontWeight(FontWeight.Bold)
+              .fontColor(Theme.textPrimary(Theme.isDark()))
+              .layoutWeight(1)
+            Button(this.biliLoading ? '加载中…' : '刷新')
+              .height(32)
+              .fontSize(13)
+              .backgroundColor(Theme.surface(Theme.isDark()))
+              .fontColor(Theme.textPrimary(Theme.isDark()))
+              .enabled(!this.biliLoading)
+              .onClick(() => this.refreshBiliFavFolders())
+          }
+          .width('100%')
+          .margin({ top: 12 })
+
+          if (this.biliError.length > 0) {
+            Column({ space: 8 }) {
+              Text(`加载失败：${this.biliError}`)
+                .fontSize(13)
+                .fontColor(Theme.textSecondary(Theme.isDark()))
+              Button('重试')
+                .height(32)
+                .fontSize(13)
+                .backgroundColor(Theme.primary(Theme.isDark()))
+                .onClick(() => this.refreshBiliFavFolders())
+            }
+            .width('100%')
+            .padding(16)
+          } else if (this.biliFolders.length === 0) {
+            EmptyState({
+              icon: '📺',
+              title: this.biliLoading ? '正在加载收藏夹…' : '暂无收藏夹',
+              subtitle: '在哔哩哔哩收藏视频后刷新'
+            })
+          } else {
+            Column({ space: 1 }) {
+              ForEach(this.biliFolders, (item: BiliFavFolderSummary) => {
+                Row({ space: 12 }) {
+                  if (item.coverUrl.length > 0) {
+                    Image(item.coverUrl)
+                      .width(44)
+                      .height(44)
+                      .borderRadius(8)
+                      .objectFit(ImageFit.Cover)
+                      .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+                  } else {
+                    Text('📺')
+                      .fontSize(18)
+                      .width(44)
+                      .height(44)
+                      .textAlign(TextAlign.Center)
+                      .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+                      .borderRadius(8)
+                  }
+                  Column({ space: 2 }) {
+                    Text(item.title)
+                      .fontSize(15)
+                      .fontWeight(FontWeight.Medium)
+                      .fontColor(Theme.textPrimary(Theme.isDark()))
+                      .maxLines(1)
+                      .textOverflow({ overflow: TextOverflow.Ellipsis })
+                    Text(item.mediaCount > 0 ? `${item.mediaCount} 条` : '空收藏夹')
+                      .fontSize(12)
+                      .fontColor(Theme.textSecondary(Theme.isDark()))
+                  }
+                  .layoutWeight(1)
+                  .alignItems(HorizontalAlign.Start)
+                  Text('›')
+                    .fontSize(18)
+                    .fontColor(Theme.textDisabled(Theme.isDark()))
+                }
+                .width('100%')
+                .padding({ left: 14, right: 14, top: 10, bottom: 10 })
+                .backgroundColor(Theme.surface(Theme.isDark()))
+                .onClick(() => Router.push(Router.BILI_FAV, `${item.mediaId}`))
+              }, (item: BiliFavFolderSummary) => `${item.mediaId}`)
+            }
+            .width('100%')
+            .borderRadius(Theme.cardRadius())
+            .clip(true)
+          }
+        }
+
         Row() {
           Text('本地音频')
             .fontSize(18)
@@ -377,9 +494,17 @@ export struct LibraryPage {
           })
           SettingRow({
             title: 'Bilibili',
-            subtitle: '收藏夹与音频（待移植）',
+            subtitle: this.biliLogged
+              ? `已登录 · ${this.biliFolders.length} 个收藏夹`
+              : '未登录 · 点击扫码登录，浏览我的收藏夹',
             icon: '📺',
-            onTap: () => promptAction.openToast({ message: 'Bilibili 登录待移植' })
+            onTap: () => {
+              if (!this.biliLogged) {
+                Router.push(Router.SETTINGS_DETAIL, SETTING_ACCOUNTS);
+              } else if (this.biliFolders.length === 0 && !this.biliLoading) {
+                this.refreshBiliFavFolders();
+              }
+            }
           })
           SettingRow({
             title: '一起听',

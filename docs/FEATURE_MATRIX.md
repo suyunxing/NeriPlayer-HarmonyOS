@@ -19,14 +19,15 @@
 | 后台连续播放 | 前台服务 | 后台任务 + audioPlayback | 部分 | 2026-08-16 改为真实 AUDIO_PLAYBACK 长时任务申请/取消；熄屏长播 smoke 待复核 |
 | 音频焦点/中断 | audio focus 策略 | `AudioInterruptPolicy.ets` | 部分 | 2026-08-16 瞬态/永久/duck/设备拔出策略+接线+6 单测；双媒体竞争真机验证待复核 |
 | 网易云搜索/歌词/取流 | `core/api/netease` | `network/Netease*.ets` | 部分 | 登录态接入（2026-08-16 M4：QR 登录+MUSIC_U 种子 weapi 会话+301 刷新重试）；2026-08-17 M4.3 补 `/personalized/playlist` 推荐歌单（匿名回退 301/50000005）、`/user/playlist` 用户歌单、`/w/nuser/account/get` uid 解析（均 weapi+纯解析器单测+真网 ohosTest）；限流、会员内容待复核 |
-| Bilibili 搜索/取流 | `core/api/bili` | `network/BiliApi.ets` | 原型 | DASH 格式、Cookie、区域/权限错误 |
+| Bilibili 搜索/取流 | `core/api/bili` | `network/BiliApi.ets` | 部分 | 2026-08-17 M4.4：请求携带登录 cookie 或匿名 buvid 指纹（`/x/frontend/finger/spi` 内存缓存 1h，失败静默降级）；登录后收藏夹列表（`created/list-all`+分页兜底）与内容分页/全量拉取（`fav/resource/list`，has_more 终止+type:id:bvid 去重，纯解析器 10 单测）；DASH 仍只取最大带宽音轨（Android 音质偏好链待移植）；WBI 签名按 D6 暂不移植；区域/权限错误分类待补 |
 | YouTube Music | API、EJS/解析器 | `YouTubeMusicApi.ets` | 部分 | signature/n、PoToken、HLS、登录态 |
 | 歌词解析与同步 | lyric API/组件 | `LrcParser.ets`、`LyricView.ets` | 原型 | 双语、逐字、偏移、超长歌词性能 |
 | 本地媒体导入 | MediaStore/DocumentFile | `LocalMediaScanner.ets` | 原型 | READ_AUDIO 授权、真机元数据、失效 URI |
 | 下载与断点恢复 | `core/download` | `download/*.ets`、`network/HttpStreamDownloader.ets`、DownloadsPage | 部分 | 2026-08-16 全链落地并模拟器实测（搜索→下载 5.6MB→编目→防重复，ohosTest 8/8）：DIRECT Range/If-Range 续传、HLS checkpoint、重试退避、原子 commit、启动恢复、网络感知、离线播放短路、DebugPage 探针。断网暂停/恢复与杀进程中断恢复为单测覆盖、设备端未自动化；元数据 tag 写入降级为 sidecar 编目；空间不足处理未做 |
 | 分享/文件访问 | FileProvider | HarmonyOS 文件/分享能力 | 未开始 | URI 授权、外部应用、隐私沙箱 |
 | GitHub/WebDAV 同步 | `data/sync` | 待建 `sync` 层 | 未开始 | ETag、条件写、冲突合并、凭据存储 |
-| 平台登录（网易云） | auth activities/repositories | `data/auth/*`、`network/NeteaseQrLogin.ets`、`util/QrEncoder.ets` | 部分 | 2026-08-16 M4.1/M4.2：Asset Store 凭据基建（asset 后端模拟器实证；不可用时降级会话内存并暴露状态）、纯 ArkTS QR 生成器（segno 字节级夹具+152 组合扫描对齐）、QR 登录 UI+轮询+登出、粘贴 Cookie 备用导入、MUSIC_U 会话种子；2026-08-17 M4.3 登录态收益：资料库「网易云歌单」区（用户歌单列表/详情/批量导入本地歌单，stableKey 去重一次落盘）+ 首页「每日推荐」横滑区（匿名可用）；真机扫码确认（803→登录态歌单）仍待复核；B 站/YouTube 登录未开始 |
+| 平台登录（网易云） | auth activities/repositories | `data/auth/*`、`network/NeteaseQrLogin.ets`、`util/QrEncoder.ets` | 部分 | 2026-08-16 M4.1/M4.2：Asset Store 凭据基建（asset 后端模拟器实证；不可用时降级会话内存并暴露状态）、纯 ArkTS QR 生成器（segno 字节级夹具+152 组合扫描对齐）、QR 登录 UI+轮询+登出、粘贴 Cookie 备用导入、MUSIC_U 会话种子；2026-08-17 M4.3 登录态收益：资料库「网易云歌单」区（用户歌单列表/详情/批量导入本地歌单，stableKey 去重一次落盘）+ 首页「每日推荐」横滑区（匿名可用）；真机扫码确认（803→登录态歌单）仍待复核；B 站登录见下行；YouTube 登录未开始 |
+| 平台登录（Bilibili） | `BiliQrLoginClient`/`BiliCookieRepository` | `data/auth/BiliAuth*.ets`、`network/BiliQrLogin.ets`、`view/components/QrLoginPanel.ets` | 部分 | 2026-08-17 M4.4：QR 登录（generate/poll 端点、86101/86090/0/86038 状态机、passport 域被动 Set-Cookie 累积）、cookie bundle asset 持久化（键名对齐 Android `bili_auth_bundle`，仅 SESSDATA 判定登录、无过期语义，11 单测）、共享 QrLoginPanel 组件（网易/B 站复用，轮询状态机去重）、粘贴 Cookie 备用导入、资料库「B 站收藏夹」区+BiliFavPage 详情；真网 ohosTest 3/3（QR session 生成+fresh poll 等待态、仓库往返+清除、缺 SESSDATA 拒绝）；扫码确认（0→SESSDATA 落库→收藏夹浏览）需真机+哔哩哔哩 App，待复核 |
 | 一起听 | `listentogether` | 待建独立模块 | 未开始 | WebSocket、校时、重连、主持权 |
 | USB 独占 | C++ UAC1/UAC2 | 待建 NAPI C++ 模块 | 未开始 | USB Host、等时传输、反馈时钟、机型矩阵 |
 | 动态取色/高级视觉 | Compose/Palette/着色器 | ArkUI 主题与效果 | 未开始 | 性能、无障碍、低端设备降级 |

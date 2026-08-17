@@ -8,6 +8,7 @@ import { SettingsPage } from './SettingsPage';
 import { NowPlayingPage } from './NowPlayingPage';
 import { PlaylistDetailPage } from './PlaylistDetailPage';
 import { NeteasePlaylistPage } from './NeteasePlaylistPage';
+import { BiliFavPage } from './BiliFavPage';
 import { DebugPage } from './DebugPage';
 import { DownloadsPage } from './DownloadsPage';
 import { RecentPage } from './RecentPage';
@@ -55,6 +56,8 @@ export struct MainShell {
       PlaylistDetailPage()
     } else if (this.routeName === Router.NETEASE_PLAYLIST) {
       NeteasePlaylistPage()
+    } else if (this.routeName === Router.BILI_FAV) {
+      BiliFavPage()
     } else if (this.routeName === Router.RECENT) {
       RecentPage()
     } else if (this.routeName === Router.STATS) {

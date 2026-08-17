@@ -1,7 +1,17 @@
+import { Logger } from '../app/Logger';
 import { Constants } from '../app/Constants';
 import { SongItem } from '../model/SongItem';
 import { MusicPlatform } from '../model/MusicPlatform';
 import { HttpClient } from './HttpClient';
+import { BiliCookieRepository } from '../data/auth/BiliCookieRepository';
+import {
+  BiliFavFolderSummary,
+  BiliFavMedia,
+  BiliFavPage,
+  parseBiliFavFolderList,
+  parseBiliFavResourcePage,
+  biliFavMediaDedupKey
+} from './BiliFavParser';
 
 interface BiliSearchItem {
   bvid: string;
@@ -39,21 +49,90 @@ interface BiliDash {
   audio?: BiliDashAudio[];
 }
 
+interface BiliSpiResponse {
+  code?: number;
+  data?: BiliSpiData;
+}
+
+interface BiliSpiData {
+  b_3?: string;
+  b_4?: string;
+  buvid_fp?: string;
+  b_lsid?: string;
+}
+
+const FAV_PAGE_SIZE: number = 20;
+const ANON_COOKIE_TTL_MS: number = 60 * 60 * 1000; // mirrors Android's 1h anon cookie cache
+const FAV_FOLDER_WEB_LOCATION: string = '333.1387';
+
 /**
- * Bilibili client (video search + audio stream resolution), following the
- * bilibili-API-collect conventions used by the Android app.
+ * Bilibili client (video search + audio stream resolution + favorite
+ * folders), following the bilibili-API-collect conventions used by the
+ * Android app. Requests carry the persisted login cookie jar when logged in,
+ * or anonymous buvid fingerprint cookies otherwise (Android getEffectiveCookies).
  */
 export class BiliApi {
+  private static anonCookieFetchedAt: number = 0;
+
   private static biliHeaders(): Record<string, string> {
     const headers: Record<string, string> = {};
     headers['Referer'] = 'https://www.bilibili.com';
     return headers;
   }
 
+  /**
+   * Makes sure the api.bilibili.com cookie jar has something usable: the
+   * login bundle is seeded by BiliCookieRepository, so this only fetches the
+   * anonymous fingerprint (/x/frontend/finger/spi) when logged out. Failures
+   * degrade silently to cookie-less requests.
+   */
+  private static async ensureRequestCookies(): Promise<void> {
+    if (BiliCookieRepository.isLoggedIn()) {
+      return;
+    }
+    const jar = HttpClient.getCookies(`${Constants.BILI_BASE}/`);
+    if (jar.indexOf('buvid3=') >= 0 && Date.now() - BiliApi.anonCookieFetchedAt < ANON_COOKIE_TTL_MS) {
+      return;
+    }
+    try {
+      const text = await HttpClient.getText(
+        `${Constants.BILI_BASE}/x/frontend/finger/spi`,
+        BiliApi.biliHeaders()
+      );
+      const parsed = JSON.parse(text) as BiliSpiResponse;
+      const data = parsed.data;
+      if (data === undefined) {
+        return;
+      }
+      const pairs: string[] = [];
+      if (data.b_3 !== undefined && data.b_3.length > 0) {
+        pairs.push(`buvid3=${data.b_3}`);
+      }
+      if (data.b_4 !== undefined && data.b_4.length > 0) {
+        pairs.push(`buvid4=${data.b_4}`);
+      }
+      if (data.buvid_fp !== undefined && data.buvid_fp.length > 0) {
+        pairs.push(`buvid_fp=${data.buvid_fp}`);
+      }
+      if (data.b_lsid !== undefined && data.b_lsid.length > 0) {
+        pairs.push(`b_lsid=${data.b_lsid}`);
+      }
+      if (pairs.length > 0) {
+        HttpClient.seedCookies(`${Constants.BILI_BASE}/`, pairs.join('; '));
+        BiliApi.anonCookieFetchedAt = Date.now();
+        Logger.info(`bili anon cookies seeded: ${pairs.length} entries`);
+      }
+    } catch (error) {
+      const e = error as Error;
+      Logger.warn(`bili anon cookie fetch failed (continuing without): ${e.message}`);
+    }
+  }
+
   static async search(keyword: string, limit: number = 20): Promise<SongItem[]> {
     const url =
       `${Constants.BILI_BASE}/x/web-interface/search/type?search_type=video&keyword=${encodeURIComponent(keyword)}`;
-    const text = await HttpClient.getText(url, BiliApi.biliHeaders());
+    await BiliApi.ensureRequestCookies();
+    const text = await HttpClient.getText(url, BiliApi.biliHeaders(), 15000, true);
     const response = JSON.parse(text) as BiliSearchResponse;
     const results = response.data?.result ?? [];
     const items: SongItem[] = [];
@@ -82,7 +161,8 @@ export class BiliApi {
   static async resolveAudioUrl(bvid: string): Promise<string> {
     const url =
       `${Constants.BILI_BASE}/x/player/playurl?bvid=${bvid}&fnval=16&fourk=1`;
-    const text = await HttpClient.getText(url, BiliApi.biliHeaders());
+    await BiliApi.ensureRequestCookies();
+    const text = await HttpClient.getText(url, BiliApi.biliHeaders(), 15000, true);
     const response = JSON.parse(text) as BiliPlayUrlResponse;
     const audioList = response.data?.dash?.audio ?? [];
     if (audioList.length === 0) {
@@ -102,6 +182,105 @@ export class BiliApi {
       stream = `https://${stream.substring(7)}`;
     }
     return stream;
+  }
+
+  /**
+   * Lists the user's created favorite folders: created/list-all first, with
+   * the paginated created/list endpoint as a fallback when count > list size
+   * (Android getUserCreatedFavFolders). Login cookies required for non-empty
+   * results.
+   */
+  static async getUserFavFolders(mid: number): Promise<BiliFavFolderSummary[]> {
+    if (mid <= 0) {
+      throw new Error('无法获取用户 mid（DedeUserID 缺失）');
+    }
+    await BiliApi.ensureRequestCookies();
+    const listAllUrl =
+      `${Constants.BILI_BASE}/x/v3/fav/folder/created/list-all?up_mid=${mid}&web_location=${FAV_FOLDER_WEB_LOCATION}`;
+    const first = parseBiliFavFolderList(await HttpClient.getText(listAllUrl, BiliApi.biliHeaders(), 15000, true));
+    if (first.totalCount <= first.folders.length) {
+      return first.folders;
+    }
+    const merged = new Map<number, BiliFavFolderSummary>();
+    for (const folder of first.folders) {
+      merged.set(folder.mediaId, folder);
+    }
+    const totalPages = Math.ceil(first.totalCount / FAV_PAGE_SIZE);
+    for (let pn = 2; pn <= totalPages; pn++) {
+      const pageUrl =
+        `${Constants.BILI_BASE}/x/v3/fav/folder/created/list?up_mid=${mid}&pn=${pn}&ps=${FAV_PAGE_SIZE}&web_location=${FAV_FOLDER_WEB_LOCATION}`;
+      try {
+        const page = parseBiliFavFolderList(await HttpClient.getText(pageUrl, BiliApi.biliHeaders(), 15000, true));
+        for (const folder of page.folders) {
+          if (!merged.has(folder.mediaId)) {
+            merged.set(folder.mediaId, folder);
+          }
+        }
+      } catch (error) {
+        // Failed pages are skipped (Android parallel fetch tolerates this too).
+        const e = error as Error;
+        Logger.warn(`bili fav folder page ${pn} failed: ${e.message}`);
+      }
+    }
+    const out: BiliFavFolderSummary[] = [];
+    merged.forEach((folder: BiliFavFolderSummary) => {
+      out.push(folder);
+    });
+    return out;
+  }
+
+  /** Fetches one page of a favorite folder's contents (Android getFavFolderContents). */
+  static async getFavFolderPage(mediaId: number, page: number, keyword: string = ''): Promise<BiliFavPage> {
+    await BiliApi.ensureRequestCookies();
+    let url =
+      `${Constants.BILI_BASE}/x/v3/fav/resource/list?media_id=${mediaId}&pn=${page}&ps=${FAV_PAGE_SIZE}` +
+      `&order=mtime&platform=web`;
+    if (keyword.length > 0) {
+      url += `&keyword=${encodeURIComponent(keyword)}`;
+    }
+    const text = await HttpClient.getText(url, BiliApi.biliHeaders(), 15000, true);
+    return parseBiliFavResourcePage(text);
+  }
+
+  /**
+   * Fetches every item of a favorite folder sequentially (Android
+   * getAllFavFolderItems: stop at !has_more or count reached, failed pages
+   * skipped, entries deduped by type:id:bvid).
+   */
+  static async getAllFavFolderItems(mediaId: number): Promise<BiliFavMedia[]> {
+    const first = await BiliApi.getFavFolderPage(mediaId, 1);
+    const items: BiliFavMedia[] = [];
+    const seen = new Set<string>();
+    for (const item of first.items) {
+      const key = biliFavMediaDedupKey(item);
+      if (!seen.has(key)) {
+        seen.add(key);
+        items.push(item);
+      }
+    }
+    if (!first.hasMore || first.totalCount <= items.length) {
+      return items;
+    }
+    const totalPages = Math.ceil(first.totalCount / FAV_PAGE_SIZE);
+    for (let pn = 2; pn <= totalPages; pn++) {
+      try {
+        const page = await BiliApi.getFavFolderPage(mediaId, pn);
+        for (const item of page.items) {
+          const key = biliFavMediaDedupKey(item);
+          if (!seen.has(key)) {
+            seen.add(key);
+            items.push(item);
+          }
+        }
+        if (!page.hasMore) {
+          break;
+        }
+      } catch (error) {
+        const e = error as Error;
+        Logger.warn(`bili fav page ${pn} failed: ${e.message}`);
+      }
+    }
+    return items;
   }
 
   private static stripHtml(text: string): string {
