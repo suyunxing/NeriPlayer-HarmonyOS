@@ -48,6 +48,13 @@ export default function neteaseLibraryTest(): void {
       expect(overview.songs.length > 0).assertTrue();
       expect(overview.songs[0].id > 0).assertTrue();
       expect(overview.songs[0].audioId.length > 0).assertTrue();
+      // v6 playlist detail returns ar/al short fields; the mapper must still
+      // produce covers (https-upgraded) or the UI shows placeholders.
+      const withCover = overview.songs.find((song) => song.coverUrl.length > 0);
+      expect(withCover !== undefined).assertTrue();
+      if (withCover !== undefined) {
+        expect(withCover.coverUrl.startsWith('https://')).assertTrue();
+      }
     });
   });
 }
