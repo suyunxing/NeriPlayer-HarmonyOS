@@ -152,6 +152,9 @@ export class PlayerManager {
     if (player !== null && PlayerManager.status === PlaybackStatus.PAUSED) {
       try {
         await player.play();
+        // Publish immediately so the UI toggles without waiting for the
+        // async AVPlayer stateChange event (which may lag on some streams).
+        PlayerManager.publishStatus(PlaybackStatus.PLAYING);
         return;
       } catch (error) {
         const e = error as Error;
@@ -187,6 +190,9 @@ export class PlayerManager {
     }
     try {
       await player.pause();
+      // Publish immediately (see play()); the AVPlayer stateChange event
+      // re-confirms the same value later.
+      PlayerManager.publishStatus(PlaybackStatus.PAUSED);
     } catch (error) {
       const e = error as Error;
       Logger.warn(`PlayerManager.pause failed: ${e.message}`);

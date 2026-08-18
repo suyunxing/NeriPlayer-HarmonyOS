@@ -179,7 +179,10 @@ export struct NowPlayingPage {
         .width('100%')
         .padding({ left: 10, right: 10, top: 8 })
 
-        if (this.showLyrics && this.lyrics.length > 0) {
+        // The lyric view has its own empty state ("暂无歌词"); entering it
+        // must not depend on lyrics being available (Bilibili/LOCAL songs
+        // often have no remote lyric source, Android shows an empty state).
+        if (this.showLyrics) {
           LyricView({
             lyrics: this.lyrics,
             onSeek: (timeMs: number) => PlayerManager.seekTo(timeMs)
@@ -416,10 +419,13 @@ export struct NowPlayingPage {
 
 @Component
 struct PlayerControlButton {
-  icon: Resource = $r('app.media.round_play_arrow_24');
-  active: boolean = false;
+  // @Prop so icon/active/buttonSize refresh when the parent's bound state
+  // changes (the play/pause icon switches on player.status; plain members
+  // never re-render the child).
+  @Prop icon: Resource = $r('app.media.round_play_arrow_24');
+  @Prop active: boolean = false;
+  @Prop buttonSize: number = 48;
   onTap: () => void = () => {};
-  buttonSize: number = 48;
 
   build() {
     Button() {
