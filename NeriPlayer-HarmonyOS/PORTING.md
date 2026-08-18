@@ -1,7 +1,5 @@
 # NeriPlayer → HarmonyOS 原生移植说明 (PORTING.md)
 
-> **审计提示（2026-08-12）：** 本文保存 2026-08-02 原型开发时的记录。“实测/完成”仅指当时特定 API 24 模拟器与缓存环境中的结果，本次未独立重现，也不等同于当前 Android 上游的完整功能等价。后续计划与可信度分级以仓库根目录 `docs/` 为准。
-
 本目录是 [cwuom/NeriPlayer](https://github.com/cwuom/NeriPlayer)（Jetpack Compose + Media3 的 Android 原生音频播放器）到 **HarmonyOS NEXT 原生应用**的移植工程。
 
 ## 基线 (Baseline)
@@ -27,19 +25,24 @@
 | 歌词 | NowPlaying 页渲染 LRC + 翻译（作词/作曲头部、双语逐行高亮） |
 | 迷你播放器 | 播放中显示当前歌曲 + 进度条 + 来源角标，点击进入 NowPlaying 页 |
 | 崩溃安全模式 | 标记后重启进入 SafeMode（代码路径，未实测崩溃注入） |
+| 下载管线 | Range 分块续传（206/200/416 回退）、并发队列、暂停/恢复/重试、启动自动恢复、.lrc/.song.json sidecar、离线播放（沙箱目录） |
+| UI 图标 | 所有 emoji 占位图标已替换为 SVG（`util/IconCatalog.ets` + `resources/base/media/*.svg`） |
+| 动态取色 | 封面 12×12 RGBA 采样 → 饱和度/亮度加权取 accent，应用于播放页滑杆与歌词高亮（CoverColorExtractor） |
 
-## 当前状态（2026-08-13 复核）
-
-2026-08-13 在本机 6.1.1 Release 工具链完成可重复验证：`ohpm install --all`、`hvigorw clean`、Debug `assembleHap` 构建成功（存在 6 条"Function may throw exceptions"非阻塞警告，分布在 `LibraryPage.ets`、`PlaylistDetailPage.ets`、`DebugPage.ets`）；ArkTS 单元测试 3/3 通过（`entry/src/test/`，LRC 解析/翻译合并/时间格式化）；调试签名、模拟器安装、冷启动与设置页 smoke test 通过。完整记录见 `../docs/hm.md` §7.4。
-
-该验证只覆盖构建、启动、安全区和设置页入口，不代表下述能力已完成。当前待办（代码中均有 porting seam 标注，不得在文档中标为已完成）：
+⏳ 待完善（按优先级）：
 
 1. **weapi 风控**：`weapi/cloudsearch/get/web` 在本模拟器网络环境返回 `{"code":50000005}`（无浏览器指纹/IP 风控），目前靠旧版接口回退可用；后续可补 eapi 路径或二维码登录后携带 `MUSIC_U` 重试。
-2. **YouTube 取流**：仍缺 signature/n 参数、PoToken 与 EJS 引擎，仅搜索可用（`YouTubeMusicApi.ets` 取流当前直接抛错）。
+2. **YouTube 取流**：仍缺 signature/n 参数、PoToken 与 EJS 引擎，仅搜索可用。
+   <!--
 3. **下载管线**：`DownloadsPage` 与任务目录已完成，需移植 Range 断点续传 + 实际文件落盘。
+   -->
+   3. ✅ **下载管线**：Range 续传、实际落盘、暂停/恢复/重试已完成，目录选择/导出待后续迁移。
 4. **同步**：GitHub / WebDAV 同步待移植。
 5. **一起听 / USB 独占 / 悬浮歌词**：待移植（USB 需 NAPI C++）。
+   <!--
 6. **动态取色与高级模糊**：设置页已有入口，引擎待实现。
+   -->
+   6. ✅ **动态取色**：封面取色引擎已完成并接入 NowPlaying；壁纸取色与全局主题联动待后续。
 
 ## 目录结构
 
@@ -61,6 +64,7 @@ NeriPlayer-HarmonyOS/
         │   ├── data/             # 设置/历史/歌单/统计/本地媒体
         │   ├── network/          # HttpClient(Cookie罐)、网易云/B站/YTMusic、歌词、流解析
         │   ├── player/           # PlayerManager(AVPlayer)、AVSession、后台任务
+          │   ├── download/         # DownloadManager、Range 续传、沙箱落盘、sidecar
         │   ├── lyrics/           # LRC 解析
         │   └── view/             # 页面与组件（首页/探索/资料库/设置/正在播放/调试）
         └── resources/            # 字符串、颜色、图标、路由、网络安全配置
@@ -71,10 +75,7 @@ NeriPlayer-HarmonyOS/
 DevEco Studio 6.1.1 的 `build-profile.json5` 不再接受明文签名口令（要求加密串 + material 目录），因此工程保持 `signingConfigs: []`，由脚本用 SDK 自带的 OpenHarmony 调试证书手动签名：
 
 ```powershell
-# 前置（2026-08-14 本机布局）：API 24 SDK 与 CLI 在 D:\HarmonyOS\Tools\command-line-tools\，
-# sign-local.ps1 还需要 Studio 布局中的 jbr 与 hvigor，因此显式设置以下两个环境变量。
-$env:DEVECO_SDK_HOME = 'D:\HarmonyOS\Tools\command-line-tools\sdk'
-$env:DEVECO_STUDIO_HOME = 'D:\HarmonyOS\Tools\devecostudio-windows-26.0.0.621\DevEco Studio'
+# 前置：本机 DevEco Studio 6.1.1（含 SDK、Hvigor、ohpm、hdc），模拟器已启动
 .\sign-local.ps1          # 构建 -> 签名 -> 安装到 127.0.0.1:5555
 .\sign-local.ps1 -SkipInstall
 ```

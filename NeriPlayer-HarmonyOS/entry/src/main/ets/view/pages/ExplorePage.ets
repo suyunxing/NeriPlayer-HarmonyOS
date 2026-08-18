@@ -193,8 +193,14 @@ export struct ExplorePage {
       } else if (!this.searched) {
         Column({ space: 12 }) {
           Row({ space: 12 }) {
+              /*
             Text('🎵')
               .fontSize(28)
+              */
+              Image($r('app.media.ic_music_note_24'))
+                .width(26)
+                .height(26)
+                .fillColor(Theme.primary(Theme.isDark()))
             Column({ space: 2 }) {
               Text('搜索歌曲')
                 .fontSize(15)
@@ -216,8 +222,14 @@ export struct ExplorePage {
           .borderRadius(Theme.cardRadius())
 
           Row({ space: 12 }) {
+              /*
             Text('📋')
               .fontSize(28)
+              */
+              Image($r('app.media.ic_queue_music_24'))
+                .width(26)
+                .height(26)
+                .fillColor(Theme.primary(Theme.isDark()))
             Column({ space: 2 }) {
               Text('搜索歌单')
                 .fontSize(15)

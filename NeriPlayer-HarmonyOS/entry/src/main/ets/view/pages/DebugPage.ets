@@ -6,9 +6,7 @@ import { PlaybackStatsRepository } from '../../data/PlaybackStatsRepository';
 import { SettingsRepository } from '../../data/SettingsRepository';
 import { UsageRepository } from '../../data/UsageRepository';
 import { SearchHistoryRepository } from '../../data/SearchHistoryRepository';
-import { DownloadEngine } from '../../download/DownloadEngine';
-import { DownloadStorage } from '../../download/DownloadStorage';
-import { DownloadStatus } from '../../download/DownloadModels';
+import { DownloadsRepository } from '../../data/DownloadsRepository';
 import { Router } from '../Router';
 import { Theme } from '../Theme';
 
@@ -64,28 +62,9 @@ export struct DebugPage {
     this.result = '已清空搜索历史';
   }
 
-  private clearDownloads(): void {
-    DownloadEngine.clearAllTasks();
-    this.result = '已清空下载任务（已下载文件保留）';
-  }
-
-  private async probeDownloads(): Promise<void> {
-    const tasks = DownloadEngine.getTasks();
-    const catalog = await DownloadStorage.getCatalog();
-    let catalogBytes = 0;
-    for (const entry of catalog) {
-      catalogBytes += DownloadStorage.fileSize(entry.audioPath);
-    }
-    const byStatus = (status: DownloadStatus): number =>
-      tasks.filter((task) => task.status === status).length;
-    this.result = `下载探针：任务 ${tasks.length}（排队 ${byStatus(DownloadStatus.QUEUED)}`
-      + ` / 传输 ${byStatus(DownloadStatus.DOWNLOADING)}`
-      + ` / 等网 ${byStatus(DownloadStatus.WAITING_NETWORK)}`
-      + ` / 完成 ${byStatus(DownloadStatus.COMPLETED)}`
-      + ` / 失败 ${byStatus(DownloadStatus.FAILED)}`
-      + ` / 取消 ${byStatus(DownloadStatus.CANCELLED)}）`
-      + `；编目 ${catalog.length} 首 ${(catalogBytes / 1024 / 1024).toFixed(1)} MB`
-      + `；暂存文件 ${DownloadStorage.stagingFileCount()} 个`;
+  private async clearDownloads(): Promise<void> {
+    await DownloadsRepository.clearAll();
+    this.result = '已清空下载任务';
   }
 
   private simulateCrash(): void {
@@ -132,7 +111,6 @@ export struct DebugPage {
           this.testButton('清空继续收听', () => this.clearUsage())
           this.testButton('清空搜索历史', () => this.clearSearchHistory())
           this.testButton('清空下载任务', () => this.clearDownloads())
-          this.testButton('下载管线探针', () => this.probeDownloads())
           this.testButton('模拟崩溃 → 安全模式', () => this.simulateCrash())
 
           Text('USB 独占播放 / 下载恢复 / 一起听 / 同步 仍为待移植模块，见 PORTING.md')

@@ -1,6 +1,7 @@
 import { Theme } from '../Theme';
 import { Playlist } from '../../model/Playlist';
 import { MusicPlatform } from '../../model/MusicPlatform';
+import { iconForLegacy } from '../../util/IconCatalog';
 
 /**
  * Shared UI building blocks used across pages (section headers, cards,
@@ -11,13 +12,21 @@ import { MusicPlatform } from '../../model/MusicPlatform';
 export struct SectionHeader {
   @Prop title: string;
   @Prop icon: string = '';
+  @Prop iconResource: Resource = $r('app.media.ic_music_note_24');
+  @Prop showIcon: boolean = false;
 
   build() {
     Row({ space: 8 }) {
-      if (this.icon.length > 0) {
-        Text(this.icon)
-          .fontSize(16)
-          .fontColor(Theme.primary(Theme.isDark()))
+      if (this.showIcon) {
+        Image(this.iconResource)
+          .width(20)
+          .height(20)
+          .fillColor(Theme.primary(Theme.isDark()))
+      } else if (this.icon.length > 0) {
+        Image(iconForLegacy(this.icon, this.iconResource))
+          .width(20)
+          .height(20)
+          .fillColor(Theme.primary(Theme.isDark()))
       }
       Text(this.title)
         .fontSize(18)
@@ -33,15 +42,25 @@ export struct SectionHeader {
 
 @Component
 export struct EmptyState {
-  @Prop icon: string = '♪';
+  @Prop icon: string = '';
+  @Prop iconResource: Resource = $r('app.media.ic_music_note_24');
+  @Prop showIcon: boolean = false;
   @Prop title: string;
   @Prop subtitle: string = '';
 
   build() {
     Column({ space: 6 }) {
-      Text(this.icon)
-        .fontSize(38)
-        .fontColor(Theme.textDisabled(Theme.isDark()))
+      if (this.showIcon) {
+        Image(this.iconResource)
+          .width(38)
+          .height(38)
+          .fillColor(Theme.textDisabled(Theme.isDark()))
+      } else if (this.icon.length > 0) {
+        Image(iconForLegacy(this.icon, this.iconResource))
+          .width(38)
+          .height(38)
+          .fillColor(Theme.textDisabled(Theme.isDark()))
+      }
       Text(this.title)
         .fontSize(15)
         .fontColor(Theme.textSecondary(Theme.isDark()))
@@ -92,14 +111,22 @@ export struct PlaylistCard {
           Image(this.coverUrl)
             .width('100%')
             .aspectRatio(1)
+              /*
+                */
             .borderRadius(12)
             .objectFit(ImageFit.Cover)
             .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
         } else {
           Column() {
+              /*
             Text('♫')
               .fontSize(34)
               .fontColor(Theme.primary(Theme.isDark()))
+              */
+              Image($r('app.media.ic_music_note_24'))
+                .width(36)
+                .height(36)
+                .fillColor(Theme.primary(Theme.isDark()))
           }
           .width('100%')
           .aspectRatio(1)
@@ -108,9 +135,15 @@ export struct PlaylistCard {
           .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
         }
         if (this.isFavorite) {
+            /*
           Text('★')
             .fontSize(14)
             .fontColor(Theme.warning(Theme.isDark()))
+            */
+            Image($r('app.media.ic_baseline_favorite_24'))
+              .width(16)
+              .height(16)
+              .fillColor(Theme.warning(Theme.isDark()))
             .padding(5)
             .backgroundColor(Theme.scrim(Theme.isDark()))
             .borderRadius(8)
@@ -144,18 +177,37 @@ export struct SettingRow {
   @Prop title: string;
   @Prop subtitle: string = '';
   @Prop icon: string = '';
+  @Prop iconResource: Resource = $r('app.media.ic_info_24');
+  @Prop showIcon: boolean = false;
   @Prop showArrow: boolean = true;
   @Prop danger: boolean = false;
+  @Prop tintIcon: boolean = true;
   onTap: () => void = () => {};
 
   build() {
     Row({ space: 12 }) {
-      if (this.icon.length > 0) {
-        Text(this.icon)
-          .fontSize(17)
-          .width(30)
-          .textAlign(TextAlign.Center)
-          .fontColor(this.danger ? Theme.danger(Theme.isDark()) : Theme.primary(Theme.isDark()))
+      if (this.showIcon) {
+        if (this.tintIcon) {
+          Image(this.iconResource)
+            .width(20)
+            .height(20)
+            .fillColor(this.danger ? Theme.danger(Theme.isDark()) : Theme.primary(Theme.isDark()))
+        } else {
+          Image(this.iconResource)
+            .width(22)
+            .height(22)
+        }
+      } else if (this.icon.length > 0) {
+        if (this.tintIcon) {
+          Image(iconForLegacy(this.icon, this.iconResource))
+            .width(20)
+            .height(20)
+            .fillColor(this.danger ? Theme.danger(Theme.isDark()) : Theme.primary(Theme.isDark()))
+        } else {
+          Image(iconForLegacy(this.icon, this.iconResource))
+            .width(22)
+            .height(22)
+        }
       }
       Column({ space: 2 }) {
         Text(this.title)
@@ -177,9 +229,10 @@ export struct SettingRow {
       .alignItems(HorizontalAlign.Start)
 
       if (this.showArrow) {
-        Text('›')
-          .fontSize(20)
-          .fontColor(Theme.textDisabled(Theme.isDark()))
+        Image($r('app.media.ic_chevron_right_24'))
+          .width(20)
+          .height(20)
+          .fillColor(Theme.textDisabled(Theme.isDark()))
       }
     }
     .width('100%')

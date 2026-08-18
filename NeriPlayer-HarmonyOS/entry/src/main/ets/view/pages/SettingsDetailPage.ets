@@ -1,11 +1,7 @@
 import { promptAction } from '@kit.ArkUI';
 import { SettingsRepository } from '../../data/SettingsRepository';
-import { DownloadStorage } from '../../download/DownloadStorage';
-import { DownloadEngine } from '../../download/DownloadEngine';
+import { DownloadsRepository } from '../../data/DownloadsRepository';
 import { PlayerManager } from '../../player/PlayerManager';
-import { NeteaseCookieRepository } from '../../data/auth/NeteaseCookieRepository';
-import { NeteaseQrLoginClient, NeteaseQrSession } from '../../network/NeteaseQrLogin';
-import { encodeQr, QrMatrix } from '../../util/QrEncoder';
 import { Theme } from '../Theme';
 import { SettingRow } from '../components/Ui';
 import { SETTING_PLAYBACK, SETTING_DOWNLOAD, SETTING_LYRICS, SETTING_APPEARANCE,
@@ -15,7 +11,6 @@ import { Router } from '../Router';
 
 const SPEEDS: number[] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
 const QUALITIES: string[] = ['standard', 'high', 'exhigh', 'lossless', 'hires'];
-const QR_POLL_INTERVAL_MS: number = 2000;
 
 @Component
 export struct SettingsDetailPage {
@@ -31,22 +26,10 @@ export struct SettingsDetailPage {
   @StorageProp('np.download_concurrency') downloadConcurrency: number = 6;
   @StorageProp('np.download_match_lyrics') downloadMatchLyrics: boolean = true;
   @StorageProp('np.save_traffic') saveTraffic: boolean = false;
-  @StorageProp('np.netease_auto_fallback') neteaseAutoFallback: boolean = true;
   @StorageProp('np.cover_policy') coverPolicy: string = 'always';
   @StorageProp('np.always_record_logs') alwaysRecordLogs: boolean = false;
-  @StorageLink('np.netease_logged') neteaseLogged: boolean = false;
 
   @State cacheBytes: number = 0;
-  @State qrPanelOpen: boolean = false;
-  @State qrStatus: string = '';
-  @State qrBusy: boolean = false;
-  @State qrMatrix: QrMatrix | null = null;
-
-  private qrSession: NeteaseQrSession | null = null;
-  private qrTimerId: number = -1;
-  private qrCanvasCtx: CanvasRenderingContext2D =
-    new CanvasRenderingContext2D(new RenderingContextSettings(true));
-  private pasteDialogController: CustomDialogController | null = null;
 
   private title(): string {
     if (this.section === SETTING_PLAYBACK) {
@@ -83,159 +66,12 @@ export struct SettingsDetailPage {
   }
 
   async aboutToAppear(): Promise<void> {
-    const catalog = await DownloadStorage.getCatalog();
+    const tasks = await DownloadsRepository.loadAll();
     let bytes = 0;
-    for (const entry of catalog) {
-      bytes += DownloadStorage.fileSize(entry.audioPath);
+    for (const task of tasks) {
+      bytes += task.downloadedBytes;
     }
     this.cacheBytes = bytes;
-  }
-
-  aboutToDisappear(): void {
-    this.stopQrPolling();
-  }
-
-  // ---- NetEase QR login -------------------------------------------------
-
-  private startNeteaseLogin(): void {
-    if (this.qrBusy) {
-      return;
-    }
-    this.qrPanelOpen = true;
-    this.qrStatus = '正在生成二维码...';
-    this.createQrSession();
-  }
-
-  private async createQrSession(): Promise<void> {
-    this.qrBusy = true;
-    this.stopQrPolling();
-    try {
-      this.qrSession = await NeteaseQrLoginClient.createSession();
-      this.qrMatrix = encodeQr(this.qrSession.qrContent).matrix;
-      this.qrStatus = '请用网易云音乐 App 扫码';
-      this.drawQr();
-      this.qrTimerId = setInterval(() => {
-        this.pollQrOnce();
-      }, QR_POLL_INTERVAL_MS);
-    } catch (error) {
-      const e = error as Error;
-      this.qrStatus = `二维码创建失败：${e.message}`;
-      promptAction.openToast({ message: '二维码创建失败' });
-    }
-    this.qrBusy = false;
-  }
-
-  private async pollQrOnce(): Promise<void> {
-    if (this.qrSession === null || this.qrBusy) {
-      return;
-    }
-    this.qrBusy = true;
-    try {
-      const result = await NeteaseQrLoginClient.checkLogin(this.qrSession);
-      if (result.code === 801) {
-        this.qrStatus = '请用网易云音乐 App 扫码';
-      } else if (result.code === 802) {
-        this.qrStatus = '已扫码，请在手机上确认';
-      } else if (result.code === 803) {
-        const saved = NeteaseCookieRepository.saveFromQrLogin(result.cookies);
-        this.stopQrPolling();
-        this.qrSession = null;
-        if (saved) {
-          this.neteaseLogged = true;
-          this.qrPanelOpen = false;
-          this.qrStatus = '';
-          promptAction.openToast({ message: '网易云登录成功' });
-        } else {
-          this.qrStatus = '登录校验失败，请重试';
-        }
-      } else if (result.code === 800) {
-        this.qrStatus = '二维码已过期，正在刷新...';
-        this.stopQrPolling();
-        this.createQrSession();
-      }
-    } catch (error) {
-      const e = error as Error;
-      this.qrStatus = `轮询失败：${e.message}`;
-    }
-    this.qrBusy = false;
-  }
-
-  private stopQrPolling(): void {
-    if (this.qrTimerId >= 0) {
-      clearInterval(this.qrTimerId);
-      this.qrTimerId = -1;
-    }
-  }
-
-  private cancelNeteaseLogin(): void {
-    this.stopQrPolling();
-    this.qrSession = null;
-    this.qrMatrix = null;
-    this.qrPanelOpen = false;
-    this.qrStatus = '';
-  }
-
-  private confirmNeteaseLogout(): void {
-    AlertDialog.show({
-      title: '退出登录',
-      message: '确定退出网易云音乐登录？',
-      primaryButton: {
-        value: '取消',
-        action: () => {
-        }
-      },
-      secondaryButton: {
-        value: '退出',
-        fontColor: Theme.danger(Theme.isDark()),
-        action: () => {
-          NeteaseCookieRepository.clear();
-          this.neteaseLogged = false;
-          promptAction.openToast({ message: '已退出网易云登录' });
-        }
-      }
-    });
-  }
-
-  private drawQr(): void {
-    const m = this.qrMatrix;
-    if (m === null) {
-      return;
-    }
-    const ctx = this.qrCanvasCtx;
-    const canvasSize = 260;
-    const scale = Math.floor(canvasSize / (m.size + 8)); // include quiet zone
-    const offset = Math.floor((canvasSize - m.size * scale) / 2);
-    ctx.fillStyle = '#FFFFFF';
-    ctx.fillRect(0, 0, canvasSize, canvasSize);
-    ctx.fillStyle = '#000000';
-    for (let i = 0; i < m.size; i++) {
-      for (let j = 0; j < m.size; j++) {
-        if (m.isDark(i, j)) {
-          ctx.fillRect(offset + j * scale, offset + i * scale, scale, scale);
-        }
-      }
-    }
-  }
-
-  private openPasteDialog(): void {
-    if (this.pasteDialogController === null) {
-      this.pasteDialogController = new CustomDialogController({
-        builder: PasteCookieDialog({
-          onConfirm: (text: string) => {
-            const saved = NeteaseCookieRepository.saveFromPastedText(text);
-            if (saved) {
-              this.neteaseLogged = true;
-              promptAction.openToast({ message: 'Cookie 导入成功' });
-            } else {
-              promptAction.openToast({ message: '导入失败：需要包含有效的 MUSIC_U' });
-            }
-          }
-        }),
-        autoCancel: true,
-        customStyle: false
-      });
-    }
-    this.pasteDialogController.open();
   }
 
   private setSpeed(value: number): void {
@@ -447,13 +283,6 @@ export struct SettingsDetailPage {
             })
           } else if (this.section === SETTING_TRAFFIC) {
             SettingRow({
-              title: '网易失效自动换源',
-              subtitle: this.neteaseAutoFallback ? '已开启：网易取流失败时自动匹配 B 站音源' : '已关闭',
-              icon: '🔄',
-              showArrow: false,
-              onTap: () => SettingsRepository.setBoolean(SettingsRepository.KEY_NETEASE_AUTO_FALLBACK, !this.neteaseAutoFallback)
-            })
-            SettingRow({
               title: '省流量模式',
               subtitle: this.saveTraffic ? '已开启' : '已关闭',
               icon: '📶',
@@ -484,7 +313,7 @@ export struct SettingsDetailPage {
               subtitle: '清除已完成任务记录',
               icon: '🧹',
               onTap: async () => {
-                DownloadEngine.clearFinished();
+                await DownloadsRepository.clearCompleted();
                 promptAction.openToast({ message: '已清除已完成任务' });
                 await this.aboutToAppear();
               }
@@ -492,61 +321,9 @@ export struct SettingsDetailPage {
           } else if (this.section === SETTING_ACCOUNTS) {
             SettingRow({
               title: '网易云音乐',
-              subtitle: this.neteaseLogged
-                ? `已登录 · 凭据存储：${NeteaseCookieRepository.backendName()}`
-                : '未登录 · 点击扫码登录',
+              subtitle: '未登录 · 二维码登录待移植',
               icon: '🎵',
-              onTap: () => {
-                if (this.neteaseLogged) {
-                  this.confirmNeteaseLogout();
-                } else {
-                  this.startNeteaseLogin();
-                }
-              }
-            })
-            if (this.qrPanelOpen) {
-              Column({ space: 10 }) {
-                if (this.qrMatrix !== null) {
-                  Canvas(this.qrCanvasCtx)
-                    .width(260)
-                    .height(260)
-                    .backgroundColor('#FFFFFF')
-                    .borderRadius(12)
-                    .onReady(() => {
-                      this.drawQr();
-                    })
-                }
-                Text(this.qrStatus)
-                  .fontSize(13)
-                  .fontColor(Theme.textSecondary(Theme.isDark()))
-                  .textAlign(TextAlign.Center)
-                Row({ space: 10 }) {
-                  Button('刷新')
-                    .height(36)
-                    .fontSize(13)
-                    .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
-                    .fontColor(Theme.textPrimary(Theme.isDark()))
-                    .onClick(() => this.createQrSession())
-                  Button('取消')
-                    .height(36)
-                    .fontSize(13)
-                    .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
-                    .fontColor(Theme.textPrimary(Theme.isDark()))
-                    .onClick(() => this.cancelNeteaseLogin())
-                }
-              }
-              .width('100%')
-              .padding(16)
-              .backgroundColor(Theme.surface(Theme.isDark()))
-              .borderRadius(Theme.cardRadius())
-              .alignItems(HorizontalAlign.Center)
-              .margin({ bottom: 8 })
-            }
-            SettingRow({
-              title: '粘贴 Cookie 导入（网易云）',
-              subtitle: '扫码不可用时的备用登录方式',
-              icon: '📋',
-              onTap: () => this.openPasteDialog()
+              onTap: () => promptAction.openToast({ message: '网易云登录待移植' })
             })
             SettingRow({
               title: 'Bilibili',
@@ -648,54 +425,4 @@ function qualityLabel(quality: string): string {
     return '无损';
   }
   return 'Hi-Res';
-}
-
-@CustomDialog
-struct PasteCookieDialog {
-  controller?: CustomDialogController;
-  @State cookieText: string = '';
-  onConfirm: (text: string) => void = () => {
-  };
-
-  build() {
-    Column({ space: 14 }) {
-      Text('粘贴网易云 Cookie')
-        .fontSize(17)
-        .fontWeight(FontWeight.Bold)
-        .fontColor(Theme.textPrimary(Theme.isDark()))
-      Text('从浏览器或 Android 端导出的 Cookie 文本，需包含 MUSIC_U。格式：k1=v1; k2=v2')
-        .fontSize(12)
-        .fontColor(Theme.textSecondary(Theme.isDark()))
-      TextArea({ placeholder: 'MUSIC_U=...; __csrf=...; os=pc', text: this.cookieText })
-        .height(110)
-        .fontSize(13)
-        .onChange((value: string) => {
-          this.cookieText = value;
-        })
-      Row({ space: 10 }) {
-        Button('取消')
-          .layoutWeight(1)
-          .height(38)
-          .fontSize(14)
-          .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
-          .fontColor(Theme.textPrimary(Theme.isDark()))
-          .onClick(() => {
-            this.controller?.close();
-          })
-        Button('导入')
-          .layoutWeight(1)
-          .height(38)
-          .fontSize(14)
-          .backgroundColor(Theme.primary(Theme.isDark()))
-          .fontColor(Theme.onPrimary(Theme.isDark()))
-          .onClick(() => {
-            this.onConfirm(this.cookieText);
-            this.controller?.close();
-          })
-      }
-      .width('100%')
-    }
-    .padding(20)
-    .width('92%')
-  }
 }

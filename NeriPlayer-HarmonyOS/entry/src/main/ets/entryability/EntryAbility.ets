@@ -3,9 +3,7 @@ import { window } from '@kit.ArkUI';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { SettingsRepository } from '../data/SettingsRepository';
 import { PlayerManager } from '../player/PlayerManager';
-import { AVSessionManager } from '../player/AVSessionManager';
-import { DownloadEngine } from '../download/DownloadEngine';
-import { NeteaseCookieRepository } from '../data/auth/NeteaseCookieRepository';
+import { DownloadManager } from '../download/DownloadManager';
 import { SystemBars } from '../util/SystemBars';
 
 const TAG: string = 'EntryAbility';
@@ -18,14 +16,11 @@ export default class EntryAbility extends UIAbility {
     AppStorage.setOrCreate('abilityContext', this.context);
     AppStorage.setOrCreate('systemDark', false);
     PlayerManager.initialize(this.context);
-    DownloadEngine.init(this.context);
-    NeteaseCookieRepository.init();
+      DownloadManager.initialize(this.context);
   }
 
   onDestroy(): void {
     PlayerManager.flushPlaybackStatsAsync();
-    PlayerManager.persistNow();
-    AVSessionManager.release();
     hilog.info(DOMAIN, TAG, 'Ability onDestroy');
   }
 
@@ -48,7 +43,6 @@ export default class EntryAbility extends UIAbility {
 
   onBackground(): void {
     PlayerManager.flushPlaybackStatsAsync();
-    PlayerManager.persistNow();
   }
 
   onConfigurationUpdate(newConfig: Configuration): void {
@@ -72,10 +66,8 @@ export default class EntryAbility extends UIAbility {
   private applyEdgeToEdge(windowStage: window.WindowStage): void {
     try {
       const mainWindow = windowStage.getMainWindowSync();
-      // Keep the app inside the system safe area. The previous immersive layout
-      // placed page headers under the status bar on API 24 phone emulators.
-      mainWindow.setWindowLayoutFullScreen(false);
-      mainWindow.setWindowSystemBarEnable(['status', 'navigation']);
+      mainWindow.setWindowLayoutFullScreen(true);
+      mainWindow.setWindowSystemBarEnable(['status']);
       mainWindow.setWindowSystemBarProperties({
         statusBarColor: '#00000000',
         statusBarContentColor: '#FFFFFF',
