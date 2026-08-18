@@ -26,7 +26,7 @@ $cli = 'D:\HarmonyOS\Tools\command-line-tools\bin'
 
 纯逻辑优先补 `entry/src/test/`；涉及 Ability、权限、AVPlayer、AVSession、后台播放或系统 UI 时补 `entry/src/ohosTest/`，并在设备或模拟器上执行对应 smoke test。提交前从仓库根目录运行 `git diff --check`。
 
-Linux GitHub Runner 上的 hypium 本地 runner 当前存在已记录的挂死问题。CI 会将单测限制在 10 分钟并上传诊断目录，但这不等价于单测通过；本地 Windows 结果和 HAP 构建结果必须如实填写在 PR 中。
+Linux GitHub Runner 上的 hypium 本地 runner 当前存在已记录的挂死问题。CI 会先构建并上传 debug HAP，再将单测限制在 4 分钟作为诊断运行；单测超时或退出不会阻塞构建，也不等价于单测通过。PR 必须如实填写本地结果和 HAP 构建结果。
 
 ## 数据与安全
 
