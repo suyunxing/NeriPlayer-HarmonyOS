@@ -19,6 +19,7 @@ import playlistDeletionPolicyTest from './ets/test/PlaylistDeletionPolicy.test';
 import playbackStatsMergePolicyTest from './ets/test/PlaybackStatsMergePolicy.test';
 import dataChangeDetectorTest from './ets/test/DataChangeDetector.test';
 import syncDataJsonCodecTest from './ets/test/SyncDataJsonCodec.test';
+import syncBinaryCodecTest from './ets/test/SyncBinaryCodec.test';
 import syncSongConvertTest from './ets/test/SyncSongConvert.test';
 import syncSnapshotBuilderTest from './ets/test/SyncSnapshotBuilder.test';
 import syncDeletionStoreTest from './ets/test/SyncDeletionStore.test';
@@ -45,6 +46,7 @@ export default function testsuite(): void {
   playbackStatsMergePolicyTest();
   dataChangeDetectorTest();
   syncDataJsonCodecTest();
+  syncBinaryCodecTest();
   syncSongConvertTest();
   syncSnapshotBuilderTest();
   syncDeletionStoreTest();
