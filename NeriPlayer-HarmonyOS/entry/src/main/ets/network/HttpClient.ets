@@ -203,6 +203,23 @@ export class HttpClient {
     return HttpClient.cookies[host] ?? '';
   }
 
+  /** Cookie jar of this URL's host as a name->value map. */
+  static getCookiesMap(url: string): Map<string, string> {
+    const out = new Map<string, string>();
+    const header = HttpClient.getCookies(url);
+    if (header.length === 0) {
+      return out;
+    }
+    for (const pair of header.split(';')) {
+      const trimmed = pair.trim();
+      const eq = trimmed.indexOf('=');
+      if (eq > 0) {
+        out.set(trimmed.substring(0, eq), trimmed.substring(eq + 1));
+      }
+    }
+    return out;
+  }
+
   /** Removes a single cookie by name from the jar entry of this URL's host. */
   static removeCookie(url: string, name: string): void {
     const host = HttpClient.hostOf(url);

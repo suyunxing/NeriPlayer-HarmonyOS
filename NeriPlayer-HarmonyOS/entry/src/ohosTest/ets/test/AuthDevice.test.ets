@@ -2,6 +2,8 @@ import { describe, it, expect } from '@ohos/hypium';
 import { CredentialStore } from '../../../main/ets/data/auth/CredentialStore';
 import { NeteaseCookieRepository } from '../../../main/ets/data/auth/NeteaseCookieRepository';
 import { NeteaseQrLoginClient } from '../../../main/ets/network/NeteaseQrLogin';
+import { BiliCookieRepository } from '../../../main/ets/data/auth/BiliCookieRepository';
+import { BiliQrLoginClient } from '../../../main/ets/network/BiliQrLogin';
 
 /**
  * Device tests for the credential infrastructure (M4.1) and the NetEase QR
@@ -77,6 +79,53 @@ export default function authDeviceTest(): void {
       // Nobody scanned this fresh key: the documented stable states are 801
       // (waiting). 800 (expired) would mean the key aged out mid-test.
       expect(check.code === 801 || check.code === 800).assertTrue();
+    });
+  });
+
+  describe('ActsBiliCookieRepositoryTest', () => {
+    it('savePastedCookiesAndClear', 0, async () => {
+      const saved = BiliCookieRepository.saveFromPastedText(
+        'SESSDATA=device-test-sess; bili_jct=jct1; DedeUserID=425555; buvid3=XY123'
+      );
+      expect(saved).assertTrue();
+      expect(BiliCookieRepository.isLoggedIn()).assertTrue();
+      expect(BiliCookieRepository.getMid()).assertEqual(425555);
+
+      // The bundle must be persisted through the credential backend, values
+      // never logged.
+      const raw = await CredentialStore.getString(BiliCookieRepository.ALIAS);
+      expect(raw.length > 0).assertTrue();
+      expect(raw.indexOf('SESSDATA') >= 0).assertTrue();
+      expect(raw.indexOf('device-test-sess') >= 0).assertTrue();
+
+      await BiliCookieRepository.clear();
+      expect(BiliCookieRepository.isLoggedIn()).assertFalse();
+      expect(BiliCookieRepository.getMid()).assertEqual(0);
+      const rawAfter = await CredentialStore.getString(BiliCookieRepository.ALIAS);
+      expect(rawAfter).assertEqual('');
+    });
+
+    it('rejectsPasteWithoutSessdata', 0, () => {
+      const saved = BiliCookieRepository.saveFromPastedText('buvid3=only; sid=zz');
+      expect(saved).assertFalse();
+      expect(BiliCookieRepository.isLoggedIn()).assertFalse();
+    });
+  });
+
+  describe('ActsBiliQrLoginTest', () => {
+    it('createSessionBuildsScanUrlAndFreshCheckIsWaiting', 0, async () => {
+      const session = await BiliQrLoginClient.createSession();
+      expect(session.key.length > 0).assertTrue();
+      // qrContent is data.url from the generate endpoint: a passport scan URL
+      // embedding the qrcode_key.
+      expect(session.qrContent.startsWith('https://')).assertTrue();
+      expect(session.qrContent.indexOf(session.key) > 0).assertTrue();
+
+      const check = await BiliQrLoginClient.checkLogin(session);
+      // Fresh unscanned key: 86101 (waiting); 86038 would mean it expired
+      // mid-test. Both are stable non-confirmed outcomes.
+      expect(check.code === 86101 || check.code === 86038).assertTrue();
+      expect(check.cookies.size === 0).assertTrue();
     });
   });
 }

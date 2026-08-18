@@ -6,6 +6,7 @@ import { PlayerManager } from '../player/PlayerManager';
 import { AVSessionManager } from '../player/AVSessionManager';
 import { DownloadEngine } from '../download/DownloadEngine';
 import { NeteaseCookieRepository } from '../data/auth/NeteaseCookieRepository';
+import { BiliCookieRepository } from '../data/auth/BiliCookieRepository';
 import { SystemBars } from '../util/SystemBars';
 
 const TAG: string = 'EntryAbility';
@@ -20,6 +21,7 @@ export default class EntryAbility extends UIAbility {
     PlayerManager.initialize(this.context);
     DownloadEngine.init(this.context);
     NeteaseCookieRepository.init();
+    BiliCookieRepository.init();
   }
 
   onDestroy(): void {
