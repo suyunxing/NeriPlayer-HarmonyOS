@@ -4,11 +4,11 @@
  * syncMetadataVersion wins; ties are broken by the canonical payload key so
  * both endpoints converge on the same result regardless of input order.
  */
-import { SyncSong, CURRENT_SYNC_METADATA_VERSION } from './SyncModels';
+import { SyncSong, songIdKeyText, CURRENT_SYNC_METADATA_VERSION } from './SyncModels';
 
 export function canonicalPayloadKey(song: SyncSong): string {
   const parts: string[] = [
-    `${song.id}`,
+    songIdKeyText(song),
     song.name,
     song.artist,
     song.album,

@@ -18,6 +18,10 @@ import playlistSongMergePolicyTest from './ets/test/PlaylistSongMergePolicy.test
 import playlistDeletionPolicyTest from './ets/test/PlaylistDeletionPolicy.test';
 import playbackStatsMergePolicyTest from './ets/test/PlaybackStatsMergePolicy.test';
 import dataChangeDetectorTest from './ets/test/DataChangeDetector.test';
+import syncDataJsonCodecTest from './ets/test/SyncDataJsonCodec.test';
+import syncSongConvertTest from './ets/test/SyncSongConvert.test';
+import syncSnapshotBuilderTest from './ets/test/SyncSnapshotBuilder.test';
+import syncDeletionStoreTest from './ets/test/SyncDeletionStore.test';
 
 export default function testsuite(): void {
   lrcParserTest();
@@ -40,4 +44,8 @@ export default function testsuite(): void {
   playlistDeletionPolicyTest();
   playbackStatsMergePolicyTest();
   dataChangeDetectorTest();
+  syncDataJsonCodecTest();
+  syncSongConvertTest();
+  syncSnapshotBuilderTest();
+  syncDeletionStoreTest();
 }

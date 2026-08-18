@@ -71,6 +71,7 @@ function maxWithMirrorFirst(snapshots: SyncPlaylistSongDeletion[]): SyncPlaylist
 function deletionEquals(a: SyncPlaylistSongDeletion, b: SyncPlaylistSongDeletion): boolean {
   if (a.playlistId !== b.playlistId || a.songId !== b.songId || a.album !== b.album ||
     a.mediaUri !== b.mediaUri || a.deletedAt !== b.deletedAt || a.deviceId !== b.deviceId ||
+    a.syncSongIdText !== b.syncSongIdText ||
     a.removedMembershipTokens.length !== b.removedMembershipTokens.length) {
     return false;
   }
@@ -93,7 +94,8 @@ function cloneDeletion(
     deletion.mediaUri,
     deletion.deletedAt,
     deletion.deviceId,
-    removedMembershipTokens
+    removedMembershipTokens,
+    deletion.syncSongIdText
   );
 }
 
