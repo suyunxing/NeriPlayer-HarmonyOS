@@ -9,7 +9,6 @@ export class Router {
   static readonly MAIN: string = 'main';
   static readonly NOW_PLAYING: string = 'now_playing';
   static readonly PLAYLIST_DETAIL: string = 'playlist_detail';
-  static readonly NETEASE_PLAYLIST: string = 'netease_playlist';
   static readonly RECENT: string = 'recent';
   static readonly DOWNLOADS: string = 'downloads';
   static readonly STATS: string = 'stats';

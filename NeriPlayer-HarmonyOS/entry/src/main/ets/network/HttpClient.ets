@@ -1,11 +1,69 @@
 import { http } from '@kit.NetworkKit';
 import { Logger } from '../app/Logger';
-import { HttpHeaderParser } from './HttpHeaderParser';
 
-export class HttpFormResult {
-  text: string = '';
-  responseCode: number = 0;
-  headerText: string = '';
+/**
+ * Binary HTTP response used by the download pipeline. Header parsing is kept
+ * here so the range/resume logic stays in one place.
+ */
+export class HttpBinaryResponse {
+  statusCode: number;
+  body: ArrayBuffer;
+  headers: string;
+
+  constructor(statusCode: number = 0, body: ArrayBuffer = new ArrayBuffer(0), headers: string = '') {
+    this.statusCode = statusCode;
+    this.body = body;
+    this.headers = headers;
+  }
+
+  header(name: string): string {
+    if (name.length === 0 || this.headers.length === 0) {
+      return '';
+    }
+    const pattern = new RegExp(`(?:^|\\r?\\n)${name}:\\s*([^\\r\\n]*)`, 'i');
+    const match = pattern.exec(this.headers);
+    return match === null ? '' : match[1].trim();
+  }
+
+  contentLength(): number {
+    const value = this.header('content-length');
+    if (value.length === 0) {
+      return -1;
+    }
+    const length = Number(value);
+    return Number.isNaN(length) || length < 0 ? -1 : length;
+  }
+
+  acceptRanges(): boolean {
+    return this.header('accept-ranges').toLowerCase().indexOf('bytes') >= 0;
+  }
+
+  contentRangeStart(): number {
+    const match = /bytes\s+(\d+)-(\d+)\/(\d+|\*)/i.exec(this.header('content-range'));
+    if (match === null) {
+      return -1;
+    }
+    const start = Number(match[1]);
+    return Number.isNaN(start) ? -1 : start;
+  }
+
+  contentRangeEnd(): number {
+    const match = /bytes\s+(\d+)-(\d+)\/(\d+|\*)/i.exec(this.header('content-range'));
+    if (match === null) {
+      return -1;
+    }
+    const end = Number(match[2]);
+    return Number.isNaN(end) ? -1 : end;
+  }
+
+  contentRangeTotal(): number {
+    const match = /bytes\s+(\d+)-(\d+)\/(\d+|\*)/i.exec(this.header('content-range'));
+    if (match === null || match[3] === '*') {
+      return -1;
+    }
+    const total = Number(match[3]);
+    return Number.isNaN(total) || total < 0 ? -1 : total;
+  }
 }
 
 /**
@@ -43,7 +101,7 @@ export class HttpClient {
       const code = response.responseCode;
       const text = response.result as string;
       if (useCookies) {
-        HttpClient.captureCookies(url, HttpHeaderParser.toHeaderText(response.header));
+        HttpClient.captureCookies(url, response.header as string);
       }
       if (code < 200 || code >= 300) {
         throw new Error(`HTTP ${code} for GET ${url}`);
@@ -52,6 +110,50 @@ export class HttpClient {
     } catch (error) {
       const e = error as Error;
       Logger.warn(`HttpClient.getText failed: ${e.message}`);
+      throw e;
+    } finally {
+      request.destroy();
+    }
+  }
+
+  /**
+   * Raw byte GET. Used by DownloadManager with a Range header; unlike getText
+   * this returns the status/headers even for 4xx so 416 can finish a download.
+   */
+  static async getBytes(
+    url: string,
+    headers: Record<string, string> = {},
+    timeoutMs: number = 30000,
+    useCookies: boolean = false
+  ): Promise<HttpBinaryResponse> {
+    const request = http.createHttp();
+    try {
+      const header: Record<string, string> = { 'User-Agent': HttpClient.DEFAULT_UA };
+      for (const key of Object.keys(headers)) {
+        header[key] = headers[key];
+      }
+      if (useCookies) {
+        HttpClient.applyCookieHeader(url, header);
+      }
+      const response = await request.request(url, {
+        method: http.RequestMethod.GET,
+        header: header,
+        connectTimeout: timeoutMs,
+        readTimeout: timeoutMs,
+        expectDataType: http.HttpDataType.ARRAY_BUFFER
+      });
+      const headersText = response.header as string;
+      if (useCookies) {
+        HttpClient.captureCookies(url, headersText);
+      }
+      let body = new ArrayBuffer(0);
+      if (response.result !== undefined && response.result !== null) {
+        body = response.result as ArrayBuffer;
+      }
+      return new HttpBinaryResponse(response.responseCode, body, headersText);
+    } catch (error) {
+      const e = error as Error;
+      Logger.warn(`HttpClient.getBytes failed: ${e.message}`);
       throw e;
     } finally {
       request.destroy();
@@ -88,7 +190,7 @@ export class HttpClient {
       const code = response.responseCode;
       const text = response.result as string;
       if (useCookies) {
-        HttpClient.captureCookies(url, HttpHeaderParser.toHeaderText(response.header));
+        HttpClient.captureCookies(url, response.header as string);
       }
       if (code < 200 || code >= 300) {
         throw new Error(`HTTP ${code} for POST ${url}`);
@@ -133,63 +235,6 @@ export class HttpClient {
     }
   }
 
-  /**
-   * POST form returning body text AND the raw response header text (callers
-   * need specific headers such as NetEase x-refresh-token during QR login).
-   */
-  static async postFormDetailed(
-    url: string,
-    form: Record<string, string>,
-    timeoutMs: number = 15000,
-    extraHeaders: Record<string, string> = {},
-    useCookies: boolean = false
-  ): Promise<HttpFormResult> {
-    const request = http.createHttp();
-    try {
-      const header: Record<string, string> = {
-        'User-Agent': HttpClient.DEFAULT_UA,
-        'Content-Type': 'application/x-www-form-urlencoded'
-      };
-      for (const key of Object.keys(extraHeaders)) {
-        header[key] = extraHeaders[key];
-      }
-      if (useCookies) {
-        HttpClient.applyCookieHeader(url, header);
-      }
-      const response = await request.request(url, {
-        method: http.RequestMethod.POST,
-        header: header,
-        extraData: HttpClient.encodeForm(form),
-        connectTimeout: timeoutMs,
-        readTimeout: timeoutMs,
-        expectDataType: http.HttpDataType.STRING
-      });
-      const code = response.responseCode;
-      const text = response.result as string;
-      // HarmonyOS returns response.header as an Object (set-cookie is an
-      // array); normalize to "Key: value" lines so header consumers (cookie
-      // capture, NetEase x-refresh-token lookup) can parse it uniformly.
-      const headerText = HttpHeaderParser.toHeaderText(response.header);
-      if (useCookies) {
-        HttpClient.captureCookies(url, headerText);
-      }
-      if (code < 200 || code >= 300) {
-        throw new Error(`HTTP ${code} for POST ${url}`);
-      }
-      const result = new HttpFormResult();
-      result.text = text;
-      result.responseCode = code;
-      result.headerText = headerText;
-      return result;
-    } catch (error) {
-      const e = error as Error;
-      Logger.warn(`HttpClient.postFormDetailed failed: ${e.message}`);
-      throw e;
-    } finally {
-      request.destroy();
-    }
-  }
-
   private static encodeForm(form: Record<string, string>): string {
     const parts: string[] = [];
     for (const key of Object.keys(form)) {
@@ -201,33 +246,6 @@ export class HttpClient {
   static getCookies(url: string): string {
     const host = HttpClient.hostOf(url);
     return HttpClient.cookies[host] ?? '';
-  }
-
-  /** Removes a single cookie by name from the jar entry of this URL's host. */
-  static removeCookie(url: string, name: string): void {
-    const host = HttpClient.hostOf(url);
-    const existing = HttpClient.cookies[host] ?? '';
-    if (existing.length === 0) {
-      return;
-    }
-    const merged: Record<string, string> = {};
-    for (const pair of existing.split(';')) {
-      const trimmed = pair.trim();
-      const eq = trimmed.indexOf('=');
-      if (eq > 0 && trimmed.substring(0, eq) !== name) {
-        merged[trimmed.substring(0, eq)] = trimmed.substring(eq + 1);
-      }
-    }
-    const parts: string[] = [];
-    for (const key of Object.keys(merged)) {
-      parts.push(`${key}=${merged[key]}`);
-    }
-    HttpClient.cookies[host] = parts.join('; ');
-  }
-
-  /** Clears the whole jar entry for this URL's host (logout). */
-  static clearCookies(url: string): void {
-    HttpClient.cookies[HttpClient.hostOf(url)] = '';
   }
 
   static seedCookies(url: string, cookieHeader: string): void {
@@ -280,10 +298,16 @@ export class HttpClient {
         }
       }
     }
-    HttpHeaderParser.extractCookiePairs(responseHeader)
-      .forEach((value: string, key: string) => {
-        merged[key] = value;
-      });
+    const setCookiePattern = /set-cookie:\s*([^;\r\n]+)/gi;
+    let match = setCookiePattern.exec(responseHeader);
+    while (match !== null) {
+      const pair = match[1].trim();
+      const eq = pair.indexOf('=');
+      if (eq > 0) {
+        merged[pair.substring(0, eq)] = pair.substring(eq + 1);
+      }
+      match = setCookiePattern.exec(responseHeader);
+    }
     const parts: string[] = [];
     for (const key of Object.keys(merged)) {
       parts.push(`${key}=${merged[key]}`);

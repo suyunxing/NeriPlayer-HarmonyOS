@@ -7,8 +7,5 @@
   "author": "NeriPlayer developers",
   "license": "GPL-3.0",
   "dependencies": {},
-  "devDependencies": {
-    "@ohos/hypium": "1.0.28"
-  },
-  "dynamicDependencies": {}
+  "devDependencies": {}
 }

@@ -23,11 +23,7 @@ export class AppPreferences {
       return;
     }
     try {
-      // Application-level preferences dir. A UIAbilityContext would resolve
-      // to a module-level dir (haps/<module>/preferences), splitting the
-      // store between entry and entry_test.
-      const appContext = context.getApplicationContext();
-      AppPreferences.instance = await preferences.getPreferences(appContext, { name: 'neri_player_data' });
+      AppPreferences.instance = await preferences.getPreferences(context, { name: 'neri_player_data' });
     } catch (error) {
       const e = error as Error;
       Logger.error(`AppPreferences.init failed: ${e.message}`);

@@ -88,11 +88,17 @@ export struct SettingsPage {
           })
           SettingRow({
             title: '动态取色',
+              /*
             subtitle: this.dynamicColor ? '已开启（引擎待移植）' : '已关闭',
+              */
+              subtitle: this.dynamicColor ? '已开启（当前歌曲封面取色）' : '已关闭',
             icon: '🎨',
             onTap: () => {
               SettingsRepository.setBoolean(SettingsRepository.KEY_DYNAMIC_COLOR, !this.dynamicColor);
+                /*
               promptAction.openToast({ message: '动态取色引擎待移植（种子色/壁纸取色）' });
+                */
+                promptAction.openToast({ message: this.dynamicColor ? '动态取色已关闭' : '动态取色已开启（封面取色）' });
             }
           })
           SettingRow({

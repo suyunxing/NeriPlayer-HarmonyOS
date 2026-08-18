@@ -6,8 +6,10 @@ import { LyricApi } from '../../network/LyricApi';
 import { LyricPayload } from '../../network/NeteaseApi';
 import { LrcParser } from '../../lyrics/LrcParser';
 import { LocalPlaylistRepository } from '../../data/LocalPlaylistRepository';
+import { SettingsRepository } from '../../data/SettingsRepository';
 import { PlayerManager } from '../../player/PlayerManager';
 import { PlaybackStatus, RepeatMode } from '../../player/PlaybackConstants';
+import { CoverColorExtractor } from '../../util/CoverColorExtractor';
 import { Theme } from '../Theme';
 import { LyricView } from '../components/LyricView';
 import { Router } from '../Router';
@@ -40,10 +42,9 @@ export struct NowPlayingPage {
   @State showQueue: boolean = false;
   @State showSleep: boolean = false;
   @State sleepLabel: string = '关闭';
-  @StorageLink('player.sleepActive') sleepActive: boolean = false;
-  @StorageLink('player.sleepRemainingMin') sleepRemainingMin: number = 0;
   @State sliderPosition: number = 0;
   @State sliding: boolean = false;
+  @State accentColor: string = '';
 
   private song(): SongItem {
     return this.currentSongJson.length > 0 ? SongItem.fromJson(this.currentSongJson) : new SongItem();
@@ -78,6 +79,10 @@ export struct NowPlayingPage {
         console.warn(`lyrics load failed: ${e.message}`);
       }
     }
+    this.accentColor = '';
+    if (SettingsRepository.getBoolean(SettingsRepository.KEY_DYNAMIC_COLOR, true) && song.effectiveCoverUrl.length > 0) {
+      this.accentColor = await CoverColorExtractor.extractAccent(song.effectiveCoverUrl);
+    }
   }
 
   private async toggleFavorite(): Promise<void> {
@@ -101,29 +106,20 @@ export struct NowPlayingPage {
   }
 
   private cycleRepeat(): void {
-    PlayerManager.cycleRepeatMode();
+    const next = (this.repeatMode + 1) % 3;
+    PlayerManager.setRepeatMode(next as RepeatMode);
   }
 
-  private sleepButtonText(): string {
-    if (!this.sleepActive) {
-      return '定时';
-    }
-    if (this.sleepRemainingMin > 0) {
-      return `${this.sleepRemainingMin} 分钟`;
-    }
-    return this.sleepLabel === '关闭' ? '定时' : this.sleepLabel;
-  }
-
-  private setSleep(option: [string, number]): void {    this.sleepLabel = option[0];
+  private setSleep(option: [string, number]): void {
+    this.sleepLabel = option[0];
     this.showSleep = false;
     if (option[1] > 0) {
-      PlayerManager.setSleepCountdown(option[1]);
-    } else if (option[1] === -1) {
-      PlayerManager.setSleepFinishCurrent();
-    } else if (option[1] === -2) {
-      PlayerManager.setSleepFinishPlaylist();
-    } else {
-      PlayerManager.cancelSleepTimer();
+      setTimeout(() => {
+        if (this.status === PlaybackStatus.PLAYING) {
+          PlayerManager.pause();
+          this.sleepLabel = '关闭';
+        }
+      }, option[1] * 60000);
     }
   }
 
@@ -182,6 +178,7 @@ export struct NowPlayingPage {
         if (this.showLyrics && this.lyrics.length > 0) {
           LyricView({
             lyrics: this.lyrics,
+              accentColor: this.accentColor,
             onSeek: (timeMs: number) => PlayerManager.seekTo(timeMs)
           })
         } else {
@@ -195,12 +192,20 @@ export struct NowPlayingPage {
                   .objectFit(ImageFit.Cover)
                   .shadow({ radius: 24, color: '#66000000', offsetY: 8 })
               } else {
+                  /*
                 Text('♫')
                   .fontSize(96)
                   .fontColor(Theme.primary(Theme.isDark()))
                   .width('78%')
                   .aspectRatio(1)
                   .textAlign(TextAlign.Center)
+                  */
+                  Image($r('app.media.ic_music_note_24'))
+                    .width('78%')
+                    .aspectRatio(1)
+                    .objectFit(ImageFit.Contain)
+                    .padding({ left: 32, right: 32, top: 32, bottom: 32 })
+                    .fillColor(Theme.primary(Theme.isDark()))
                   .backgroundColor(Theme.onSurfaceOverlay(Theme.isDark()))
                   .borderRadius(22)
               }
@@ -260,8 +265,12 @@ export struct NowPlayingPage {
             style: SliderStyle.OutSet
           })
             .showTips(false)
+              /*
             .blockColor('#FFFFFF')
             .selectedColor('#FFFFFF')
+              */
+              .blockColor(this.accentColor.length > 0 ? this.accentColor : '#FFFFFF')
+              .selectedColor(this.accentColor.length > 0 ? this.accentColor : '#FFFFFF')
             .trackColor('#33FFFFFF')
             .onChange((value: number, mode: SliderChangeMode) => {
               this.sliderPosition = value;
@@ -324,10 +333,30 @@ export struct NowPlayingPage {
               .backgroundColor('#33FFFFFF')
               .borderRadius(16)
               .onClick(() => this.cycleSpeed())
-            Button('🌙 ' + this.sleepButtonText())
+              /*
+            Button('🌙 ' + (this.sleepLabel === '关闭' ? '定时' : this.sleepLabel))
               .height(32)
               .fontSize(12)
               .fontColor('#FFFFFF')
+              .backgroundColor('#33FFFFFF')
+              .borderRadius(16)
+              .onClick(() => {
+                this.showSleep = true;
+              })
+              */
+              Button() {
+                Row({ space: 6 }) {
+                  Image($r('app.media.ic_bedtime_24'))
+                    .width(14)
+                    .height(14)
+                    .fillColor('#FFFFFF')
+                  Text(this.sleepLabel === '关闭' ? '定时' : this.sleepLabel)
+                    .fontSize(12)
+                    .fontColor('#FFFFFF')
+                }
+              }
+              .height(32)
+              .padding({ left: 12, right: 12 })
               .backgroundColor('#33FFFFFF')
               .borderRadius(16)
               .onClick(() => {
@@ -342,10 +371,25 @@ export struct NowPlayingPage {
               .onClick(() => {
                 this.showLyrics = !this.showLyrics;
               })
+              /*
             Button('📃')
               .height(32)
               .fontSize(12)
               .fontColor('#FFFFFF')
+              .backgroundColor('#33FFFFFF')
+              .borderRadius(16)
+              .onClick(() => {
+                this.showQueue = true;
+              })
+              */
+              Button() {
+                Image($r('app.media.ic_queue_music_24'))
+                  .width(18)
+                  .height(18)
+                  .fillColor('#FFFFFF')
+              }
+              .width(36)
+              .height(32)
               .backgroundColor('#33FFFFFF')
               .borderRadius(16)
               .onClick(() => {
@@ -366,13 +410,21 @@ export struct NowPlayingPage {
       if (this.showQueue) {
         QueueSheet({
           queueJson: this.queueJson,
-          currentOrderIndex: PlayerManager.getCurrentQueueIndex(),
+            /*
+          currentOrderIndex: PlayerManager.getOrderIndex(),
+            */
+            currentQueueIndex: PlayerManager.getCurrentQueueIndex(),
           onClose: () => {
             this.showQueue = false;
           },
+            /*
           onPlay: (orderIndex: number) => {
             PlayerManager.playAt(orderIndex);
           }
+            */
+            onPlay: (queueIndex: number) => {
+              PlayerManager.playQueueAt(queueIndex);
+            }
         })
       }
 
@@ -398,6 +450,13 @@ export struct NowPlayingPage {
           .padding(16)
           .backgroundColor(Theme.surface(Theme.isDark()))
           .borderRadius(18)
+              /*
+            .onClick((event: ClickEvent) => {
+              event.stopPropagation();
+            })
+              */
+              .onClick(() => {
+              })
         }
         .width('100%')
         .height('100%')
@@ -431,7 +490,13 @@ struct PlayerControlButton {
     .width(this.buttonSize)
     .height(this.buttonSize)
     .type(ButtonType.Circle)
+      /*
     .backgroundColor(this.buttonSize >= 60 ? Theme.primary(false) : Color.Transparent)
+      */
+        /*
+      .backgroundColor(this.buttonSize >= 60 ? Theme.primary(Theme.isDark()) : Color.Transparent)
+        */
+        .backgroundColor(this.buttonSize >= 60 ? Theme.primary(false) : Color.Transparent)
     .onClick(() => this.onTap())
   }
 }
@@ -439,9 +504,9 @@ struct PlayerControlButton {
 @Component
 struct QueueSheet {
   queueJson: string = '';
-  currentOrderIndex: number = 0;
+  currentQueueIndex: number = -1;
   onClose: () => void = () => {};
-  onPlay: (orderIndex: number) => void = () => {};
+  onPlay: (queueIndex: number) => void = () => {};
 
   private queue(): QueueState {
     return this.queueJson.length > 0 ? QueueState.fromJson(this.queueJson) : new QueueState();
@@ -470,12 +535,18 @@ struct QueueSheet {
               Row({ space: 10 }) {
                 Text(`${index + 1}`)
                   .fontSize(13)
+                    /*
                   .fontColor(index === this.currentOrderIndex ? Theme.primary(Theme.isDark()) : Theme.textDisabled(Theme.isDark()))
+                    */
+                    .fontColor(index === this.currentQueueIndex ? Theme.primary(Theme.isDark()) : Theme.textDisabled(Theme.isDark()))
                   .width(24)
                 Column({ space: 2 }) {
                   Text(song.displayName)
                     .fontSize(14)
+                      /*
                     .fontColor(index === this.currentOrderIndex ? Theme.primary(Theme.isDark()) : Theme.textPrimary(Theme.isDark()))
+                      */
+                      .fontColor(index === this.currentQueueIndex ? Theme.primary(Theme.isDark()) : Theme.textPrimary(Theme.isDark()))
                     .maxLines(1)
                     .textOverflow({ overflow: TextOverflow.Ellipsis })
                   Text(song.displayArtist)
@@ -492,7 +563,16 @@ struct QueueSheet {
               }
               .width('100%')
               .padding(8)
+                /*
               .onClick(() => this.onPlay(index))
+                */
+                  /*
+                .onClick((event: ClickEvent) => {
+                  event.stopPropagation();
+                  this.onPlay(index);
+                })
+                  */
+                  .onClick(() => this.onPlay(index))
             }
           }, (song: SongItem) => `${song.platform}_${song.audioId}_${song.id}`)
         }
@@ -505,6 +585,13 @@ struct QueueSheet {
       .padding(16)
       .backgroundColor(Theme.surface(Theme.isDark()))
       .borderRadius({ topLeft: 22, topRight: 22 })
+          /*
+        .onClick((event: ClickEvent) => {
+          event.stopPropagation();
+        })
+          */
+          .onClick(() => {
+          })
       .position({ x: 0, y: '38%' })
     }
     .width('100%')

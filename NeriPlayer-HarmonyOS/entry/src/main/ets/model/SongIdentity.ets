@@ -1,6 +1,5 @@
 import { Constants } from '../app/Constants';
 import { SongItem } from './SongItem';
-import { MusicPlatform } from './MusicPlatform';
 
 /**
  * Port of SongIdentity + stableKey() from the Android codebase.
@@ -85,11 +84,6 @@ function normalizedSubAudioId(channel: string, rawSubAudioId: string, album: str
 }
 
 export function songIdentity(song: SongItem): SongIdentity {
-  // Local songs keep the plain id|album|mediaUri identity; channel
-  // normalization below is only for remote tracks (Android parity).
-  if (song.platform === MusicPlatform.LOCAL) {
-    return new SongIdentity(song.id, song.album, song.mediaUri);
-  }
   const videoId = extractYouTubeMusicVideoId(song.mediaUri);
   if (videoId.length > 0) {
     return new SongIdentity(

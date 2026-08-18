@@ -29,12 +29,8 @@ export class SettingsRepository {
   static readonly KEY_LYRIC_OFFSET_MS: string = 'np.lyric_offset_ms';
   static readonly KEY_SAVE_TRAFFIC: string = 'np.save_traffic';
   static readonly KEY_COVER_POLICY: string = 'np.cover_policy';
-	  static readonly KEY_DOWNLOAD_MATCH_LYRICS: string = 'np.download_match_lyrics';
-	  static readonly KEY_LANGUAGE: string = 'np.language';
-  static readonly KEY_NETEASE_LOGGED: string = 'np.netease_logged';
-  static readonly KEY_NETEASE_AUTO_FALLBACK: string = 'np.netease_auto_fallback';
-  static readonly KEY_BILIBILI_LOGGED: string = 'np.bilibili_logged';
-  static readonly KEY_YOUTUBE_LOGGED: string = 'np.youtube_logged';
+  static readonly KEY_DOWNLOAD_MATCH_LYRICS: string = 'np.download_match_lyrics';
+  static readonly KEY_LANGUAGE: string = 'np.language';
 
   private static defaults: [string, boolean | string | number][] = [
     [SettingsRepository.KEY_DISCLAIMER_ACCEPTED, false],
@@ -59,8 +55,7 @@ export class SettingsRepository {
     [SettingsRepository.KEY_SAVE_TRAFFIC, false],
     [SettingsRepository.KEY_COVER_POLICY, 'always'],
     [SettingsRepository.KEY_DOWNLOAD_MATCH_LYRICS, true],
-    [SettingsRepository.KEY_LANGUAGE, 'zh'],
-    [SettingsRepository.KEY_NETEASE_AUTO_FALLBACK, true]
+    [SettingsRepository.KEY_LANGUAGE, 'zh']
   ];
 
   private static initialized: boolean = false;

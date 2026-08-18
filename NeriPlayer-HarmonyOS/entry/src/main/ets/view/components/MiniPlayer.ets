@@ -18,10 +18,17 @@ export struct MiniPlayer {
 
   build() {
     Column() {
+        /*
       Progress({
         value: this.durationMs > 0 ? this.positionMs / this.durationMs : 0,
         type: ProgressType.Linear
       })
+        */
+        Progress({
+          value: this.positionMs,
+          total: Math.max(1, this.durationMs),
+          type: ProgressType.Linear
+        })
         .width('100%')
         .height(2)
         .color(Theme.primary(Theme.isDark()))
@@ -36,12 +43,19 @@ export struct MiniPlayer {
               .borderRadius(8)
               .objectFit(ImageFit.Cover)
           } else {
+              /*
             Text('♫')
               .width(44)
               .height(44)
               .textAlign(TextAlign.Center)
               .fontSize(18)
               .fontColor(Theme.primary(Theme.isDark()))
+              */
+              Image($r('app.media.ic_music_note_24'))
+                .width(22)
+                .height(22)
+                .fillColor(Theme.primary(Theme.isDark()))
+                .margin({ left: 11, right: 11, top: 11, bottom: 11 })
               .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
               .borderRadius(8)
           }
@@ -86,9 +100,20 @@ export struct MiniPlayer {
         .height(40)
         .type(ButtonType.Circle)
         .backgroundColor(Theme.primary(Theme.isDark()))
+          /*
         .onClick(() => {
           PlayerManager.togglePlayPause();
         })
+          */
+            /*
+          .onClick((event: ClickEvent) => {
+            event.stopPropagation();
+            PlayerManager.togglePlayPause();
+          })
+            */
+            .onClick(() => {
+              PlayerManager.togglePlayPause();
+            })
 
         Button() {
           Image($r('app.media.round_skip_next_24'))
@@ -100,9 +125,20 @@ export struct MiniPlayer {
         .height(36)
         .type(ButtonType.Circle)
         .backgroundColor(Color.Transparent)
+          /*
         .onClick(() => {
           PlayerManager.next(false);
         })
+          */
+            /*
+          .onClick((event: ClickEvent) => {
+            event.stopPropagation();
+            PlayerManager.next(false);
+          })
+            */
+            .onClick(() => {
+              PlayerManager.next(false);
+            })
       }
       .width('100%')
       .height(60)

@@ -4,17 +4,14 @@ import { Playlist } from '../../model/Playlist';
 import { SongItem } from '../../model/SongItem';
 import { LocalPlaylistRepository } from '../../data/LocalPlaylistRepository';
 import { HistoryRepository } from '../../data/HistoryRepository';
-import { DownloadStorage } from '../../download/DownloadStorage';
+import { DownloadsRepository } from '../../data/DownloadsRepository';
 import { PlaybackStatsRepository } from '../../data/PlaybackStatsRepository';
 import { LocalMediaScanner } from '../../data/LocalMediaScanner';
 import { PlayerManager } from '../../player/PlayerManager';
-import { NeteaseApi } from '../../network/NeteaseApi';
-import { NeteasePlaylistSummary } from '../../network/NeteasePlaylistParser';
-import { NeteaseCookieRepository } from '../../data/auth/NeteaseCookieRepository';
 import { Router } from '../Router';
 import { Theme } from '../Theme';
+import { iconForLegacy } from '../../util/IconCatalog';
 import { SettingRow, EmptyState, SongCountChip } from '../components/Ui';
-import { SETTING_ACCOUNTS } from './SettingsPage';
 
 @Component
 export struct LibraryPage {
@@ -27,10 +24,6 @@ export struct LibraryPage {
   @State listenMinutes: number = 0;
   @State showCreateDialog: boolean = false;
   @State newPlaylistName: string = '';
-  @State neteaseLogged: boolean = false;
-  @State neteasePlaylists: NeteasePlaylistSummary[] = [];
-  @State neteaseLoading: boolean = false;
-  @State neteaseError: string = '';
 
   async aboutToAppear(): Promise<void> {
     await this.reload();
@@ -40,32 +33,13 @@ export struct LibraryPage {
     const playlists = await LocalPlaylistRepository.loadAll();
     this.playlists = playlists;
     this.favorites = playlists.find((item: Playlist) => item.id === LocalPlaylistRepository.FAVORITES_ID) ?? null;
-    const catalog = await DownloadStorage.getCatalog();
-    this.downloadCount = catalog.length;
+    const tasks = await DownloadsRepository.loadAll();
+    this.downloadCount = tasks.length;
     this.localSongCount = (await LocalMediaScanner.loadCached()).length;
     this.playCount = await PlaybackStatsRepository.getTotalPlayCount();
     const listenMs = await PlaybackStatsRepository.getTotalListenMs();
     this.listenHours = Math.floor(listenMs / 3600000);
     this.listenMinutes = Math.floor((listenMs % 3600000) / 60000);
-    this.neteaseLogged = NeteaseCookieRepository.isLoggedIn();
-    if (this.neteaseLogged) {
-      this.refreshNeteasePlaylists();
-    }
-  }
-
-  private refreshNeteasePlaylists(): void {
-    this.neteaseLoading = true;
-    this.neteaseError = '';
-    NeteaseApi.getUserPlaylists(0, 100)
-      .then((items: NeteasePlaylistSummary[]) => {
-        this.neteasePlaylists = items;
-      })
-      .catch((error: Error) => {
-        this.neteaseError = error.message;
-      })
-      .finally(() => {
-        this.neteaseLoading = false;
-      });
   }
 
   private async createPlaylist(): Promise<void> {
@@ -134,8 +108,8 @@ export struct LibraryPage {
           })
           StatCard({
             icon: '⤓',
-            value: `${this.downloadCount} 首`,
-            label: '已下载',
+            value: `${this.downloadCount} 个任务`,
+            label: '下载管理',
             onTap: () => Router.push(Router.DOWNLOADS)
           })
           StatCard({
@@ -172,7 +146,7 @@ export struct LibraryPage {
           })
           SettingRow({
             title: '下载管理',
-            subtitle: this.downloadCount > 0 ? `已下载 ${this.downloadCount} 首` : '暂无下载内容',
+            subtitle: this.downloadCount > 0 ? `${this.downloadCount} 个下载任务` : '暂无下载任务',
             icon: '⤓',
             onTap: () => Router.push(Router.DOWNLOADS)
           })
@@ -207,12 +181,21 @@ export struct LibraryPage {
           Column({ space: 1 }) {
             ForEach(this.playlists, (playlist: Playlist) => {
               Row({ space: 12 }) {
+                  /*
                 Text('♪')
                   .fontSize(20)
                   .width(44)
                   .height(44)
                   .textAlign(TextAlign.Center)
+                  */
+                  Image($r('app.media.ic_library_music_24'))
+                    .width(22)
+                    .height(22)
+                    .fillColor(Theme.primary(Theme.isDark()))
+                    .margin({ left: 11, right: 11, top: 11, bottom: 11 })
+                    /*
                   .fontColor(Theme.primary(Theme.isDark()))
+                    */
                   .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
                   .borderRadius(8)
                 Column({ space: 2 }) {
@@ -228,9 +211,15 @@ export struct LibraryPage {
                 }
                 .layoutWeight(1)
                 .alignItems(HorizontalAlign.Start)
+                  /*
                 Text('›')
                   .fontSize(18)
                   .fontColor(Theme.textDisabled(Theme.isDark()))
+                  */
+                  Image($r('app.media.ic_chevron_right_24'))
+                    .width(18)
+                    .height(18)
+                    .fillColor(Theme.textDisabled(Theme.isDark()))
               }
               .width('100%')
               .padding({ left: 14, right: 14, top: 10, bottom: 10 })
@@ -241,93 +230,6 @@ export struct LibraryPage {
           .width('100%')
           .borderRadius(Theme.cardRadius())
           .clip(true)
-        }
-
-        if (this.neteaseLogged) {
-          Row() {
-            Text('网易云歌单')
-              .fontSize(18)
-              .fontWeight(FontWeight.Bold)
-              .fontColor(Theme.textPrimary(Theme.isDark()))
-              .layoutWeight(1)
-            Button(this.neteaseLoading ? '加载中…' : '刷新')
-              .height(32)
-              .fontSize(13)
-              .backgroundColor(Theme.surface(Theme.isDark()))
-              .fontColor(Theme.textPrimary(Theme.isDark()))
-              .enabled(!this.neteaseLoading)
-              .onClick(() => this.refreshNeteasePlaylists())
-          }
-          .width('100%')
-          .margin({ top: 12 })
-
-          if (this.neteaseError.length > 0) {
-            Column({ space: 8 }) {
-              Text(`加载失败：${this.neteaseError}`)
-                .fontSize(13)
-                .fontColor(Theme.textSecondary(Theme.isDark()))
-              Button('重试')
-                .height(32)
-                .fontSize(13)
-                .backgroundColor(Theme.primary(Theme.isDark()))
-                .onClick(() => this.refreshNeteasePlaylists())
-            }
-            .width('100%')
-            .padding(16)
-          } else if (this.neteasePlaylists.length === 0) {
-            EmptyState({
-              icon: '🎵',
-              title: this.neteaseLoading ? '正在加载歌单…' : '暂无歌单',
-              subtitle: '下拉刷新或在网易云 App 创建歌单后刷新'
-            })
-          } else {
-            Column({ space: 1 }) {
-              ForEach(this.neteasePlaylists, (item: NeteasePlaylistSummary) => {
-                Row({ space: 12 }) {
-                  if (item.coverUrl.length > 0) {
-                    Image(item.coverUrl)
-                      .width(44)
-                      .height(44)
-                      .borderRadius(8)
-                      .objectFit(ImageFit.Cover)
-                      .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
-                  } else {
-                    Text('♪')
-                      .fontSize(20)
-                      .width(44)
-                      .height(44)
-                      .textAlign(TextAlign.Center)
-                      .fontColor(Theme.primary(Theme.isDark()))
-                      .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
-                      .borderRadius(8)
-                  }
-                  Column({ space: 2 }) {
-                    Text(item.name)
-                      .fontSize(15)
-                      .fontWeight(FontWeight.Medium)
-                      .fontColor(Theme.textPrimary(Theme.isDark()))
-                      .maxLines(1)
-                      .textOverflow({ overflow: TextOverflow.Ellipsis })
-                    Text(item.trackCount > 0 ? `${item.trackCount} 首` : '空歌单')
-                      .fontSize(12)
-                      .fontColor(Theme.textSecondary(Theme.isDark()))
-                  }
-                  .layoutWeight(1)
-                  .alignItems(HorizontalAlign.Start)
-                  Text('›')
-                    .fontSize(18)
-                    .fontColor(Theme.textDisabled(Theme.isDark()))
-                }
-                .width('100%')
-                .padding({ left: 14, right: 14, top: 10, bottom: 10 })
-                .backgroundColor(Theme.surface(Theme.isDark()))
-                .onClick(() => Router.push(Router.NETEASE_PLAYLIST, `${item.id}`))
-              }, (item: NeteasePlaylistSummary) => `${item.id}`)
-            }
-            .width('100%')
-            .borderRadius(Theme.cardRadius())
-            .clip(true)
-          }
         }
 
         Row() {
@@ -363,17 +265,9 @@ export struct LibraryPage {
         Column({ space: 1 }) {
           SettingRow({
             title: '网易云音乐',
-            subtitle: this.neteaseLogged
-              ? `已登录 · ${this.neteasePlaylists.length} 个歌单`
-              : '未登录 · 点击扫码登录，同步我的歌单',
+            subtitle: '登录与歌单同步（待移植）',
             icon: '🎵',
-            onTap: () => {
-              if (!this.neteaseLogged) {
-                Router.push(Router.SETTINGS_DETAIL, SETTING_ACCOUNTS);
-              } else if (this.neteasePlaylists.length === 0 && !this.neteaseLoading) {
-                this.refreshNeteasePlaylists();
-              }
-            }
+            onTap: () => promptAction.openToast({ message: '网易云登录待移植' })
           })
           SettingRow({
             title: 'Bilibili',
@@ -432,6 +326,13 @@ export struct LibraryPage {
           .padding(20)
           .backgroundColor(Theme.surface(Theme.isDark()))
           .borderRadius(18)
+              /*
+            .onClick((event: ClickEvent) => {
+              event.stopPropagation();
+            })
+              */
+              .onClick(() => {
+              })
         }
         .width('100%')
         .height('100%')
@@ -456,8 +357,14 @@ struct StatCard {
 
   build() {
     Column({ space: 4 }) {
+        /*
       Text(this.icon)
         .fontSize(22)
+        */
+        Image(iconForLegacy(this.icon, $r('app.media.ic_music_note_24')))
+          .width(22)
+          .height(22)
+          .fillColor(Theme.primary(Theme.isDark()))
       Text(this.value)
         .fontSize(14)
         .fontWeight(FontWeight.Bold)

@@ -7,7 +7,6 @@ import { LibraryPage } from './LibraryPage';
 import { SettingsPage } from './SettingsPage';
 import { NowPlayingPage } from './NowPlayingPage';
 import { PlaylistDetailPage } from './PlaylistDetailPage';
-import { NeteasePlaylistPage } from './NeteasePlaylistPage';
 import { DebugPage } from './DebugPage';
 import { DownloadsPage } from './DownloadsPage';
 import { RecentPage } from './RecentPage';
@@ -53,8 +52,6 @@ export struct MainShell {
       NowPlayingPage()
     } else if (this.routeName === Router.PLAYLIST_DETAIL) {
       PlaylistDetailPage()
-    } else if (this.routeName === Router.NETEASE_PLAYLIST) {
-      NeteasePlaylistPage()
     } else if (this.routeName === Router.RECENT) {
       RecentPage()
     } else if (this.routeName === Router.STATS) {
