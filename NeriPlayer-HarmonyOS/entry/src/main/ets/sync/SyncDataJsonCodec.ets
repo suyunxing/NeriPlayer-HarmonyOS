@@ -31,6 +31,8 @@ import {
   SyncPlaybackCounterShard,
   normalizedSyncCausalTokens
 } from './SyncModels';
+import { gunzip } from './GzipInflate';
+import { decodeProtoSyncDataWithLegacyFallback } from './SyncDataProtoCodec';
 
 export const MAX_JSON_BYTES: number = 8 * 1024 * 1024;
 export const MAX_COMPRESSED_BYTES: number = 12 * 1024 * 1024;
@@ -1570,6 +1572,90 @@ export function syncDataFromJsonText(text: string): SyncData | null {
 }
 
 // ---------------------------------------------------------------------------
+// Legacy Base64(GZIP(ProtoBuf)) channel (old backup.bin)
+// ---------------------------------------------------------------------------
+
+function isAsciiWhitespace(ch: string): boolean {
+  return ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r' || ch === '\f';
+}
+
+function base64CharValue(ch: string): number {
+  const code = ch.charCodeAt(0);
+  if (code >= 0x41 && code <= 0x5A) {
+    return code - 0x41;
+  }
+  if (code >= 0x61 && code <= 0x7A) {
+    return code - 0x61 + 26;
+  }
+  if (code >= 0x30 && code <= 0x39) {
+    return code - 0x30 + 52;
+  }
+  if (ch === '+') {
+    return 62;
+  }
+  if (ch === '/') {
+    return 63;
+  }
+  return -1;
+}
+
+/**
+ * Mirrors Android decodeLegacyBase64: strip whitespace, then validate the
+ * compact form exactly like java.util.Base64.getDecoder() (non-empty, length
+ * multiple of 4, basic alphabet, '=' only as 1-2 trailing pads).
+ */
+export function decodeLegacyBase64Text(text: string): Uint8Array | null {
+  let compact = '';
+  for (let i = 0; i < text.length; i++) {
+    const ch = text.charAt(i);
+    if (!isAsciiWhitespace(ch)) {
+      compact += ch;
+    }
+  }
+  if (compact.length === 0 || compact.length % 4 !== 0) {
+    return null;
+  }
+  const firstPad = compact.indexOf('=');
+  if (firstPad >= 0) {
+    if (firstPad < compact.length - 2) {
+      return null;
+    }
+    for (let i = firstPad; i < compact.length; i++) {
+      if (compact.charAt(i) !== '=') {
+        return null;
+      }
+    }
+  }
+  const outLength = compact.length / 4 * 3 - (compact.endsWith('==') ? 2 : (compact.endsWith('=') ? 1 : 0));
+  const out = new Uint8Array(outLength);
+  let outPos = 0;
+  for (let i = 0; i < compact.length; i += 4) {
+    const c0 = base64CharValue(compact.charAt(i));
+    const c1 = base64CharValue(compact.charAt(i + 1));
+    const pad2 = compact.charAt(i + 2) === '=';
+    const pad3 = compact.charAt(i + 3) === '=';
+    // Padding chars are only legal in the final quad; earlier validation
+    // guarantees that, so treat them as zero bits here.
+    const c2 = pad2 ? 0 : base64CharValue(compact.charAt(i + 2));
+    const c3 = pad3 ? 0 : base64CharValue(compact.charAt(i + 3));
+    if (c0 < 0 || c1 < 0 || c2 < 0 || c3 < 0) {
+      return null;
+    }
+    const triple = (c0 << 18) | (c1 << 12) | (c2 << 6) | c3;
+    if (outPos < outLength) {
+      out[outPos++] = (triple >> 16) & 0xFF;
+    }
+    if (outPos < outLength) {
+      out[outPos++] = (triple >> 8) & 0xFF;
+    }
+    if (outPos < outLength) {
+      out[outPos++] = triple & 0xFF;
+    }
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
 // Format sniffing and top-level serialize/deserialize (read-both)
 // ---------------------------------------------------------------------------
 
@@ -1629,15 +1715,30 @@ export function ensureRemoteContentSize(content: Uint8Array): boolean {
   return content.length <= limit;
 }
 
+/** GZIP(protobuf) bytes → SyncData (gunzip → proto decode with legacy fallback). */
+function decodeGzipProtoBranch(bytes: Uint8Array, format: SyncWireFormat): SyncDecodeResult {
+  if (bytes.length > MAX_COMPRESSED_BYTES) {
+    return new SyncDecodeResult(format, null,
+      `compressed sync data exceeds ${MAX_COMPRESSED_BYTES} bytes`);
+  }
+  const protoBytes = gunzip(bytes, MAX_DECOMPRESSED_BYTES);
+  if (protoBytes === null) {
+    return new SyncDecodeResult(format, null, 'malformed gzip sync data');
+  }
+  const data = decodeProtoSyncDataWithLegacyFallback(protoBytes);
+  if (data === null) {
+    return new SyncDecodeResult(format, null, 'malformed protobuf sync data');
+  }
+  return new SyncDecodeResult(format, data, '');
+}
+
 /**
  * Read-both entry point. Order matches Android: GZIP magic → proto, then
- * JSON, then legacy Base64. The binary branches are recognized but not yet
- * decoded (protobuf wire decoder + gzip inflate land with the D1 follow-up).
+ * JSON, then legacy Base64.
  */
 export function deserializeSyncContent(content: Uint8Array): SyncDecodeResult {
   if (isGzipData(content)) {
-    return new SyncDecodeResult(SyncWireFormat.GZIP_PROTO, null,
-      'gzip+protobuf decoding is not available yet (D1 follow-up)');
+    return decodeGzipProtoBranch(content, SyncWireFormat.GZIP_PROTO);
   }
   if (looksLikeJsonData(content)) {
     if (content.length > MAX_JSON_BYTES) {
@@ -1650,6 +1751,10 @@ export function deserializeSyncContent(content: Uint8Array): SyncDecodeResult {
     }
     return new SyncDecodeResult(SyncWireFormat.JSON, data, '');
   }
-  return new SyncDecodeResult(SyncWireFormat.LEGACY_BASE64, null,
-    'legacy base64 gzip decoding is not available yet (D1 follow-up)');
+  const gzipBytes = decodeLegacyBase64Text(utf8Decode(content));
+  if (gzipBytes === null) {
+    return new SyncDecodeResult(SyncWireFormat.LEGACY_BASE64, null,
+      'invalid legacy base64 sync data');
+  }
+  return decodeGzipProtoBranch(gzipBytes, SyncWireFormat.LEGACY_BASE64);
 }
