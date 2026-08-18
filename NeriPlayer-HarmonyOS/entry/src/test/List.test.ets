@@ -12,6 +12,12 @@ import playlistMergeTest from './ets/test/PlaylistMerge.test';
 import httpHeaderParserTest from './ets/test/HttpHeaderParser.test';
 import biliAuthTest from './ets/test/BiliAuth.test';
 import biliFavParserTest from './ets/test/BiliFavParser.test';
+import syncModelsTest from './ets/test/SyncModels.test';
+import songMetadataMergePolicyTest from './ets/test/SongMetadataMergePolicy.test';
+import playlistSongMergePolicyTest from './ets/test/PlaylistSongMergePolicy.test';
+import playlistDeletionPolicyTest from './ets/test/PlaylistDeletionPolicy.test';
+import playbackStatsMergePolicyTest from './ets/test/PlaybackStatsMergePolicy.test';
+import dataChangeDetectorTest from './ets/test/DataChangeDetector.test';
 
 export default function testsuite(): void {
   lrcParserTest();
@@ -28,4 +34,10 @@ export default function testsuite(): void {
   httpHeaderParserTest();
   biliAuthTest();
   biliFavParserTest();
+  syncModelsTest();
+  songMetadataMergePolicyTest();
+  playlistSongMergePolicyTest();
+  playlistDeletionPolicyTest();
+  playbackStatsMergePolicyTest();
+  dataChangeDetectorTest();
 }
