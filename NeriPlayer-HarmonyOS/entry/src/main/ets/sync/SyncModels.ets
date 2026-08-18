@@ -384,9 +384,9 @@ export function syncSongIdentity(song: SyncSong): SongIdentityKey {
   const trimmedAudio = song.audioId === null ? '' : song.audioId.trim();
   const audio = trimmedAudio.length > 0
     ? trimmedAudio
-    : (song.id !== 0 ? idToKeyString(song.id) : null);
+    : (song.id !== 0 ? songIdKeyText(song) : null);
   if (channel === null || audio === null) {
-    return new SongIdentityKey(idToKeyString(song.id), song.album, song.mediaUri);
+    return new SongIdentityKey(songIdKeyText(song), song.album, song.mediaUri);
   }
   if (channel === Constants.YOUTUBE_MUSIC_IDENTITY_ALBUM) {
     return new SongIdentityKey(
@@ -404,8 +404,7 @@ export function syncSongIdentity(song: SyncSong): SongIdentityKey {
       channel,
       null
     );
-  }
-  return new SongIdentityKey(stableSyncId(`${channel}|${audio}|${subAudio}`), channel, null);
+  }  return new SongIdentityKey(stableSyncId(`${channel}|${audio}|${subAudio}`), channel, null);
 }
 
 // ---------------------------------------------------------------------------
@@ -442,6 +441,14 @@ export class SyncSong {
   syncMembershipTokens: SyncCausalToken[];
   syncMetadataVersion: number;
   legacyAddedAt: number | null;
+  /**
+   * Wire-fidelity field (not part of the Android schema): keeps the exact
+   * decimal text of `id` when a decoded snapshot carries a 64-bit id beyond
+   * JS number precision (YTM/Bilibili hashed ids). Empty when id is exact.
+   * Every id-sensitive computation (stable keys, canonical payload key,
+   * serialization) prefers this over `${id}`.
+   */
+  syncIdText: string;
 
   constructor(
     id: number = 0,
@@ -472,7 +479,8 @@ export class SyncSong {
     playlistContextId: string | null = null,
     syncMembershipTokens: SyncCausalToken[] = [],
     syncMetadataVersion: number = LEGACY_SYNC_METADATA_VERSION,
-    legacyAddedAt: number | null = null
+    legacyAddedAt: number | null = null,
+    syncIdText: string = ''
   ) {
     this.id = id;
     this.name = name;
@@ -503,7 +511,13 @@ export class SyncSong {
     this.syncMembershipTokens = syncMembershipTokens;
     this.syncMetadataVersion = syncMetadataVersion;
     this.legacyAddedAt = legacyAddedAt;
+    this.syncIdText = syncIdText;
   }
+}
+
+/** Exact decimal id text: the wire-fidelity value when present, else `${id}`. */
+export function songIdKeyText(song: SyncSong): string {
+  return song.syncIdText.length > 0 ? song.syncIdText : `${song.id}`;
 }
 
 /** Structural equality (Kotlin data class): token list is order-sensitive. */
@@ -528,7 +542,8 @@ export function syncSongEquals(a: SyncSong, b: SyncSong): boolean {
     a.subAudioId !== b.subAudioId ||
     a.playlistContextId !== b.playlistContextId ||
     a.syncMembershipTokens.length !== b.syncMembershipTokens.length ||
-    a.syncMetadataVersion !== b.syncMetadataVersion || a.legacyAddedAt !== b.legacyAddedAt) {
+    a.syncMetadataVersion !== b.syncMetadataVersion || a.legacyAddedAt !== b.legacyAddedAt ||
+    a.syncIdText !== b.syncIdText) {
     return false;
   }
   for (let i = 0; i < a.syncMembershipTokens.length; i++) {
@@ -548,7 +563,7 @@ export function cloneSyncSong(song: SyncSong): SyncSong {
     song.originalName, song.originalArtist, song.originalCoverUrl, song.originalLyric,
     song.originalTranslatedLyric, song.channelId, song.audioId, song.subAudioId,
     song.playlistContextId, song.syncMembershipTokens, song.syncMetadataVersion,
-    song.legacyAddedAt
+    song.legacyAddedAt, song.syncIdText
   );
 }
 
@@ -601,7 +616,7 @@ export function syncSongIdentityStableKeys(song: SyncSong): string[] {
     keys.push(normalizedKey);
   }
   const rawKey = new SongIdentityKey(
-    idToKeyString(song.id),
+    songIdKeyText(song),
     song.album,
     song.mediaUri
   ).stableKey();
@@ -671,23 +686,31 @@ export class SyncRecentPlayDeletion {
   mediaUri: string | null;
   deletedAt: number;
   deviceId: string;
+  /** Wire-fidelity decimal text for 64-bit songIds beyond JS precision. */
+  syncSongIdText: string;
 
   constructor(
     songId: number = 0,
     album: string = '',
     mediaUri: string | null = null,
     deletedAt: number = 0,
-    deviceId: string = ''
+    deviceId: string = '',
+    syncSongIdText: string = ''
   ) {
     this.songId = songId;
     this.album = album;
     this.mediaUri = mediaUri;
     this.deletedAt = deletedAt;
     this.deviceId = deviceId;
+    this.syncSongIdText = syncSongIdText;
   }
 
   identity(): SongIdentityKey {
-    return new SongIdentityKey(idToKeyString(this.songId), this.album, this.mediaUri);
+    return new SongIdentityKey(
+      this.syncSongIdText.length > 0 ? this.syncSongIdText : `${this.songId}`,
+      this.album,
+      this.mediaUri
+    );
   }
 
   stableKey(): string {
@@ -703,6 +726,8 @@ export class SyncPlaylistSongDeletion {
   deletedAt: number;
   deviceId: string;
   removedMembershipTokens: SyncCausalToken[];
+  /** Wire-fidelity decimal text for 64-bit songIds beyond JS precision. */
+  syncSongIdText: string;
 
   constructor(
     playlistId: number = 0,
@@ -711,7 +736,8 @@ export class SyncPlaylistSongDeletion {
     mediaUri: string | null = null,
     deletedAt: number = 0,
     deviceId: string = '',
-    removedMembershipTokens: SyncCausalToken[] = []
+    removedMembershipTokens: SyncCausalToken[] = [],
+    syncSongIdText: string = ''
   ) {
     this.playlistId = playlistId;
     this.songId = songId;
@@ -720,10 +746,15 @@ export class SyncPlaylistSongDeletion {
     this.deletedAt = deletedAt;
     this.deviceId = deviceId;
     this.removedMembershipTokens = removedMembershipTokens;
+    this.syncSongIdText = syncSongIdText;
   }
 
   identity(): SongIdentityKey {
-    return new SongIdentityKey(idToKeyString(this.songId), this.album, this.mediaUri);
+    return new SongIdentityKey(
+      this.syncSongIdText.length > 0 ? this.syncSongIdText : `${this.songId}`,
+      this.album,
+      this.mediaUri
+    );
   }
 
   stableKey(): string {
