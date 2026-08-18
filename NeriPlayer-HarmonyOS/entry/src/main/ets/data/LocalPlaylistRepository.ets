@@ -1,5 +1,7 @@
 import { AppPreferences } from './AppPreferences';
-import { Playlist } from '../model/Playlist';
+import { SchemaStore } from './schema/SchemaStore';
+import { SyncPendingState } from './AndroidDataParser';
+import { Playlist, mergePlaylistSongs } from '../model/Playlist';
 import { MusicPlatform } from '../model/MusicPlatform';
 import { SongItem } from '../model/SongItem';
 import { stableKeyOf } from '../model/SongIdentity';
@@ -12,24 +14,40 @@ export class LocalPlaylistRepository {
   static readonly FAVORITES_ID: string = 'favorites';
   private static readonly KEY: string = 'playlists';
 
-  static async loadAll(): Promise<Playlist[]> {
-    const json = await AppPreferences.getString(LocalPlaylistRepository.KEY, '[]');
+  static parseJson(json: string): Playlist[] | null {
+    const rawList = JSON.parse(json) as Object[];
+    if (!Array.isArray(rawList)) {
+      return null;
+    }
     const playlists: Playlist[] = [];
-    try {
-      const rawList = JSON.parse(json) as Object[];
-      for (const raw of rawList) {
-        playlists.push(Playlist.fromJson(JSON.stringify(raw)));
-      }
-    } catch (error) {
-      const e = error as Error;
-      console.warn(`LocalPlaylistRepository.loadAll failed: ${e.message}`);
+    for (const raw of rawList) {
+      playlists.push(Playlist.fromJson(JSON.stringify(raw)));
     }
     return playlists;
   }
 
-  private static async saveAll(playlists: Playlist[]): Promise<void> {
+  static async loadAll(): Promise<Playlist[]> {
+    return SchemaStore.load<Playlist[]>(LocalPlaylistRepository.KEY, [], LocalPlaylistRepository.parseJson);
+  }
+
+  /** Playlist ids changed locally but not yet consumed by a sync upload. */
+  static async getSyncPendingIds(): Promise<string[]> {
+    const json = await AppPreferences.getString(SyncPendingState.KEY, '[]');
+    return SyncPendingState.fromJson(json);
+  }
+
+  static async clearSyncPending(playlistId: string): Promise<void> {
+    const ids = await LocalPlaylistRepository.getSyncPendingIds();
+    await AppPreferences.putString(SyncPendingState.KEY, SyncPendingState.toJson(SyncPendingState.clearPending(ids, playlistId)));
+  }
+
+  private static async saveAll(playlists: Playlist[], changedId: string = ''): Promise<void> {
     const json = JSON.stringify(playlists.map((item: Playlist) => Playlist.fromJson(item.toJson())));
-    await AppPreferences.putString(LocalPlaylistRepository.KEY, json);
+    await SchemaStore.save(LocalPlaylistRepository.KEY, json, (value: string) => value);
+    if (changedId.length > 0) {
+      const ids = await LocalPlaylistRepository.getSyncPendingIds();
+      await AppPreferences.putString(SyncPendingState.KEY, SyncPendingState.toJson(SyncPendingState.markPending(ids, changedId)));
+    }
   }
 
   static async ensureFavorites(): Promise<Playlist> {
@@ -40,7 +58,7 @@ export class LocalPlaylistRepository {
     }
     const favorites = new Playlist(LocalPlaylistRepository.FAVORITES_ID, 'Favorites', MusicPlatform.LOCAL);
     playlists.unshift(favorites);
-    await LocalPlaylistRepository.saveAll(playlists);
+    await LocalPlaylistRepository.saveAll(playlists, LocalPlaylistRepository.FAVORITES_ID);
     return favorites;
   }
 
@@ -48,8 +66,42 @@ export class LocalPlaylistRepository {
     const playlists = await LocalPlaylistRepository.loadAll();
     const playlist = new Playlist(`local_${Date.now()}`, name, MusicPlatform.LOCAL);
     playlists.unshift(playlist);
-    await LocalPlaylistRepository.saveAll(playlists);
+    await LocalPlaylistRepository.saveAll(playlists, playlist.id);
     return playlist;
+  }
+
+  /**
+   * Creates a playlist pre-filled with songs in one save (remote playlist
+   * import path): each song is appended once, keyed by stable song key.
+   */
+  static async createPlaylistWithSongs(
+    name: string,
+    songs: SongItem[],
+    source: MusicPlatform = MusicPlatform.LOCAL
+  ): Promise<Playlist> {
+    const playlists = await LocalPlaylistRepository.loadAll();
+    const playlist = new Playlist(`local_${Date.now()}`, name, source);
+    const merge = mergePlaylistSongs(playlist.songKeys, playlist.songs, songs);
+    playlist.songKeys = merge.keys;
+    playlist.songs = merge.songs;
+    playlists.unshift(playlist);
+    await LocalPlaylistRepository.saveAll(playlists, playlist.id);
+    return playlist;
+  }
+
+  /** Batch import into an existing playlist; returns how many songs were added. */
+  static async importSongs(playlistId: string, songs: SongItem[]): Promise<number> {
+    const playlists = await LocalPlaylistRepository.loadAll();
+    const playlist = playlists.find((item: Playlist) => item.id === playlistId);
+    if (playlist === undefined) {
+      return 0;
+    }
+    const merge = mergePlaylistSongs(playlist.songKeys, playlist.songs, songs);
+    playlist.songKeys = merge.keys;
+    playlist.songs = merge.songs;
+    playlist.updatedAt = Date.now();
+    await LocalPlaylistRepository.saveAll(playlists, playlistId);
+    return merge.addedCount;
   }
 
   static async addSong(playlistId: string, song: SongItem): Promise<boolean> {
@@ -65,7 +117,7 @@ export class LocalPlaylistRepository {
     playlist.songKeys.unshift(songKey);
     playlist.songs.unshift(song);
     playlist.updatedAt = Date.now();
-    await LocalPlaylistRepository.saveAll(playlists);
+    await LocalPlaylistRepository.saveAll(playlists, playlistId);
     return true;
   }
 
@@ -82,7 +134,7 @@ export class LocalPlaylistRepository {
     playlist.songKeys.splice(index, 1);
     playlist.songs.splice(index, 1);
     playlist.updatedAt = Date.now();
-    await LocalPlaylistRepository.saveAll(playlists);
+    await LocalPlaylistRepository.saveAll(playlists, playlistId);
     return true;
   }
 
@@ -112,12 +164,12 @@ export class LocalPlaylistRepository {
     }
     playlist.name = name;
     playlist.updatedAt = Date.now();
-    await LocalPlaylistRepository.saveAll(playlists);
+    await LocalPlaylistRepository.saveAll(playlists, playlistId);
   }
 
   static async removePlaylist(playlistId: string): Promise<void> {
     const playlists = await LocalPlaylistRepository.loadAll();
     const filtered = playlists.filter((item: Playlist) => item.id !== playlistId);
-    await LocalPlaylistRepository.saveAll(filtered);
+    await LocalPlaylistRepository.saveAll(filtered, playlistId);
   }
 }

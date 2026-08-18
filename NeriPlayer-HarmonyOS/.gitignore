@@ -1,15 +1,14 @@
 /.hvigor
 /.idea
 /.preview
-**/.preview
 /build
 /entry/build
 **/build
+**/.test
 /oh_modules
 **/oh_modules
 /local.properties
 /.obsidian
-/signing
 *.har
 *.hap
 *.app

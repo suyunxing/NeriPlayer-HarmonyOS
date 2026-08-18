@@ -111,22 +111,15 @@ export struct PlaylistCard {
           Image(this.coverUrl)
             .width('100%')
             .aspectRatio(1)
-              /*
-                */
             .borderRadius(12)
             .objectFit(ImageFit.Cover)
             .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
         } else {
           Column() {
-              /*
-            Text('♫')
-              .fontSize(34)
-              .fontColor(Theme.primary(Theme.isDark()))
-              */
-              Image($r('app.media.ic_music_note_24'))
-                .width(36)
-                .height(36)
-                .fillColor(Theme.primary(Theme.isDark()))
+            Image($r('app.media.ic_music_note_24'))
+              .width(36)
+              .height(36)
+              .fillColor(Theme.primary(Theme.isDark()))
           }
           .width('100%')
           .aspectRatio(1)
@@ -135,15 +128,10 @@ export struct PlaylistCard {
           .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
         }
         if (this.isFavorite) {
-            /*
-          Text('★')
-            .fontSize(14)
-            .fontColor(Theme.warning(Theme.isDark()))
-            */
-            Image($r('app.media.ic_baseline_favorite_24'))
-              .width(16)
-              .height(16)
-              .fillColor(Theme.warning(Theme.isDark()))
+          Image($r('app.media.ic_baseline_favorite_24'))
+            .width(16)
+            .height(16)
+            .fillColor(Theme.warning(Theme.isDark()))
             .padding(5)
             .backgroundColor(Theme.scrim(Theme.isDark()))
             .borderRadius(8)

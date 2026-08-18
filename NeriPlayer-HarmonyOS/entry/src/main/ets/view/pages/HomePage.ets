@@ -3,6 +3,8 @@ import { Playlist } from '../../model/Playlist';
 import { UsageRepository, UsageEntry } from '../../data/UsageRepository';
 import { HistoryRepository } from '../../data/HistoryRepository';
 import { LocalPlaylistRepository } from '../../data/LocalPlaylistRepository';
+import { NeteaseApi } from '../../network/NeteaseApi';
+import { NeteasePlaylistSummary } from '../../network/NeteasePlaylistParser';
 import { NetworkStatus } from '../../util/NetworkStatus';
 import { PlayerManager } from '../../player/PlayerManager';
 import { Router } from '../Router';
@@ -16,6 +18,7 @@ export struct HomePage {
   @State usage: UsageEntry[] = [];
   @State localPlaylists: Playlist[] = [];
   @State recentSongs: SongItem[] = [];
+  @State neteaseRecommend: NeteasePlaylistSummary[] = [];
   @State loading: boolean = true;
   @State offline: boolean = false;
   @State titleIndex: number = 0;
@@ -33,6 +36,24 @@ export struct HomePage {
     this.localPlaylists = playlists;
     this.recentSongs = await HistoryRepository.getRecent();
     this.loading = false;
+    this.loadNeteaseRecommend();
+  }
+
+  /**
+   * NetEase personalized playlists (/weapi/personalized/playlist, also works
+   * anonymously). Fails silently: the section just stays hidden.
+   */
+  private loadNeteaseRecommend(): void {
+    if (this.offline) {
+      return;
+    }
+    NeteaseApi.getRecommendedPlaylists(30)
+      .then((items: NeteasePlaylistSummary[]) => {
+        this.neteaseRecommend = items;
+      })
+      .catch(() => {
+        this.neteaseRecommend = [];
+      });
   }
 
   private refresh(): void {
@@ -106,21 +127,11 @@ export struct HomePage {
                             .objectFit(ImageFit.Cover)
                             .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
                         } else {
-                            /*
-                          Text('♫')
-                            .fontSize(30)
-                            .width(132)
-                            .height(132)
-                            .textAlign(TextAlign.Center)
-                            */
-                            Image($r('app.media.ic_music_note_24'))
-                              .width(40)
-                              .height(40)
-                              .fillColor(Theme.primary(Theme.isDark()))
-                              .margin({ left: 46, right: 46, top: 46, bottom: 46 })
-                              /*
-                            .fontColor(Theme.primary(Theme.isDark()))
-                              */
+                          Image($r('app.media.ic_music_note_24'))
+                            .width(40)
+                            .height(40)
+                            .fillColor(Theme.primary(Theme.isDark()))
+                            .margin({ left: 46, right: 46, top: 46, bottom: 46 })
                             .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
                             .borderRadius(16)
                         }
@@ -160,21 +171,11 @@ export struct HomePage {
                           .borderRadius(8)
                           .objectFit(ImageFit.Cover)
                       } else {
-                          /*
-                        Text('♫')
-                          .fontSize(18)
-                          .width(46)
-                          .height(46)
-                          .textAlign(TextAlign.Center)
-                          */
-                          Image($r('app.media.ic_music_note_24'))
-                            .width(22)
-                            .height(22)
-                            .fillColor(Theme.primary(Theme.isDark()))
-                            .margin({ left: 12, right: 12, top: 12, bottom: 12 })
-                            /*
-                          .fontColor(Theme.primary(Theme.isDark()))
-                            */
+                        Image($r('app.media.ic_music_note_24'))
+                          .width(22)
+                          .height(22)
+                          .fillColor(Theme.primary(Theme.isDark()))
+                          .margin({ left: 12, right: 12, top: 12, bottom: 12 })
                           .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
                           .borderRadius(8)
                       }
@@ -209,8 +210,52 @@ export struct HomePage {
               .borderRadius(Theme.cardRadius())
             }
 
+            if (this.neteaseRecommend.length > 0) {
+              SectionHeader({ title: '每日推荐', icon: '★' })
+              Scroll() {
+                Row({ space: 12 }) {
+                  ForEach(this.neteaseRecommend, (item: NeteasePlaylistSummary) => {
+                    Column({ space: 6 }) {
+                      if (item.coverUrl.length > 0) {
+                        Image(item.coverUrl)
+                          .width(132)
+                          .height(132)
+                          .borderRadius(16)
+                          .objectFit(ImageFit.Cover)
+                          .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+                      } else {
+                        Image($r('app.media.ic_music_note_24'))
+                          .width(40)
+                          .height(40)
+                          .fillColor(Theme.primary(Theme.isDark()))
+                          .margin({ left: 46, right: 46, top: 46, bottom: 46 })
+                          .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+                          .borderRadius(16)
+                      }
+                      Text(item.name)
+                        .fontSize(13)
+                        .fontWeight(FontWeight.Medium)
+                        .fontColor(Theme.textPrimary(Theme.isDark()))
+                        .maxLines(1)
+                        .textOverflow({ overflow: TextOverflow.Ellipsis })
+                        .width(132)
+                      Text(item.trackCount > 0 ? `${item.trackCount} 首` : '网易云歌单')
+                        .fontSize(11)
+                        .fontColor(Theme.textSecondary(Theme.isDark()))
+                        .width(132)
+                    }
+                    .onClick(() => Router.push(Router.NETEASE_PLAYLIST, `${item.id}`))
+                  }, (item: NeteasePlaylistSummary) => `${item.id}`)
+                }
+                .padding({ left: 4, right: 4 })
+              }
+              .scrollable(ScrollDirection.Horizontal)
+              .scrollBar(BarState.Off)
+              .width('100%')
+            }
+
             if (this.localPlaylists.length > 0 || !this.offline) {
-              SectionHeader({ title: '推荐歌单', icon: '★' })
+              SectionHeader({ title: '我的歌单', icon: '♪' })
               Grid() {
                 ForEach(this.localPlaylists, (playlist: Playlist) => {
                   GridItem() {
@@ -232,7 +277,7 @@ export struct HomePage {
               if (this.localPlaylists.length === 0) {
                 EmptyState({
                   icon: '♪',
-                  title: '暂无推荐',
+                  title: '暂无本地歌单',
                   subtitle: '先在「资料库」创建歌单，或去「探索」搜索歌曲'
                 })
               }

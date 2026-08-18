@@ -1,6 +1,7 @@
 import { AppPreferences } from './AppPreferences';
 import { SongItem } from '../model/SongItem';
 import { stableKeyOf } from '../model/SongIdentity';
+import { SchemaStore } from './schema/SchemaStore';
 
 /**
  * Recent-play history, mirroring PlayHistoryRepository.
@@ -9,19 +10,20 @@ export class HistoryRepository {
   private static readonly KEY: string = 'history';
   private static readonly LIMIT: number = 200;
 
-  static async getRecent(): Promise<SongItem[]> {
-    const json = await AppPreferences.getString(HistoryRepository.KEY, '[]');
+  static parseJson(json: string): SongItem[] | null {
+    const rawList = JSON.parse(json) as Object[];
+    if (!Array.isArray(rawList)) {
+      return null;
+    }
     const songs: SongItem[] = [];
-    try {
-      const rawList = JSON.parse(json) as Object[];
-      for (const raw of rawList) {
-        songs.push(SongItem.fromJson(JSON.stringify(raw)));
-      }
-    } catch (error) {
-      const e = error as Error;
-      console.warn(`HistoryRepository.getRecent failed: ${e.message}`);
+    for (const raw of rawList) {
+      songs.push(SongItem.fromJson(JSON.stringify(raw)));
     }
     return songs;
+  }
+
+  static async getRecent(): Promise<SongItem[]> {
+    return SchemaStore.load<SongItem[]>(HistoryRepository.KEY, [], HistoryRepository.parseJson);
   }
 
   static async addSong(song: SongItem): Promise<void> {
@@ -33,7 +35,7 @@ export class HistoryRepository {
       filtered.splice(HistoryRepository.LIMIT);
     }
     const json = JSON.stringify(filtered.map((item: SongItem) => SongItem.fromJson(item.toJson())));
-    await AppPreferences.putString(HistoryRepository.KEY, json);
+    await SchemaStore.save(HistoryRepository.KEY, json, (value: string) => value);
   }
 
   static async clear(): Promise<void> {

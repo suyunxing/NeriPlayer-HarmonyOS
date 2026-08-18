@@ -2,75 +2,123 @@ import { promptAction } from '@kit.ArkUI';
 import { SongItem } from '../../model/SongItem';
 import { MusicPlatform } from '../../model/MusicPlatform';
 import { LocalPlaylistRepository } from '../../data/LocalPlaylistRepository';
-import { NeteaseApi } from '../../network/NeteaseApi';
-import { NeteasePlaylistOverview } from '../../network/NeteasePlaylistParser';
+import { BiliApi } from '../../network/BiliApi';
+import { BiliFavFolderSummary, biliFavMediaToSongItem } from '../../network/BiliFavParser';
 import { PlayerManager } from '../../player/PlayerManager';
 import { Theme } from '../Theme';
 import { SongRow } from '../components/SongRow';
 import { EmptyState, LoadingState } from '../components/Ui';
 import { Router } from '../Router';
 
-/** Remote playlists store full SongItems; cap imports to keep one save sane. */
+/** Remote fav items store full SongItems; cap imports to keep one save sane. */
 const IMPORT_CAP: number = 500;
 
 /**
- * NetEase remote playlist detail: header + resolved songs, play/shuffle, and
- * one-shot import into a local playlist (full song-reference copy).
+ * Bilibili favorite-folder detail: header + paged video list (loads more on
+ * reach-end), play/shuffle, and one-shot full import into a local playlist.
  */
 @Component
-export struct NeteasePlaylistPage {
-  @StorageLink('route.param') playlistParam: string = '';
-  @State overview: NeteasePlaylistOverview | null = null;
+export struct BiliFavPage {
+  @StorageLink('route.param') favParam: string = '';
+  @State info: BiliFavFolderSummary | null = null;
+  @State songs: SongItem[] = [];
+  @State totalCount: number = 0;
   @State loading: boolean = true;
+  @State loadingMore: boolean = false;
   @State loadError: string = '';
   @State importing: boolean = false;
   @State showImportDialog: boolean = false;
   @State importName: string = '';
+
+  private page: number = 1;
+  private hasMore: boolean = false;
+  private seenBvids: Set<string> = new Set();
+
+  private mediaId(): number {
+    const id = Number(this.favParam);
+    return Number.isFinite(id) && id > 0 ? Math.floor(id) : 0;
+  }
 
   async aboutToAppear(): Promise<void> {
     await this.reload();
   }
 
   private async reload(): Promise<void> {
-    const id = Number(this.playlistParam);
-    if (!Number.isFinite(id) || id <= 0) {
-      this.loadError = '无效的歌单链接';
+    if (this.mediaId() <= 0) {
+      this.loadError = '无效的收藏夹链接';
       this.loading = false;
       return;
     }
     this.loading = true;
     this.loadError = '';
     try {
-      this.overview = await NeteaseApi.getPlaylistOverview(id);
+      const first = await BiliApi.getFavFolderPage(this.mediaId(), 1);
+      this.info = first.info;
+      this.totalCount = first.totalCount;
+      this.hasMore = first.hasMore;
+      this.page = 1;
+      this.seenBvids = new Set<string>();
+      this.appendItems(first.items.map((media) => biliFavMediaToSongItem(media)));
+      if (first.totalCount === 0 && first.items.length === 0 && first.info === null) {
+        this.loadError = '收藏夹为空或未登录（Cookie 可能已失效）';
+      }
     } catch (error) {
       const e = error as Error;
-      this.loadError = `歌单加载失败：${e.message}`;
+      this.loadError = `收藏夹加载失败：${e.message}`;
     }
     this.loading = false;
   }
 
+  private appendItems(items: SongItem[]): void {
+    const next: SongItem[] = this.songs.slice(0, this.songs.length);
+    for (const song of items) {
+      const key = song.audioId.length > 0 ? song.audioId : song.name;
+      if (this.seenBvids.has(key)) {
+        continue;
+      }
+      this.seenBvids.add(key);
+      next.push(song);
+    }
+    this.songs = next;
+  }
+
+  private async loadMore(): Promise<void> {
+    if (!this.hasMore || this.loadingMore || this.loading) {
+      return;
+    }
+    this.loadingMore = true;
+    try {
+      const next = await BiliApi.getFavFolderPage(this.mediaId(), this.page + 1);
+      this.page += 1;
+      this.hasMore = next.hasMore;
+      this.appendItems(next.items.map((media) => biliFavMediaToSongItem(media)));
+    } catch (error) {
+      const e = error as Error;
+      promptAction.openToast({ message: `加载更多失败：${e.message}` });
+    }
+    this.loadingMore = false;
+  }
+
   private playAll(shuffle: boolean): void {
-    const overview = this.overview;
-    if (overview === null || overview.songs.length === 0) {
-      promptAction.openToast({ message: '歌单为空' });
+    if (this.songs.length === 0) {
+      promptAction.openToast({ message: '收藏夹为空' });
       return;
     }
     PlayerManager.setShuffle(shuffle);
-    PlayerManager.playPlaylist(overview.songs, 0);
+    PlayerManager.playPlaylist(this.songs, 0);
   }
 
   private openImportDialog(): void {
-    const overview = this.overview;
-    if (overview === null || overview.songs.length === 0) {
+    if (this.songs.length === 0 && this.totalCount === 0) {
       return;
     }
-    this.importName = overview.name;
+    const info = this.info;
+    this.importName = info !== null && info.title.length > 0 ? info.title : 'B 站收藏夹';
     this.showImportDialog = true;
   }
 
   private async confirmImport(): Promise<void> {
-    const overview = this.overview;
-    if (overview === null || this.importing) {
+    if (this.importing) {
       return;
     }
     const trimmed = this.importName.trim();
@@ -80,16 +128,22 @@ export struct NeteasePlaylistPage {
     }
     this.importing = true;
     try {
-      const capped = overview.songs.slice(0, IMPORT_CAP);
-      const playlist = await LocalPlaylistRepository.createPlaylistWithSongs(
-        trimmed,
-        capped,
-        MusicPlatform.LOCAL
-      );
-      const skipped = overview.songs.length - capped.length;
-      const suffix = skipped > 0 ? `（超出上限，已截取前 ${IMPORT_CAP} 首）` : '';
-      promptAction.openToast({ message: `已导入「${playlist.name}」${playlist.songKeys.length} 首${suffix}` });
-      this.showImportDialog = false;
+      const mediaItems = await BiliApi.getAllFavFolderItems(this.mediaId());
+      const songs = mediaItems.map((media) => biliFavMediaToSongItem(media));
+      const capped = songs.slice(0, IMPORT_CAP);
+      if (capped.length === 0) {
+        promptAction.openToast({ message: '收藏夹没有可导入的内容' });
+      } else {
+        const playlist = await LocalPlaylistRepository.createPlaylistWithSongs(
+          trimmed,
+          capped,
+          MusicPlatform.LOCAL
+        );
+        const skipped = songs.length - capped.length;
+        const suffix = skipped > 0 ? `（超出上限，已截取前 ${IMPORT_CAP} 首）` : '';
+        promptAction.openToast({ message: `已导入「${playlist.name}」${playlist.songKeys.length} 首${suffix}` });
+        this.showImportDialog = false;
+      }
     } catch (error) {
       const e = error as Error;
       promptAction.openToast({ message: `导入失败：${e.message}` });
@@ -100,8 +154,8 @@ export struct NeteasePlaylistPage {
   @Builder
   coverArt(size: number) {
     Stack() {
-      if (this.overview !== null && this.overview.coverUrl.length > 0) {
-        Image(this.overview.coverUrl)
+      if (this.info !== null && this.info.coverUrl.length > 0) {
+        Image(this.info.coverUrl)
           .width(size)
           .height(size)
           .borderRadius(size > 60 ? 14 : 8)
@@ -109,10 +163,9 @@ export struct NeteasePlaylistPage {
           .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
       } else {
         Column() {
-          Image($r('app.media.ic_music_note_24'))
-            .width(size * 0.4)
-            .height(size * 0.4)
-            .fillColor(Theme.primary(Theme.isDark()))
+          Image($r('app.media.ic_bilibili'))
+            .width(size * 0.36)
+            .height(size * 0.36)
         }
         .width(size)
         .height(size)
@@ -135,7 +188,7 @@ export struct NeteasePlaylistPage {
             .fontColor(Theme.textPrimary(Theme.isDark()))
             .fontSize(20)
             .onClick(() => Router.pop())
-          Text(this.overview !== null && this.overview.name.length > 0 ? this.overview.name : '网易云歌单')
+          Text(this.info !== null && this.info.title.length > 0 ? this.info.title : 'B 站收藏夹')
             .fontSize(20)
             .fontWeight(FontWeight.Bold)
             .fontColor(Theme.textPrimary(Theme.isDark()))
@@ -163,19 +216,19 @@ export struct NeteasePlaylistPage {
           }
           .layoutWeight(1)
           .justifyContent(FlexAlign.Center)
-        } else if (this.overview !== null) {
+        } else {
           Column({ space: 10 }) {
             Row({ space: 14 }) {
               this.coverArt(92)
               Column({ space: 4 }) {
-                Text(this.overview.name.length > 0 ? this.overview.name : '未命名歌单')
+                Text(this.info !== null && this.info.title.length > 0 ? this.info.title : 'B 站收藏夹')
                   .fontSize(20)
                   .fontWeight(FontWeight.Bold)
                   .fontColor(Theme.textPrimary(Theme.isDark()))
                   .maxLines(2)
-                Text(this.overview.trackCount > 0
-                  ? `网易云 · ${this.overview.trackCount} 首`
-                  : `网易云 · ${this.overview.songs.length} 首`)
+                Text(this.totalCount > 0
+                  ? `Bilibili · ${this.totalCount} 条`
+                  : `Bilibili · ${this.songs.length} 条`)
                   .fontSize(13)
                   .fontColor(Theme.textSecondary(Theme.isDark()))
                 Row({ space: 8 }) {
@@ -210,28 +263,46 @@ export struct NeteasePlaylistPage {
             .backgroundColor(Theme.surface(Theme.isDark()))
             .borderRadius(Theme.cardRadius())
 
-            if (this.overview.songs.length === 0) {
-              EmptyState({ icon: '♪', title: '歌单为空', subtitle: '该歌单没有可播放的歌曲' })
+            if (this.songs.length === 0) {
+              EmptyState({ icon: '📺', title: '收藏夹为空', subtitle: '该收藏夹没有可播放的视频' })
             } else {
-              List() {
-                ForEach(this.overview.songs, (song: SongItem, index: number) => {
+              List({ space: 1 }) {
+                ForEach(this.songs, (song: SongItem, index: number) => {
                   ListItem() {
                     SongRow({
                       songJson: song.toJson(),
                       index: index,
                       showPlatform: false,
                       onPlay: () => {
-                        if (this.overview !== null) {
-                          PlayerManager.playPlaylist(this.overview.songs, index);
-                        }
+                        PlayerManager.playPlaylist(this.songs, index);
                       }
                     })
                   }
-                }, (song: SongItem) => `${song.platform}_${song.audioId}_${song.id}`)
+                }, (song: SongItem) => `${song.platform}_${song.audioId}`)
+                if (this.hasMore) {
+                  ListItem() {
+                    Column({ space: 6 }) {
+                      if (this.loadingMore) {
+                        LoadingState()
+                      } else {
+                        Button('加载更多')
+                          .height(34)
+                          .fontSize(13)
+                          .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+                          .fontColor(Theme.textPrimary(Theme.isDark()))
+                          .onClick(() => this.loadMore())
+                      }
+                    }
+                    .width('100%')
+                    .padding(14)
+                    .alignItems(HorizontalAlign.Center)
+                  }
+                }
               }
               .layoutWeight(1)
               .scrollBar(BarState.Off)
               .width('100%')
+              .onReachEnd(() => this.loadMore())
             }
           }
           .width('100%')
@@ -249,7 +320,7 @@ export struct NeteasePlaylistPage {
               .fontSize(17)
               .fontWeight(FontWeight.Bold)
               .fontColor(Theme.textPrimary(Theme.isDark()))
-            Text(`将复制 ${Math.min(this.overview?.songs.length ?? 0, IMPORT_CAP)} 首歌曲到新建的本地歌单`)
+            Text(`将全量拉取收藏夹内容并复制到新建的本地歌单（上限 ${IMPORT_CAP} 条）`)
               .fontSize(12)
               .fontColor(Theme.textSecondary(Theme.isDark()))
             TextInput({ placeholder: '输入歌单名称', text: this.importName })

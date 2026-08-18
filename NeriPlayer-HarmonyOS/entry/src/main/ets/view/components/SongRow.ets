@@ -1,8 +1,6 @@
-import { promptAction } from '@kit.ArkUI';
 import { SongItem } from '../../model/SongItem';
-import { DownloadStatus } from '../../model/DownloadTask';
 import { LocalPlaylistRepository } from '../../data/LocalPlaylistRepository';
-import { DownloadManager } from '../../download/DownloadManager';
+import { DownloadEngine } from '../../download/DownloadEngine';
 import { Theme } from '../Theme';
 import { formatDuration, platformName } from './Ui';
 
@@ -36,15 +34,9 @@ export struct SongRow {
     this.menuOpen = false;
   }
 
-  private async download(): Promise<void> {
-    try {
-      const task = await DownloadManager.enqueueAndStart(this.song());
-      this.menuOpen = false;
-      promptAction.openToast({ message: task.status === DownloadStatus.COMPLETED ? '下载任务已加入' : '已加入下载队列' });
-    } catch (error) {
-      const e = error as Error;
-      promptAction.openToast({ message: `下载失败：${e.message}` });
-    }
+  private download(): void {
+    DownloadEngine.enqueue([this.song()]);
+    this.menuOpen = false;
   }
 
   build() {
@@ -59,21 +51,11 @@ export struct SongRow {
               .objectFit(ImageFit.Cover)
               .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
           } else {
-              /*
-            Text('♫')
-              .fontSize(20)
-              .width(52)
-              .height(52)
-              .textAlign(TextAlign.Center)
-              */
-              Image($r('app.media.ic_music_note_24'))
-                .width(22)
-                .height(22)
-                .fillColor(Theme.primary(Theme.isDark()))
-                .margin({ left: 15, right: 15, top: 15, bottom: 15 })
-                /*
-              .fontColor(Theme.primary(Theme.isDark()))
-                */
+            Image($r('app.media.ic_music_note_24'))
+              .width(22)
+              .height(22)
+              .fillColor(Theme.primary(Theme.isDark()))
+              .margin({ left: 15, right: 15, top: 15, bottom: 15 })
               .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
               .borderRadius(8)
           }
@@ -123,30 +105,14 @@ export struct SongRow {
             .fontColor(Theme.textSecondary(Theme.isDark()))
         }
 
-          /*
-        Text('⋯')
-          .fontSize(18)
-          .fontColor(Theme.textSecondary(Theme.isDark()))
-          */
-          Image($r('app.media.ic_more_horiz_24'))
-            .width(18)
-            .height(18)
-            .fillColor(Theme.textSecondary(Theme.isDark()))
+        Image($r('app.media.ic_more_horiz_24'))
+          .width(18)
+          .height(18)
+          .fillColor(Theme.textSecondary(Theme.isDark()))
           .padding(8)
-            /*
           .onClick(() => {
             this.menuOpen = !this.menuOpen;
           })
-            */
-              /*
-            .onClick((event: ClickEvent) => {
-              event.stopPropagation();
-              this.menuOpen = !this.menuOpen;
-            })
-              */
-              .onClick(() => {
-                this.menuOpen = !this.menuOpen;
-              })
       }
       .width('100%')
       .padding({ left: 10, right: 6, top: 7, bottom: 7 })
@@ -198,15 +164,6 @@ struct MenuItemRow {
       .fontColor(Theme.textPrimary(Theme.isDark()))
       .width('100%')
       .padding({ left: 12, right: 12, top: 10, bottom: 10 })
-        /*
       .onClick(() => this.onTap())
-        */
-          /*
-        .onClick((event: ClickEvent) => {
-          event.stopPropagation();
-          this.onTap();
-        })
-          */
-          .onClick(() => this.onTap())
   }
 }
