@@ -58,7 +58,7 @@ jobs:
           ohpm --version
 
       - name: Cache ohpm / hvigor user packages
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.ohpm
