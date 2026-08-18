@@ -113,15 +113,10 @@ export struct PlaylistDetailPage {
           Column({ space: 10 }) {
             Row({ space: 14 }) {
               Column() {
-                  /*
-                Text('♪')
-                  .fontSize(34)
-                  .fontColor(Theme.primary(Theme.isDark()))
-                  */
-                  Image($r('app.media.ic_music_note_24'))
-                    .width(34)
-                    .height(34)
-                    .fillColor(Theme.primary(Theme.isDark()))
+                Image($r('app.media.ic_music_note_24'))
+                  .width(34)
+                  .height(34)
+                  .fillColor(Theme.primary(Theme.isDark()))
               }
               .width(92)
               .height(92)
@@ -201,27 +196,17 @@ export struct PlaylistDetailPage {
                           }
                         }
                       })
-                        /*
-                      Button('✕')
-                        .width(30)
-                        .height(30)
-                        .type(ButtonType.Circle)
-                        .backgroundColor(Color.Transparent)
-                        .fontColor(Theme.textDisabled(Theme.isDark()))
-                        .fontSize(14)
-                        .onClick(() => this.removeSong(stableKeyOf(song)))
-                        */
-                        Button() {
-                          Image($r('app.media.ic_close_24'))
-                            .width(16)
-                            .height(16)
-                            .fillColor(Theme.textDisabled(Theme.isDark()))
-                        }
-                        .width(30)
-                        .height(30)
-                        .type(ButtonType.Circle)
-                        .backgroundColor(Color.Transparent)
-                        .onClick(() => this.removeSong(stableKeyOf(song)))
+                      Button() {
+                        Image($r('app.media.ic_close_24'))
+                          .width(16)
+                          .height(16)
+                          .fillColor(Theme.textDisabled(Theme.isDark()))
+                      }
+                      .width(30)
+                      .height(30)
+                      .type(ButtonType.Circle)
+                      .backgroundColor(Color.Transparent)
+                      .onClick(() => this.removeSong(stableKeyOf(song)))
                     }
                     .width('100%')
                   }
@@ -304,13 +289,6 @@ export struct PlaylistDetailPage {
           .padding(16)
           .backgroundColor(Theme.surface(Theme.isDark()))
           .borderRadius({ topLeft: 22, topRight: 22 })
-            /*
-            .onClick((event: ClickEvent) => {
-              event.stopPropagation();
-            })
-            */
-            .onClick(() => {
-            })
           .position({ x: 0, y: '38%' })
         }
         .width('100%')
@@ -356,13 +334,6 @@ export struct PlaylistDetailPage {
           .padding(20)
           .backgroundColor(Theme.surface(Theme.isDark()))
           .borderRadius(18)
-              /*
-            .onClick((event: ClickEvent) => {
-              event.stopPropagation();
-            })
-              */
-              .onClick(() => {
-              })
         }
         .width('100%')
         .height('100%')

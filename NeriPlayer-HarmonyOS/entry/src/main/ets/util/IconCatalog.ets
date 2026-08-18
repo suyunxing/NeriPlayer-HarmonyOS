@@ -2,6 +2,8 @@
  * Compatibility icon mapper. The first HarmonyOS UI pass used emoji glyphs as
  * placeholder icons; this catalog maps those legacy glyphs to the ported SVG
  * assets so every placeholder now renders with the original vector style.
+ * Ported from the "ch" icon pass; the final block covers glyphs only present
+ * in the newer "su" UI.
  */
 export function iconForLegacy(icon: string, fallback: Resource): Resource {
   if (icon === '▶') {
@@ -10,7 +12,7 @@ export function iconForLegacy(icon: string, fallback: Resource): Resource {
   if (icon === '⤓') {
     return $r('app.media.ic_download');
   }
-  if (icon === '♪' || icon === '🎵') {
+  if (icon === '♪' || icon === '🎵' || icon === '♫') {
     return $r('app.media.ic_music_note_24');
   }
   if (icon === '◐') {
@@ -31,7 +33,7 @@ export function iconForLegacy(icon: string, fallback: Resource): Resource {
   if (icon === '👤') {
     return $r('app.media.ic_person_24');
   }
-  if (icon === '⇄') {
+  if (icon === '⇄' || icon === '🔄') {
     return $r('app.media.ic_sync_24');
   }
   if (icon === '👥') {
@@ -105,6 +107,13 @@ export function iconForLegacy(icon: string, fallback: Resource): Resource {
   }
   if (icon === '📃') {
     return $r('app.media.ic_queue_music_24');
+  }
+  // su-only glyphs, mapped to the closest assets from the ported icon set.
+  if (icon === '🐙') {
+    return $r('app.media.ic_github');
+  }
+  if (icon === '📋' || icon === '📝') {
+    return $r('app.media.ic_text_fields_24');
   }
   return fallback;
 }

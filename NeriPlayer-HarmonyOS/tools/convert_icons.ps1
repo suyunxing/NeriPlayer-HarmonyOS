@@ -1,9 +1,10 @@
 param(
-    [string]$SourceDir = "E:\music\NeriPlayer-master\app\src\main\res\drawable",
-    [string]$OutDir = "E:\music\NeriPlayer-HarmonyOS\entry\src\main\resources\base\media"
+    [string]$SourceDir = (Join-Path $PSScriptRoot "..\..\NeriPlayer-master\app\src\main\res\drawable"),
+    [string]$OutDir = (Join-Path $PSScriptRoot "..\entry\src\main\resources\base\media")
 )
 
 $ErrorActionPreference = "Stop"
+$SourceDir = (Resolve-Path -LiteralPath $SourceDir).Path
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 
 $names = @(

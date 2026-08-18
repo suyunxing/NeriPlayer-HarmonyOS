@@ -71,17 +71,10 @@ export struct StatsPage {
             ForEach(this.topSongs, (song: SongItem) => {
               ListItem() {
                 Row({ space: 10 }) {
-                    /*
-                  Text('♪')
-                    .fontSize(16)
-                    .fontColor(Theme.primary(Theme.isDark()))
-                    .width(30)
-                    .textAlign(TextAlign.Center)
-                    */
-                    Image($r('app.media.ic_music_note_24'))
-                      .width(18)
-                      .height(18)
-                      .fillColor(Theme.primary(Theme.isDark()))
+                  Image($r('app.media.ic_music_note_24'))
+                    .width(18)
+                    .height(18)
+                    .fillColor(Theme.primary(Theme.isDark()))
                   Column({ space: 2 }) {
                     Text(song.displayName)
                       .fontSize(14)
@@ -124,14 +117,10 @@ struct StatTile {
 
   build() {
     Column({ space: 4 }) {
-        /*
-      Text(this.icon)
-        .fontSize(20)
-        */
-        Image(iconForLegacy(this.icon, $r('app.media.ic_music_note_24')))
-          .width(20)
-          .height(20)
-          .fillColor(Theme.primary(Theme.isDark()))
+      Image(iconForLegacy(this.icon, $r('app.media.ic_music_note_24')))
+        .width(20)
+        .height(20)
+        .fillColor(Theme.primary(Theme.isDark()))
       Text(this.value)
         .fontSize(16)
         .fontWeight(FontWeight.Bold)
