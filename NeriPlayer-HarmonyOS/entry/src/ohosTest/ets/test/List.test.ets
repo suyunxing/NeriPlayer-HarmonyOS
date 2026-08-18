@@ -5,6 +5,7 @@ import schemaRecoveryTest from './SchemaRecovery.test';
 import downloadSmokeTest from './DownloadSmoke.test';
 import authDeviceTest from './AuthDevice.test';
 import neteaseLibraryTest from './NeteaseLibrary.test';
+import biliPlaybackSmokeTest from './BiliPlaybackSmoke.test';
 
 export default function testsuite(): void {
   abilityTest();
@@ -14,4 +15,5 @@ export default function testsuite(): void {
   downloadSmokeTest();
   authDeviceTest();
   neteaseLibraryTest();
+  biliPlaybackSmokeTest();
 }

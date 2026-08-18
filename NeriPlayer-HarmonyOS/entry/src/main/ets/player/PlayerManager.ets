@@ -9,6 +9,9 @@ import { QueueState } from '../model/QueueState';
 import { MusicPlatform } from '../model/MusicPlatform';
 import { stableKeyOf } from '../model/SongIdentity';
 import { StreamResolver } from '../network/StreamResolver';
+import { streamHeadersFor } from '../network/StreamHeaders';
+import { BiliCookieRepository } from '../data/auth/BiliCookieRepository';
+import { buildBiliCookieHeader } from '../data/auth/BiliAuth';
 import { DownloadStorage } from '../download/DownloadStorage';
 import { HistoryRepository } from '../data/HistoryRepository';
 import { PlaybackStatsRepository } from '../data/PlaybackStatsRepository';
@@ -414,7 +417,16 @@ export class PlayerManager {
         throw new Error(`No playable stream for ${song.displayName}`);
       }
       await player.reset();
-      await player.setMediaSource(media.createMediaSourceWithUrl(uri));
+      // Bilibili CDN hosts require a web Referer + desktop UA (plus the login
+      // cookie when present) or the player's own fetch is rejected with 403.
+      const biliCookie = BiliCookieRepository.isLoggedIn()
+        ? buildBiliCookieHeader(BiliCookieRepository.getCookies())
+        : '';
+      const headers = streamHeadersFor(uri, biliCookie);
+      const source = Object.keys(headers).length > 0
+        ? media.createMediaSourceWithUrl(uri, headers)
+        : media.createMediaSourceWithUrl(uri);
+      await player.setMediaSource(source);
       await PlayerManager.waitForState(['initialized']);
       await player.prepare();
       await PlayerManager.waitForState(['prepared']);
