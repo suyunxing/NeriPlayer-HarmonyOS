@@ -6,7 +6,7 @@ name: HarmonyOS CI
 
 on:
   push:
-    branches: [main, dev, su]
+    branches: [main, dev]
     paths:
       - 'NeriPlayer-HarmonyOS/**'
       - '.github/workflows/harmonyos-ci.yml'
