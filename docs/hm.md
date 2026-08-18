@@ -595,13 +595,14 @@ $hdc = 'D:\HarmonyOS\Tools\command-line-tools\sdk\default\openharmony\toolchains
 
 ### 7.9 2026-08-18 GitHub Actions CI 上线记录
 
-- 仓库根 `.github/workflows/harmonyos-ci.yml`（GitHub `suyunxing/NeriPlayer-HarmonyOS`，私有，默认分支 `su`）。触发：push/PR 到 `dev`（paths 限定 `NeriPlayer-HarmonyOS/**` 与 workflow 自身）+ 手动 `workflow_dispatch`；同分支并发取消旧跑。dev 分支上早先手写的 `build-pr.yml` 草稿（npm install/hvigor 命令不可用）已删除，以本文件为准。
+- 仓库根 `.github/workflows/harmonyos-ci.yml`（GitHub `suyunxing/NeriPlayer-HarmonyOS`，私有，当前默认分支 `su`）。触发：push/PR 到 `main`、`dev` 或迁移期兼容分支 `su`（paths 限定 `NeriPlayer-HarmonyOS/**` 与 workflow 自身）+ 手动 `workflow_dispatch`；同一 PR 或分支并发取消旧跑。dev 分支上早先手写的 `build-pr.yml` 草稿（npm install/hvigor 命令不可用）已删除，以本文件为准。
 - 工具链：`ErBWs/setup-ohos@v2` action，从社区镜像仓库 `ErBWs/ohos-sdk` Releases 下载 Command Line Tools **6.1.1.280**（SDK 6.1.1.125 / API 24，与本机 CLT 6.1.1.300 同 SDK 基线；hvigorw/ohpm/Node 进 PATH，`cache: true` 缓存 `~/ohos-sdk`）。华为官网 CLT 下载需账号登录无法直链，镜像分卷资产带 sha256 校验。**不要用镜像里的 26.0.0.621**：其 hvigor 6.26.x 不能构建 6.1.1(24) 工程（同 7.1 的 00303031 限制）。
 - 步骤：`apt libgl1-mesa-dev` → setup → `ohpm install --all` → debug/release `assembleHap`（命令与 7.2 完全一致，`--no-daemon`）→ 上传 `entry-default-unsigned-{debug,release}.hap`（14 天）。单测（`hvigorw test`）置于产物之后：**hypium 本地 runner 在 Linux CI 上挂死**（`UnitTestArkTS` 编译完成后 `> hvigor Linux` 起零输出至 40 分钟超时，`.test` 输出目录不生成；本机 Windows 同命令 20 秒完成），故限时 10 分钟且不阻塞，超时后打印 `.test` 目录树并上传 `test-output` artifact 供诊断。缓存 `~/ohos-sdk`（action 自带）、`~/.ohpm`、`~/.hvigor`。
 - 已知事实：hypium 断言失败不会使 `hvigorw test` 非零退出（本机 StreamHeaders 用例失败仍 BUILD SUCCESSFUL/EXIT 0），CI 的单测把关需解析报告而非依赖退出码；Linux 挂死根因未明，修复后应移除限时与非阻塞。
 - 2026-08-18 首轮验证：run 32048335317（dev）单测步骤 40 分钟零输出超时取消；二轮 run 32083328097 通过（conclusion success）——单测 `exit=124` 挂死复现（`.test` 下仅 testability 骨架、outputs 从未生成），debug/release HAP 分别 19s/14s 构建成功，`hap-unsigned-2`（782KB）产物正常。工具链下载+解压约 3 分钟；被取消的 run 不写 actions/cache，需完整成功跑一次后后续 run 才命中缓存。
 - 产物为 unsigned HAP：CI 无签名材料，签名仍在本地走 7.3 的 `sign-local.ps1`（符合"证书与口令不入库"约定）。
 - 未纳入 CI：codelinter（存量 17 warn+1 suggestion 基线，需过滤规则后才可门禁）、ohosTest（需模拟器+签名）、Release 自动发布。后续可选：tag 触发上传 unsigned HAP 到 GitHub Release。
+- 2026-08-18 协作配置补齐：新增 `.github/PULL_REQUEST_TEMPLATE.md`、HarmonyOS Bug/Feature/分支整合 Issue Forms、`.github/dependabot.yml`、根目录 `CONTRIBUTING.md` 与 `docs/GITHUB_COLLABORATION.md`；workflow 增加 `contents: read`、关闭 checkout 持久凭据、按 lockfile 失效依赖缓存，并使用 PR 号/分支维度并发组。目标模型为 `main` 稳定、`dev` 集成、个人/feature 分支 PR 协作；`su` 在迁移期继续受 CI 覆盖。未修改 Android 参照工程与业务源码。
 
 
 每次 SDK 或上游 Android 更新，都更新本文件的核验日期、版本矩阵、源码状态和测试结果。

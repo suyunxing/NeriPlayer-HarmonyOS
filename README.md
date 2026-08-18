@@ -28,6 +28,7 @@
 3. 阅读 [功能迁移矩阵](docs/FEATURE_MATRIX.md)，按能力域核对 Android 与 ArkTS 的差距。
 4. 按 [HarmonyOS 6.0～7.0 迁移路线图](docs/HARMONYOS_PORTING_PLAN.md) 推进垂直切片。
 5. 构建与验证的环境要求（工具链路径、签名脚本注意事项）见根目录 `AGENTS.md`。
+6. 参与协作前阅读 [贡献指南](CONTRIBUTING.md) 和 [GitHub 协作与分支整合流程](docs/GITHUB_COLLABORATION.md)；提交 Issue 或 Pull Request 时使用仓库提供的模板。
 
 ## 版本与资料原则
 
