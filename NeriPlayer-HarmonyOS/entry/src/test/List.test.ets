@@ -14,6 +14,7 @@ import biliAuthTest from './ets/test/BiliAuth.test';
 import biliFavParserTest from './ets/test/BiliFavParser.test';
 import streamHeadersTest from './ets/test/StreamHeaders.test';
 import biliWbiTest from './ets/test/BiliWbi.test';
+import biliAudioSelectorTest from './ets/test/BiliAudioSelector.test';
 
 export default function testsuite(): void {
   lrcParserTest();
@@ -32,4 +33,5 @@ export default function testsuite(): void {
   biliFavParserTest();
   streamHeadersTest();
   biliWbiTest();
+  biliAudioSelectorTest();
 }
