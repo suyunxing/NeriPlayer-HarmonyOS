@@ -4,9 +4,9 @@ import { Constants } from '../../app/Constants';
 export struct LoadingPage {
   build() {
     Column({ space: 16 }) {
-      Text('♫')
-        .fontSize(64)
-        .fontColor('#7C4DFF')
+      Image($r('app.media.ic_neriplayer'))
+        .width(96)
+        .height(96)
       Text(Constants.APP_NAME)
         .fontSize(24)
         .fontWeight(FontWeight.Bold)

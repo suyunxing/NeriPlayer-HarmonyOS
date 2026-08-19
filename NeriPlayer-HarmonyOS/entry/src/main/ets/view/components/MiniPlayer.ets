@@ -36,12 +36,11 @@ export struct MiniPlayer {
               .borderRadius(8)
               .objectFit(ImageFit.Cover)
           } else {
-            Text('♫')
-              .width(44)
-              .height(44)
-              .textAlign(TextAlign.Center)
-              .fontSize(18)
-              .fontColor(Theme.primary(Theme.isDark()))
+            Image($r('app.media.ic_music_note_24'))
+              .width(22)
+              .height(22)
+              .fillColor(Theme.primary(Theme.isDark()))
+              .margin({ left: 11, right: 11, top: 11, bottom: 11 })
               .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
               .borderRadius(8)
           }

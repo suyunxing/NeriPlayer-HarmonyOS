@@ -51,12 +51,11 @@ export struct SongRow {
               .objectFit(ImageFit.Cover)
               .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
           } else {
-            Text('♫')
-              .fontSize(20)
-              .width(52)
-              .height(52)
-              .textAlign(TextAlign.Center)
-              .fontColor(Theme.primary(Theme.isDark()))
+            Image($r('app.media.ic_music_note_24'))
+              .width(22)
+              .height(22)
+              .fillColor(Theme.primary(Theme.isDark()))
+              .margin({ left: 15, right: 15, top: 15, bottom: 15 })
               .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
               .borderRadius(8)
           }
@@ -106,9 +105,10 @@ export struct SongRow {
             .fontColor(Theme.textSecondary(Theme.isDark()))
         }
 
-        Text('⋯')
-          .fontSize(18)
-          .fontColor(Theme.textSecondary(Theme.isDark()))
+        Image($r('app.media.ic_more_horiz_24'))
+          .width(18)
+          .height(18)
+          .fillColor(Theme.textSecondary(Theme.isDark()))
           .padding(8)
           .onClick(() => {
             this.menuOpen = !this.menuOpen;
