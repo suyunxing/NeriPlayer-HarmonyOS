@@ -5,7 +5,7 @@ NeriPlayer 是 Android 到 HarmonyOS 的迁移工作区。日常开发以 `NeriP
 ## 分支与 Pull Request
 
 - 目标分支模型是：`main` 保存可运行、可回退的稳定版本；`dev` 是双方日常集成与测试主线；个人分支和 `feature/*`、`fix/*`、`test/*` 分支通过 Pull Request 汇入 `dev`。
-- 当前远端默认分支仍是 `su`。迁移期间 CI 同时覆盖 `main`、`dev` 和 `su`；建立并保护 `main` 后，应把默认分支切换到 `main`，日常 PR 仍以 `dev` 为目标。
+- 当前远端默认分支仍是 `su`。CI 在 push 到 `main`、`dev` 时运行，并检查目标为 `main`、`dev`、`su` 的 PR；直接 push 到 `su` 不触发。建立并保护 `main` 后，应把默认分支切换到 `main`，日常 PR 仍以 `dev` 为目标。
 - 新功能、修复和文档从最新 `dev` 创建短分支，例如 `feature/lyrics-empty-state`、`fix/bili-playback`、`docs/ci-workflow`。两位开发者不要长期共用同一功能分支。
 - `dev -> main` 只用于已经通过 CI、人工 smoke test 和双方 review 的稳定晋级；不要把普通功能分支直接合入 `main`。
 - 两个已经独立开发较久的分支不要直接自动 merge。先打快照 tag、列出功能差异和高风险共享文件，再在 `integration/*` 分支逐项吸收；完整流程见 [GitHub 协作与分支整合](docs/GITHUB_COLLABORATION.md)。
@@ -26,7 +26,7 @@ $cli = 'D:\HarmonyOS\Tools\command-line-tools\bin'
 
 纯逻辑优先补 `entry/src/test/`；涉及 Ability、权限、AVPlayer、AVSession、后台播放或系统 UI 时补 `entry/src/ohosTest/`，并在设备或模拟器上执行对应 smoke test。提交前从仓库根目录运行 `git diff --check`。
 
-Linux GitHub Runner 上的 hypium 本地 runner 当前存在已记录的挂死问题。CI 会将单测限制在 10 分钟并上传诊断目录，但这不等价于单测通过；本地 Windows 结果和 HAP 构建结果必须如实填写在 PR 中。
+Linux GitHub Runner 上的 hypium 本地 runner 当前存在已记录的挂死问题。CI 会先构建并上传 debug HAP，再将单测限制在 4 分钟作为诊断运行；单测超时或退出不会阻塞构建，也不等价于单测通过。PR 必须如实填写本地结果和 HAP 构建结果。
 
 ## 数据与安全
 
