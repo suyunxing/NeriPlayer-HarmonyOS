@@ -500,6 +500,10 @@ export struct SettingsDetailPage {
                   .height(34)
                   .fontSize(13)
                   .layoutWeight(1)
+                  // Button's default horizontal padding (~16vp each side)
+                  // is wider than a layoutWeight(1) sixth of the row, which
+                  // ellipsized every label except "2x" to "...".
+                  .padding({ left: 4, right: 4 })
                   .fontColor(this.speed === speedValue ? Theme.onPrimary(Theme.isDark()) : Theme.textSecondary(Theme.isDark()))
                   .backgroundColor(this.speed === speedValue ? Theme.primary(Theme.isDark()) : Theme.surface(Theme.isDark()))
                   .borderRadius(17)

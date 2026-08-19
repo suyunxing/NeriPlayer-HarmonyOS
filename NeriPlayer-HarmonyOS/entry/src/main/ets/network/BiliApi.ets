@@ -3,6 +3,7 @@ import { Constants } from '../app/Constants';
 import { SongItem } from '../model/SongItem';
 import { MusicPlatform } from '../model/MusicPlatform';
 import { HttpClient } from './HttpClient';
+import { BiliStreamSupport } from './BiliStreamSupport';
 import { BiliCookieRepository } from '../data/auth/BiliCookieRepository';
 import {
   BiliFavFolderSummary,
@@ -38,6 +39,7 @@ interface BiliDashAudio {
 
 interface BiliPlayUrlResponse {
   code: number;
+  message?: string;
   data?: BiliPlayData;
 }
 
@@ -47,6 +49,16 @@ interface BiliPlayData {
 
 interface BiliDash {
   audio?: BiliDashAudio[];
+}
+
+interface BiliViewResponse {
+  code: number;
+  message?: string;
+  data?: BiliViewData;
+}
+
+interface BiliViewData {
+  cid?: number;
 }
 
 interface BiliSpiResponse {
@@ -73,6 +85,9 @@ const FAV_FOLDER_WEB_LOCATION: string = '333.1387';
  */
 export class BiliApi {
   private static anonCookieFetchedAt: number = 0;
+  // playurl rejects bvid-only requests with -400 since 2026; the cid from the
+  // view endpoint is stable per video, so cache it for the process lifetime.
+  private static cidCache: Map<string, number> = new Map();
 
   private static biliHeaders(): Record<string, string> {
     const headers: Record<string, string> = {};
@@ -82,17 +97,21 @@ export class BiliApi {
 
   /**
    * Makes sure the api.bilibili.com cookie jar has something usable: the
-   * login bundle is seeded by BiliCookieRepository, so this only fetches the
-   * anonymous fingerprint (/x/frontend/finger/spi) when logged out. Failures
-   * degrade silently to cookie-less requests.
+   * login bundle is seeded by BiliCookieRepository, and the anonymous
+   * fingerprint (/x/frontend/finger/spi) is fetched when logged out (1h TTL
+   * refresh) or when the login bundle itself lacks a buvid — risk control
+   * rejects SESSDATA-only playurl requests, and QR login cookies usually do
+   * not include one. Failures degrade silently to cookie-less requests.
    */
   private static async ensureRequestCookies(): Promise<void> {
-    if (BiliCookieRepository.isLoggedIn()) {
-      return;
-    }
     const jar = HttpClient.getCookies(`${Constants.BILI_BASE}/`);
-    if (jar.indexOf('buvid3=') >= 0 && Date.now() - BiliApi.anonCookieFetchedAt < ANON_COOKIE_TTL_MS) {
-      return;
+    if (jar.indexOf('buvid3=') >= 0) {
+      if (BiliCookieRepository.isLoggedIn()) {
+        return;
+      }
+      if (Date.now() - BiliApi.anonCookieFetchedAt < ANON_COOKIE_TTL_MS) {
+        return;
+      }
     }
     try {
       const text = await HttpClient.getText(
@@ -120,7 +139,7 @@ export class BiliApi {
       if (pairs.length > 0) {
         HttpClient.seedCookies(`${Constants.BILI_BASE}/`, pairs.join('; '));
         BiliApi.anonCookieFetchedAt = Date.now();
-        Logger.info(`bili anon cookies seeded: ${pairs.length} entries`);
+        Logger.info(`bili fingerprint cookies seeded: ${pairs.length} entries`);
       }
     } catch (error) {
       const e = error as Error;
@@ -156,16 +175,26 @@ export class BiliApi {
   }
 
   /**
-   * Resolves the best DASH audio stream for a bvid.
+   * Resolves the best DASH audio stream for a bvid. The playurl endpoint
+   * requires the video cid (fetched once per bvid via the view endpoint,
+   * cached — Android passes the same parameter), and follows the Android
+   * web-parameter conventions (platform=pc requires the Referer header that
+   * biliHeaders() always sends). Failures throw with server context instead
+   * of returning '' so playback logs stay diagnosable.
    */
   static async resolveAudioUrl(bvid: string): Promise<string> {
+    const cid = await BiliApi.resolveCid(bvid);
     const url =
-      `${Constants.BILI_BASE}/x/player/playurl?bvid=${bvid}&fnval=16&fourk=1`;
+      `${Constants.BILI_BASE}/x/player/playurl?bvid=${bvid}&cid=${cid}&fnval=16&fnver=0&platform=pc&fourk=1`;
     await BiliApi.ensureRequestCookies();
     const text = await HttpClient.getText(url, BiliApi.biliHeaders(), 15000, true);
     const response = JSON.parse(text) as BiliPlayUrlResponse;
+    if (response.code !== 0) {
+      throw new Error(`bili playurl rejected: code=${response.code} bvid=${bvid} message=${response.message ?? ''}`);
+    }
     const audioList = response.data?.dash?.audio ?? [];
     if (audioList.length === 0) {
+      Logger.warn(`bili playurl returned no dash audio: bvid=${bvid}`);
       return '';
     }
     let best = audioList[0];
@@ -174,14 +203,55 @@ export class BiliApi {
         best = audio;
       }
     }
-    let stream = best.baseUrl ?? '';
-    if (stream.length === 0 && best.backupUrl !== undefined && best.backupUrl.length > 0) {
-      stream = best.backupUrl[0];
+    const candidates: string[] = [];
+    const baseUrl = best.baseUrl ?? '';
+    if (baseUrl.length > 0) {
+      candidates.push(baseUrl);
     }
-    if (stream.startsWith('http://')) {
-      stream = `https://${stream.substring(7)}`;
+    if (best.backupUrl !== undefined) {
+      for (const backup of best.backupUrl) {
+        if (backup.length > 0) {
+          candidates.push(backup);
+        }
+      }
     }
-    return stream;
+    return BiliStreamSupport.pickBestStreamUrl(candidates);
+  }
+
+  /**
+   * Resolves the video cid required by playurl (first page of the bvid).
+   * Cached per bvid for the process lifetime — the mapping is immutable.
+   */
+  static async resolveCid(bvid: string): Promise<number> {
+    const cached = BiliApi.cidCache.get(bvid);
+    if (cached !== undefined) {
+      return cached;
+    }
+    await BiliApi.ensureRequestCookies();
+    const url = `${Constants.BILI_BASE}/x/web-interface/view?bvid=${bvid}`;
+    const text = await HttpClient.getText(url, BiliApi.biliHeaders(), 15000, true);
+    const response = JSON.parse(text) as BiliViewResponse;
+    if (response.code !== 0) {
+      throw new Error(`bili view rejected: code=${response.code} bvid=${bvid} message=${response.message ?? ''}`);
+    }
+    const cid = response.data?.cid ?? 0;
+    if (cid <= 0) {
+      throw new Error(`bili view returned no cid: bvid=${bvid}`);
+    }
+    BiliApi.cidCache.set(bvid, cid);
+    return cid;
+  }
+
+  /**
+   * HTTP headers Bilibili CDN endpoints expect from stream fetches; the
+   * api.bilibili.com cookie jar entry carries the login bundle or the
+   * anonymous buvid fingerprint. Null for non-Bilibili hosts.
+   */
+  static streamHeadersFor(url: string): Record<string, string> | null {
+    return BiliStreamSupport.buildStreamHeaders(
+      url,
+      HttpClient.getCookies(`${Constants.BILI_BASE}/`)
+    );
   }
 
   /**
