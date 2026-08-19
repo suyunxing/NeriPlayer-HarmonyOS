@@ -33,15 +33,17 @@ export class HttpStreamDownloader {
   /**
    * Downloads url to the callbacks. rangeStart >= 0 sends
    * `Range: bytes=<rangeStart>-` plus `If-Range` when a validator exists.
-   * Resolves with the final response code after dataEnd; rejects on
-   * transport errors or when onData aborts.
+   * extraHeaders override the default User-Agent (e.g. Bilibili CDN
+   * Referer/Cookie). Resolves with the final response code after dataEnd;
+   * rejects on transport errors or when onData aborts.
    */
   static download(
     url: string,
     rangeStart: number,
     validator: string,
     callbacks: StreamDownloadCallbacks,
-    timeoutMs: number = 30000
+    timeoutMs: number = 30000,
+    extraHeaders: Record<string, string> = {}
   ): Promise<number> {
     const request = http.createHttp();
     return new Promise<number>((resolve, reject) => {
@@ -102,6 +104,9 @@ export class HttpStreamDownloader {
       const header: Record<string, string> = {
         'User-Agent': HttpClient.DEFAULT_UA
       };
+      for (const key of Object.keys(extraHeaders)) {
+        header[key] = extraHeaders[key];
+      }
       if (rangeStart >= 0) {
         header['Range'] = `bytes=${rangeStart}-`;
         if (validator.length > 0) {

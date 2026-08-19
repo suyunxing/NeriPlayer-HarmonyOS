@@ -3,7 +3,9 @@ import { Theme } from '../Theme';
 
 @Component
 export struct LyricView {
-  lyrics: LyricLine[] = [];
+  // @Prop: the page mounts the view with [] first and fills lyrics after the
+  // async fetch, so the child must re-render when the array is replaced.
+  @Prop lyrics: LyricLine[] = [];
   onSeek: (timeMs: number) => void = () => {};
   @StorageLink('player.positionMs') positionMs: number = 0;
 
