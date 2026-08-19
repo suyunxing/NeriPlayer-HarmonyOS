@@ -12,6 +12,7 @@ import playlistMergeTest from './ets/test/PlaylistMerge.test';
 import httpHeaderParserTest from './ets/test/HttpHeaderParser.test';
 import biliAuthTest from './ets/test/BiliAuth.test';
 import biliFavParserTest from './ets/test/BiliFavParser.test';
+import biliStreamSupportTest from './ets/test/BiliStreamSupport.test';
 import syncModelsTest from './ets/test/SyncModels.test';
 import songMetadataMergePolicyTest from './ets/test/SongMetadataMergePolicy.test';
 import playlistSongMergePolicyTest from './ets/test/PlaylistSongMergePolicy.test';
@@ -41,6 +42,7 @@ export default function testsuite(): void {
   httpHeaderParserTest();
   biliAuthTest();
   biliFavParserTest();
+  biliStreamSupportTest();
   syncModelsTest();
   songMetadataMergePolicyTest();
   playlistSongMergePolicyTest();

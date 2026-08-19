@@ -9,6 +9,7 @@ import { QueueState } from '../model/QueueState';
 import { MusicPlatform } from '../model/MusicPlatform';
 import { stableKeyOf } from '../model/SongIdentity';
 import { StreamResolver } from '../network/StreamResolver';
+import { BiliApi } from '../network/BiliApi';
 import { DownloadStorage } from '../download/DownloadStorage';
 import { HistoryRepository } from '../data/HistoryRepository';
 import { PlaybackStatsRepository } from '../data/PlaybackStatsRepository';
@@ -414,7 +415,14 @@ export class PlayerManager {
         throw new Error(`No playable stream for ${song.displayName}`);
       }
       await player.reset();
-      await player.setMediaSource(media.createMediaSourceWithUrl(uri));
+      // Bilibili CDN endpoints reject stream fetches without Referer/UA (the
+      // Android app injects the same headers in its HttpDataSource), so media
+      // requests must carry them too, not only the playurl API call.
+      const streamHeaders = BiliApi.streamHeadersFor(uri);
+      const source = streamHeaders === null
+        ? media.createMediaSourceWithUrl(uri)
+        : media.createMediaSourceWithUrl(uri, streamHeaders);
+      await player.setMediaSource(source);
       await PlayerManager.waitForState(['initialized']);
       await player.prepare();
       await PlayerManager.waitForState(['prepared']);
