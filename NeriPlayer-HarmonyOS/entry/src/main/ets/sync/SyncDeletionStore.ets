@@ -14,9 +14,17 @@ import {
   SyncPlaylistSongDeletion,
   SyncCausalToken
 } from './SyncModels';
+import { limitDeletions } from './PlaylistDeletionPolicy';
 import { parseJsonText, escapeJsonString, JsonValue } from './SyncDataJsonCodec';
 
 export const MAX_RECENT_PLAY_DELETIONS: number = 500;
+
+/** Applies the playlist-song tombstone merge and storage capacity policy. */
+export function normalizePlaylistSongDeletions(
+  deletions: SyncPlaylistSongDeletion[]
+): SyncPlaylistSongDeletion[] {
+  return limitDeletions(deletions);
+}
 
 type JsonMap = Map<string, JsonValue>;
 
@@ -252,13 +260,14 @@ export class SyncDeletionStore {
       SyncDeletionStore.parseState
     );
     state.recentPlayDeletions = normalizeRecentPlayDeletions(state.recentPlayDeletions);
+    state.playlistSongDeletions = normalizePlaylistSongDeletions(state.playlistSongDeletions);
     return state;
   }
 
   static async save(state: SyncDeletionState): Promise<void> {
     const normalized = new SyncDeletionState(
       normalizeRecentPlayDeletions(state.recentPlayDeletions),
-      state.playlistSongDeletions,
+      normalizePlaylistSongDeletions(state.playlistSongDeletions),
       state.deviceId
     );
     await SchemaStore.save(
