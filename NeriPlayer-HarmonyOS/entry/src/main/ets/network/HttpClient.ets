@@ -103,13 +103,21 @@ export class HttpClient {
     }
   }
 
-  static async postJson(url: string, jsonBody: string, timeoutMs: number = 15000): Promise<string> {
+  static async postJson(
+    url: string,
+    jsonBody: string,
+    timeoutMs: number = 15000,
+    extraHeaders: Record<string, string> = {}
+  ): Promise<string> {
     const request = http.createHttp();
     try {
       const header: Record<string, string> = {
         'User-Agent': HttpClient.DEFAULT_UA,
         'Content-Type': 'application/json'
       };
+      for (const key of Object.keys(extraHeaders)) {
+        header[key] = extraHeaders[key];
+      }
       const response = await request.request(url, {
         method: http.RequestMethod.POST,
         header: header,

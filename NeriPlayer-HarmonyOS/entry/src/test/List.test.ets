@@ -32,6 +32,9 @@ import githubTransportTest from './ets/test/GitHubTransport.test';
 import webDavTransportTest from './ets/test/WebDavTransport.test';
 import syncCoordinatorTest from './ets/test/SyncCoordinator.test';
 import syncLocalMetadataTest from './ets/test/SyncLocalMetadata.test';
+import ytmPlayerParserTest from './ets/test/YtmPlayerParser.test';
+import ytmFormatSelectorTest from './ets/test/YtmFormatSelector.test';
+import ytmUrlCacheTest from './ets/test/YtmUrlCache.test';
 
 export default function testsuite(): void {
   lrcParserTest();
@@ -68,4 +71,7 @@ export default function testsuite(): void {
   webDavTransportTest();
   syncCoordinatorTest();
   syncLocalMetadataTest();
+  ytmPlayerParserTest();
+  ytmFormatSelectorTest();
+  ytmUrlCacheTest();
 }

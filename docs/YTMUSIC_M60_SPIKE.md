@@ -50,6 +50,21 @@ player API 回放（`youtubei/v1/player`，探针内置 client 模板）：
 - 登录态（Cookie/HAR 模板）链路：`web_remix_official` profile 需 HAR 模板，无登录环境未跑。待用户提供 cookie 后可复跑。
 - 模拟器/真机网络下的复测：模拟器共享主机网络栈，主机系统代理关闭时 YouTube 不可达（实测直连超时）。**M6.5 验收需用户开启 TUN/系统级代理**，否则 YTM 包括现有搜索在内的全部真网测试都无法进行。
 
+### 1.5 M6.1 复测补充（2026-08-19 晚，实现收尾时）
+
+实现 `network/ytm/` 期间在主机重跑探针 + 手写矩阵实验，两个新事实：
+
+1. **IOS 直出窗口仍开**：fbvvS8e1KgI IOS 21.03.2 匿名 player `OK`、5 音频格式全部 direct URL 零 cipher（itag 251 webm ~140k / 140 mp4 ~130k / 250 / 249），与 §1.2 一致；`web_remix_official` 因无 HAR 模板在探针汇总里 fail（与本次无关）。
+2. **googlevideo Range 策略与 UA 绑定（新发现）**：探针这次对 direct URL 的三段 range 探测 start 206 / mid、tail 403（spike 时只测过 start 206，未暴露）。矩阵实验（同一 URL，3s 间隔顺序请求）定位根因：
+   | 请求 | IOS UA | Web UA / 无 UA |
+   |---|---|---|
+   | `Range: bytes=0-65535`（可重复） | **206** | 206 |
+   | `Range: bytes=0-` / 无 Range 纯 GET | **403** | 206 |
+   | `Range: bytes=N-…`（任意中段/尾部，开区间或闭区间） | **403** | **206** |
+
+   即 googlevideo 对 IOS 客户端 UA 只放行 iOS 原生渐进下载形态（bytes=0-N 闭区间），其余一律 403；非 IOS UA 无此限制。**对鸿蒙端口无影响**：IOS UA 仅用于 player API 取 URL；AVPlayer 播放与 HttpStreamDownloader 下载均以各自默认 UA（非 IOS UA）拉流，任意 Range（含 seek/断点续传）按矩阵右列 206。此结论已作为 M6.1 证据记入 PORTING_EXECUTION_PLAN §6。
+3. bootstrap 页面改版：`"VISITOR_DATA":"…"` 不再出现（变为 `"EOM_VISITOR_DATA":"…"`），`"STS":n` 引号形式消失；抽不到 visitor/STS 时省略字段即可（实测 visitor 为空的 IOS player 请求仍 OK）。`YtmPlayerParser.parseYtmBootstrapHtml` 已按此适配（EOM 兜底 + STS 双键名 + 字段可省）。
+
 ## 2. Android 侧架构事实（Explore 快照调研）
 
 来源：`NeriPlayer-master/app/src/main/java/moe/ouom/neriplayer/core/api/youtube/YouTubeMusicPlaybackRepository.kt` 等，行号见引文。
