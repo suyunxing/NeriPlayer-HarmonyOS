@@ -1,8 +1,9 @@
 import { Constants } from '../app/Constants';
-import { Logger } from '../app/Logger';
 import { SongItem } from '../model/SongItem';
 import { MusicPlatform } from '../model/MusicPlatform';
+import { SettingsRepository } from '../data/SettingsRepository';
 import { HttpClient } from './HttpClient';
+import { YtmStreamResolver } from './ytm/YtmStreamResolver';
 
 interface YtmRun {
   text?: string;
@@ -96,9 +97,9 @@ interface YtmSearchRequest {
 }
 
 /**
- * YouTube Music client. Stream resolution (signature/n, PoToken, EJS/HLS
- * fallbacks) is the porting seam that depends on the yt-dlp ejs engine; see
- * PORTING.md for the follow-up task.
+ * YouTube Music client. Stream resolution uses the M6.1 primary path: the
+ * anonymous IOS player client returns direct URLs (D2 decision, no JS
+ * runtime); ciphered fallbacks are deferred to M6.2+.
  */
 export class YouTubeMusicApi {
   static async search(keyword: string, limit: number = 20): Promise<SongItem[]> {
@@ -167,13 +168,10 @@ export class YouTubeMusicApi {
     return items;
   }
 
-  /**
-   * TODO(port): layered resolution (direct signature/n -> EJS -> HLS).
-   * Requires porting the yt-dlp ejs engine or a native JS engine integration.
-   */
+  /** M6.1 primary path: IOS client direct stream (see network/ytm/). */
   static async resolveStream(videoId: string): Promise<string> {
-    Logger.warn(`YouTubeMusicApi.resolveStream(${videoId}) not yet ported`);
-    throw new Error('YouTube stream resolution requires the EJS engine port (see PORTING.md)');
+    const quality = SettingsRepository.getString(SettingsRepository.KEY_AUDIO_QUALITY, 'standard');
+    return YtmStreamResolver.resolveStreamUrl(videoId, quality);
   }
 
   private static parseDurationMs(duration: string): number {
