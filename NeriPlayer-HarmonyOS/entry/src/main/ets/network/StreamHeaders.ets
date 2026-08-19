@@ -28,7 +28,14 @@ function hostOf(url: string): string {
 /** Bilibili stream CDN hosts (Android BiliAudioSelector.isBiliStreamHost). */
 export function isBiliStreamUrl(url: string): boolean {
   const host = hostOf(url).toLowerCase();
-  return host === 'bilivideo.com' || host.endsWith('.bilivideo.com')
+  // Bilibili returns both bilivideo.com and bilivideo.cn/mcdn.bilivideo.cn
+  // mirrors. Keep parity with Android's host predicate instead of assuming
+  // every CDN URL ends in .bilivideo.com.
+  // Match a complete bilivideo label (including .bilivideo.cn and
+  // .mcdn.bilivideo.cn), while rejecting look-alike names such as
+  // notbilivideo.com that merely contain the same characters.
+  return host === 'bilivideo.com' || host === 'bilivideo.cn'
+    || host.indexOf('.bilivideo.') >= 0
     || host.endsWith('.mountaintoys.cn');
 }
 

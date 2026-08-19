@@ -5,8 +5,10 @@ import {
 } from '../../../main/ets/sync/SyncModels';
 import {
   SyncDeletionState,
-  normalizeRecentPlayDeletions
+  normalizeRecentPlayDeletions,
+  normalizePlaylistSongDeletions
 } from '../../../main/ets/sync/SyncDeletionStore';
+import { MAX_PLAYLIST_SONG_DELETIONS } from '../../../main/ets/sync/PlaylistDeletionPolicy';
 import { token } from './SongMetadataMergePolicy.test';
 
 function recentDeletion(songId: number, deletedAt: number, deviceId: string): SyncRecentPlayDeletion {
@@ -69,6 +71,21 @@ export default function syncDeletionStoreTest(): void {
       expect(parsed.playlistSongDeletions[0].stableKey()).assertEqual('7|9999999999999999999|netease|');
       expect(parsed.playlistSongDeletions[0].removedMembershipTokens.length).assertEqual(1);
       expect(parsed.playlistSongDeletions[0].removedMembershipTokens[0].deviceId).assertEqual('a');
+    });
+
+    it('normalizesPlaylistSongTombstonesBeforeStoreBound', 0, () => {
+      const duplicate = new SyncPlaylistSongDeletion(7, 1, 'netease', null, 100, 'a');
+      const newer = new SyncPlaylistSongDeletion(7, 1, 'netease', null, 200, 'b');
+      const merged = normalizePlaylistSongDeletions([duplicate, newer]);
+      expect(merged.length).assertEqual(1);
+      expect(merged[0].deletedAt).assertEqual(200);
+
+      const bounded: SyncPlaylistSongDeletion[] = [];
+      for (let i = 0; i < MAX_PLAYLIST_SONG_DELETIONS + 3; i++) {
+        bounded.push(new SyncPlaylistSongDeletion(i, i, 'netease', null, i, 'd'));
+      }
+      const limited = normalizePlaylistSongDeletions(bounded);
+      expect(limited.length).assertEqual(MAX_PLAYLIST_SONG_DELETIONS);
     });
 
     it('returnsNullOnCorruptState', 0, () => {
