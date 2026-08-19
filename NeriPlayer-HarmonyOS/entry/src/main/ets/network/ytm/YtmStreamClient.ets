@@ -5,7 +5,7 @@ import { YtmBootstrapData, parseYtmBootstrapHtml } from './YtmPlayerParser';
 import { YtmClientCatalog, YtmClientProfile } from './YtmClientCatalog';
 
 /**
- * Anonymous youtubei/v1/player access for the IOS primary path (D2 decision).
+ * Anonymous youtubei/v1/player access for the M6 chain (D2 decision).
  *
  * Bootstrap mirrors the Android client + probe flow: fetch the music.youtube
  * home page, extract INNERTUBE_API_KEY/VISITOR_DATA/STS, cache for 10 minutes.
@@ -67,6 +67,16 @@ interface YtmPlayerRequestBody {
   playbackContext: YtmPlaybackContextEnvelope;
 }
 
+/** Transport error carrying the HTTP status; 0 = network-layer failure. */
+export class YtmHttpError extends Error {
+  readonly httpCode: number;
+
+  constructor(httpCode: number, message: string) {
+    super(message);
+    this.httpCode = httpCode;
+  }
+}
+
 export class YtmStreamClient {
   private static bootstrap: YtmBootstrapData | null = null;
   private static bootstrapFetchedAtMs: number = 0;
@@ -125,8 +135,11 @@ export class YtmStreamClient {
     return `https://www.youtube.com/youtubei/v1/player?prettyPrint=false&id=${videoId}&key=${apiKey}`;
   }
 
-  static buildPlayerPayload(videoId: string, bootstrap: YtmBootstrapData): string {
-    const profile = YtmClientCatalog.IOS;
+  static buildPlayerPayload(
+    profile: YtmClientProfile,
+    videoId: string,
+    bootstrap: YtmBootstrapData
+  ): string {
     const client: YtmPlayerClientContext = {
       clientName: profile.clientName,
       clientVersion: profile.clientVersion,
@@ -192,13 +205,44 @@ export class YtmStreamClient {
     return headers;
   }
 
-  /** POSTs the anonymous IOS player request and returns the raw JSON text. */
-  static async fetchPlayerResponseText(videoId: string, nowMs: number): Promise<string> {
+  /**
+   * POSTs the anonymous player request for the given profile and returns the
+   * raw JSON text. Transport/HTTP failures throw YtmHttpError (httpCode 0
+   * for network-layer errors) so the resolver can classify them.
+   */
+  static async fetchPlayerResponseText(
+    profile: YtmClientProfile,
+    videoId: string,
+    nowMs: number
+  ): Promise<string> {
     const bootstrap = await YtmStreamClient.getBootstrap(nowMs);
     const url = YtmStreamClient.buildPlayerUrl(bootstrap.apiKey, videoId);
-    const headers = YtmStreamClient.buildPlayerHeaders(YtmClientCatalog.IOS, bootstrap);
-    const payload = YtmStreamClient.buildPlayerPayload(videoId, bootstrap);
-    return HttpClient.postJson(url, payload, 20000, headers);
+    const headers = YtmStreamClient.buildPlayerHeaders(profile, bootstrap);
+    const payload = YtmStreamClient.buildPlayerPayload(profile, videoId, bootstrap);
+    try {
+      return await HttpClient.postJson(url, payload, 20000, headers);
+    } catch (error) {
+      const e = error as Error;
+      throw new YtmHttpError(YtmStreamClient.parseHttpCode(e.message), e.message);
+    }
+  }
+
+  /** Extracts the status from HttpClient's "HTTP <code> for ..." messages. */
+  private static parseHttpCode(message: string): number {
+    if (message.startsWith('HTTP ')) {
+      const rest = message.substring(5);
+      let end = 0;
+      while (end < rest.length && rest.charAt(end) >= '0' && rest.charAt(end) <= '9') {
+        end += 1;
+      }
+      if (end > 0) {
+        const code = Number(rest.substring(0, end));
+        if (Number.isFinite(code) && code > 0) {
+          return code;
+        }
+      }
+    }
+    return 0;
   }
 
   static resetForTest(): void {
@@ -207,3 +251,15 @@ export class YtmStreamClient {
     YtmStreamClient.bootstrapInFlight = null;
   }
 }
+
+/** Default executor binding so the resolver stays a pure decision layer. */
+export type YtmPlayerFetcher = (
+  profile: YtmClientProfile,
+  videoId: string
+) => Promise<string>;
+
+export function defaultYtmPlayerFetcher(profile: YtmClientProfile, videoId: string): Promise<string> {
+  return YtmStreamClient.fetchPlayerResponseText(profile, videoId, Date.now());
+}
+
+export const YTM_CATALOG_CHAIN: YtmClientProfile[] = YtmClientCatalog.playerChain();

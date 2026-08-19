@@ -9,6 +9,10 @@
  * ciphered URLs, which is why Android needs the EJS solver; HarmonyOS skips
  * that by leading with IOS.
  */
+
+/** Fallback IOS version for drift retry (downgrade trick, see withVersion). */
+export const YTM_IOS_DOWNGRADED_VERSION: string = '19.29.1';
+
 export class YtmClientProfile {
   readonly key: string;
   readonly clientName: string;
@@ -47,6 +51,36 @@ export class YtmClientProfile {
     this.osName = osName;
     this.osVersion = osVersion;
   }
+
+  /**
+   * Clone with a different clientVersion (and the matching version inside
+   * the user agent, e.g. "com.google.ios.youtube/<v>(...)") so a rejected
+   * version can be retried once on an older one without touching the
+   * canonical profile.
+   */
+  withVersion(version: string): YtmClientProfile {
+    const versionNeedle = `/${this.clientVersion}`;
+    const uaIndex = this.userAgent.indexOf(versionNeedle);
+    const userAgent =
+      uaIndex >= 0
+        ? this.userAgent.substring(0, uaIndex) +
+          `/${version}` +
+          this.userAgent.substring(uaIndex + versionNeedle.length)
+        : this.userAgent;
+    return new YtmClientProfile(
+      this.key,
+      this.clientName,
+      this.clientId,
+      version,
+      userAgent,
+      this.origin,
+      this.platform,
+      this.deviceMake,
+      this.deviceModel,
+      this.osName,
+      this.osVersion
+    );
+  }
 }
 
 export class YtmClientCatalog {
@@ -66,9 +100,10 @@ export class YtmClientCatalog {
   );
 
   /**
-   * Fallback profile reserved for M6.2: downgrade trick copied from the
-   * probe/tvhtml5_downgraded template. Its responses only carry
-   * signatureCipher URLs, so it is useless until a cipher solver exists.
+   * Fallback profile: the probe's tvhtml5_downgraded template (version
+   * downgraded to 5.20260114 + simplified Cobalt UA, platform=TV per the
+   * spike matrix). Its responses only carry signatureCipher URLs, so a hit
+   * here surfaces the needs_decrypt error (M6.2) until a solver exists (M6.3).
    */
   static readonly TVHTML5_DOWNGRADED: YtmClientProfile = new YtmClientProfile(
     'tvhtml5_downgraded',
@@ -77,10 +112,15 @@ export class YtmClientCatalog {
     '5.20260114',
     'Mozilla/5.0 (ChromiumStylePlatform) Cobalt/Version',
     'https://www.youtube.com',
-    'MOBILE',
+    'TV',
     '',
     '',
     '',
     ''
   );
+
+  /** Resolution order for the M6.2 fallback chain. */
+  static playerChain(): YtmClientProfile[] {
+    return [YtmClientCatalog.IOS, YtmClientCatalog.TVHTML5_DOWNGRADED];
+  }
 }
