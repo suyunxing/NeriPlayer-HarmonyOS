@@ -6,6 +6,7 @@ import { HttpClient } from './HttpClient';
 import { mixinKeyFrom, wbiKeyFromUrl, buildWbiSignedQuery } from './BiliWbi';
 import { BiliAudioOption, selectBiliAudioStream, prioritizeBiliStreamUrls } from './BiliAudioSelector';
 import { SettingsRepository } from '../data/SettingsRepository';
+import { streamHeadersFor as buildBiliStreamHeaders } from './StreamHeaders';
 import {
   BiliFavFolderSummary,
   BiliFavMedia,
@@ -40,6 +41,7 @@ interface BiliDashAudio {
 
 interface BiliPlayUrlResponse {
   code: number;
+  message?: string;
   data?: BiliPlayData;
 }
 
@@ -71,6 +73,7 @@ interface BiliWbiImg {
 
 interface BiliViewResponse {
   code?: number;
+  message?: string;
   data?: BiliViewData;
 }
 
@@ -93,6 +96,9 @@ export class BiliApi {
   private static wbiMixinKey: string = '';
   private static wbiKeyFetchedAt: number = 0;
   private static wbiKeyPromise: Promise<string> | null = null;
+  // playurl rejects bvid-only requests with -400 since 2026; the cid from the
+  // view endpoint is stable per video, so cache it for the process lifetime.
+  private static cidCache: Map<string, number> = new Map();
 
   private static biliHeaders(): Record<string, string> {
     const headers: Record<string, string> = {};
@@ -149,8 +155,12 @@ export class BiliApi {
     return `${baseUrl}?${buildWbiSignedQuery(params, mixinKey, wts)}`;
   }
 
-  /** Fetches the playback cid for a bvid (wbi/view, Android fetchVideoBasicInfo). */
-  private static async fetchCid(bvid: string): Promise<number> {
+  /** Fetches and caches the playback cid for a bvid (wbi/view). */
+  static async resolveCid(bvid: string): Promise<number> {
+    const cached = BiliApi.cidCache.get(bvid);
+    if (cached !== undefined) {
+      return cached;
+    }
     const params = new Map<string, string>();
     params.set('bvid', bvid);
     const url = await BiliApi.getWbiSignedUrl(`${Constants.BILI_BASE}/x/web-interface/wbi/view`, params);
@@ -158,8 +168,9 @@ export class BiliApi {
     const parsed = JSON.parse(text) as BiliViewResponse;
     const cid = parsed.data?.cid ?? 0;
     if (parsed.code !== 0 || cid <= 0) {
-      throw new Error(`bili view failed: code=${parsed.code} bvid=${bvid}`);
+      throw new Error(`bili view failed: code=${parsed.code} bvid=${bvid} message=${parsed.message ?? ''}`);
     }
+    BiliApi.cidCache.set(bvid, cid);
     return cid;
   }
 
@@ -219,7 +230,7 @@ export class BiliApi {
    * -400 since the 2024 risk control tightening.
    */
   static async resolveAudioUrl(bvid: string): Promise<string> {
-    const cid = await BiliApi.fetchCid(bvid);
+    const cid = await BiliApi.resolveCid(bvid);
     const params = new Map<string, string>();
     params.set('bvid', bvid);
     params.set('cid', `${cid}`);
@@ -232,10 +243,11 @@ export class BiliApi {
     const text = await HttpClient.getText(url, BiliApi.biliHeaders(), 15000, true);
     const response = JSON.parse(text) as BiliPlayUrlResponse;
     if (response.code !== 0) {
-      throw new Error(`requestPlayUrl failed: code=${response.code} bvid=${bvid} cid=${cid}`);
+      throw new Error(`requestPlayUrl failed: code=${response.code} bvid=${bvid} cid=${cid} message=${response.message ?? ''}`);
     }
     const audioList = response.data?.dash?.audio ?? [];
     if (audioList.length === 0) {
+      Logger.warn(`bili playurl returned no dash audio: bvid=${bvid}`);
       return '';
     }
     // Track choice follows np.audio_quality with the degrade chain, then the
@@ -265,6 +277,16 @@ export class BiliApi {
       stream = `https://${stream.substring(7)}`;
     }
     return stream;
+  }
+
+  /**
+   * HTTP headers Bilibili CDN endpoints expect from stream fetches; the
+   * api.bilibili.com cookie jar entry carries the login bundle or the
+   * anonymous buvid fingerprint. Null for non-Bilibili hosts.
+   */
+  static streamHeadersFor(url: string): Record<string, string> | null {
+    const headers = buildBiliStreamHeaders(url, HttpClient.getCookies(`${Constants.BILI_BASE}/`));
+    return Object.keys(headers).length > 0 ? headers : null;
   }
 
   /**
