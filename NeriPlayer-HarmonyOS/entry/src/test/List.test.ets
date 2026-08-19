@@ -35,6 +35,8 @@ import syncLocalMetadataTest from './ets/test/SyncLocalMetadata.test';
 import ytmPlayerParserTest from './ets/test/YtmPlayerParser.test';
 import ytmFormatSelectorTest from './ets/test/YtmFormatSelector.test';
 import ytmUrlCacheTest from './ets/test/YtmUrlCache.test';
+import ytmClientHealthTrackerTest from './ets/test/YtmClientHealthTracker.test';
+import ytmClientChainTest from './ets/test/YtmClientChain.test';
 
 export default function testsuite(): void {
   lrcParserTest();
@@ -74,4 +76,6 @@ export default function testsuite(): void {
   ytmPlayerParserTest();
   ytmFormatSelectorTest();
   ytmUrlCacheTest();
+  ytmClientHealthTrackerTest();
+  ytmClientChainTest();
 }
