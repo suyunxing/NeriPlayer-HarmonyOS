@@ -35,6 +35,10 @@ export class SettingsRepository {
   static readonly KEY_NETEASE_AUTO_FALLBACK: string = 'np.netease_auto_fallback';
   static readonly KEY_BILIBILI_LOGGED: string = 'np.bilibili_logged';
   static readonly KEY_YOUTUBE_LOGGED: string = 'np.youtube_logged';
+  // GitHub sync config; the token itself lives in the asset store (GitHubConfigRepository).
+  static readonly KEY_GITHUB_OWNER: string = 'np.github_owner';
+  static readonly KEY_GITHUB_REPO: string = 'np.github_repo';
+  static readonly KEY_GITHUB_DATA_SAVER: string = 'np.github_data_saver';
 
   private static defaults: [string, boolean | string | number][] = [
     [SettingsRepository.KEY_DISCLAIMER_ACCEPTED, false],
@@ -60,7 +64,12 @@ export class SettingsRepository {
     [SettingsRepository.KEY_COVER_POLICY, 'always'],
     [SettingsRepository.KEY_DOWNLOAD_MATCH_LYRICS, true],
     [SettingsRepository.KEY_LANGUAGE, 'zh'],
-    [SettingsRepository.KEY_NETEASE_AUTO_FALLBACK, true]
+    [SettingsRepository.KEY_NETEASE_AUTO_FALLBACK, true],
+    [SettingsRepository.KEY_GITHUB_OWNER, ''],
+    [SettingsRepository.KEY_GITHUB_REPO, ''],
+    // Android defaults data saver to true (writes GZIP+proto); this port
+    // uploads JSON until the compact writer lands (M5.2b record), reads all formats.
+    [SettingsRepository.KEY_GITHUB_DATA_SAVER, false]
   ];
 
   private static initialized: boolean = false;

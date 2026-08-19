@@ -34,6 +34,12 @@ import { SETTING_PLAYBACK, SETTING_DOWNLOAD, SETTING_LYRICS, SETTING_APPEARANCE,
   SETTING_TRAFFIC, SETTING_STORAGE, SETTING_ACCOUNTS, SETTING_SYNC, SETTING_DEBUG,
   SETTING_ABOUT } from './SettingsPage';
 import { Router } from '../Router';
+import { GitHubConfigRepository } from '../../sync/github/GitHubConfigRepository';
+import { GitHubTransport, isValidGitHubName } from '../../sync/github/GitHubTransport';
+import { OhosGhExecutor } from '../../sync/github/OhosGhExecutor';
+import { GitHubSyncClient } from '../../sync/github/GitHubSyncClient';
+import { GitHubApiError, GitHubErrorKind } from '../../sync/github/GitHubErrors';
+import { deserializeSyncContent, getSyncFileName } from '../../sync/SyncDataJsonCodec';
 
 const SPEEDS: number[] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
 const QUALITIES: string[] = ['standard', 'high', 'exhigh', 'lossless', 'hires'];
@@ -60,12 +66,19 @@ export struct SettingsDetailPage {
   @StorageLink('np.netease_logged') neteaseLogged: boolean = false;
   @StorageLink('np.bilibili_logged') biliLogged: boolean = false;
 
+  @StorageProp('np.github_owner') githubOwner: string = '';
+  @StorageProp('np.github_repo') githubRepo: string = '';
+  @StorageProp('np.github_data_saver') githubDataSaver: boolean = false;
+  @State githubTokenSaved: boolean = false;
+  @State githubBusy: boolean = false;
+
   @State cacheBytes: number = 0;
 
   private neteaseQrController: QrLoginPanelController = new QrLoginPanelController();
   private biliQrController: QrLoginPanelController = new QrLoginPanelController();
   private neteasePasteController: CustomDialogController | null = null;
   private biliPasteController: CustomDialogController | null = null;
+  private githubConfigController: CustomDialogController | null = null;
 
   private title(): string {
     if (this.section === SETTING_PLAYBACK) {
@@ -108,6 +121,8 @@ export struct SettingsDetailPage {
       bytes += DownloadStorage.fileSize(entry.audioPath);
     }
     this.cacheBytes = bytes;
+    await GitHubConfigRepository.init();
+    this.githubTokenSaved = GitHubConfigRepository.tokenPreview().length > 0;
   }
 
   // ---- NetEase QR login (state machine lives in QrLoginPanel) ------------
@@ -275,6 +290,161 @@ export struct SettingsDetailPage {
       });
     }
     this.biliPasteController.open();
+  }
+
+  // ---- GitHub backup sync config (transport; full merge lands in M5.5) ----
+
+  private openGithubConfigDialog(): void {
+    if (this.githubConfigController === null) {
+      this.githubConfigController = new CustomDialogController({
+        builder: GitHubConfigDialog({
+          prefillOwner: this.githubOwner,
+          prefillRepo: this.githubRepo,
+          onSaved: () => {
+            this.githubTokenSaved = true;
+          }
+        }),
+        autoCancel: true,
+        customStyle: false
+      });
+    }
+    this.githubConfigController.open();
+  }
+
+  private githubErrorText(error: Error): string {
+    const apiError = error as GitHubApiError;
+    if (apiError instanceof GitHubApiError) {
+      if (apiError.kind === GitHubErrorKind.TOKEN_EXPIRED) {
+        return '令牌无效或已过期，请更新 PAT';
+      }
+      if (apiError.kind === GitHubErrorKind.REPO_NOT_FOUND) {
+        return '仓库不存在或令牌无访问权限';
+      }
+      if (apiError.kind === GitHubErrorKind.RATE_LIMITED) {
+        return `GitHub API 限流，约 ${Math.ceil(apiError.retryAfterMs / 1000)} 秒后重试`;
+      }
+      if (apiError.kind === GitHubErrorKind.CONTENT_CONFLICT) {
+        return '远端已被其他设备更新，请稍后重试';
+      }
+      if (apiError.kind === GitHubErrorKind.NETWORK) {
+        return `网络错误：${apiError.message}`;
+      }
+      return apiError.message;
+    }
+    return error.message;
+  }
+
+  private async beginGithubAction(): Promise<GithubActionContext | null> {
+    if (this.githubBusy) {
+      return null;
+    }
+    const config = await GitHubConfigRepository.loadConfig();
+    if (config === null) {
+      promptAction.openToast({ message: '请先配置令牌与仓库' });
+      return null;
+    }
+    this.githubBusy = true;
+    const context = new GithubActionContext();
+    context.transport = new GitHubTransport(new OhosGhExecutor(), config.token);
+    context.owner = config.owner;
+    context.repo = config.repo;
+    context.dataSaver = config.dataSaver;
+    return context;
+  }
+
+  private finishGithubAction(): void {
+    this.githubBusy = false;
+  }
+
+  private async runGithubCheck(): Promise<void> {
+    const context = await this.beginGithubAction();
+    if (context === null) {
+      return;
+    }
+    try {
+      const login = await context.transport.validateToken();
+      const info = await context.transport.getRepoInfo(context.owner, context.repo);
+      promptAction.openToast({
+        message: `连接成功：${login} · ${context.repo}（${info.isPrivate ? '私有' : '公开'} · ${info.defaultBranch} 分支）`
+      });
+    } catch (error) {
+      promptAction.openToast({ message: this.githubErrorText(error as Error) });
+    } finally {
+      this.finishGithubAction();
+    }
+  }
+
+  private async runGithubCreateRepo(): Promise<void> {
+    const context = await this.beginGithubAction();
+    if (context === null) {
+      return;
+    }
+    try {
+      const info = await context.transport.createRepository(context.repo);
+      promptAction.openToast({ message: `已创建 ${info.fullName}（${info.defaultBranch} 分支）` });
+    } catch (error) {
+      const message = this.githubErrorText(error as Error);
+      if (message.includes('already exists')) {
+        promptAction.openToast({ message: '同名仓库已存在，可直接测试连接' });
+      } else {
+        promptAction.openToast({ message });
+      }
+    } finally {
+      this.finishGithubAction();
+    }
+  }
+
+  private async runGithubRemoteCheck(): Promise<void> {
+    const context = await this.beginGithubAction();
+    if (context === null) {
+      return;
+    }
+    try {
+      const client = new GitHubSyncClient(context.transport);
+      const fileName = getSyncFileName(context.dataSaver);
+      const snapshot = await client.fetchRemoteSnapshot(context.owner, context.repo,
+        fileName, context.dataSaver);
+      if (snapshot === null) {
+        promptAction.openToast({ message: '远端暂无备份文件（首次同步时将创建）' });
+        return;
+      }
+      const decoded = deserializeSyncContent(snapshot.content);
+      if (decoded.data === null) {
+        promptAction.openToast({ message: `远端 ${snapshot.sourceFileName} 解析失败：${decoded.errorMessage}` });
+        return;
+      }
+      const data = decoded.data;
+      const modified = data.lastModified > 0 ? new Date(data.lastModified).toLocaleString() : '未知';
+      promptAction.openToast({
+        message: `远端备份正常：${data.playlists.length} 歌单 · ${data.recentPlays.length} 最近播放 · ${data.playbackStats.length} 统计 · 更新于 ${modified}`
+      });
+    } catch (error) {
+      promptAction.openToast({ message: this.githubErrorText(error as Error) });
+    } finally {
+      this.finishGithubAction();
+    }
+  }
+
+  private confirmGithubClear(): void {
+    AlertDialog.show({
+      title: '清除 GitHub 配置',
+      message: '将移除令牌与仓库设置，不影响本地数据。确定继续？',
+      primaryButton: {
+        value: '取消',
+        action: () => {
+        }
+      },
+      secondaryButton: {
+        value: '清除',
+        fontColor: Theme.danger(Theme.isDark()),
+        action: (): void => {
+          GitHubConfigRepository.clear().then(() => {
+            this.githubTokenSaved = false;
+            promptAction.openToast({ message: 'GitHub 配置已清除' });
+          });
+        }
+      }
+    });
   }
 
   private setSpeed(value: number): void {
@@ -592,12 +762,79 @@ export struct SettingsDetailPage {
               onTap: () => promptAction.openToast({ message: 'YouTube 登录待移植' })
             })
           } else if (this.section === SETTING_SYNC) {
-            SettingRow({
-              title: 'GitHub 同步',
-              subtitle: '自建私有仓库元数据同步（待移植）',
-              icon: '🐙',
-              onTap: () => promptAction.openToast({ message: 'GitHub 同步待移植' })
-            })
+            Text('GitHub 备份')
+              .fontSize(13)
+              .fontColor(Theme.textSecondary(Theme.isDark()))
+              .width('100%')
+              .margin({ left: 6, top: 10, bottom: 6 })
+            Column({ space: 1 }) {
+              SettingRow({
+                title: 'GitHub 仓库与令牌',
+                subtitle: this.githubTokenSaved && this.githubOwner.length > 0 && this.githubRepo.length > 0 ?
+                  `${this.githubOwner}/${this.githubRepo}` : '未配置（Personal Access Token + 仓库名）',
+                icon: '🐙',
+                onTap: () => this.openGithubConfigDialog()
+              })
+              SettingRow({
+                title: '测试连接',
+                subtitle: this.githubBusy ? '正在请求…' : '校验令牌与仓库可达性',
+                icon: '🔌',
+                showArrow: false,
+                onTap: () => this.runGithubCheck()
+              })
+              SettingRow({
+                title: '创建备份仓库',
+                subtitle: '在账号下新建私有仓库（需 repo 权限）',
+                icon: '📦',
+                showArrow: false,
+                onTap: () => this.runGithubCreateRepo()
+              })
+              SettingRow({
+                title: '检查远端备份',
+                subtitle: this.githubBusy ? '正在请求…' : '拉取并解析远端备份文件',
+                icon: '🛰',
+                showArrow: false,
+                onTap: () => this.runGithubRemoteCheck()
+              })
+            }
+            .width('100%')
+            .backgroundColor(Theme.surface(Theme.isDark()))
+            .borderRadius(Theme.cardRadius())
+            .clip(true)
+
+            Text('数据格式')
+              .fontSize(13)
+              .fontColor(Theme.textSecondary(Theme.isDark()))
+              .width('100%')
+              .margin({ left: 6, top: 14, bottom: 6 })
+            Column({ space: 1 }) {
+              SettingRow({
+                title: '省流格式',
+                subtitle: this.githubDataSaver ? '已开启（读取兼容全部格式；上传仍为 JSON）' :
+                  '已关闭（备份为 JSON 文本，读取兼容全部历史格式）',
+                icon: '📉',
+                showArrow: false,
+                onTap: () => SettingsRepository.setBoolean(SettingsRepository.KEY_GITHUB_DATA_SAVER,
+                  !this.githubDataSaver)
+              })
+              SettingRow({
+                title: '清除 GitHub 配置',
+                subtitle: '移除令牌与仓库设置（不影响本地数据）',
+                icon: '🗑',
+                danger: true,
+                onTap: () => this.confirmGithubClear()
+              })
+            }
+            .width('100%')
+            .backgroundColor(Theme.surface(Theme.isDark()))
+            .borderRadius(Theme.cardRadius())
+            .clip(true)
+
+            Text('其他同步方式')
+              .fontSize(13)
+              .fontColor(Theme.textSecondary(Theme.isDark()))
+              .width('100%')
+              .margin({ left: 6, top: 14, bottom: 6 })
             SettingRow({
               title: 'WebDAV 同步',
               subtitle: '远端文件元数据同步（待移植）',
@@ -725,6 +962,106 @@ struct PasteCookieDialog {
           .onClick(() => {
             this.onConfirm(this.cookieText);
             this.controller?.close();
+          })
+      }
+      .width('100%')
+    }
+    .padding(20)
+    .width('92%')
+  }
+}
+
+class GithubActionContext {
+  transport: GitHubTransport = new GitHubTransport(new OhosGhExecutor(), '');
+  owner: string = '';
+  repo: string = '';
+  dataSaver: boolean = false;
+}
+
+@CustomDialog
+struct GitHubConfigDialog {
+  controller?: CustomDialogController;
+  @State tokenText: string = '';
+  @State ownerText: string = '';
+  @State repoText: string = '';
+  prefillOwner: string = '';
+  prefillRepo: string = '';
+  onSaved: () => void = () => {
+  };
+
+  aboutToAppear(): void {
+    this.ownerText = this.prefillOwner;
+    this.repoText = this.prefillRepo;
+    this.tokenText = GitHubConfigRepository.tokenPreview();
+  }
+
+  private async save(): Promise<void> {
+    const owner = this.ownerText.trim();
+    const repo = this.repoText.trim();
+    const token = this.tokenText.trim();
+    if (token.length === 0) {
+      promptAction.openToast({ message: '请填写 Personal Access Token' });
+      return;
+    }
+    if (!isValidGitHubName(owner) || !isValidGitHubName(repo)) {
+      promptAction.openToast({ message: '仓库名仅支持字母、数字与 - _ . 字符' });
+      return;
+    }
+    const persisted = await GitHubConfigRepository.saveConfig(token, owner, repo);
+    if (!persisted) {
+      promptAction.openToast({ message: '已保存，但令牌仅本会话有效（凭据存储不可用）' });
+    } else {
+      promptAction.openToast({ message: 'GitHub 配置已保存' });
+    }
+    this.onSaved();
+    this.controller?.close();
+  }
+
+  build() {
+    Column({ space: 14 }) {
+      Text('GitHub 同步配置')
+        .fontSize(17)
+        .fontWeight(FontWeight.Bold)
+        .fontColor(Theme.textPrimary(Theme.isDark()))
+      Text('令牌需包含 repo 权限（用于私有备份仓库读写）。仅保存在本机安全存储，不会出现在日志中。')
+        .fontSize(12)
+        .fontColor(Theme.textSecondary(Theme.isDark()))
+      TextArea({ placeholder: 'ghp_… / github_pat_…', text: this.tokenText })
+        .height(84)
+        .fontSize(13)
+        .onChange((value: string) => {
+          this.tokenText = value;
+        })
+      TextInput({ placeholder: '用户名 / 组织名（owner）', text: this.ownerText })
+        .height(40)
+        .fontSize(13)
+        .onChange((value: string) => {
+          this.ownerText = value;
+        })
+      TextInput({ placeholder: '仓库名（如 neriplayer-backup）', text: this.repoText })
+        .height(40)
+        .fontSize(13)
+        .onChange((value: string) => {
+          this.repoText = value;
+        })
+      Row({ space: 10 }) {
+        Button('取消')
+          .layoutWeight(1)
+          .height(38)
+          .fontSize(14)
+          .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+          .fontColor(Theme.textPrimary(Theme.isDark()))
+          .onClick(() => {
+            this.controller?.close();
+          })
+        Button('保存')
+          .layoutWeight(1)
+          .height(38)
+          .fontSize(14)
+          .backgroundColor(Theme.primary(Theme.isDark()))
+          .fontColor(Theme.onPrimary(Theme.isDark()))
+          .onClick(() => {
+            this.save();
           })
       }
       .width('100%')

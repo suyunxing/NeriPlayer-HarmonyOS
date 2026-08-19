@@ -23,6 +23,8 @@ import syncBinaryCodecTest from './ets/test/SyncBinaryCodec.test';
 import syncSongConvertTest from './ets/test/SyncSongConvert.test';
 import syncSnapshotBuilderTest from './ets/test/SyncSnapshotBuilder.test';
 import syncDeletionStoreTest from './ets/test/SyncDeletionStore.test';
+import githubErrorsTest from './ets/test/GitHubErrors.test';
+import githubTransportTest from './ets/test/GitHubTransport.test';
 
 export default function testsuite(): void {
   lrcParserTest();
@@ -50,4 +52,6 @@ export default function testsuite(): void {
   syncSongConvertTest();
   syncSnapshotBuilderTest();
   syncDeletionStoreTest();
+  githubErrorsTest();
+  githubTransportTest();
 }
