@@ -1,15 +1,24 @@
-import { AppPreferences } from './AppPreferences';
 import { SchemaStore } from './schema/SchemaStore';
+import { util } from '@kit.ArkTS';
+import { SyncDeletionStore } from '../sync/SyncDeletionStore';
+import {
+  SyncPlaybackCounterShard,
+  normalizeCounterShards
+} from '../sync/SyncModels';
 
 /**
  * Per-track playback statistics with a bounded daily-bucket window,
  * mirroring PlaybackStatsRepository.
  */
-class TrackStats {
+export class TrackStats {
   playCount: number = 0;
   listenMs: number = 0;
   firstPlayedAt: number = 0;
   lastPlayedAt: number = 0;
+  counterShards: SyncPlaybackCounterShard[] = [];
+}
+
+export class DailyTrackStats extends TrackStats {
 }
 
 export class PlaybackStatsRepository {
@@ -18,24 +27,38 @@ export class PlaybackStatsRepository {
 
   static async recordPlay(songKey: string, listenMs: number): Promise<void> {
     const all = await PlaybackStatsRepository.loadStats();
-    const today = PlaybackStatsRepository.dayKey(Date.now());
+    const now = Date.now();
+    const today = PlaybackStatsRepository.dayKey(now);
+    const deviceId = await SyncDeletionStore.getOrCreateDeviceId(
+      (): string => util.generateRandomUUID(false));
     let track = all.tracks[songKey];
     if (track === undefined) {
       track = new TrackStats();
-      track.firstPlayedAt = Date.now();
+      track.firstPlayedAt = now;
       all.tracks[songKey] = track;
     }
     track.playCount += 1;
     track.listenMs += listenMs;
-    track.lastPlayedAt = Date.now();
-    const daily = all.daily[today];
-    if (daily === undefined) {
+    track.lastPlayedAt = now;
+    track.counterShards = PlaybackStatsRepository.recordCounterDelta(
+      track.counterShards, deviceId, all.clearedAt, listenMs, 1, now);
+    if (all.daily[today] === undefined) {
       all.daily[today] = {};
     }
-    all.daily[today][songKey] = (all.daily[today][songKey] ?? 0) + listenMs;
+    let daily = all.daily[today][songKey];
+    if (daily === undefined) {
+      daily = new DailyTrackStats();
+      daily.firstPlayedAt = now;
+      all.daily[today][songKey] = daily;
+    }
+    daily.playCount += 1;
+    daily.listenMs += listenMs;
+    daily.lastPlayedAt = now;
+    daily.counterShards = PlaybackStatsRepository.recordCounterDelta(
+      daily.counterShards, deviceId, all.clearedAt, listenMs, 1, now);
     // Trim buckets older than the window.
     const cutoff = PlaybackStatsRepository.dayKey(Date.now() - PlaybackStatsRepository.BUCKET_DAYS * 86400000);
-    const trimmed: Record<string, Record<string, number>> = {};
+    const trimmed: Record<string, Record<string, DailyTrackStats>> = {};
     for (const key of Object.keys(all.daily)) {
       if (key >= cutoff) {
         trimmed[key] = all.daily[key];
@@ -71,7 +94,18 @@ export class PlaybackStatsRepository {
   }
 
   static async clear(): Promise<void> {
-    await AppPreferences.putString(PlaybackStatsRepository.KEY, '{}');
+    const root = new StatsRoot();
+    root.clearedAt = Date.now();
+    await PlaybackStatsRepository.replaceFromSync(root);
+  }
+
+  static async snapshot(): Promise<StatsRoot> {
+    return PlaybackStatsRepository.loadStats();
+  }
+
+  static async replaceFromSync(root: StatsRoot): Promise<void> {
+    await SchemaStore.save(PlaybackStatsRepository.KEY, JSON.stringify(root),
+      (value: string) => value);
   }
 
   static parseJson(json: string): StatsRoot | null {
@@ -86,13 +120,33 @@ export class PlaybackStatsRepository {
         stats.listenMs = Number(raw['listenMs'] ?? 0);
         stats.firstPlayedAt = Number(raw['firstPlayedAt'] ?? 0);
         stats.lastPlayedAt = Number(raw['lastPlayedAt'] ?? 0);
+        stats.counterShards = PlaybackStatsRepository.parseCounterShards(raw['counterShards']);
         root.tracks[key] = stats;
       }
     }
-    const daily = parsed['daily'] as Record<string, Record<string, number>> | undefined;
+    const daily = parsed['daily'] as Record<string, Record<string, Object>> | undefined;
     if (daily !== undefined) {
-      root.daily = daily;
+      for (const day of Object.keys(daily)) {
+        root.daily[day] = {};
+        for (const key of Object.keys(daily[day])) {
+          const raw = daily[day][key];
+          const stats = new DailyTrackStats();
+          if (typeof raw === 'number') {
+            stats.listenMs = raw;
+          } else {
+            const value = raw as Record<string, Object>;
+            stats.playCount = Number(value['playCount'] ?? 0);
+            stats.listenMs = Number(value['listenMs'] ?? 0);
+            stats.firstPlayedAt = Number(value['firstPlayedAt'] ?? 0);
+            stats.lastPlayedAt = Number(value['lastPlayedAt'] ?? 0);
+            stats.counterShards = PlaybackStatsRepository.parseCounterShards(
+              value['counterShards']);
+          }
+          root.daily[day][key] = stats;
+        }
+      }
     }
+    root.clearedAt = Number(parsed['clearedAt'] ?? 0);
     return root;
   }
 
@@ -106,9 +160,59 @@ export class PlaybackStatsRepository {
     const day = `${date.getDate()}`.padStart(2, '0');
     return `${date.getFullYear()}-${month}-${day}`;
   }
+
+  private static parseCounterShards(raw: Object | undefined): SyncPlaybackCounterShard[] {
+    if (!(raw instanceof Array)) {
+      return [];
+    }
+    const items: Object[] = raw as Object[];
+    const shards: SyncPlaybackCounterShard[] = [];
+    for (const item of items) {
+      const value = item as Record<string, Object>;
+      shards.push(new SyncPlaybackCounterShard(
+        String(value['deviceId'] ?? ''),
+        Number(value['epochStartedAt'] ?? 0),
+        Number(value['totalListenMs'] ?? 0),
+        Number(value['playCount'] ?? 0),
+        Number(value['firstPlayedAt'] ?? 0),
+        Number(value['lastPlayedAt'] ?? 0)
+      ));
+    }
+    return normalizeCounterShards(shards);
+  }
+
+  private static recordCounterDelta(shards: SyncPlaybackCounterShard[], deviceId: string,
+    epochStartedAt: number, listenMs: number, playCount: number,
+    playedAt: number): SyncPlaybackCounterShard[] {
+    const normalized = normalizeCounterShards(shards);
+    const result: SyncPlaybackCounterShard[] = [];
+    let found = false;
+    for (const shard of normalized) {
+      if (shard.deviceId === deviceId && shard.epochStartedAt === epochStartedAt) {
+        result.push(new SyncPlaybackCounterShard(
+          deviceId,
+          epochStartedAt,
+          shard.totalListenMs + Math.max(listenMs, 0),
+          shard.playCount + Math.max(playCount, 0),
+          shard.firstPlayedAt > 0 ? Math.min(shard.firstPlayedAt, playedAt) : playedAt,
+          Math.max(shard.lastPlayedAt, playedAt)
+        ));
+        found = true;
+      } else {
+        result.push(shard);
+      }
+    }
+    if (!found) {
+      result.push(new SyncPlaybackCounterShard(
+        deviceId, epochStartedAt, Math.max(listenMs, 0), Math.max(playCount, 0),
+        playedAt, playedAt));
+    }
+    return normalizeCounterShards(result);
+  }
 }
 
-class StatsRoot {
+export class StatsRoot {
   tracks: Record<string, TrackStats> = {};
-  daily: Record<string, Record<string, number>> = {};
+  daily: Record<string, Record<string, DailyTrackStats>> = {};
+  clearedAt: number = 0;
 }
