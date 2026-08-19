@@ -595,14 +595,26 @@ $hdc = 'D:\HarmonyOS\Tools\command-line-tools\sdk\default\openharmony\toolchains
 
 ### 7.9 2026-08-18 GitHub Actions CI 上线记录
 
-- 仓库根 `.github/workflows/harmonyos-ci.yml`（GitHub `suyunxing/NeriPlayer-HarmonyOS`，私有，当前默认分支 `su`）。触发：push/PR 到 `main`、`dev` 或迁移期兼容分支 `su`（paths 限定 `NeriPlayer-HarmonyOS/**` 与 workflow 自身）+ 手动 `workflow_dispatch`；同一 PR 或分支并发取消旧跑。dev 分支上早先手写的 `build-pr.yml` 草稿（npm install/hvigor 命令不可用）已删除，以本文件为准。
+- 仓库根 `.github/workflows/harmonyos-ci.yml`（GitHub `suyunxing/NeriPlayer-HarmonyOS`，私有，当前默认分支 `su`）。触发：push 到 `main`、`dev`，PR 到 `main`、`dev` 或迁移期兼容分支 `su`（直接 push 到 `su` 不触发；paths 限定 `NeriPlayer-HarmonyOS/**` 与 workflow 自身）+ 手动 `workflow_dispatch`；同一 PR 或分支并发取消旧跑。dev 分支上早先手写的 `build-pr.yml` 草稿（npm install/hvigor 命令不可用）已删除，以本文件为准。
 - 工具链：`ErBWs/setup-ohos@v2` action，从社区镜像仓库 `ErBWs/ohos-sdk` Releases 下载 Command Line Tools **6.1.1.280**（SDK 6.1.1.125 / API 24，与本机 CLT 6.1.1.300 同 SDK 基线；hvigorw/ohpm/Node 进 PATH，`cache: true` 缓存 `~/ohos-sdk`）。华为官网 CLT 下载需账号登录无法直链，镜像分卷资产带 sha256 校验。**不要用镜像里的 26.0.0.621**：其 hvigor 6.26.x 不能构建 6.1.1(24) 工程（同 7.1 的 00303031 限制）。
-- 步骤：`apt libgl1-mesa-dev` → setup → `ohpm install --all` → debug/release `assembleHap`（命令与 7.2 完全一致，`--no-daemon`）→ 上传 `entry-default-unsigned-{debug,release}.hap`（14 天）。单测（`hvigorw test`）置于产物之后：**hypium 本地 runner 在 Linux CI 上挂死**（`UnitTestArkTS` 编译完成后 `> hvigor Linux` 起零输出至 40 分钟超时，`.test` 输出目录不生成；本机 Windows 同命令 20 秒完成），故限时 10 分钟且不阻塞，超时后打印 `.test` 目录树并上传 `test-output` artifact 供诊断。缓存 `~/ohos-sdk`（action 自带）、`~/.ohpm`、`~/.hvigor`。
+- 步骤：`apt libgl1-mesa-dev` → setup → `ohpm install --all` → debug `assembleHap` → 上传 debug unsigned HAP（PR 保留）→ push/手动运行时再构建并上传 release unsigned HAP（14 天）→ Linux 单测诊断。**hypium 本地 runner 在 Linux CI 上挂死**（`UnitTestArkTS` 编译完成后 `> hvigor Linux` 起零输出；本机 Windows 同命令可完成），故单测限时 4 分钟、保留退出码但不阻塞构建，打印 `.test` 目录树并上传 `test-output` artifact。缓存 `~/ohos-sdk`（action 自带）、`~/.ohpm`、`~/.hvigor`。
 - 已知事实：hypium 断言失败不会使 `hvigorw test` 非零退出（本机 StreamHeaders 用例失败仍 BUILD SUCCESSFUL/EXIT 0），CI 的单测把关需解析报告而非依赖退出码；Linux 挂死根因未明，修复后应移除限时与非阻塞。
 - 2026-08-18 首轮验证：run 32048335317（dev）单测步骤 40 分钟零输出超时取消；二轮 run 32083328097 通过（conclusion success）——单测 `exit=124` 挂死复现（`.test` 下仅 testability 骨架、outputs 从未生成），debug/release HAP 分别 19s/14s 构建成功，`hap-unsigned-2`（782KB）产物正常。工具链下载+解压约 3 分钟；被取消的 run 不写 actions/cache，需完整成功跑一次后后续 run 才命中缓存。
+
+### 7.10 2026-08-19 M5.3 GitHub 传输层验证记录（Pura 90 模拟器，API 24）
+
+- 本地单测 316/316（284 存量+32 新增，fake 执行器驱动 Git Data API 全流水线与错误分类）；entry@default / entry@ohosTest BUILD SUCCESSFUL；codelinter 24 warn+1 suggestion 基线持平 0 error；全套 ohosTest **25/25**，其中 **ActsGitHubTransportTest 5/5 真网**（octocat/Hello-World 匿名公开读：repo info→branch head→raw README；backup.json 缺失→null snapshot；匿名与无效 Bearer `/user`→401→TOKEN_EXPIRED；无效 token `updateBranchRef` PATCH→401，即 PATCH 请求行被 GitHub 认真接受而非 404/405）；冷启动 smoke 无 crash。
+- **平台事实（API 24 实证 + netstack 源码/文档三重核对）**：
+  - `@ohos.net.http` 的 `RequestMethod` 枚举无 PATCH（OPTIONS/GET/HEAD/POST/PUT/DELETE/TRACE/CONNECT），但 `HttpRequestOptions.customMethod?: string`（**@since 23**，本机 SDK d.ts:576）可发任意自定义方法：netstack `ParseMethod()` 优先读 customMethod、`CURLOPT_CUSTOMREQUEST` 写请求行、body 非空走 `CURLOPT_POST+POSTFIELDS`——`customMethod:'PATCH'` + `method:POST`（保证 body 上传）= 真 PATCH 带 body。M5.3 的 GitHub 同步乐观锁（PATCH /git/refs force:false）依赖此。
+  - **GitHub REST「合并」端点不能当乐观锁用**（doc-researcher 私有仓库逐 case 实测，2026-08-19）：`POST /merges` base 未分叉时也必然创建双父 merge commit、无 fast-forward 校验、并发推进时若无文件冲突照样成功——无法表达「base 被推进则失败」；备选 GraphQL `updateRef` 的 `refId` 是 Ref 的全局 Node ID（非 "refs/heads/main" 字符串，需先 query 取 ID），非 ff 时返回 HTTP 200 + errors[].type=UNPROCESSABLE（message 原文拼错为 "fast-foward"，判定勿按正确拼写匹配）。最终定案用 customMethod PATCH 直连 REST，与 Android 语义完全一致。
+  - 模拟器跑长 aa test：`power-shell setmode 602` 的常亮只维持 ~10s（覆盖时间被重置），必须再 `power-shell timeout -o 600000` 延长，否则测试中途熄屏仍触发 onDestroy unexpectedly（本轮 25 用例耗时约 3 分钟曾两度复现）；锁屏状态另需 uinput 上滑解锁（§7.7 坑不变）。
+  - Emulator.bat 冷启动在部分 shell 环境下进程不驻留（无窗口即退），可用 `Emulator.exe -start 'Pura 90'` 直启（返回码 0 且 GUI+crash-service 进程驻留）。
+  - Git Bash 下 hdc 对绝对路径参数会把 Git Bash cwd 拼成非法路径报假 fail，本地 HAP 路径用相对路径（install 用 `cd` 到产物目录后传文件名）。
+  - `SyncDataJsonCodec.escapeJsonString()` 返回**带引号的完整 JSON 字符串字面量**（`'"'+escaped+'"'`），不是纯转义文本——拼接请求体时外层不要再手写引号（双重引号产出坏 JSON，GitHub 必 400；M5.3 单测拦截的真 bug）。
+- 未自动化（待复核）：带真 PAT 的写路径端到端（真实 blob→tree→commit→PATCH ref 提交、设置页测试连接/创建仓库/远端检查 UI 流）需用户提供 PAT 人工验证；「立即同步」完整三路合并闭环属 M5.5。
 - 产物为 unsigned HAP：CI 无签名材料，签名仍在本地走 7.3 的 `sign-local.ps1`（符合"证书与口令不入库"约定）。
 - 未纳入 CI：codelinter（存量 17 warn+1 suggestion 基线，需过滤规则后才可门禁）、ohosTest（需模拟器+签名）、Release 自动发布。后续可选：tag 触发上传 unsigned HAP 到 GitHub Release。
-- 2026-08-18 协作配置补齐：新增 `.github/PULL_REQUEST_TEMPLATE.md`、HarmonyOS Bug/Feature/分支整合 Issue Forms、`.github/dependabot.yml`、根目录 `CONTRIBUTING.md` 与 `docs/GITHUB_COLLABORATION.md`；workflow 增加 `contents: read`、关闭 checkout 持久凭据、按 lockfile 失效依赖缓存，并使用 PR 号/分支维度并发组。目标模型为 `main` 稳定、`dev` 集成、个人/feature 分支 PR 协作；`su` 在迁移期继续受 CI 覆盖。未修改 Android 参照工程与业务源码。
+- 2026-08-18 协作配置补齐：新增 `.github/PULL_REQUEST_TEMPLATE.md`、HarmonyOS Bug/Feature/分支整合 Issue Forms、`.github/dependabot.yml`、根目录 `CONTRIBUTING.md` 与 `docs/GITHUB_COLLABORATION.md`；workflow 增加 `contents: read`、关闭 checkout 持久凭据、按 lockfile 失效依赖缓存，并使用 PR 号/分支维度并发组。目标模型为 `main` 稳定、`dev` 集成、个人/feature 分支 PR 协作；`su` 在迁移期只保留 PR 检查，不响应直接 push。未修改 Android 参照工程与业务源码。
 
 
 每次 SDK 或上游 Android 更新，都更新本文件的核验日期、版本矩阵、源码状态和测试结果。

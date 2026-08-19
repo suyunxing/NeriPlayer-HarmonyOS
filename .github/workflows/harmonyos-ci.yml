@@ -1,4 +1,4 @@
-# HarmonyOS 工程持续集成：安装依赖 → 本地单测 → debug/release HAP 构建（不签名）。
+# HarmonyOS 工程持续集成：安装依赖 -> API 24 debug 构建 ->（push/手动）release 构建 -> Linux 单测诊断（不签名）。
 # 工具链：ErBWs/ohos-sdk 镜像的 HarmonyOS Command Line Tools 6.1.1.280
 #        （SDK 6.1.1.125 / API 24，与本机 CLT 6.1.1.300 同基线，构建命令与 docs/hm.md 一致）。
 # 产物为 unsigned HAP；签名仅在本地通过 sign-local.ps1 完成（证书与口令不入库）。
@@ -6,7 +6,7 @@ name: HarmonyOS CI
 
 on:
   push:
-    branches: [main, dev, su]
+    branches: [main, dev]
     paths:
       - 'NeriPlayer-HarmonyOS/**'
       - '.github/workflows/harmonyos-ci.yml'
@@ -16,6 +16,12 @@ on:
       - 'NeriPlayer-HarmonyOS/**'
       - '.github/workflows/harmonyos-ci.yml'
   workflow_dispatch:
+    inputs:
+      run_unit_tests:
+        description: '运行 Linux hypium 单测诊断（已知可能挂死，最多 4 分钟）'
+        required: false
+        default: true
+        type: boolean
 
 permissions:
   contents: read
@@ -28,7 +34,7 @@ jobs:
   build:
     name: build & test (API 24)
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: NeriPlayer-HarmonyOS
@@ -36,7 +42,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
         with:
+          fetch-depth: 2
           persist-credentials: false
+
+      - name: Check changed-file whitespace
+        if: github.event_name == 'pull_request'
+        run: git diff --check HEAD^ HEAD
 
       # OpenHarmony SDK 部分工具链依赖 libGL
       - name: Install SDK runtime dependencies
@@ -70,51 +81,65 @@ jobs:
       - name: Install project dependencies
         run: ohpm install --all
 
-      # hypium 本地单测在 Linux CI 上会挂死（无输出，见 docs/hm.md §7.9）：
-      # 限时 10 分钟 + 不阻塞，超时后打印 .test 目录状态供诊断。
-      - name: Run local unit tests (time-boxed)
-        id: unittest
-        timeout-minutes: 12
-        continue-on-error: true
-        run: |
-          set +e
-          timeout --foreground 10m hvigorw test --mode module -p product=default -p buildMode=debug --no-daemon
-          code=$?
-          echo "exit=$code" >> "$GITHUB_OUTPUT"
-          echo "--- unit test exit=$code; .test tree after run ---"
-          find entry/.test -type f 2>/dev/null | head -50
-          exit 0
-
-      - name: Unit test summary
-        if: always()
-        run: |
-          case "${{ steps.unittest.outputs.exit }}" in
-            0) echo "### 单测：通过" >> "$GITHUB_STEP_SUMMARY" ;;
-            124|"") echo "### 单测：Linux CI 上超时/挂死（已知问题，本地全绿；详见 job 日志与 test-output artifact）" >> "$GITHUB_STEP_SUMMARY" ;;
-            *) echo "### 单测：退出码 ${{ steps.unittest.outputs.exit }}（见日志）" >> "$GITHUB_STEP_SUMMARY" ;;
-          esac
-
       - name: Build debug HAP (unsigned)
         run: |
           hvigorw assembleHap --mode module -p module=entry@default -p product=default -p buildMode=debug --no-daemon
           cp entry/build/default/outputs/default/entry-default-unsigned.hap \
              entry/build/default/outputs/default/entry-default-unsigned-debug.hap
 
+      - name: Upload debug HAP artifact (unsigned)
+        uses: actions/upload-artifact@v4
+        with:
+          name: hap-unsigned-debug-${{ github.run_id }}-${{ github.run_attempt }}
+          path: NeriPlayer-HarmonyOS/entry/build/default/outputs/default/entry-default-unsigned-debug.hap
+          retention-days: 14
+          if-no-files-found: error
+
       - name: Build release HAP (unsigned)
+        if: github.event_name != 'pull_request'
         run: |
           hvigorw assembleHap --mode module -p module=entry@default -p product=default -p buildMode=release --no-daemon
           cp entry/build/default/outputs/default/entry-default-unsigned.hap \
              entry/build/default/outputs/default/entry-default-unsigned-release.hap
 
-      - name: Upload HAP artifacts (unsigned)
+      - name: Upload release HAP artifact (unsigned)
+        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v7
         with:
-          name: hap-unsigned-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            NeriPlayer-HarmonyOS/entry/build/default/outputs/default/entry-default-unsigned-debug.hap
-            NeriPlayer-HarmonyOS/entry/build/default/outputs/default/entry-default-unsigned-release.hap
+          name: hap-unsigned-release-${{ github.run_id }}-${{ github.run_attempt }}
+          path: NeriPlayer-HarmonyOS/entry/build/default/outputs/default/entry-default-unsigned-release.hap
           retention-days: 14
           if-no-files-found: error
+
+      # hypium 本地单测在 Linux CI 上会挂死（无输出，见 docs/hm.md §7.9）。
+      # 这是诊断性运行：保留退出码和输出，但当前不能作为合并门禁。
+      - name: Run local unit tests (Linux diagnostic, time-boxed)
+        id: unittest
+        if: github.event_name != 'workflow_dispatch' || inputs.run_unit_tests == true
+        timeout-minutes: 5
+        continue-on-error: true
+        run: |
+          set +e
+          timeout --foreground 4m hvigorw test --mode module -p product=default -p buildMode=debug --no-daemon
+          code=$?
+          echo "exit=$code" >> "$GITHUB_OUTPUT"
+          echo "--- unit test exit=$code; .test tree after run ---"
+          find entry/.test -type f 2>/dev/null | head -50 || true
+          exit "$code"
+
+      - name: Unit test summary
+        if: always()
+        run: |
+          if [[ "${{ steps.unittest.outcome }}" == "skipped" ]]; then
+            echo "### 单测：本次手动运行已跳过" >> "$GITHUB_STEP_SUMMARY"
+          else
+            case "${{ steps.unittest.outputs.exit }}" in
+              0) echo "### 单测：命令完成（需结合 hypium 报告确认断言结果）" >> "$GITHUB_STEP_SUMMARY" ;;
+              124) echo "### 单测：Linux CI 4 分钟超时/挂死（诊断性，不阻塞构建）" >> "$GITHUB_STEP_SUMMARY" ;;
+              "") echo "### 单测：未产生退出码（见日志）" >> "$GITHUB_STEP_SUMMARY" ;;
+              *) echo "### 单测：退出码 ${{ steps.unittest.outputs.exit }}（诊断性，不阻塞构建）" >> "$GITHUB_STEP_SUMMARY" ;;
+            esac
+          fi
 
       - name: Upload test outputs
         if: always()
