@@ -29,6 +29,9 @@ import syncSnapshotBuilderTest from './ets/test/SyncSnapshotBuilder.test';
 import syncDeletionStoreTest from './ets/test/SyncDeletionStore.test';
 import githubErrorsTest from './ets/test/GitHubErrors.test';
 import githubTransportTest from './ets/test/GitHubTransport.test';
+import webDavTransportTest from './ets/test/WebDavTransport.test';
+import syncCoordinatorTest from './ets/test/SyncCoordinator.test';
+import syncLocalMetadataTest from './ets/test/SyncLocalMetadata.test';
 
 export default function testsuite(): void {
   lrcParserTest();
@@ -62,4 +65,7 @@ export default function testsuite(): void {
   syncDeletionStoreTest();
   githubErrorsTest();
   githubTransportTest();
+  webDavTransportTest();
+  syncCoordinatorTest();
+  syncLocalMetadataTest();
 }
