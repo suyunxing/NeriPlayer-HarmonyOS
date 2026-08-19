@@ -1,6 +1,6 @@
 # NeriPlayer → HarmonyOS 完整移植执行计划（GLM-5.3 执行版）
 
-> 创建：2026-08-16。执行者：GLM-5.3（ZCode agent）。本文档是**任务级执行计划兼跨会话进度看板**，与既有文档分工如下，冲突时以本文档的任务排序为准、以仓库源码为最终事实：
+> 创建：2026-08-16。最近修订：2026-08-19（M6.0 spike 后 D2 决策修正、M6 任务重排）。执行者：GLM-5.3（ZCode agent）。本文档是**任务级执行计划兼跨会话进度看板**，与既有文档分工如下，冲突时以本文档的任务排序为准、以仓库源码为最终事实：
 >
 > - 战略路线图：`docs/HARMONYOS_PORTING_PLAN.md`（架构原则、阶段划分，本文档细化其执行）。
 > - 能力状态：`docs/FEATURE_MATRIX.md`（本文档的进度以矩阵状态为准同步更新）。
@@ -195,7 +195,7 @@ fixture 从 Android JVM 测试（`app/src/test/`）摘取**小样本**内嵌进 
 | # | 决策点 | 默认方案（无用户输入时按此执行） |
 | --- | --- | --- |
 | D1 | 同步数据线格式：Android `SyncDataSerializer` 用 kotlinx protobuf 二进制 | **调研修正（2026-08-18，M5.1）**：Android 实为双格式——默认写 JSON 文本 `backup.json`（kotlinx JSON，camelCase 全字段、null 省略），省流模式写 `GZIP(protobuf)` 原始字节 `backup-raw.bin`，另有遗留 `backup.bin`=`Base64(GZIP(protobuf))` 只读兼容；读路径三格式自动识别；无 .proto 文件（@ProtoNumber 注解即 schema，~15 message 全部已知）。**定案**：鸿蒙侧 M5.2 实现 JSON 读写（与 Android 默认格式互通，fixture 可构造）+ 手写最小 protobuf wire 编解码器 + GZIP（`@ohos.zlib` 能力核对）补齐省流格式读取；protobuf 字段号/schema 已在 M5.1 调研中全量记录（SyncData tag1-13、SyncSong tag1-29 等）。禁止静默不兼容。 |
-| D2 | YouTube JS 运行时：Android 用 androidx JavaScriptSandbox 跑 yt.solver | **优先方案 A：ArkWeb Web 组件离屏加载本地 HTML + registerJavaScriptProxy/runJavaScript 执行 solver JS**（资产从 Android `app/src/main/assets/youtube/` 复制，GPL 兼容）；备选 B：NAPI 内嵌 QuickJS（重，仅当 A 不可行）。M6.1 spike 产出对比记录后定案。 |
+| D2 | YouTube JS 运行时：Android 用 androidx JavaScriptSandbox 跑 yt.solver | **调研修正（2026-08-19，M6.0 spike）**：主路径改为 **IOS client 直连取流，零 JS 运行时依赖**——探针实测（docs/YTMUSIC_M60_SPIKE.md：4 视频一致）IOS 21.03.2 匿名 player API 直出无 cipher 可下载 URL（Range 206 验证），tvhtml5 完整版被剥 URL、downgraded 全部需解签；Android 需要 solver 纯因其 client 链全为 web/tv 系。**ArkWeb 离屏 Web（方案 A，可行性已调研确认：web-offline-mode + runJavaScriptExt，单实例约 200MB）降级为 M6.3 兜底**，仅当 IOS 路径被风控/PoToken 政策收紧时实施；NAPI QuickJS（B）搁置，常驻需求优先官方 JSVM-NAPI。风险：IOS 直出窗口随时可能被 YouTube 收紧，兜底链保留。 |
 | D3 | 下载落盘位置 | 默认应用沙箱 `files/Download/`（自管目录树，对齐 Android ManagedDownloadTree 语义）+ 后续提供「导出/分享」；用户可见目录选择（DocumentViewPicker + 持久授权）作为可选增强，避免一开始绑定 URI 生命周期复杂度。 |
 | D4 | 悬浮/状态栏歌词 | 普通应用无 SYSTEM_ALERT_WINDOW 等价物：降级为「应用内 overlay 迷你歌词 + 通知文本歌词（如可行）」，在 FEATURE_MATRIX 记录降级结论，不承诺系统级悬浮。 |
 | D5 | USB 独占音频 | 先做可行性 spike（`@ohos.usbManager` 等时传输/独占策略/syscap + 真机），大概率不可行→官方结论+降级（USB DAC 走系统音频路径）。C++ 5.7 万行**不预移植**。 |
@@ -299,13 +299,16 @@ fixture 从 Android JVM 测试（`app/src/test/`）摘取**小样本**内嵌进 
 - [ ] M5.6 验收：模拟器实例 A 写→同步→构造远端冲突→实例 B 同步合并结果与 Android 策略测试一致；token 失效/断网路径明确报错；单测全绿。
   - 当前状态（2026-08-19）：纯逻辑、fake transport 和错误分类已有自动化覆盖；本机无活动设备，且未使用真实 GitHub PAT/WebDAV 凭据，因此双实例冲突和真实写入验收保持未完成。
 
-### M6 YouTube 取流（研究驱动，D2 决策）
+### M6 YouTube 取流（研究驱动，D2 决策已于 M6.0 修正为 IOS 直连主路径）
 
-- [ ] M6.0 spike：`tools_pub/ytmusic_api_probe.py` 跑通记录当前可用 client/格式（用户环境执行，输出存 docs）；同步调研 ArkWeb 执行外部 JS 的能力边界（runJavaScript 时序/离屏/生命周期），产出 D2 决策记录。
-- [ ] M6.1 方案 A 落地（若 D2=A）：`network/ytm/SolverRuntime.ets`——隐藏 Web 组件加载 rawfile HTML，JSBridge 调 solver（资产自 Android assets 复制）；signature/n 参数解算入队（对齐 `YouTubeJsSolveQueue`）。
-- [ ] M6.2 取流链路：`YouTubeMusicPlaybackRepository` 语义——多 client 回退（`selectUsablePlayerClients`）、PoToken（`YouTubeWebPoTokenProvider` 语义，Web 会话 key）、限流退避、bootstrap 缓存（`YouTubeBootstrapStore`）；错误分类（需要登录/受限/网络/解析）。
-- [ ] M6.3 兜底链：direct URL→solver→HLS 降级（`TODO(port)` 分层注释处即 `YouTubeMusicApi.ets:171`）；NewPipe extractor 兜底视工作量另行决策。
-- [ ] M6.4 YouTube 登录（可选）：Web 组件 cookie 导出入 `data/auth/youtube/`（对齐 `YouTubeAuthRepository`/`YouTubeCookieRotator` 最小集）。
+> 2026-08-19 M6.0 后按 D2 修正案重排：M6.1 主路径 IOS 直连（无 JS 运行时）；solver 相关降级为 M6.3 可选兜底。
+
+- [x] M6.0 spike：`tools_pub/ytmusic_api_probe.py` 跑通记录当前可用 client/格式（用户环境执行，输出存 docs）；同步调研 ArkWeb 执行外部 JS 的能力边界（runJavaScript 时序/离屏/生命周期），产出 D2 决策记录。
+  - 证据：2026-08-19 探针实测（Windows 本机，Python 3.14+requests，经本地代理 7897——直连 YouTube 全域超时，大陆网络前提）：bootstrap 成功（webRemix 1.20260811.15.00/signatureTimestamp 20681）；4 个公开音乐视频 ×3 client 一致——**IOS 21.03.2 匿名直出无 cipher URL（Range GET 206 实证可下载，itag 251/140，URL 寿命约 6h）**、tvhtml5 7.x 完整版 URL 被剥离（0 直连 0 cipher，不可用）、tvhtml5_downgraded 5.x 全部 signatureCipher（需解签）；受限视频三 client 均 LOGIN_REQUIRED。Android 侧 Explore 调研：回退链 WEB_REMIX→TVHTML5→downgraded 无 IOS client 参与 player API，EJS solver 仅响应含 cipher/n 时触发，direct URL 本来优先——Android 需要 solver 纯因 client 链全为 web/tv 系。ArkWeb 调研（doc-researcher）：离屏 Web 官方方案可行（web-offline-mode/BuilderNode + onPageEnd 后 runJavaScriptExt，消息通道齐备）但单实例约 200MB+渲染进程常驻、后台定时器降频无官方保证；ArkTS 禁 eval；轻量正道为官方 JSVM（NAPI 封装）。D2 决策修正：**主路径 IOS 直连零 JS 依赖，方案 A 降级 M6.3 兜底**。产出 `docs/YTMUSIC_M60_SPIKE.md`（含重跑指引）。未执行：webpo/yt-dlp 下载探测（无 pydeps/登录 cookie，IOS URL 可下载性已由 curl Range 等价覆盖）、登录态 HAR 链路、模拟器网络复测（YouTube 大陆不可达，M6.5 验收需用户代理环境）。
+- [ ] M6.1 主路径 IOS 直连取流（D2 修正案）：`network/ytm/` 拆分 YouTubeMusicApi 取流——IOS client 上下文（版本号集中管理）匿名回放 `youtubei/v1/player`、direct URL 优先（对齐 Android `resolveFormatUrl:932-983` 语义）、itag 251/140 音质映射（对齐 `np.audio_quality` 通道）、playability/错误分类（LOGIN_REQUIRED/受限/网络/解析）、URL 短缓存（6h 过期）；PlayerManager 接线替换 `YouTubeMusicApi.ets:171-177` 抛错占位。无 JS 运行时依赖。
+- [ ] M6.2 取流健壮性：client 健康追踪（`PlayerClientHealthTracker` 语义：连续 3 败压制 30min）、IOS 失败→tvhtml5_downgraded 兜底（响应含 signatureCipher 时明确报错「需解签兜底未实现」，为 M6.3 留 seam）、IOS 版本漂移降级重试、年龄/地区限制形态错误分类；ohosTest 真网 smoke（需代理环境）。
+- [ ] M6.3 solver 兜底链（可选增强，触发条件：M6.2 上线后 IOS 路径被风控/PoToken 收紧致兜底命中率显著）：`network/ytm/SolverRuntime.ets`——按 M6.0 调研结论实现离屏 Web（onControllerAttached 加载 $rawfile + onPageEnd 后 runJavaScriptExt，单实例、FAST_MODE 按需销毁；资产自 Android assets 复制，GPL 兼容）；signature/n 解算入队（对齐 `YouTubeJsSolveQueue`）。实施前复核当时 client 可用性（重跑探针）。
+- [ ] M6.4 YouTube 登录（可选）：Web 组件 cookie 导出入 `data/auth/youtube/`（对齐 `YouTubeAuthRepository`/`YouTubeCookieRotator` 最小集）；天然仍需 Web 组件，与 D2 修正不冲突。
 - [ ] M6.5 验收：模拟器实测 YTM 搜索→取流→播放；DebugPage YTM 探针；FEATURE_MATRIX YouTube 行状态更新。
 
 ### M7 一起听客户端（D7 外部依赖：服务端地址）
