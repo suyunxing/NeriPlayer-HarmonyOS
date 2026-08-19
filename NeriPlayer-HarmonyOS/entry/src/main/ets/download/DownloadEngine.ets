@@ -6,6 +6,7 @@ import { stableKeyOf } from '../model/SongIdentity';
 import { SchemaStore } from '../data/schema/SchemaStore';
 import { SettingsRepository } from '../data/SettingsRepository';
 import { StreamResolver } from '../network/StreamResolver';
+import { BiliApi } from '../network/BiliApi';
 import { HttpClient } from '../network/HttpClient';
 import { HttpStreamDownloader, StreamDownloadHeaders } from '../network/HttpStreamDownloader';
 import {
@@ -211,6 +212,9 @@ export class DownloadEngine {
   private static async runDirectTask(songKey: string, task: DownloadTask, url: string): Promise<void> {
     const ext = DownloadEngine.guessExtension(url);
     const workingPath = DownloadStorage.workingFilePath(task.song, ext);
+    // Bilibili CDN requires Referer/UA on stream fetches (Android download
+    // path sends the same headers); harmless null for other platforms.
+    const streamHeaders = BiliApi.streamHeadersFor(url) ?? {};
 
     let resumeStart = 0;
     let validator = '';
@@ -268,7 +272,7 @@ export class DownloadEngine {
             DownloadEngine.store.updateProgress(songKey, task.attemptId, progress);
             return true;
           }
-        });
+        }, 30000, streamHeaders);
         if (restartRequired) {
           DownloadStorage.deleteWorkingSet(workingPath);
           resumeStart = 0;

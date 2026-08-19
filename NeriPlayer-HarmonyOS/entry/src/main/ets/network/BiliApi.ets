@@ -3,7 +3,10 @@ import { Constants } from '../app/Constants';
 import { SongItem } from '../model/SongItem';
 import { MusicPlatform } from '../model/MusicPlatform';
 import { HttpClient } from './HttpClient';
-import { BiliCookieRepository } from '../data/auth/BiliCookieRepository';
+import { mixinKeyFrom, wbiKeyFromUrl, buildWbiSignedQuery } from './BiliWbi';
+import { BiliAudioOption, selectBiliAudioStream, prioritizeBiliStreamUrls } from './BiliAudioSelector';
+import { SettingsRepository } from '../data/SettingsRepository';
+import { streamHeadersFor as buildBiliStreamHeaders } from './StreamHeaders';
 import {
   BiliFavFolderSummary,
   BiliFavMedia,
@@ -38,6 +41,7 @@ interface BiliDashAudio {
 
 interface BiliPlayUrlResponse {
   code: number;
+  message?: string;
   data?: BiliPlayData;
 }
 
@@ -49,30 +53,52 @@ interface BiliDash {
   audio?: BiliDashAudio[];
 }
 
-interface BiliSpiResponse {
-  code?: number;
-  data?: BiliSpiData;
-}
-
-interface BiliSpiData {
-  b_3?: string;
-  b_4?: string;
-  buvid_fp?: string;
-  b_lsid?: string;
-}
-
 const FAV_PAGE_SIZE: number = 20;
-const ANON_COOKIE_TTL_MS: number = 60 * 60 * 1000; // mirrors Android's 1h anon cookie cache
+const WBI_CACHE_MS: number = 10 * 60 * 1000; // mirrors Android WBI_CACHE_MS
 const FAV_FOLDER_WEB_LOCATION: string = '333.1387';
+
+interface BiliNavResponse {
+  code?: number;
+  data?: BiliNavData;
+}
+
+interface BiliNavData {
+  wbi_img?: BiliWbiImg;
+}
+
+interface BiliWbiImg {
+  img_url?: string;
+  sub_url?: string;
+}
+
+interface BiliViewResponse {
+  code?: number;
+  message?: string;
+  data?: BiliViewData;
+}
+
+interface BiliViewData {
+  cid?: number;
+}
 
 /**
  * Bilibili client (video search + audio stream resolution + favorite
  * folders), following the bilibili-API-collect conventions used by the
- * Android app. Requests carry the persisted login cookie jar when logged in,
- * or anonymous buvid fingerprint cookies otherwise (Android getEffectiveCookies).
+ * Android app. Requests carry the persisted login cookie jar when logged in;
+ * anonymous requests stay cookie-less on purpose: a freshly issued
+ * /x/frontend/finger/spi buvid makes the WBI endpoints soft-reject with
+ * code 0 + empty results (2026-08-18 host-verified), while cookie-less
+ * requests work fine. search/playurl go through the WBI-signed endpoints:
+ * since the 2024 risk control tightening these reject unsigned requests
+ * (search answers an HTML page, playurl answers code -400).
  */
 export class BiliApi {
-  private static anonCookieFetchedAt: number = 0;
+  private static wbiMixinKey: string = '';
+  private static wbiKeyFetchedAt: number = 0;
+  private static wbiKeyPromise: Promise<string> | null = null;
+  // playurl rejects bvid-only requests with -400 since 2026; the cid from the
+  // view endpoint is stable per video, so cache it for the process lifetime.
+  private static cidCache: Map<string, number> = new Map();
 
   private static biliHeaders(): Record<string, string> {
     const headers: Record<string, string> = {};
@@ -81,60 +107,101 @@ export class BiliApi {
   }
 
   /**
-   * Makes sure the api.bilibili.com cookie jar has something usable: the
-   * login bundle is seeded by BiliCookieRepository, so this only fetches the
-   * anonymous fingerprint (/x/frontend/finger/spi) when logged out. Failures
-   * degrade silently to cookie-less requests.
+   * Fetches the WBI mixin key from nav with a 10-minute cache and in-flight
+   * de-duplication (Android getOrRefreshMixinKey; the WebTicket fallback
+   * remains unported — nav is the stable primary source).
    */
-  private static async ensureRequestCookies(): Promise<void> {
-    if (BiliCookieRepository.isLoggedIn()) {
-      return;
+  private static async getWbiMixinKey(): Promise<string> {
+    if (BiliApi.wbiMixinKey.length > 0 && Date.now() - BiliApi.wbiKeyFetchedAt < WBI_CACHE_MS) {
+      return BiliApi.wbiMixinKey;
     }
-    const jar = HttpClient.getCookies(`${Constants.BILI_BASE}/`);
-    if (jar.indexOf('buvid3=') >= 0 && Date.now() - BiliApi.anonCookieFetchedAt < ANON_COOKIE_TTL_MS) {
-      return;
+    if (BiliApi.wbiKeyPromise !== null) {
+      return BiliApi.wbiKeyPromise;
     }
-    try {
-      const text = await HttpClient.getText(
-        `${Constants.BILI_BASE}/x/frontend/finger/spi`,
-        BiliApi.biliHeaders()
-      );
-      const parsed = JSON.parse(text) as BiliSpiResponse;
-      const data = parsed.data;
-      if (data === undefined) {
-        return;
-      }
-      const pairs: string[] = [];
-      if (data.b_3 !== undefined && data.b_3.length > 0) {
-        pairs.push(`buvid3=${data.b_3}`);
-      }
-      if (data.b_4 !== undefined && data.b_4.length > 0) {
-        pairs.push(`buvid4=${data.b_4}`);
-      }
-      if (data.buvid_fp !== undefined && data.buvid_fp.length > 0) {
-        pairs.push(`buvid_fp=${data.buvid_fp}`);
-      }
-      if (data.b_lsid !== undefined && data.b_lsid.length > 0) {
-        pairs.push(`b_lsid=${data.b_lsid}`);
-      }
-      if (pairs.length > 0) {
-        HttpClient.seedCookies(`${Constants.BILI_BASE}/`, pairs.join('; '));
-        BiliApi.anonCookieFetchedAt = Date.now();
-        Logger.info(`bili anon cookies seeded: ${pairs.length} entries`);
-      }
-    } catch (error) {
-      const e = error as Error;
-      Logger.warn(`bili anon cookie fetch failed (continuing without): ${e.message}`);
+    BiliApi.wbiKeyPromise = BiliApi.fetchWbiMixinKey()
+      .then((key: string) => {
+        BiliApi.wbiMixinKey = key;
+        BiliApi.wbiKeyFetchedAt = Date.now();
+        return key;
+      })
+      .finally(() => {
+        BiliApi.wbiKeyPromise = null;
+      });
+    return BiliApi.wbiKeyPromise;
+  }
+
+  private static async fetchWbiMixinKey(): Promise<string> {
+    const text = await HttpClient.getText(
+      `${Constants.BILI_BASE}/x/web-interface/nav`,
+      BiliApi.biliHeaders(),
+      15000,
+      true
+    );
+    const parsed = JSON.parse(text) as BiliNavResponse;
+    const wbiImg = parsed.data?.wbi_img;
+    const imgUrl = wbiImg?.img_url ?? '';
+    const subUrl = wbiImg?.sub_url ?? '';
+    const mixinKey = mixinKeyFrom(wbiKeyFromUrl(imgUrl), wbiKeyFromUrl(subUrl));
+    if (mixinKey.length < 32) {
+      throw new Error(`Invalid wbi mixin urls from nav (len=${mixinKey.length})`);
     }
+    Logger.info('bili wbi mixin key refreshed');
+    return mixinKey;
+  }
+
+  private static async getWbiSignedUrl(baseUrl: string, params: Map<string, string>): Promise<string> {
+    const mixinKey = await BiliApi.getWbiMixinKey();
+    const wts = Math.floor(Date.now() / 1000);
+    return `${baseUrl}?${buildWbiSignedQuery(params, mixinKey, wts)}`;
+  }
+
+  /** Fetches and caches the playback cid for a bvid (wbi/view). */
+  static async resolveCid(bvid: string): Promise<number> {
+    const cached = BiliApi.cidCache.get(bvid);
+    if (cached !== undefined) {
+      return cached;
+    }
+    const params = new Map<string, string>();
+    params.set('bvid', bvid);
+    const url = await BiliApi.getWbiSignedUrl(`${Constants.BILI_BASE}/x/web-interface/wbi/view`, params);
+    const text = await HttpClient.getText(url, BiliApi.biliHeaders(), 15000, true);
+    const parsed = JSON.parse(text) as BiliViewResponse;
+    const cid = parsed.data?.cid ?? 0;
+    if (parsed.code !== 0 || cid <= 0) {
+      throw new Error(`bili view failed: code=${parsed.code} bvid=${bvid} message=${parsed.message ?? ''}`);
+    }
+    BiliApi.cidCache.set(bvid, cid);
+    return cid;
   }
 
   static async search(keyword: string, limit: number = 20): Promise<SongItem[]> {
-    const url =
-      `${Constants.BILI_BASE}/x/web-interface/search/type?search_type=video&keyword=${encodeURIComponent(keyword)}`;
-    await BiliApi.ensureRequestCookies();
+    const items = await BiliApi.searchOnce(keyword, limit);
+    if (items.length > 0) {
+      return items;
+    }
+    // Anonymous WBI search is intermittently rejected with an empty result
+    // on the first request of a session (risk control warms up per buvid);
+    // one delayed retry hides this from users.
+    await new Promise<void>((resolve) => setTimeout(resolve, 600));
+    return BiliApi.searchOnce(keyword, limit);
+  }
+
+  private static async searchOnce(keyword: string, limit: number): Promise<SongItem[]> {
+    const params = new Map<string, string>();
+    params.set('search_type', 'video');
+    params.set('keyword', keyword);
+    const url = await BiliApi.getWbiSignedUrl(
+      `${Constants.BILI_BASE}/x/web-interface/wbi/search/type`,
+      params
+    );
     const text = await HttpClient.getText(url, BiliApi.biliHeaders(), 15000, true);
     const response = JSON.parse(text) as BiliSearchResponse;
     const results = response.data?.result ?? [];
+    if (results.length === 0) {
+      // Business rejections answer HTTP 200 with a non-zero code; keep the
+      // code visible so risk-control patterns stay diagnosable.
+      Logger.warn(`bili search empty: code=${response.code} results=0 keywordLen=${keyword.length}`);
+    }
     const items: SongItem[] = [];
     for (const item of results.slice(0, limit)) {
       const song = new SongItem(
@@ -156,32 +223,70 @@ export class BiliApi {
   }
 
   /**
-   * Resolves the best DASH audio stream for a bvid.
+   * Resolves the best DASH audio stream for a bvid through the WBI-signed
+   * endpoints (Android getPlayInfoByBvid + requestPlayUrl): wbi/view yields
+   * the cid, then wbi/playurl with bvid+cid and fnval=272 DASH|DOLBY /
+   * platform=pc answers the DASH manifest. Unsigned playurl answers code
+   * -400 since the 2024 risk control tightening.
    */
   static async resolveAudioUrl(bvid: string): Promise<string> {
-    const url =
-      `${Constants.BILI_BASE}/x/player/playurl?bvid=${bvid}&fnval=16&fourk=1`;
-    await BiliApi.ensureRequestCookies();
+    const cid = await BiliApi.resolveCid(bvid);
+    const params = new Map<string, string>();
+    params.set('bvid', bvid);
+    params.set('cid', `${cid}`);
+    params.set('fnval', '272');
+    params.set('fnver', '0');
+    params.set('fourk', '0');
+    params.set('otype', 'json');
+    params.set('platform', 'pc');
+    const url = await BiliApi.getWbiSignedUrl(`${Constants.BILI_BASE}/x/player/wbi/playurl`, params);
     const text = await HttpClient.getText(url, BiliApi.biliHeaders(), 15000, true);
     const response = JSON.parse(text) as BiliPlayUrlResponse;
+    if (response.code !== 0) {
+      throw new Error(`requestPlayUrl failed: code=${response.code} bvid=${bvid} cid=${cid} message=${response.message ?? ''}`);
+    }
     const audioList = response.data?.dash?.audio ?? [];
     if (audioList.length === 0) {
+      Logger.warn(`bili playurl returned no dash audio: bvid=${bvid}`);
       return '';
     }
-    let best = audioList[0];
+    // Track choice follows np.audio_quality with the degrade chain, then the
+    // CDN URLs are re-ordered upos-first — the highest-bandwidth track on a
+    // slow link stutters (audible fragment loops).
+    const options: BiliAudioOption[] = [];
     for (const audio of audioList) {
-      if (audio.bandwidth > best.bandwidth) {
-        best = audio;
+      const option = new BiliAudioOption();
+      option.bandwidth = audio.bandwidth;
+      option.baseUrl = audio.baseUrl ?? '';
+      option.backupUrl = audio.backupUrl ?? [];
+      if (option.bandwidth > 0 && (option.baseUrl.length > 0 || option.backupUrl.length > 0)) {
+        options.push(option);
       }
     }
-    let stream = best.baseUrl ?? '';
-    if (stream.length === 0 && best.backupUrl !== undefined && best.backupUrl.length > 0) {
-      stream = best.backupUrl[0];
+    if (options.length === 0) {
+      return '';
     }
+    const quality = SettingsRepository.getString(SettingsRepository.KEY_AUDIO_QUALITY, 'standard');
+    const track = selectBiliAudioStream(options, quality);
+    if (track === null) {
+      return '';
+    }
+    const urls = prioritizeBiliStreamUrls(track.baseUrl, track.backupUrl);
+    let stream = urls.length > 0 ? urls[0] : '';
     if (stream.startsWith('http://')) {
       stream = `https://${stream.substring(7)}`;
     }
     return stream;
+  }
+
+  /**
+   * HTTP headers Bilibili CDN endpoints expect from stream fetches; the
+   * api.bilibili.com cookie jar entry carries the login bundle or the
+   * anonymous buvid fingerprint. Null for non-Bilibili hosts.
+   */
+  static streamHeadersFor(url: string): Record<string, string> | null {
+    const headers = buildBiliStreamHeaders(url, HttpClient.getCookies(`${Constants.BILI_BASE}/`));
+    return Object.keys(headers).length > 0 ? headers : null;
   }
 
   /**
@@ -194,7 +299,6 @@ export class BiliApi {
     if (mid <= 0) {
       throw new Error('无法获取用户 mid（DedeUserID 缺失）');
     }
-    await BiliApi.ensureRequestCookies();
     const listAllUrl =
       `${Constants.BILI_BASE}/x/v3/fav/folder/created/list-all?up_mid=${mid}&web_location=${FAV_FOLDER_WEB_LOCATION}`;
     const first = parseBiliFavFolderList(await HttpClient.getText(listAllUrl, BiliApi.biliHeaders(), 15000, true));
@@ -231,7 +335,6 @@ export class BiliApi {
 
   /** Fetches one page of a favorite folder's contents (Android getFavFolderContents). */
   static async getFavFolderPage(mediaId: number, page: number, keyword: string = ''): Promise<BiliFavPage> {
-    await BiliApi.ensureRequestCookies();
     let url =
       `${Constants.BILI_BASE}/x/v3/fav/resource/list?media_id=${mediaId}&pn=${page}&ps=${FAV_PAGE_SIZE}` +
       `&order=mtime&platform=web`;

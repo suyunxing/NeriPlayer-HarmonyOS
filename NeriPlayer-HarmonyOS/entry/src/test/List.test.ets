@@ -12,6 +12,23 @@ import playlistMergeTest from './ets/test/PlaylistMerge.test';
 import httpHeaderParserTest from './ets/test/HttpHeaderParser.test';
 import biliAuthTest from './ets/test/BiliAuth.test';
 import biliFavParserTest from './ets/test/BiliFavParser.test';
+import streamHeadersTest from './ets/test/StreamHeaders.test';
+import biliWbiTest from './ets/test/BiliWbi.test';
+import biliAudioSelectorTest from './ets/test/BiliAudioSelector.test';
+import biliStreamSupportTest from './ets/test/BiliStreamSupport.test';
+import syncModelsTest from './ets/test/SyncModels.test';
+import songMetadataMergePolicyTest from './ets/test/SongMetadataMergePolicy.test';
+import playlistSongMergePolicyTest from './ets/test/PlaylistSongMergePolicy.test';
+import playlistDeletionPolicyTest from './ets/test/PlaylistDeletionPolicy.test';
+import playbackStatsMergePolicyTest from './ets/test/PlaybackStatsMergePolicy.test';
+import dataChangeDetectorTest from './ets/test/DataChangeDetector.test';
+import syncDataJsonCodecTest from './ets/test/SyncDataJsonCodec.test';
+import syncBinaryCodecTest from './ets/test/SyncBinaryCodec.test';
+import syncSongConvertTest from './ets/test/SyncSongConvert.test';
+import syncSnapshotBuilderTest from './ets/test/SyncSnapshotBuilder.test';
+import syncDeletionStoreTest from './ets/test/SyncDeletionStore.test';
+import githubErrorsTest from './ets/test/GitHubErrors.test';
+import githubTransportTest from './ets/test/GitHubTransport.test';
 
 export default function testsuite(): void {
   lrcParserTest();
@@ -28,4 +45,21 @@ export default function testsuite(): void {
   httpHeaderParserTest();
   biliAuthTest();
   biliFavParserTest();
+  streamHeadersTest();
+  biliWbiTest();
+  biliAudioSelectorTest();
+  biliStreamSupportTest();
+  syncModelsTest();
+  songMetadataMergePolicyTest();
+  playlistSongMergePolicyTest();
+  playlistDeletionPolicyTest();
+  playbackStatsMergePolicyTest();
+  dataChangeDetectorTest();
+  syncDataJsonCodecTest();
+  syncBinaryCodecTest();
+  syncSongConvertTest();
+  syncSnapshotBuilderTest();
+  syncDeletionStoreTest();
+  githubErrorsTest();
+  githubTransportTest();
 }
