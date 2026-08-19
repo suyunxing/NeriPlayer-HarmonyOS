@@ -108,14 +108,17 @@ export struct NeteasePlaylistPage {
           .objectFit(ImageFit.Cover)
           .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
       } else {
-        Text('♪')
-          .fontSize(size * 0.4)
-          .width(size)
-          .height(size)
-          .textAlign(TextAlign.Center)
-          .fontColor(Theme.primary(Theme.isDark()))
-          .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
-          .borderRadius(size > 60 ? 14 : 8)
+        Column() {
+          Image($r('app.media.ic_music_note_24'))
+            .width(size * 0.4)
+            .height(size * 0.4)
+            .fillColor(Theme.primary(Theme.isDark()))
+        }
+        .width(size)
+        .height(size)
+        .justifyContent(FlexAlign.Center)
+        .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+        .borderRadius(size > 60 ? 14 : 8)
       }
     }
   }

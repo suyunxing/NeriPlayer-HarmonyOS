@@ -7,8 +7,10 @@ export struct SafeModePage {
 
   build() {
     Column({ space: 16 }) {
-      Text('⚠')
-        .fontSize(64)
+      Image($r('app.media.ic_warning_24'))
+        .width(64)
+        .height(64)
+        .fillColor(Theme.warning(Theme.isDark()))
         .margin({ top: 90 })
       Text('安全模式')
         .fontSize(24)

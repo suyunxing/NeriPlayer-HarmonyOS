@@ -162,13 +162,16 @@ export struct BiliFavPage {
           .objectFit(ImageFit.Cover)
           .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
       } else {
-        Text('📺')
-          .fontSize(size * 0.36)
-          .width(size)
-          .height(size)
-          .textAlign(TextAlign.Center)
-          .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
-          .borderRadius(size > 60 ? 14 : 8)
+        Column() {
+          Image($r('app.media.ic_bilibili'))
+            .width(size * 0.36)
+            .height(size * 0.36)
+        }
+        .width(size)
+        .height(size)
+        .justifyContent(FlexAlign.Center)
+        .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+        .borderRadius(size > 60 ? 14 : 8)
       }
     }
   }
