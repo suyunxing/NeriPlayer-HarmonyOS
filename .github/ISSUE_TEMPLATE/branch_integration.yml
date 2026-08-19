@@ -1,0 +1,84 @@
+name: 分支整合任务
+description: 记录两个已有移植实现之间的差异分析和逐项吸收计划
+title: "[Integration] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        本模板用于整合已经独立开发较久的分支。不要直接要求自动解决全部冲突；先分析差异，再把功能拆成可验证的 Pull Request。
+
+  - type: input
+    id: baseline
+    attributes:
+      label: 基准分支或提交
+      description: 填写作为当前主架构的分支和 commit SHA。
+      placeholder: "例如：dev @ abc1234"
+    validations:
+      required: true
+
+  - type: input
+    id: source
+    attributes:
+      label: 待吸收分支或提交
+      description: 填写朋友的分支、fork 分支或 commit SHA。
+      placeholder: "例如：friend/player-port @ def5678"
+    validations:
+      required: true
+
+  - type: textarea
+    id: feature_inventory
+    attributes:
+      label: 待吸收功能清单
+      description: 按用户可见功能、平台适配、测试和文档列出，不要只粘贴文件列表。
+      placeholder: |
+        - [ ] 播放队列修复
+        - [ ] 权限适配
+        - [ ] 对应单元测试
+    validations:
+      required: true
+
+  - type: textarea
+    id: conflict_hotspots
+    attributes:
+      label: 高风险共享文件与设计差异
+      description: 记录双方都修改的构建、生命周期、权限、播放器、数据格式和网络鉴权代码。
+      placeholder: |
+        文件或模块：
+        双方方案差异：
+        推荐保留的架构及原因：
+    validations:
+      required: true
+
+  - type: textarea
+    id: pull_requests
+    attributes:
+      label: 拆分 PR 计划
+      description: 每个 PR 应能独立构建、验证和回退。
+      placeholder: |
+        1. PR：纯模型与 fixture
+        2. PR：平台适配器
+        3. PR：UI 接线与设备 smoke test
+    validations:
+      required: true
+
+  - type: textarea
+    id: verification
+    attributes:
+      label: 验证计划
+      description: 写明本地单测、HAP 构建、ohosTest、模拟器或真机检查范围。
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: safeguards
+    attributes:
+      label: 整合前确认
+      options:
+        - label: 两个分支均已记录 commit SHA，并创建可回退的快照 tag。
+          required: true
+        - label: 已先完成只读差异分析，没有直接在 `dev` 或 `main` 上解决冲突。
+          required: true
+        - label: 已明确以 `NeriPlayer-HarmonyOS/` 的现有 HarmonyOS 架构为主，不机械翻译或覆盖 Android 参照代码。
+          required: true
+        - label: 日志、附件和提交中不包含 Token、Cookie、签名材料或设备 UDID。
+          required: true

@@ -55,6 +55,7 @@ export default function biliPlaybackSmokeTest(): void {
         await waitState(player, ['initialized'], 20000);
         await player.prepare();
         await waitState(player, ['prepared'], 20000);
+        expect(player.duration > 0).assertTrue();
         player.audioInterruptMode = audio.InterruptMode.SHARE_MODE;
         await player.play();
         await waitState(player, ['playing'], 10000);

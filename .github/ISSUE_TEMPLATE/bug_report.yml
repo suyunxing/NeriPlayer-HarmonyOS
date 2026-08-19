@@ -1,0 +1,90 @@
+name: HarmonyOS Bug 报告
+description: 报告 NeriPlayer-HarmonyOS 中可复现的问题
+title: "[HarmonyOS Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请只报告 `NeriPlayer-HarmonyOS/` 主线的问题。
+        不要在 Issue 中粘贴 Token、Cookie、签名口令、设备 UDID 或未经脱敏的日志。
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: 问题区域
+      options:
+        - 启动、导航或页面
+        - 播放、队列或后台播放
+        - 网络平台或登录态
+        - 歌词、搜索或数据持久化
+        - 下载、本地媒体或同步
+        - 构建、测试或 CI
+        - 其他
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: 版本或提交 SHA
+      description: 填写应用版本、分支或可定位的 commit SHA。
+      placeholder: "例如：su / 5ec4d68"
+    validations:
+      required: true
+
+  - type: input
+    id: device
+    attributes:
+      label: 设备与系统
+      description: 填写设备形态、HarmonyOS 版本/API、模拟器或真机。
+      placeholder: "例如：Pura 90，HarmonyOS 6.1.1，API 24，真机"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: 问题描述
+      description: 清楚描述实际发生了什么。
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. 打开……
+        2. 点击……
+        3. 观察到……
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 预期行为
+      description: 如果与 Android 上游行为一致，请附上对应页面或源码路径。
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志或截图
+      description: 先删除 Token、Cookie、账号、路径、UDID 等敏感信息；日志较长时请作为附件上传。
+      render: text
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 我已搜索现有 Issue，确认不是重复问题。
+          required: true
+        - label: 我已确认问题发生在 `NeriPlayer-HarmonyOS/`，而不是 Android 参照快照。
+          required: true
+        - label: 我已移除日志和附件中的敏感信息。
+          required: true
