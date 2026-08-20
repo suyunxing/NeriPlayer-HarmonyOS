@@ -39,6 +39,13 @@ import ytmClientHealthTrackerTest from './ets/test/YtmClientHealthTracker.test';
 import ytmClientChainTest from './ets/test/YtmClientChain.test';
 import ytmSearchParserTest from './ets/test/YtmSearchParser.test';
 import ytmLoopbackHttpTest from './ets/test/YtmLoopbackHttp.test';
+import listenTogetherProtocolJsonTest from './ets/test/ListenTogetherProtocolJson.test';
+import listenTogetherBaseUrlTest from './ets/test/ListenTogetherBaseUrl.test';
+import listenTogetherValidationTest from './ets/test/ListenTogetherValidation.test';
+import listenTogetherMappingTest from './ets/test/ListenTogetherMapping.test';
+import listenTogetherPlaybackTest from './ets/test/ListenTogetherPlayback.test';
+import listenTogetherEventCompatibilityTest from './ets/test/ListenTogetherEventCompatibility.test';
+import listenTogetherSessionTest from './ets/test/ListenTogetherSession.test';
 
 export default function testsuite(): void {
   lrcParserTest();
@@ -82,4 +89,11 @@ export default function testsuite(): void {
   ytmClientChainTest();
   ytmSearchParserTest();
   ytmLoopbackHttpTest();
+  listenTogetherProtocolJsonTest();
+  listenTogetherBaseUrlTest();
+  listenTogetherValidationTest();
+  listenTogetherMappingTest();
+  listenTogetherPlaybackTest();
+  listenTogetherEventCompatibilityTest();
+  listenTogetherSessionTest();
 }
