@@ -186,7 +186,7 @@ fixture 从 Android JVM 测试（`app/src/test/`）摘取**小样本**内嵌进 
 | 下载 | `DownloadTaskStoreTest`、`ManagedDownloadNamingTest` | `test/Download*.test.ets`（M3.x） |
 | 歌词 | `AmllTtmlClientTest`、`LyricTimestampNormalizerTest` | `test/LrcParser.test.ets` 扩展（M8） |
 | 稳定键 | `SystemPlaylistIdentityTest` | 已有 SongIdentity，补测（M2.2） |
-| 一起听 | `listentogether/**` 10 个 | `test/ListenTogether*.test.ets`（M7.1） |
+| 一起听 | `listentogether/**` 11 个（实测清点，此前写「10 个」有误） | `test/ListenTogether*.test.ets`（M7.1 已对齐纯逻辑部分，SessionManager 运行时语义留 M7.3） |
 
 ---
 
@@ -331,7 +331,13 @@ eport-m61-recheck.json）：IOS 直出窗口仍开——fbvvS8e1KgI playability 
 
 ### M7 一起听客户端（D7 外部依赖：服务端地址）
 
-- [ ] M7.1 协议与纯逻辑 `listentogether/protocol/`：信封/事件/房间模型 + 校验（对齐 Android `protocol/`、`validation/`）+ 邀请链接解析；单测对齐 `listentogether/**` 10 个测试。
+- [x] M7.1 协议与纯逻辑 `listentogether/protocol/`：信封/事件/房间模型 + 校验（对齐 Android `protocol/`、`validation/`）+ 邀请链接解析；单测对齐 `listentogether/**` 10 个测试。
+  - 证据：2026-08-21 落地 `entry/src/main/ets/listentogether/` 共 **33 个源文件 / 9 个子目录**——`protocol/`（8：Channels、Track、EventModels、RoomModels、SessionModels、SocketEnvelope、HttpMessages、Json 编解码）、`validation/`（3：字段校验、建房校验、错误码）、`invite/`（5：邀请链接构造/解析、baseUrl 解析、身份）、`network/`（2：baseUrl 归一化、ws URL 推导）、`mapping/`（3：SongItem↔Track 双向映射、稳定键、streamUrl 策略）、`playback/`（6：目标曲目/位置推算/队列策略/可分享性/分享快照/取流策略）、`session/`（3：成员凭据、加入策略、角色）、`control/`（2：控制事件类型、播放命令快照）、`compat/`（1：事件兼容层）。全部为纯逻辑，**零平台 kit 依赖**（唯一例外 `invite/ListenTogetherIdentity.ets` 用 `util.generateRandomUUID`，故意单独隔离，让其余文件都能在本地 hypium 里直接 import）。
+  - 单测：新增 7 个测试文件 / **38 个 describe / 127 例**（ProtocolJson 14、BaseUrl 24、Validation 15、Mapping 19、Playback 18、EventCompatibility 22、Session 15）。与 Android 侧 11 个测试文件（共 115 个 `@Test`）的对齐关系**如实分解**：`ListenTogetherBaseUrlTest`(16)、`ListenTogetherValidationTest`(7)、`ListenTogetherEventCompatibilityTest`(32)、`ListenTogetherMembershipCredentialTest`(2) 整体对齐；`ListenTogetherControlHardeningTest`(17) 与 `ListenTogetherSessionPoliciesTest`(15) **部分对齐**——成员控制门禁、请求去重、位置 clamp/推算、转发控制的队列取舍、会话角色判定已覆盖，而 recent-event tracker、controller 本地回声抑制、room notice 优先级、listener 修复退避、心跳间隔这些 **SessionManager 运行时语义留给 M7.3**；`ListenTogetherApiTest`(2, runBlocking 真网) 属 M7.2；`ListenTogetherPlayerSyncPlannerTest`(19) 与 3 个 `SessionManager*Test`(5) 属 M7.3。
+  - 移植中逐条对 Kotlin 原文核过、并被单测钉住的易错语义：① Kotlin `?:` 只在 null 时回落，故**显式空串 `stableKey` 原样返回**而非回落到队列项（否则房间说「无曲目」时会静默播队列项）；② `getOrNull(currentIndex ?: -1)`——`currentIndex` 为 null **不得读 `[0]`**；③ `listenTogetherTargetSongItem` **绝不把 peer 下发的 `streamUrl`/`streamUrls` 带进 SongItem**（取流一律本端解析，防对端投毒）；④ 曲目同一性按「channelId + audioId + 子标识」判定，**B 站分 P 按 cid、YTM 按 playlistId 上下文区分**，与标题/封面/时长等元数据无关；⑤ `normalizedDirectStreamUrl` 先 trim 再**大小写无关**匹配 http/https 前缀，但返回值保留原始大小写。
+  - **未接线（有意为之）**：本里程碑只交付纯逻辑与编解码，**没有任何 UI 入口、没有 WebSocket、没有一次真实网络请求**；`SettingsDetailPage.ets:355-357` 的服务器地址占位未动。这批文件在生产代码里尚无引用者，因此 `entry@default` 构建**不会编译它们**（ArkTS 只编译可达文件），当前保障来自本地单测编译+执行。
+  - 验证：本地单测 **567/567 全绿**（549 基线 + 新增 Playback 18 例；`Tests run: 567, Failure: 0, Error: 0, Pass: 567, Ignore: 0`），47 个常驻套件注册；CodeLinter 报告与基线**逐字节一致**（24 warn + 1 suggestion + 0 error，`listentogether/` 下无任何文件出现）；`entry@default` debug 构建 BUILD SUCCESSFUL（18 s 465 ms，仅基线告警）；主线 HAP 手工签名安装至模拟器 `127.0.0.1:5559`，`aa force-stop` 后冷启动回归通过（截图确认首页「最近播放/每日推荐/我的歌单」正常渲染，底部四导航项在位，无白屏无崩溃）——纯逻辑里程碑本无设备面，此项只为守住「不回归主线」的底线。
+  - 自查发现并当场补齐的缺口：初版 WIP 里 `playback/ListenTogetherPlaybackTrack.ets`（6 个导出函数）与 `playback/ListenTogetherStreamPolicy.ets`（3 个）**是纯逻辑却零单测**，与本计划约定相悖（同类缺口 M6.5 在 `YtmSearchParser` 上也出现过一次）。逐个清点 33 个源文件的被测情况后新增 `ListenTogetherPlayback.test.ets` 18 例补齐；余下唯一未直测文件 `ListenTogetherIdentity.ets` 为 UUID 平台接缝，其纯逻辑半边 `listenTogetherNicknameFromUuid` 已由 `ListenTogetherInviteBuilder` 用例间接覆盖。
 - [ ] M7.2 WebSocket 客户端：`@ohos.net.webSocket`（对齐 `ListenTogetherWebSocketClient` onOpen/onMessage/onClosed + `ListenTogetherReconnectPolicy` 指数退避）；服务器地址设置项接线（占位在 `SettingsDetailPage.ets:355-357`）。
 - [ ] M7.3 会话与播放同步：`ListenTogetherSessionManager` 语义（加入/离开/主持权切换）+ 播放对齐（`ListenTogetherPlayerSyncPlanner`/`StateApplier`：position 校正、时钟偏移估计、阈值内不抖动）；与 PlayerManager 通过监听器集成，不依赖页面。
 - [ ] M7.4 UI：房间页/邀请分享；最小可用（不追求 Android 全部 58 文件规模）。
