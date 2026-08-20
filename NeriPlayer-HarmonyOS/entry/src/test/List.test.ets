@@ -37,6 +37,8 @@ import ytmFormatSelectorTest from './ets/test/YtmFormatSelector.test';
 import ytmUrlCacheTest from './ets/test/YtmUrlCache.test';
 import ytmClientHealthTrackerTest from './ets/test/YtmClientHealthTracker.test';
 import ytmClientChainTest from './ets/test/YtmClientChain.test';
+import ytmSearchParserTest from './ets/test/YtmSearchParser.test';
+import ytmLoopbackHttpTest from './ets/test/YtmLoopbackHttp.test';
 
 export default function testsuite(): void {
   lrcParserTest();
@@ -78,4 +80,6 @@ export default function testsuite(): void {
   ytmUrlCacheTest();
   ytmClientHealthTrackerTest();
   ytmClientChainTest();
+  ytmSearchParserTest();
+  ytmLoopbackHttpTest();
 }
