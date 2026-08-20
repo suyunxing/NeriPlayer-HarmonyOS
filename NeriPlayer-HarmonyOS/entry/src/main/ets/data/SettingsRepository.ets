@@ -42,6 +42,11 @@ export class SettingsRepository {
   // WebDAV credentials live in AssetStore; only endpoint metadata is persisted here.
   static readonly KEY_WEBDAV_SERVER_URL: string = 'np.webdav_server_url';
   static readonly KEY_WEBDAV_BASE_PATH: string = 'np.webdav_base_path';
+  // Explicit application HTTP proxy (mainland access to YouTube). Empty host
+  // / 0 port means direct connection. HttpClient also publishes this as the
+  // NetworkKit application proxy so media components can share the setting.
+  static readonly KEY_PROXY_HOST: string = 'np.proxy_host';
+  static readonly KEY_PROXY_PORT: string = 'np.proxy_port';
 
   private static defaults: [string, boolean | string | number][] = [
     [SettingsRepository.KEY_DISCLAIMER_ACCEPTED, false],
@@ -74,7 +79,9 @@ export class SettingsRepository {
     // uploads JSON until the compact writer lands (M5.2b record), reads all formats.
     [SettingsRepository.KEY_GITHUB_DATA_SAVER, false],
     [SettingsRepository.KEY_WEBDAV_SERVER_URL, ''],
-    [SettingsRepository.KEY_WEBDAV_BASE_PATH, '']
+    [SettingsRepository.KEY_WEBDAV_BASE_PATH, ''],
+    [SettingsRepository.KEY_PROXY_HOST, ''],
+    [SettingsRepository.KEY_PROXY_PORT, 0]
   ];
 
   private static initialized: boolean = false;

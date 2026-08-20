@@ -117,7 +117,8 @@ export class HttpStreamDownloader {
         method: http.RequestMethod.GET,
         header: header,
         connectTimeout: timeoutMs,
-        readTimeout: timeoutMs
+        readTimeout: timeoutMs,
+        usingProxy: HttpClient.usingProxyValue()
       }).then((code: number) => {
         responseCode = code;
         if (code >= 200 && code < 300) {

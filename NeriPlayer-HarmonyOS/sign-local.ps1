@@ -158,9 +158,14 @@ try {
     if ($SkipInstall) {
         Write-Host "Signed HAP: $signedHap (installation skipped)"
     } else {
-        & $hdc -t $Device install -r $signedHap
-        if ($LASTEXITCODE -ne 0) { throw "hdc install failed" }
-        Write-Host "Installed. Launch with: hdc shell aa start -a EntryAbility -b moe.ouom.neriplayer -m entry"
+        $installOutput = @(& $hdc -t $Device install -r $signedHap 2>&1)
+        $installExitCode = $LASTEXITCODE
+        $installText = $installOutput -join [Environment]::NewLine
+        $installOutput | ForEach-Object { Write-Host $_ }
+        if ($installExitCode -ne 0 -or $installText -match '(?m)^\[Fail\]') {
+            throw "hdc install failed for target $Device"
+        }
+        Write-Host "Installed. Launch with: hdc -t $Device shell aa start -a EntryAbility -b moe.ouom.neriplayer -m entry"
     }
 } finally {
     $KeystorePassword = $null
