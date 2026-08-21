@@ -167,6 +167,17 @@ export struct NowPlayingPage {
             .fontColor('#FFFFFF')
             .layoutWeight(1)
             .textAlign(TextAlign.Center)
+          Button() {
+            Image($r('app.media.ic_group_24'))
+              .width(20)
+              .height(20)
+              .fillColor('#FFFFFF')
+          }
+          .width(40)
+          .height(40)
+          .type(ButtonType.Circle)
+          .backgroundColor(Theme.onSurfaceOverlay(Theme.isDark()))
+          .onClick(() => Router.push(Router.LISTEN_TOGETHER))
           Button('⋯')
             .width(40)
             .height(40)

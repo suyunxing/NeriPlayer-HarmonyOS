@@ -698,12 +698,14 @@ export class ListenTogetherSessionManager implements ListenTogetherPlaybackDeleg
 
   private onSocketOpen(): void {
     if (!this.reconnectEnabled || this.sessionState.roomId === null) {
+      Logger.info('LT socket open ignored (disabled or no room), disconnecting');
       this.disconnectWebSocket();
       return;
     }
     this.reconnectAttempt = 0;
     this.lastSocketMessageAtMs = Date.now();
     this.sessionState.connectionState = ListenTogetherConnectionState.CONNECTED;
+    Logger.info(`LT socket open -> CONNECTED (room ${this.sessionState.roomId})`);
     this.sessionState.lastError = null;
     this.startTimers();
     this.refreshRoomState().catch((error: Object): void => Logger.warn(errorMessage(error)));
@@ -841,6 +843,7 @@ export class ListenTogetherSessionManager implements ListenTogetherPlaybackDeleg
 
   private onSocketClosed(code: number, reason: string): void {
     this.stopTimers();
+    Logger.info(`LT socket closed: code=${code} reason=${reason}`);
     if (!this.reconnectEnabled) {
       return;
     }
@@ -857,6 +860,7 @@ export class ListenTogetherSessionManager implements ListenTogetherPlaybackDeleg
     this.stopTimers();
     this.sessionState.connectionState = ListenTogetherConnectionState.DISCONNECTED;
     this.sessionState.lastError = message;
+    Logger.warn(`LT socket failure: ${message}`);
     this.publishStates();
     if (isTerminalListenTogetherReconnectError(message)) {
       this.closeRoomLocally(message);
@@ -1497,6 +1501,9 @@ export class ListenTogetherSessionManager implements ListenTogetherPlaybackDeleg
   private publishStates(): void {
     AppStorage.setOrCreate(SESSION_STATE_KEY, JSON.stringify(this.sessionState));
     AppStorage.setOrCreate(ROOM_STATE_KEY, this.roomState === null ? '' : JSON.stringify(this.roomState));
+    Logger.info(
+      `LT publish conn=${this.sessionState.connectionState} room=${this.sessionState.roomId ?? '-'}`
+    );
   }
 
   private localPlaybackSnapshot(): ListenTogetherLocalPlaybackSnapshot {

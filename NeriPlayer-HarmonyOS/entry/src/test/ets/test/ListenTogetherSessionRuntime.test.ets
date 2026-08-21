@@ -13,6 +13,10 @@
  * files document, with every truncation case pinned explicitly.
  */
 import { describe, it, expect } from '@ohos/hypium';
+import {
+  ListenTogetherConnectionState,
+  listenTogetherSessionStateFromJson
+} from '../../../main/ets/listentogether/protocol/ListenTogetherSessionModels';
 import { ListenTogetherServerClockOffset } from '../../../main/ets/listentogether/session/ListenTogetherServerClockOffset';
 import {
   canTriggerListenTogetherMembershipRecovery,
@@ -449,6 +453,30 @@ export default function listenTogetherSessionRuntimeTest() {
       const second = gate.begin();
       expect(gate.isCurrent(first)).assertFalse();
       expect(gate.isCurrent(second)).assertTrue();
+    });
+  });
+
+  describe('ListenTogetherSessionStateJson', () => {
+    it('reads back what the manager publishes to AppStorage', 0, () => {
+      const state = listenTogetherSessionStateFromJson(
+        '{"baseUrl":"https://worker.example","roomId":"ABC234","nickname":"Neri",'
+        + '"role":"controller","token":"t","connectionState":"connected",'
+        + '"lastError":null,"roomNotice":null}');
+      expect(state !== null).assertTrue();
+      expect(state?.roomId).assertEqual('ABC234');
+      expect(state?.connectionState).assertEqual(ListenTogetherConnectionState.CONNECTED);
+      expect(state?.lastError).assertNull();
+    });
+
+    it('falls back to disconnected for unknown connection values', 0, () => {
+      const state = listenTogetherSessionStateFromJson('{"roomId":"ABC234","connectionState":"half-open"}');
+      expect(state?.connectionState).assertEqual(ListenTogetherConnectionState.DISCONNECTED);
+      expect(state?.roomId).assertEqual('ABC234');
+    });
+
+    it('rejects malformed payloads instead of throwing', 0, () => {
+      expect(listenTogetherSessionStateFromJson('not json')).assertNull();
+      expect(listenTogetherSessionStateFromJson('')).assertNull();
     });
   });
 }

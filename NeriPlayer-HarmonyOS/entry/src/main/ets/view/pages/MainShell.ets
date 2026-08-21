@@ -11,6 +11,7 @@ import { NeteasePlaylistPage } from './NeteasePlaylistPage';
 import { BiliFavPage } from './BiliFavPage';
 import { DebugPage } from './DebugPage';
 import { DownloadsPage } from './DownloadsPage';
+import { ListenTogetherPage } from './ListenTogetherPage';
 import { RecentPage } from './RecentPage';
 import { StatsPage } from './StatsPage';
 import { SettingsDetailPage } from './SettingsDetailPage';
@@ -68,6 +69,8 @@ export struct MainShell {
       DebugPage()
     } else if (this.routeName === Router.DOWNLOADS) {
       DownloadsPage()
+    } else if (this.routeName === Router.LISTEN_TOGETHER) {
+      ListenTogetherPage()
     } else {
       Column() {
         if (this.currentSongJson.length > 0) {
