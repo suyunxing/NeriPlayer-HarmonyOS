@@ -2,8 +2,10 @@ import { promptAction } from '@kit.ArkUI';
 import { NeteaseApi } from '../../network/NeteaseApi';
 import { BiliApi } from '../../network/BiliApi';
 import { YouTubeMusicApi } from '../../network/YouTubeMusicApi';
+import { YtmStreamResolver } from '../../network/ytm/YtmStreamResolver';
 import { PlaybackStatsRepository } from '../../data/PlaybackStatsRepository';
 import { SettingsRepository } from '../../data/SettingsRepository';
+import { HttpClient } from '../../network/HttpClient';
 import { UsageRepository } from '../../data/UsageRepository';
 import { SearchHistoryRepository } from '../../data/SearchHistoryRepository';
 import { DownloadEngine } from '../../download/DownloadEngine';
@@ -15,6 +17,37 @@ import { Theme } from '../Theme';
 @Component
 export struct DebugPage {
   @State result: string = '';
+  @State proxyHost: string = '';
+  @State proxyPort: string = '';
+
+  aboutToAppear(): void {
+    this.proxyHost = SettingsRepository.getString(SettingsRepository.KEY_PROXY_HOST, '');
+    const port = SettingsRepository.getNumber(SettingsRepository.KEY_PROXY_PORT, 0);
+    this.proxyPort = port > 0 ? `${port}` : '';
+  }
+
+  private applyProxy(): void {
+    const host = this.proxyHost.trim();
+    const port = Number(this.proxyPort.trim());
+    const valid = host.length > 0 && Number.isInteger(port) && port > 0 && port <= 65535;
+    if (!valid) {
+      this.result = '代理配置无效：需要主机名与 1-65535 的端口';
+      return;
+    }
+    SettingsRepository.setString(SettingsRepository.KEY_PROXY_HOST, host);
+    SettingsRepository.setNumber(SettingsRepository.KEY_PROXY_PORT, port);
+    HttpClient.applyConfiguredProxy();
+    this.result = `已应用 HTTP 代理 ${host}:${port}（下次请求与媒体拉流生效）`;
+  }
+
+  private clearProxy(): void {
+    SettingsRepository.setString(SettingsRepository.KEY_PROXY_HOST, '');
+    SettingsRepository.setNumber(SettingsRepository.KEY_PROXY_PORT, 0);
+    HttpClient.applyConfiguredProxy();
+    this.proxyHost = '';
+    this.proxyPort = '';
+    this.result = '已清除 HTTP 代理（直连）';
+  }
 
   private async testNetease(): Promise<void> {
     try {
@@ -43,6 +76,30 @@ export struct DebugPage {
     } catch (error) {
       const e = error as Error;
       this.result = `YouTube Music 搜索失败：${e.message}`;
+    }
+  }
+
+  /**
+   * M6.5 stream probe: search -> IOS direct resolution. Only reports the
+   * videoId, URL length and host verdict — googlevideo URLs carry auth
+   * tokens and must never be rendered.
+   */
+  private async probeYtmStream(): Promise<void> {
+    try {
+      const items = await YouTubeMusicApi.search('Linkin Park Numb', 5);
+      if (items.length === 0) {
+        this.result = 'YTM 取流探针：搜索返回 0 条结果';
+        return;
+      }
+      const videoId = items[0].audioId;
+      const url = await YtmStreamResolver.resolveStreamUrl(videoId, 'high');
+      const hostOk = url.includes('googlevideo.com');
+      this.result = `YTM 取流探针：搜索 ${items.length} 条；${videoId} 取流 OK`
+        + `（直链 ${url.length} 字符，googlevideo=${hostOk}）`
+        + `${hostOk ? '' : '，域名异常'}`;
+    } catch (error) {
+      const e = error as Error;
+      this.result = `YTM 取流探针失败：${e.message}`;
     }
   }
 
@@ -128,12 +185,45 @@ export struct DebugPage {
           this.testButton('网易云 API 测试', () => this.testNetease())
           this.testButton('Bilibili API 测试', () => this.testBili())
           this.testButton('YouTube Music API 测试', () => this.testYoutube())
+          this.testButton('YTM 取流探针', () => this.probeYtmStream())
           this.testButton('播放统计', () => this.showStats())
           this.testButton('清空继续收听', () => this.clearUsage())
           this.testButton('清空搜索历史', () => this.clearSearchHistory())
           this.testButton('清空下载任务', () => this.clearDownloads())
           this.testButton('下载管线探针', () => this.probeDownloads())
           this.testButton('模拟崩溃 → 安全模式', () => this.simulateCrash())
+
+          Text('HTTP 代理（模拟器填宿主机 10.0.2.2:7897；同时用于接口请求与媒体拉流）')
+            .fontSize(12)
+            .fontColor(Theme.textSecondary(Theme.isDark()))
+            .width('100%')
+          TextInput({ placeholder: '代理主机（如 10.0.2.2）', text: this.proxyHost })
+            .height(40)
+            .fontSize(13)
+            .onChange((value: string) => {
+              this.proxyHost = value;
+            })
+          TextInput({ placeholder: '代理端口（如 7897）', text: this.proxyPort })
+            .height(40)
+            .fontSize(13)
+            .onChange((value: string) => {
+              this.proxyPort = value;
+            })
+          Row({ space: 10 }) {
+            Button('应用代理')
+              .layoutWeight(1)
+              .height(40)
+              .backgroundColor(Theme.primary(Theme.isDark()))
+              .onClick(() => this.applyProxy())
+            Button('清除')
+              .layoutWeight(1)
+              .height(40)
+              .backgroundColor(Theme.surface(Theme.isDark()))
+              .fontColor(Theme.textPrimary(Theme.isDark()))
+              .onClick(() => this.clearProxy())
+          }
+          .width('100%')
+          .margin({ bottom: 8 })
 
           Text('USB 独占播放 / 下载恢复 / 一起听 / 同步 仍为待移植模块，见 PORTING.md')
             .fontSize(12)

@@ -198,12 +198,12 @@ export struct NowPlayingPage {
                   .objectFit(ImageFit.Cover)
                   .shadow({ radius: 24, color: '#66000000', offsetY: 8 })
               } else {
-                Text('♫')
-                  .fontSize(96)
-                  .fontColor(Theme.primary(Theme.isDark()))
+                Image($r('app.media.ic_music_note_24'))
                   .width('78%')
                   .aspectRatio(1)
-                  .textAlign(TextAlign.Center)
+                  .objectFit(ImageFit.Contain)
+                  .padding({ left: 32, right: 32, top: 32, bottom: 32 })
+                  .fillColor(Theme.primary(Theme.isDark()))
                   .backgroundColor(Theme.onSurfaceOverlay(Theme.isDark()))
                   .borderRadius(22)
               }
@@ -327,15 +327,24 @@ export struct NowPlayingPage {
               .backgroundColor('#33FFFFFF')
               .borderRadius(16)
               .onClick(() => this.cycleSpeed())
-            Button('🌙 ' + this.sleepButtonText())
-              .height(32)
-              .fontSize(12)
-              .fontColor('#FFFFFF')
-              .backgroundColor('#33FFFFFF')
-              .borderRadius(16)
-              .onClick(() => {
-                this.showSleep = true;
-              })
+            Button() {
+              Row({ space: 6 }) {
+                Image($r('app.media.ic_bedtime_24'))
+                  .width(14)
+                  .height(14)
+                  .fillColor('#FFFFFF')
+                Text(this.sleepButtonText())
+                  .fontSize(12)
+                  .fontColor('#FFFFFF')
+              }
+            }
+            .height(32)
+            .padding({ left: 12, right: 12 })
+            .backgroundColor('#33FFFFFF')
+            .borderRadius(16)
+            .onClick(() => {
+              this.showSleep = true;
+            })
             Button('歌词')
               .height(32)
               .fontSize(12)
@@ -345,15 +354,19 @@ export struct NowPlayingPage {
               .onClick(() => {
                 this.showLyrics = !this.showLyrics;
               })
-            Button('📃')
-              .height(32)
-              .fontSize(12)
-              .fontColor('#FFFFFF')
-              .backgroundColor('#33FFFFFF')
-              .borderRadius(16)
-              .onClick(() => {
-                this.showQueue = true;
-              })
+            Button() {
+              Image($r('app.media.ic_queue_music_24'))
+                .width(18)
+                .height(18)
+                .fillColor('#FFFFFF')
+            }
+            .width(36)
+            .height(32)
+            .backgroundColor('#33FFFFFF')
+            .borderRadius(16)
+            .onClick(() => {
+              this.showQueue = true;
+            })
           }
           .width('100%')
           .justifyContent(FlexAlign.Center)

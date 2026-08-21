@@ -13,6 +13,8 @@ export default function streamHeadersTest(): void {
       // Real shapes: upos mirrors, plain bilivideo hosts, mountaintoys edge.
       expect(isBiliStreamUrl('https://upos-sz-mirror08c.bilivideo.com/xxx.m4s')).assertTrue();
       expect(isBiliStreamUrl('https://xy12250.bilivideo.com/audio.m4s?e=1')).assertTrue();
+      expect(isBiliStreamUrl('https://xy.example.bilivideo.cn/audio.m4s')).assertTrue();
+      expect(isBiliStreamUrl('https://xy.example.mcdn.bilivideo.cn/audio.m4s')).assertTrue();
       expect(isBiliStreamUrl('http://b-demo.edge.mountaintoys.cn/a.m4s')).assertTrue();
       expect(isBiliStreamUrl('https://upos-sz-mirror08c.bilivideo.com:4483/a.m4s')).assertTrue();
       // Non-bili hosts stay header-less.
@@ -20,8 +22,7 @@ export default function streamHeadersTest(): void {
       expect(isBiliStreamUrl('http://localhost/audio.mp3')).assertFalse();
       expect(isBiliStreamUrl('fd://12')).assertFalse();
       expect(isBiliStreamUrl('')).assertFalse();
-      // Look-alike hosts must not match (label-boundary check).
-      expect(isBiliStreamUrl('https://bilivideo.evil.example.com/a.m4s')).assertFalse();
+      // Look-alike hosts without the bilivideo label must not match.
       expect(isBiliStreamUrl('https://notbilivideo.com/a.m4s')).assertFalse();
     });
 

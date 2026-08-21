@@ -16,6 +16,7 @@ import { BiliFavFolderSummary } from '../../network/BiliFavParser';
 import { BiliCookieRepository } from '../../data/auth/BiliCookieRepository';
 import { Router } from '../Router';
 import { Theme } from '../Theme';
+import { iconForLegacy } from '../../util/IconCatalog';
 import { SettingRow, EmptyState, SongCountChip } from '../components/Ui';
 import { SETTING_ACCOUNTS } from './SettingsPage';
 
@@ -238,12 +239,11 @@ export struct LibraryPage {
           Column({ space: 1 }) {
             ForEach(this.playlists, (playlist: Playlist) => {
               Row({ space: 12 }) {
-                Text('♪')
-                  .fontSize(20)
-                  .width(44)
-                  .height(44)
-                  .textAlign(TextAlign.Center)
-                  .fontColor(Theme.primary(Theme.isDark()))
+                Image($r('app.media.ic_library_music_24'))
+                  .width(22)
+                  .height(22)
+                  .fillColor(Theme.primary(Theme.isDark()))
+                  .margin({ left: 11, right: 11, top: 11, bottom: 11 })
                   .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
                   .borderRadius(8)
                 Column({ space: 2 }) {
@@ -259,9 +259,10 @@ export struct LibraryPage {
                 }
                 .layoutWeight(1)
                 .alignItems(HorizontalAlign.Start)
-                Text('›')
-                  .fontSize(18)
-                  .fontColor(Theme.textDisabled(Theme.isDark()))
+                Image($r('app.media.ic_chevron_right_24'))
+                  .width(18)
+                  .height(18)
+                  .fillColor(Theme.textDisabled(Theme.isDark()))
               }
               .width('100%')
               .padding({ left: 14, right: 14, top: 10, bottom: 10 })
@@ -323,12 +324,11 @@ export struct LibraryPage {
                       .objectFit(ImageFit.Cover)
                       .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
                   } else {
-                    Text('♪')
-                      .fontSize(20)
-                      .width(44)
-                      .height(44)
-                      .textAlign(TextAlign.Center)
-                      .fontColor(Theme.primary(Theme.isDark()))
+                    Image($r('app.media.ic_music_note_24'))
+                      .width(22)
+                      .height(22)
+                      .fillColor(Theme.primary(Theme.isDark()))
+                      .margin({ left: 11, right: 11, top: 11, bottom: 11 })
                       .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
                       .borderRadius(8)
                   }
@@ -345,9 +345,10 @@ export struct LibraryPage {
                   }
                   .layoutWeight(1)
                   .alignItems(HorizontalAlign.Start)
-                  Text('›')
-                    .fontSize(18)
-                    .fontColor(Theme.textDisabled(Theme.isDark()))
+                  Image($r('app.media.ic_chevron_right_24'))
+                    .width(18)
+                    .height(18)
+                    .fillColor(Theme.textDisabled(Theme.isDark()))
                 }
                 .width('100%')
                 .padding({ left: 14, right: 14, top: 10, bottom: 10 })
@@ -410,11 +411,10 @@ export struct LibraryPage {
                       .objectFit(ImageFit.Cover)
                       .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
                   } else {
-                    Text('📺')
-                      .fontSize(18)
-                      .width(44)
-                      .height(44)
-                      .textAlign(TextAlign.Center)
+                    Image($r('app.media.ic_bilibili'))
+                      .width(24)
+                      .height(24)
+                      .margin({ left: 10, right: 10, top: 10, bottom: 10 })
                       .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
                       .borderRadius(8)
                   }
@@ -431,9 +431,10 @@ export struct LibraryPage {
                   }
                   .layoutWeight(1)
                   .alignItems(HorizontalAlign.Start)
-                  Text('›')
-                    .fontSize(18)
-                    .fontColor(Theme.textDisabled(Theme.isDark()))
+                  Image($r('app.media.ic_chevron_right_24'))
+                    .width(18)
+                    .height(18)
+                    .fillColor(Theme.textDisabled(Theme.isDark()))
                 }
                 .width('100%')
                 .padding({ left: 14, right: 14, top: 10, bottom: 10 })
@@ -581,8 +582,10 @@ struct StatCard {
 
   build() {
     Column({ space: 4 }) {
-      Text(this.icon)
-        .fontSize(22)
+      Image(iconForLegacy(this.icon, $r('app.media.ic_music_note_24')))
+        .width(22)
+        .height(22)
+        .fillColor(Theme.primary(Theme.isDark()))
       Text(this.value)
         .fontSize(14)
         .fontWeight(FontWeight.Bold)

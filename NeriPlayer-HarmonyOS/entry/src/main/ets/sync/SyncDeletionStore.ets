@@ -14,9 +14,17 @@ import {
   SyncPlaylistSongDeletion,
   SyncCausalToken
 } from './SyncModels';
+import { limitDeletions } from './PlaylistDeletionPolicy';
 import { parseJsonText, escapeJsonString, JsonValue } from './SyncDataJsonCodec';
 
 export const MAX_RECENT_PLAY_DELETIONS: number = 500;
+
+/** Applies the playlist-song tombstone merge and storage capacity policy. */
+export function normalizePlaylistSongDeletions(
+  deletions: SyncPlaylistSongDeletion[]
+): SyncPlaylistSongDeletion[] {
+  return limitDeletions(deletions);
+}
 
 type JsonMap = Map<string, JsonValue>;
 
@@ -240,6 +248,9 @@ export function normalizeRecentPlayDeletions(
 export class SyncDeletionStore {
   private static readonly STATE_KEY: string = 'sync_deletion_state';
   private static readonly DEVICE_ID_KEY: string = 'sync_device_id';
+  private static readonly CAUSAL_COUNTER_KEY: string = 'sync_causal_counter';
+  private static causalCounterTail: Promise<void> = Promise.resolve();
+  private static deviceIdPromise: Promise<string> | null = null;
 
   static parseState(json: string): SyncDeletionState | null {
     return SyncDeletionState.fromJsonText(json);
@@ -252,13 +263,14 @@ export class SyncDeletionStore {
       SyncDeletionStore.parseState
     );
     state.recentPlayDeletions = normalizeRecentPlayDeletions(state.recentPlayDeletions);
+    state.playlistSongDeletions = normalizePlaylistSongDeletions(state.playlistSongDeletions);
     return state;
   }
 
   static async save(state: SyncDeletionState): Promise<void> {
     const normalized = new SyncDeletionState(
       normalizeRecentPlayDeletions(state.recentPlayDeletions),
-      state.playlistSongDeletions,
+      normalizePlaylistSongDeletions(state.playlistSongDeletions),
       state.deviceId
     );
     await SchemaStore.save(
@@ -268,8 +280,47 @@ export class SyncDeletionStore {
     );
   }
 
+  static async recordRecentPlayDeletion(deletion: SyncRecentPlayDeletion): Promise<void> {
+    const state = await SyncDeletionStore.load();
+    state.recentPlayDeletions.push(deletion);
+    await SyncDeletionStore.save(state);
+  }
+
+  static async clearRecentPlayDeletion(stableKey: string): Promise<void> {
+    const state = await SyncDeletionStore.load();
+    const filtered = state.recentPlayDeletions.filter((item: SyncRecentPlayDeletion): boolean =>
+      item.stableKey() !== stableKey);
+    if (filtered.length !== state.recentPlayDeletions.length) {
+      state.recentPlayDeletions = filtered;
+      await SyncDeletionStore.save(state);
+    }
+  }
+
+  static async recordPlaylistSongDeletion(deletion: SyncPlaylistSongDeletion): Promise<void> {
+    const state = await SyncDeletionStore.load();
+    state.playlistSongDeletions.push(deletion);
+    await SyncDeletionStore.save(state);
+  }
+
+  static async clearPlaylistSongDeletion(playlistId: number, songStableKey: string): Promise<void> {
+    const state = await SyncDeletionStore.load();
+    const filtered = state.playlistSongDeletions.filter((item: SyncPlaylistSongDeletion): boolean =>
+      !(item.playlistId === playlistId && item.identity().stableKey() === songStableKey));
+    if (filtered.length !== state.playlistSongDeletions.length) {
+      state.playlistSongDeletions = filtered;
+      await SyncDeletionStore.save(state);
+    }
+  }
+
   /** Stable UUID per install; the generator is injected for deterministic tests. */
   static async getOrCreateDeviceId(generate: () => string): Promise<string> {
+    if (SyncDeletionStore.deviceIdPromise === null) {
+      SyncDeletionStore.deviceIdPromise = SyncDeletionStore.loadOrCreateDeviceId(generate);
+    }
+    return SyncDeletionStore.deviceIdPromise;
+  }
+
+  private static async loadOrCreateDeviceId(generate: () => string): Promise<string> {
     const existing = await AppPreferences.getString(SyncDeletionStore.DEVICE_ID_KEY, '');
     if (existing.length > 0) {
       return existing;
@@ -277,5 +328,33 @@ export class SyncDeletionStore {
     const created = generate();
     await AppPreferences.putString(SyncDeletionStore.DEVICE_ID_KEY, created);
     return created;
+  }
+
+  /** Reserves and persists a non-repeating causal-token range before use. */
+  static async nextCausalTokens(count: number, generate: () => string): Promise<SyncCausalToken[]> {
+    if (count <= 0) {
+      return [];
+    }
+    let release = (): void => {};
+    const gate = new Promise<void>((resolve: () => void): void => {
+      release = resolve;
+    });
+    const previous = SyncDeletionStore.causalCounterTail;
+    SyncDeletionStore.causalCounterTail = gate;
+    await previous;
+    try {
+      const deviceId = await SyncDeletionStore.getOrCreateDeviceId(generate);
+      const current = Math.max(await AppPreferences.getNumber(
+        SyncDeletionStore.CAUSAL_COUNTER_KEY, 0), 0);
+      const next = current + count;
+      await AppPreferences.putNumber(SyncDeletionStore.CAUSAL_COUNTER_KEY, next);
+      const tokens: SyncCausalToken[] = [];
+      for (let index = 0; index < count; index++) {
+        tokens.push(new SyncCausalToken(deviceId, current + index + 1));
+      }
+      return tokens;
+    } finally {
+      release();
+    }
   }
 }

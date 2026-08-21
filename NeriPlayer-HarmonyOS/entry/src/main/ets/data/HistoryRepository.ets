@@ -1,7 +1,10 @@
-import { AppPreferences } from './AppPreferences';
 import { SongItem } from '../model/SongItem';
 import { stableKeyOf } from '../model/SongIdentity';
 import { SchemaStore } from './schema/SchemaStore';
+import { util } from '@kit.ArkTS';
+import { SyncDeletionStore } from '../sync/SyncDeletionStore';
+import { SyncRecentPlayDeletion, songIdKeyText, syncSongIdentity } from '../sync/SyncModels';
+import { syncSongFromSongItem } from '../sync/SyncSongConvert';
 
 /**
  * Recent-play history, mirroring PlayHistoryRepository.
@@ -36,9 +39,32 @@ export class HistoryRepository {
     }
     const json = JSON.stringify(filtered.map((item: SongItem) => SongItem.fromJson(item.toJson())));
     await SchemaStore.save(HistoryRepository.KEY, json, (value: string) => value);
+    const syncSong = syncSongFromSongItem(song);
+    if (syncSong !== null) {
+      await SyncDeletionStore.clearRecentPlayDeletion(syncSongIdentity(syncSong).stableKey());
+    }
   }
 
   static async clear(): Promise<void> {
-    await AppPreferences.putString(HistoryRepository.KEY, '[]');
+    const recent = await HistoryRepository.getRecent();
+    const deviceId = await SyncDeletionStore.getOrCreateDeviceId(
+      (): string => util.generateRandomUUID(false));
+    const deletedAt = Date.now();
+    for (const song of recent) {
+      const syncSong = syncSongFromSongItem(song);
+      if (syncSong !== null) {
+        await SyncDeletionStore.recordRecentPlayDeletion(new SyncRecentPlayDeletion(
+          syncSong.id, syncSong.album, syncSong.mediaUri, deletedAt, deviceId,
+          songIdKeyText(syncSong)
+        ));
+      }
+    }
+    await HistoryRepository.replaceFromSync([]);
+  }
+
+  static async replaceFromSync(songs: SongItem[]): Promise<void> {
+    const limited = songs.slice(0, HistoryRepository.LIMIT);
+    const json = JSON.stringify(limited.map((item: SongItem) => SongItem.fromJson(item.toJson())));
+    await SchemaStore.save(HistoryRepository.KEY, json, (value: string) => value);
   }
 }
