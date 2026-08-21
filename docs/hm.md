@@ -394,6 +394,8 @@ $hdc = 'D:\HarmonyOS\Tools\command-line-tools\sdk\default\openharmony\toolchains
 & $hdc shell aa start -a EntryAbility -b moe.ouom.neriplayer -m entry
 ```
 
+**双实例（2026-08-22 M7.5 验证）**：`Emulator.exe -start 'Mate X7'` 可再起第二个实例（foldable 与 phone 共享 phone_all_x86 镜像），hdc 端口自动分配（实测 5561，需 `hdc tconn 127.0.0.1:5561` 探测）；一份 HAP 用双 UDID profile 签名即可双端安装：`sign-local.ps1 -Device <A> -DeviceIds <udidA>,<udidB> -HvigorwPath ...`（`-DeviceIds` 必传，`-Device` 只是安装目标）。devecocli 的 ui 子命令在多设备下用 `--device 127.0.0.1:<port>` 区分。guest 无 root/su：`ifconfig eth0 down`、`kill -19` 均 Permission denied，无法在 guest 内断网/冻结进程。
+
 不要提交签名材料、调试 Profile、HAP、设备标识或本地日志。
 
 ### 7.4 2026-08-13 可重复验证记录
