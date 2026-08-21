@@ -83,6 +83,19 @@ hdc -t 127.0.0.1:5555 shell "aa test -b moe.ouom.neriplayer -m entry_test -s uni
 
 **平台坑**：26 Studio 的 hvigor 不能构建 6.1.1(24) 工程（错误 00303031），构建必须用 CLT 的 hvigorw.bat；Git Bash 下调 hdc 设备路径加 `MSYS_NO_PATHCONV=1`，`hdc file recv` 本地目标用相对路径；**`aa test` 的 runner 参数 `/ets/testrunner/OpenHarmonyTestRunner` 同样会被 MSYS 改写成 Windows 路径**（2026-08-21 实证：报 `Cannot find module '…entry_testC:/Program Files/Git/ets/testrunner/…'`、ResultCode -1 App died，非代码缺陷），整条命令必须前置 `MSYS_NO_PATHCONV=1`；`hdc install` 的本地 HAP 路径给绝对路径会被拼到 cwd 之后（`…NeriPlayer-HarmonyOS\D:/…`）而 Fail，须用相对路径；读崩溃日志看 `devecocli log --crash` 的**头部**（`Error message:` 在前，尾部只有 native 栈帧）。.ps1 禁非 ASCII 字符（GBK 解析会静默吞代码行）。静态语法分析可用 `deveco-mcp` 的 `check` 工具（PROJECT_PATH 已指向主力工程）。
 
+**平台坑（M6–M7 实测补记，2026-08-21）**：
+- `aa test` 的 MSYS 改写还有第二种解法，本轮实证有效：**把整条远端命令包成单个引号参数**——`hdc.exe -t 127.0.0.1:5559 shell "aa test -b <bundle> -m entry_test -s unittest /ets/testrunner/OpenHarmonyTestRunner -s class <DescribeName> -s timeout 120000"`。MSYS 只改写「看起来像独立路径」的 argv 元素，整条以 `aa` 开头的字符串不符合该形状。注意 `//ets/...` 这种写法**不管用**（双斜杠不会被折叠成一条，改走 cppcrash：`SIGSEGV@0xa2` in `panda::JSNApi::GetExportObject`）。ohosTest 的模块名取自 `entry/src/ohosTest/module.json5`，本工程为 `entry_test`。
+- `hdc.exe` 不在 CLT 的 `bin/` 里，在 `Tools/command-line-tools/sdk/default/openharmony/toolchains/hdc.exe`。
+- `codelinter.bat` **只要有发现就 exit 1**，退出码不能当成败判据；须数输出 JSON 里的 `"severity"` 出现次数（本工程基线：24 warn + 1 suggestion + 0 error）。
+- `deveco-mcp` 的 `check` 在 **worktree 里不可用**（它的 PROJECT_PATH 固定指向主 checkout，检的不是你改的文件）；worktree 内的编译保障只能来自 hvigor 构建。
+- hypium 1.0.28 **没有 `assertThrowError`**；可用的是 `assertEqual/assertTrue/assertFalse/assertNull/assertUndefined/assertLargerOrEqual`，测「应当抛出」得自己写 `throwsFor()` 辅助函数。
+- **真机行为探针技巧**：hypium 断言失败信息会原样打印 actualValue（`expect <实际> equals <期望>`），所以想知道平台真实行为时，可临时把观测结果拼成字符串再 `expect(observed).assertEqual('PROBE')`，一次运行就能把真机序列/时延打出来，比翻 hilog 快。M7.2 的 divergence 3 就是这样被推翻的。
+- `devecocli ui dircfling up` **不滚动**设置页的 `Scroll` 容器（两次调用前后 layout dump 字节相同）；改用 `devecocli ui swipe 660 2100 660 700 --speed 3000`。
+- `devecocli ui layout` 返回的是**真机坐标**（本模拟器 1320×2856），比拿截图估算可靠；而截图呈现给模型时被缩到 924×2000，所以从截图读到的坐标要 **×1.43** 才能喂给 `devecocli ui click`。
+- `devecocli log --level E` 在目标进程**已退出**时直接失败（`No running process found for bundle …`），这种情况只能用 `--crash`。
+- **ArkUI `TextInput({ text: this.someState })` 会把程序化赋值回灌一次 `onChange`**：在 `onChange` 里无条件重置别的状态会把自己刚设的值抹掉。守卫写法是 `if (value === this.someState) return;`（真实按键/删除产生的值必然与当前状态不同）。此坑静态构建与本地单测都发现不了，只有真机点得出来。
+
+
 ---
 
 ## 3. 两侧基线事实（2026-08-16 审计结论，避免重复调研）
@@ -338,8 +351,20 @@ eport-m61-recheck.json）：IOS 直出窗口仍开——fbvvS8e1KgI playability 
   - **未接线（有意为之）**：本里程碑只交付纯逻辑与编解码，**没有任何 UI 入口、没有 WebSocket、没有一次真实网络请求**；`SettingsDetailPage.ets:355-357` 的服务器地址占位未动。这批文件在生产代码里尚无引用者，因此 `entry@default` 构建**不会编译它们**（ArkTS 只编译可达文件），当前保障来自本地单测编译+执行。
   - 验证：本地单测 **567/567 全绿**（549 基线 + 新增 Playback 18 例；`Tests run: 567, Failure: 0, Error: 0, Pass: 567, Ignore: 0`），47 个常驻套件注册；CodeLinter 报告与基线**逐字节一致**（24 warn + 1 suggestion + 0 error，`listentogether/` 下无任何文件出现）；`entry@default` debug 构建 BUILD SUCCESSFUL（18 s 465 ms，仅基线告警）；主线 HAP 手工签名安装至模拟器 `127.0.0.1:5559`，`aa force-stop` 后冷启动回归通过（截图确认首页「最近播放/每日推荐/我的歌单」正常渲染，底部四导航项在位，无白屏无崩溃）——纯逻辑里程碑本无设备面，此项只为守住「不回归主线」的底线。
   - 自查发现并当场补齐的缺口：初版 WIP 里 `playback/ListenTogetherPlaybackTrack.ets`（6 个导出函数）与 `playback/ListenTogetherStreamPolicy.ets`（3 个）**是纯逻辑却零单测**，与本计划约定相悖（同类缺口 M6.5 在 `YtmSearchParser` 上也出现过一次）。逐个清点 33 个源文件的被测情况后新增 `ListenTogetherPlayback.test.ets` 18 例补齐；余下唯一未直测文件 `ListenTogetherIdentity.ets` 为 UUID 平台接缝，其纯逻辑半边 `listenTogetherNicknameFromUuid` 已由 `ListenTogetherInviteBuilder` 用例间接覆盖。
-- [ ] M7.2 WebSocket 客户端：`@ohos.net.webSocket`（对齐 `ListenTogetherWebSocketClient` onOpen/onMessage/onClosed + `ListenTogetherReconnectPolicy` 指数退避）；服务器地址设置项接线（占位在 `SettingsDetailPage.ets:355-357`）。
+- [x] M7.2 WebSocket 客户端：`@ohos.net.webSocket`（对齐 `ListenTogetherWebSocketClient` onOpen/onMessage/onClosed + `ListenTogetherReconnectPolicy` 指数退避）；服务器地址设置项接线（原占位在 `SettingsDetailPage.ets:355-357`，现已是真实对话框，行入口在 `view/pages/SettingsDetailPage.ets:1116-1121`）。
+  - 证据：2026-08-21 落地 `network/` 新增 5 个文件——`ListenTogetherWebSocketClient.ets`（唯一依赖 `@kit.NetworkKit` 的文件）、`ListenTogetherWsFraming.ets`（纯帧/上限逻辑，拆出来才能被本地 hypium import）、`ListenTogetherApi.ets` + `ListenTogetherApiRequests.ets`（HTTP 侧：建房/加入/状态/心跳/健康探测）、`ListenTogetherReconnectPolicy.ets`（退避表 + 终止错误判定）、`ListenTogetherServerSetting.ets` 与 `settings/ListenTogetherServerPreferences.ets`（地址归一化 + 持久化）。
+  - 设置项接线：`SETTING_SYNC` 页「其他同步方式」下新增「一起听服务器」行 + `ListenTogetherServerDialog`（填写/测试可用性/重置/应用四按钮），行副标题经 `@StorageProp` 跟随持久化值刷新。
+  - **模拟器实测走通的完整往返**（`127.0.0.1:5559`，逐步截图）：默认态显示「使用内置默认服务器」→ 测试可用性对真实默认服务器发出 `/healthz` 并识别到 worker 标记，回「内置默认服务器可用」→ 填 `worker.example` 立刻报「服务器地址格式无效…」且**不发网络请求** → 无效输入点应用被拒且对话框保持打开 → 重置显示提示但**不落盘**（行副标题不变）→ 填 `https://worker.example///` 提示切到自定义变体 → 应用后关闭+toast，行副标题变为归一化后的 `https://worker.example` → 重开对话框从 `_INPUT` 回填 → 对不可达主机测试可用性回「服务器测试失败：Internal error」→ 重置+应用恢复默认并清空两个键。全程 `hilog --level E` 干净，测试残留已清理。
+  - **模拟器抓到并修掉的真 bug**：ArkUI `TextInput({text: this.state})` 会把程序化赋值**回灌一次 `onChange`**，而 `onChange` 里无条件清空 `testMessage`，导致「重置」的提示刚设上就被自己抹掉——设备上表现为点重置只清空输入框、不出提示。修法是 `onChange` 里 `value === this.inputText` 时提前 return（真实按键/删除的值必然不同）。静态构建与本地单测都发现不了这一类。
+  - **设备测试推翻了一条自己写下的分歧假设**：原 divergence 3 断言「握手失败会 reject `connect()` 而不是走 `onFailure`」。新增的 `ActsListenTogetherNetworkTest` 6 例首轮 **2 例失败**，探针实测（把观测序列塞进 `assertEqual` 的实际值打出来）得到 `resolved@40ms sendNow=false first=41ms calls=[failure:WebSocketError]`——即 `connect()` 的 Promise 在 netstack **受理请求**时就 resolve，握手结果 41ms 后由 `on('error')` 送达，形状与上游 okhttp **一致**。据此重写 divergence 3/4/5 与两个用例；因两者只差 1ms、顺序无保证，`pendingHandshakeError` 折叠机制保留，保证「每次尝试恰好一个失败信号」。
+  - 顺带修掉的真缺陷：异步失败路径**原先不释放句柄**（上游靠重连循环的 `disconnect()` 清理）。现在 `failAndRelease` 先同步摘除引用并 bump generation、再 `onFailure`、再后台 close+off——对重连方行为等价，但调用方放弃重连时不再泄漏；且符合 okhttp「`onFailure` 是终结信号、其后无 `onClosed`」的契约。
+  - 三条如实记录的平台分歧：① `BusinessError.message` 对连接被拒是**空串**（故兜底为 `WebSocketError`），`headerReceive` 在握手失败时**根本不触发**，因此 `isTerminalListenTogetherReconnectError` 的文本匹配在 socket 层**失效**——已在文件头注明 M7.3 的 session manager 必须改由 HTTP 层的 `(410)` 判定终止，否则关闭的房间会白烧 15 次重连；② HarmonyOS `http` 把 DNS 失败报为裸字符串 `Internal error`（上游 okhttp 给 `UnknownHostException: worker.example`），**有意不做 errno→友好文案映射**，那会掩盖真实原因且 errno 集合可能随版本变化；③ Android `ListenTogetherApiTest` 的 2 例基于 okhttp interceptor 注入，HarmonyOS `http` 无可注入拦截器，改用「真实默认服务器 + 无效地址不触网」两例**等价但不等同**地覆盖。
+  - 验证：本地单测 **606/606 全绿**（`Tests run: 606, Failure: 0, Error: 0, Pass: 606, Ignore: 0`）；设备端 `ActsListenTogetherNetworkTest` **6/6 全绿**（`Tests run: 6, Failure: 0, Error: 0, Pass: 6, Ignore: 0`，含一次对默认服务器的真实网络断言）；CodeLinter 与基线**逐字节一致**（24 warn + 1 suggestion + 0 error，`listentogether/` 下零发现）；`entry@default` 与 `entry@ohosTest` debug 构建均 BUILD SUCCESSFUL 且无新增告警。
+  - **未验证**：成功的房间会话（需活的 worker + room token，属 D7 外部依赖）、`(http=<code>)` 握手状态后缀（平台未给出 header，见 divergence 5）、`connect()` 直接 reject 的那条路（需平台当场拒绝调用，如畸形 URL）、`on('message')`/`on('close')` 携带 error 参数的分支（未能在真机构造）。
+
 - [ ] M7.3 会话与播放同步：`ListenTogetherSessionManager` 语义（加入/离开/主持权切换）+ 播放对齐（`ListenTogetherPlayerSyncPlanner`/`StateApplier`：position 校正、时钟偏移估计、阈值内不抖动）；与 PlayerManager 通过监听器集成，不依赖页面。
+  - **M7.2 遗留的硬约束**：socket 层的失败文本在 HarmonyOS 上恒为 `WebSocketError`（`BusinessError.message` 为空、`headerReceive` 不触发），`isTerminalListenTogetherReconnectError` 对它必然返回 false。因此终止判定**必须**改由 HTTP 层结果驱动（`ListenTogetherApi` 在 `/state`、`/join` 上给出可匹配的 `(410)`/`room closed`/`unauthorized`），否则房间已关闭时会白烧满 15 次重连。此外 `connect()` resolve **不代表握手成功**，会话状态机只能以 `onOpen`/`onFailure` 为准。
+
 - [ ] M7.4 UI：房间页/邀请分享；最小可用（不追求 Android 全部 58 文件规模）。
 - [ ] M7.5 验收：双模拟器实例同房间同步播放偏差 <300ms；断线重连恢复；单测全绿。（依赖 D7 服务端，无则标注「待外部依赖」收尾）
 

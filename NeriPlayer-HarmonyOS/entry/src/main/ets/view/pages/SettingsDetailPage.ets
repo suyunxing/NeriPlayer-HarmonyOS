@@ -49,6 +49,18 @@ import { OhosWebDavExecutor } from '../../sync/webdav/OhosWebDavExecutor';
 import { WebDavError, WebDavErrorKind } from '../../sync/webdav/WebDavErrors';
 import { SyncService } from '../../sync/SyncService';
 import { SyncReport } from '../../sync/SyncReport';
+import { ListenTogetherApi } from '../../listentogether/network/ListenTogetherApi';
+import { LISTEN_TOGETHER_TEST_INVALID_RESPONSE } from '../../listentogether/network/ListenTogetherApiRequests';
+import { listenTogetherSavedCustomServer } from '../../listentogether/network/ListenTogetherServerSetting';
+import {
+  listenTogetherServerInput,
+  saveListenTogetherServer
+} from '../../listentogether/settings/ListenTogetherServerPreferences';
+import {
+  configuredListenTogetherBaseUrlOrNull,
+  isDefaultListenTogetherBaseUrl,
+  resolveListenTogetherBaseUrl
+} from '../../listentogether/invite/ListenTogetherBaseUrlResolver';
 
 const SPEEDS: number[] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
 const QUALITIES: string[] = ['standard', 'high', 'exhigh', 'lossless', 'hires'];
@@ -86,6 +98,10 @@ export struct SettingsDetailPage {
   @State webdavCredentialsSaved: boolean = false;
   @State webdavBusy: boolean = false;
 
+  // Only the dialed address is mirrored here; the dialog reads its own prefill
+  // from the settings store so a reopened dialog is never stale.
+  @StorageProp('np.listen_together_server') listenTogetherServer: string = '';
+
   @State cacheBytes: number = 0;
 
   private neteaseQrController: QrLoginPanelController = new QrLoginPanelController();
@@ -94,6 +110,7 @@ export struct SettingsDetailPage {
   private biliPasteController: CustomDialogController | null = null;
   private githubConfigController: CustomDialogController | null = null;
   private webdavConfigController: CustomDialogController | null = null;
+  private listenTogetherServerController: CustomDialogController | null = null;
 
   private title(): string {
     if (this.section === SETTING_PLAYBACK) {
@@ -493,6 +510,25 @@ export struct SettingsDetailPage {
       });
     }
     this.webdavConfigController.open();
+  }
+
+  // ---- Listen Together server ---------------------------------------------
+
+  /** Re-normalizes on read: a value stored by an older build may be unusable. */
+  private listenTogetherServerSubtitle(): string {
+    const custom = listenTogetherSavedCustomServer(this.listenTogetherServer);
+    return custom.length > 0 ? custom : '使用内置默认服务器';
+  }
+
+  private openListenTogetherServerDialog(): void {
+    if (this.listenTogetherServerController === null) {
+      this.listenTogetherServerController = new CustomDialogController({
+        builder: ListenTogetherServerDialog(),
+        autoCancel: true,
+        customStyle: false
+      });
+    }
+    this.listenTogetherServerController.open();
   }
 
   private webdavErrorText(error: Error): string {
@@ -1079,9 +1115,9 @@ export struct SettingsDetailPage {
               .margin({ left: 6, top: 14, bottom: 6 })
             SettingRow({
               title: '一起听服务器',
-              subtitle: '自定义服务器地址（待移植）',
+              subtitle: this.listenTogetherServerSubtitle(),
               icon: '👥',
-              onTap: () => promptAction.openToast({ message: 'Listen Together 待移植' })
+              onTap: () => this.openListenTogetherServerDialog()
             })
           } else if (this.section === SETTING_DEBUG) {
             SettingRow({
@@ -1422,6 +1458,185 @@ struct WebDavConfigDialog {
           .fontColor(Theme.onPrimary(Theme.isDark()))
           .onClick(() => {
             this.save();
+          })
+      }
+      .width('100%')
+    }
+    .padding(20)
+    .width('92%')
+  }
+}
+
+/**
+ * Port of the Listen Together server dialog in SettingsScreen.kt (1911-2044).
+ * Copy is reused verbatim from the Android string resources.
+ *
+ * Two documented divergences from upstream:
+ * - Upstream blocks dismissal while the availability probe is in flight. Here
+ *   dismissal stays available and the in-flight result is dropped instead
+ *   (`closed` is set in aboutToDisappear), so the user is never trapped in a
+ *   modal by a slow server and no state is written after teardown.
+ * - After saving, upstream leaves the field showing the normalized text even
+ *   when that text is the built-in default (whose keys it just cleared). Here
+ *   the field is refreshed from the store, so what is shown always matches what
+ *   is persisted.
+ */
+@CustomDialog
+struct ListenTogetherServerDialog {
+  controller?: CustomDialogController;
+  @State inputText: string = '';
+  @State testMessage: string = '';
+  @State testing: boolean = false;
+  private closed: boolean = false;
+  private api: ListenTogetherApi = new ListenTogetherApi();
+
+  aboutToAppear(): void {
+    this.inputText = listenTogetherServerInput();
+  }
+
+  aboutToDisappear(): void {
+    // A probe may still be awaiting; its result must not touch @State after this.
+    this.closed = true;
+  }
+
+  /** Upstream shows the default hint for a blank input *and* for the default URL. */
+  private isUsingDefault(): boolean {
+    const normalized = configuredListenTogetherBaseUrlOrNull(this.inputText);
+    return normalized === null || isDefaultListenTogetherBaseUrl(normalized);
+  }
+
+  private async runTest(): Promise<void> {
+    if (this.testing) {
+      return;
+    }
+    const normalizedCustomServer = configuredListenTogetherBaseUrlOrNull(this.inputText);
+    if (this.inputText.trim().length > 0 && normalizedCustomServer === null) {
+      this.testMessage = '服务器地址格式无效，请输入完整的 http:// 或 https:// 地址';
+      return;
+    }
+    const usingDefaultServer = normalizedCustomServer === null;
+    this.testing = true;
+    try {
+      const target = normalizedCustomServer ?? resolveListenTogetherBaseUrl(null);
+      const result = await this.api.testServerAvailability(target);
+      if (this.closed) {
+        return;
+      }
+      if (result.ok) {
+        this.testMessage = usingDefaultServer ? '内置默认服务器可用' : '自定义一起听服务器可用';
+      } else if (result.message === LISTEN_TOGETHER_TEST_INVALID_RESPONSE) {
+        this.testMessage = '该地址已响应，但看起来不是可用的一起听服务端';
+      } else {
+        this.testMessage = `服务器测试失败：${result.message}`;
+      }
+    } finally {
+      if (!this.closed) {
+        this.testing = false;
+      }
+    }
+  }
+
+  private apply(): void {
+    if (this.testing) {
+      return;
+    }
+    const saved = saveListenTogetherServer(this.inputText);
+    if (saved === null) {
+      this.testMessage = '服务器地址格式无效，请输入完整的 http:// 或 https:// 地址';
+      return;
+    }
+    this.inputText = saved;
+    this.testMessage = '';
+    this.controller?.close();
+    promptAction.openToast({ message: '一起听服务器设置已保存' });
+  }
+
+  build() {
+    Column({ space: 12 }) {
+      Text('一起听服务器')
+        .fontSize(17)
+        .fontWeight(FontWeight.Bold)
+        .fontColor(Theme.textPrimary(Theme.isDark()))
+      Text(this.isUsingDefault() ? '留空即可使用内置默认服务器' :
+        '当前使用自定义一起听服务器，分享邀请时会附带服务器地址')
+        .fontSize(12)
+        .fontColor(Theme.textSecondary(Theme.isDark()))
+      TextInput({ placeholder: '示例：https://example.com，留空使用内置默认服务器', text: this.inputText })
+        .height(40)
+        .fontSize(13)
+        .enabled(!this.testing)
+        .onChange((value: string) => {
+          // Assigning inputText makes the TextInput echo the same value back
+          // through onChange. Without this guard the echo wipes the message that
+          // 重置 / 应用 just set, so the reset hint never became visible on device.
+          // A real keystroke or deletion always yields a value that differs.
+          if (value === this.inputText) {
+            return;
+          }
+          this.inputText = value;
+          this.testMessage = '';
+        })
+      if (this.testing) {
+        Row({ space: 8 }) {
+          LoadingProgress()
+            .width(18)
+            .height(18)
+          Text('正在测试服务器可用性')
+            .fontSize(12)
+            .fontColor(Theme.textSecondary(Theme.isDark()))
+        }
+        .width('100%')
+      } else if (this.testMessage.length > 0) {
+        Text(this.testMessage)
+          .fontSize(12)
+          .fontColor(Theme.textSecondary(Theme.isDark()))
+          .width('100%')
+      }
+      Row({ space: 10 }) {
+        Button('测试可用性')
+          .layoutWeight(1)
+          .height(38)
+          .fontSize(14)
+          .enabled(!this.testing)
+          .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+          .fontColor(Theme.textPrimary(Theme.isDark()))
+          .onClick(() => {
+            this.runTest();
+          })
+        Button('重置')
+          .layoutWeight(1)
+          .height(38)
+          .fontSize(14)
+          .enabled(!this.testing)
+          .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+          .fontColor(Theme.textPrimary(Theme.isDark()))
+          .onClick(() => {
+            // Upstream only clears the field; nothing is stored until 应用.
+            this.inputText = '';
+            this.testMessage = '已恢复使用内置默认服务器';
+          })
+      }
+      .width('100%')
+      Row({ space: 10 }) {
+        Button('取消')
+          .layoutWeight(1)
+          .height(38)
+          .fontSize(14)
+          .enabled(!this.testing)
+          .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+          .fontColor(Theme.textPrimary(Theme.isDark()))
+          .onClick(() => {
+            this.controller?.close();
+          })
+        Button('应用')
+          .layoutWeight(1)
+          .height(38)
+          .fontSize(14)
+          .enabled(!this.testing)
+          .backgroundColor(Theme.primary(Theme.isDark()))
+          .fontColor(Theme.onPrimary(Theme.isDark()))
+          .onClick(() => {
+            this.apply();
           })
       }
       .width('100%')
