@@ -37,13 +37,20 @@ import ytmFormatSelectorTest from './ets/test/YtmFormatSelector.test';
 import ytmUrlCacheTest from './ets/test/YtmUrlCache.test';
 import ytmClientHealthTrackerTest from './ets/test/YtmClientHealthTracker.test';
 import ytmClientChainTest from './ets/test/YtmClientChain.test';
+import ytmSearchParserTest from './ets/test/YtmSearchParser.test';
 import ytmLoopbackHttpTest from './ets/test/YtmLoopbackHttp.test';
 import listenTogetherProtocolJsonTest from './ets/test/ListenTogetherProtocolJson.test';
 import listenTogetherBaseUrlTest from './ets/test/ListenTogetherBaseUrl.test';
 import listenTogetherValidationTest from './ets/test/ListenTogetherValidation.test';
 import listenTogetherMappingTest from './ets/test/ListenTogetherMapping.test';
+import listenTogetherPlaybackTest from './ets/test/ListenTogetherPlayback.test';
 import listenTogetherEventCompatibilityTest from './ets/test/ListenTogetherEventCompatibility.test';
 import listenTogetherSessionTest from './ets/test/ListenTogetherSession.test';
+import listenTogetherNetworkClientTest from './ets/test/ListenTogetherNetworkClient.test';
+import listenTogetherSyncPlannerTest from './ets/test/ListenTogetherSyncPlanner.test';
+import listenTogetherSessionPoliciesTest from './ets/test/ListenTogetherSessionPolicies.test';
+import listenTogetherControlHardeningTest from './ets/test/ListenTogetherControlHardening.test';
+import listenTogetherEventFactoryTest from './ets/test/ListenTogetherEventFactory.test';
 
 export default function testsuite(): void {
   lrcParserTest();
@@ -85,11 +92,18 @@ export default function testsuite(): void {
   ytmUrlCacheTest();
   ytmClientHealthTrackerTest();
   ytmClientChainTest();
+  ytmSearchParserTest();
   ytmLoopbackHttpTest();
   listenTogetherProtocolJsonTest();
   listenTogetherBaseUrlTest();
   listenTogetherValidationTest();
   listenTogetherMappingTest();
+  listenTogetherPlaybackTest();
   listenTogetherEventCompatibilityTest();
   listenTogetherSessionTest();
+  listenTogetherNetworkClientTest();
+  listenTogetherSyncPlannerTest();
+  listenTogetherSessionPoliciesTest();
+  listenTogetherControlHardeningTest();
+  listenTogetherEventFactoryTest();
 }

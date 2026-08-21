@@ -8,6 +8,7 @@ import downloadSmokeTest from './DownloadSmoke.test';
 import authDeviceTest from './AuthDevice.test';
 import neteaseLibraryTest from './NeteaseLibrary.test';
 import githubTransportDeviceTest from './GitHubTransportDevice.test';
+import listenTogetherNetworkDeviceTest from './ListenTogetherNetworkDevice.test';
 
 export default function testsuite(): void {
   abilityTest();
@@ -20,4 +21,5 @@ export default function testsuite(): void {
   authDeviceTest();
   neteaseLibraryTest();
   githubTransportDeviceTest();
+  listenTogetherNetworkDeviceTest();
 }
