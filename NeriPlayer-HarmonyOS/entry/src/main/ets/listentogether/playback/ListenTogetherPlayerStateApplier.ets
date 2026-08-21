@@ -38,6 +38,7 @@ import {
   cloneListenTogetherTrack
 } from '../protocol/ListenTogetherTrack';
 import { listenTogetherTrackToSongItem } from '../mapping/ListenTogetherTrackMapping';
+import { trustedListenTogetherStreamUrls } from '../mapping/ListenTogetherStreamUrlPolicy';
 import { LISTEN_TOGETHER_LISTENER_SAFETY_RESUME_CAUSE } from './ListenTogetherListenerSafetyPausePolicy';
 import {
   ListenTogetherPlayerSurface,
@@ -314,8 +315,18 @@ export class ListenTogetherPlayerStateApplier {
     if (currentSong === null || !sameListenTogetherTrack(currentSong, targetSong)) {
       return false;
     }
+    const targetTrack = room.track ??
+      (room.currentIndex >= 0 && room.currentIndex < room.queue.length ? room.queue[room.currentIndex] : null);
+    if (targetTrack === null) {
+      return false;
+    }
+    const trustedUrls = trustedListenTogetherStreamUrls(
+      targetTrack.channelId,
+      targetTrack.streamUrls,
+      targetTrack.streamUrl
+    );
     return shouldReloadListenTogetherAuthoritativeStream(
-      targetSong.streamUrl,
+      trustedUrls.length > 0 ? trustedUrls[0] : null,
       this.surface.currentMediaUrl()
     );
   }

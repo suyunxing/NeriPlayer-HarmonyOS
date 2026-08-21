@@ -58,6 +58,7 @@ export interface ListenTogetherPlaybackDelegate {
   requestListenerSafetyResume(): void;
   /** Upstream `shouldWaitForListenTogetherAuthoritativeStream(song)`. */
   shouldWaitForAuthoritativeStream(song: SongItem): boolean;
+  resolveAuthoritativeStreamUrls(song: SongItem): string[];
 }
 
 class PlayerControlListener implements SessionControlListener {
@@ -355,6 +356,28 @@ export class PlayerManager {
     return PlayerManager.currentMediaUrl;
   }
 
+  static getShareableListenTogetherStreamUrls(): string[] {
+    const url = (PlayerManager.currentMediaUrl ?? '').trim();
+    if (url.length === 0) {
+      return [];
+    }
+    const lowered = url.toLowerCase();
+    return lowered.startsWith('http://') || lowered.startsWith('https://') ? [url] : [];
+  }
+
+  static async resolveShareableListenTogetherStreamUrls(song: SongItem): Promise<string[]> {
+    const current = PlayerManager.getCurrentSong();
+    if (current !== null && stableKeyOf(current) === stableKeyOf(song)) {
+      const currentUrls = PlayerManager.getShareableListenTogetherStreamUrls();
+      if (currentUrls.length > 0) {
+        return currentUrls;
+      }
+    }
+    const resolved = await PlayerManager.resolveStreamUrl(song);
+    const lowered = resolved.trim().toLowerCase();
+    return lowered.startsWith('http://') || lowered.startsWith('https://') ? [resolved.trim()] : [];
+  }
+
   private static setCurrentMediaUrl(url: string | null): void {
     PlayerManager.currentMediaUrl = url;
   }
@@ -373,6 +396,14 @@ export class PlayerManager {
 
   static getStatus(): PlaybackStatus {
     return PlayerManager.status;
+  }
+
+  static getRepeatMode(): RepeatMode {
+    return PlayerManager.engine.repeatMode;
+  }
+
+  static isShuffleEnabled(): boolean {
+    return PlayerManager.engine.shuffle;
   }
 
   static async playPlaylist(
@@ -788,6 +819,12 @@ export class PlayerManager {
         if (localUrl.length > 0) {
           return localUrl;
         }
+      }
+      // A listener may consume the controller's already-resolved stream after
+      // the offline catalog has had a chance to satisfy the request.
+      const authoritativeUrls = PlayerManager.listenTogetherDelegate?.resolveAuthoritativeStreamUrls(song) ?? [];
+      if (authoritativeUrls.length > 0) {
+        return authoritativeUrls[0];
       }
       // NetEase songs fall back to a matched Bilibili source when the direct
       // stream is unavailable and the setting is on.

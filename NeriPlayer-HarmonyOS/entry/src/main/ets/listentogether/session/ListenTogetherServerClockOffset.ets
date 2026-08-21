@@ -153,6 +153,23 @@ export class ListenTogetherServerClockOffset {
     return this.acceptRoundTrip(serverNowMs, 0, 0, 0, nowWallMs);
   }
 
+  /** Feed the timestamp returned by an HTTP state request. */
+  acceptHttpRoundTrip(
+    serverNowMs: number | null,
+    sentAtElapsedMs: number,
+    sentAtWallMs: number,
+    nowElapsedMs: number,
+    nowWallMs: number
+  ): string {
+    return this.acceptRoundTrip(
+      serverNowMs,
+      sentAtWallMs,
+      sentAtElapsedMs,
+      nowElapsedMs,
+      nowWallMs
+    );
+  }
+
   private acceptRoundTrip(
     serverNowMs: number | null,
     sentAtWallMs: number,

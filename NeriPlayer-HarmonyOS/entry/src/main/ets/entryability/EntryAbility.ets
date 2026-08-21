@@ -10,6 +10,7 @@ import { BiliCookieRepository } from '../data/auth/BiliCookieRepository';
 import { GitHubConfigRepository } from '../sync/github/GitHubConfigRepository';
 import { WebDavConfigRepository } from '../sync/webdav/WebDavConfigRepository';
 import { SystemBars } from '../util/SystemBars';
+import { ListenTogetherSessionManager } from '../listentogether/ListenTogetherSessionManager';
 
 const TAG: string = 'EntryAbility';
 const DOMAIN: number = 0x4E50;
@@ -21,6 +22,7 @@ export default class EntryAbility extends UIAbility {
     AppStorage.setOrCreate('abilityContext', this.context);
     AppStorage.setOrCreate('systemDark', false);
     PlayerManager.initialize(this.context);
+    ListenTogetherSessionManager.getInstance().start();
     DownloadEngine.init(this.context);
     NeteaseCookieRepository.init();
     BiliCookieRepository.init();
@@ -32,6 +34,9 @@ export default class EntryAbility extends UIAbility {
     PlayerManager.flushPlaybackStatsAsync();
     PlayerManager.persistNow();
     AVSessionManager.release();
+    ListenTogetherSessionManager.getInstance().destroy().catch((error: Object): void => {
+      hilog.warn(DOMAIN, TAG, 'Listen Together destroy failed: %{public}s', (error as Error).message);
+    });
     hilog.info(DOMAIN, TAG, 'Ability onDestroy');
   }
 

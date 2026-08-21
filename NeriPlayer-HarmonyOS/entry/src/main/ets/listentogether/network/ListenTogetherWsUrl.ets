@@ -32,6 +32,25 @@ export function buildListenTogetherWsUrl(baseUrl: string, roomId: string, token:
   return `${wsScheme}://${authority}${listenTogetherRoomWsPath(roomId)}?${query}`;
 }
 
+/** Rebuilds worker-internal websocket placeholders from the public base URL. */
+export function resolveListenTogetherWsUrl(
+  baseUrl: string,
+  roomId: string,
+  token: string | null,
+  serverWsUrl: string | null
+): string | null {
+  const candidate = serverWsUrl === null ? '' : serverWsUrl.trim();
+  const lowered = candidate.toLowerCase();
+  const internal = lowered.includes('://room.internal/') ||
+    lowered.includes('://room.internal?') ||
+    lowered.includes('://room.internal:');
+  if (candidate.length > 0 && !internal) {
+    return candidate;
+  }
+  const resolvedToken = token === null ? '' : token.trim();
+  return resolvedToken.length === 0 ? null : buildListenTogetherWsUrl(baseUrl, roomId, resolvedToken);
+}
+
 /**
  * Log-safe form of a room socket URL: the token never reaches the log.
  *
