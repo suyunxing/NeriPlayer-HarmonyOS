@@ -82,7 +82,15 @@ function utf8Encode(text: string): number[] {
 
 /** SHA-256 (FIPS 180-4) digest as 32 bytes. */
 export function sha256Bytes(input: string): number[] {
-  const bytes = utf8Encode(input);
+  return sha256ByteArray(new Uint8Array(utf8Encode(input)));
+}
+
+/** Binary SHA-256 variant used by sync transport fingerprints. */
+export function sha256ByteArray(input: Uint8Array): number[] {
+  const bytes: number[] = [];
+  for (let i = 0; i < input.length; i++) {
+    bytes.push(input[i]);
+  }
   const bitLength = bytes.length * 8;
   const padded: number[] = bytes.slice();
   padded.push(0x80);

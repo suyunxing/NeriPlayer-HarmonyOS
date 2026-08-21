@@ -1,23 +1,45 @@
-import { LyricLine } from '../model/LyricLine';
+import { LrcMetadata, LrcParseResult, LyricLine, LyricWord } from '../model/LyricLine';
 
 /**
- * LRC parsing + translation merging, mirroring accompanist-lyrics-core behavior.
+ * LRC parsing + translation merging, mirroring accompanist-lyrics-core
+ * behavior. Beyond the Android in-app parser this also handles the
+ * [offset:±ms] header (positive advances: every line shifts by -offset),
+ * preserves [ti:]/[ar:]/[al:]/[by:] metadata, parses enhanced word LRC
+ * (`<mm:ss.ff>` per-word prefixes) and fills per-line end times (next
+ * line's start, last line + 5000ms, Android parseNeteaseLrc semantics).
  */
 export class LrcParser {
   private static readonly TIMESTAMP_REGEX: RegExp = /\[(\d{1,2}):(\d{1,2})(?:[.:](\d{1,3}))?\]/g;
+  private static readonly WORD_TAG_REGEX: RegExp = /<(\d{1,2}):(\d{1,2})(?:[.:](\d{1,3}))?>/g;
+  private static readonly METADATA_LINE_REGEX: RegExp = /^\[(ti|ar|al|by|offset):(.*)\]\s*$/;
+  private static readonly LAST_LINE_DURATION_MS: number = 5000;
 
   static parse(text: string): LyricLine[] {
-    const lines: LyricLine[] = [];
+    return LrcParser.parseWithMetadata(text).lines;
+  }
+
+  static parseWithMetadata(text: string): LrcParseResult {
+    const result = new LrcParseResult();
     if (text.length === 0) {
-      return lines;
+      return result;
     }
+    const lines: LyricLine[] = [];
     const sourceLines = text.split('\n');
     for (const sourceLine of sourceLines) {
-      const matches = LrcParser.collectTimestamps(sourceLine);
+      const trimmed = sourceLine.trim();
+      if (trimmed.length === 0) {
+        continue;
+      }
+      const metadataMatch = LrcParser.METADATA_LINE_REGEX.exec(trimmed);
+      if (metadataMatch !== null) {
+        LrcParser.applyMetadataTag(result.metadata, metadataMatch[1], metadataMatch[2].trim());
+        continue;
+      }
+      const matches = LrcParser.collectTimestamps(trimmed);
       if (matches.length === 0) {
         continue;
       }
-      const content = LrcParser.lineContent(sourceLine);
+      const content = LrcParser.lineContent(trimmed);
       if (content.trim().length === 0) {
         continue;
       }
@@ -26,7 +48,11 @@ export class LrcParser {
       }
     }
     lines.sort((a: LyricLine, b: LyricLine) => a.timeMs - b.timeMs);
-    return lines;
+    LrcParser.applyOffset(lines, result.metadata.offsetMs);
+    LrcParser.fillWordTimings(lines);
+    LrcParser.fillEndTimes(lines);
+    result.lines = lines;
+    return result;
   }
 
   /**
@@ -55,19 +81,124 @@ export class LrcParser {
     return `${minutes}:${`${seconds}`.padStart(2, '0')}`;
   }
 
+  /** Positive [offset:] advances lyrics: effective time = timestamp - offset. */
+  private static applyOffset(lines: LyricLine[], offsetMs: number): void {
+    if (offsetMs === 0) {
+      return;
+    }
+    for (const line of lines) {
+      line.timeMs -= offsetMs;
+    }
+  }
+
+  private static applyMetadataTag(metadata: LrcMetadata, tag: string, value: string): void {
+    if (tag === 'ti') {
+      metadata.title = value;
+    } else if (tag === 'ar') {
+      metadata.artist = value;
+    } else if (tag === 'al') {
+      metadata.album = value;
+    } else if (tag === 'by') {
+      metadata.author = value;
+    } else if (tag === 'offset') {
+      metadata.offsetMs = LrcParser.parseOffsetMs(value);
+    }
+  }
+
+  private static parseOffsetMs(value: string): number {
+    const normalized = value.replace(/\s/g, '');
+    const parsed = Number(normalized);
+    if (!Number.isFinite(parsed)) {
+      return 0;
+    }
+    const clamped = Math.max(-60000, Math.min(60000, parsed));
+    return Math.round(clamped);
+  }
+
+  /**
+   * Parses `<mm:ss.ff>` word tags inside each line's content: the text
+   * after a tag becomes a word starting at that time. Lines without word
+   * tags keep their plain text and empty words.
+   */
+  private static fillWordTimings(lines: LyricLine[]): void {
+    for (const line of lines) {
+      const raw = line.text;
+      if (!raw.includes('<')) {
+        continue;
+      }
+      const words: LyricWord[] = [];
+      const plainText = LrcParser.extractWords(raw, words);
+      if (words.length === 0) {
+        continue;
+      }
+      line.text = plainText;
+      line.words = words;
+    }
+  }
+
+  /** Splits "a<00:01.00>b<00:01.20>c" into plain text "abc" + timed words. */
+  private static extractWords(content: string, words: LyricWord[]): string {
+    LrcParser.WORD_TAG_REGEX.lastIndex = 0;
+    let cursor = 0;
+    let plainPrefix = '';
+    let match = LrcParser.WORD_TAG_REGEX.exec(content);
+    while (match !== null) {
+      const textBefore = content.substring(cursor, match.index);
+      if (words.length === 0) {
+        plainPrefix += textBefore;
+      } else {
+        words[words.length - 1].text += textBefore;
+      }
+      const word = new LyricWord('', LrcParser.timestampToMs(match[1], match[2], match[3]), 0);
+      words.push(word);
+      cursor = match.index + match[0].length;
+      match = LrcParser.WORD_TAG_REGEX.exec(content);
+    }
+    if (words.length === 0) {
+      return content;
+    }
+    const tail = content.substring(cursor);
+    if (tail.length > 0) {
+      words[words.length - 1].text += tail;
+    }
+    let plainText = plainPrefix;
+    for (const word of words) {
+      plainText += word.text;
+    }
+    return plainText;
+  }
+
+  /** line.end = next line's start (last + 5000ms); word.end = next word's start. */
+  private static fillEndTimes(lines: LyricLine[]): void {
+    for (let i = 0; i < lines.length; i++) {
+      lines[i].endTimeMs =
+        i + 1 < lines.length ? lines[i + 1].timeMs : lines[i].timeMs + LrcParser.LAST_LINE_DURATION_MS;
+    }
+    for (const line of lines) {
+      for (let i = 0; i < line.words.length; i++) {
+        const word = line.words[i];
+        word.endMs = i + 1 < line.words.length ? line.words[i + 1].startMs : line.endTimeMs;
+      }
+    }
+  }
+
+  private static timestampToMs(minutes: string, seconds: string, fraction?: string): number {
+    const minutesValue = Number(minutes);
+    const secondsValue = Number(seconds);
+    let fractionMs = 0;
+    if (fraction !== undefined) {
+      // Two digits are centiseconds (x10), three are milliseconds.
+      fractionMs = Math.round((Number(fraction) / Math.pow(10, fraction.length)) * 1000);
+    }
+    return minutesValue * 60000 + secondsValue * 1000 + fractionMs;
+  }
+
   private static collectTimestamps(line: string): number[] {
     const timestamps: number[] = [];
     LrcParser.TIMESTAMP_REGEX.lastIndex = 0;
     let match = LrcParser.TIMESTAMP_REGEX.exec(line);
     while (match !== null) {
-      const minutes = Number(match[1]);
-      const seconds = Number(match[2]);
-      let fraction = 0;
-      if (match[3] !== undefined) {
-        const raw = match[3];
-        fraction = Number(raw) / Math.pow(10, raw.length);
-      }
-      timestamps.push(minutes * 60000 + seconds * 1000 + fraction * 1000);
+      timestamps.push(LrcParser.timestampToMs(match[1], match[2], match[3]));
       match = LrcParser.TIMESTAMP_REGEX.exec(line);
     }
     return timestamps;

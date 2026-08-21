@@ -40,6 +40,15 @@ import { OhosGhExecutor } from '../../sync/github/OhosGhExecutor';
 import { GitHubSyncClient } from '../../sync/github/GitHubSyncClient';
 import { GitHubApiError, GitHubErrorKind } from '../../sync/github/GitHubErrors';
 import { deserializeSyncContent, getSyncFileName } from '../../sync/SyncDataJsonCodec';
+import { WebDavConfigRepository } from '../../sync/webdav/WebDavConfigRepository';
+import {
+  WebDavSyncClient,
+  WebDavTransport
+} from '../../sync/webdav/WebDavTransport';
+import { OhosWebDavExecutor } from '../../sync/webdav/OhosWebDavExecutor';
+import { WebDavError, WebDavErrorKind } from '../../sync/webdav/WebDavErrors';
+import { SyncService } from '../../sync/SyncService';
+import { SyncReport } from '../../sync/SyncReport';
 
 const SPEEDS: number[] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
 const QUALITIES: string[] = ['standard', 'high', 'exhigh', 'lossless', 'hires'];
@@ -72,6 +81,11 @@ export struct SettingsDetailPage {
   @State githubTokenSaved: boolean = false;
   @State githubBusy: boolean = false;
 
+  @StorageProp('np.webdav_server_url') webdavServerUrl: string = '';
+  @StorageProp('np.webdav_base_path') webdavBasePath: string = '';
+  @State webdavCredentialsSaved: boolean = false;
+  @State webdavBusy: boolean = false;
+
   @State cacheBytes: number = 0;
 
   private neteaseQrController: QrLoginPanelController = new QrLoginPanelController();
@@ -79,6 +93,7 @@ export struct SettingsDetailPage {
   private neteasePasteController: CustomDialogController | null = null;
   private biliPasteController: CustomDialogController | null = null;
   private githubConfigController: CustomDialogController | null = null;
+  private webdavConfigController: CustomDialogController | null = null;
 
   private title(): string {
     if (this.section === SETTING_PLAYBACK) {
@@ -123,6 +138,8 @@ export struct SettingsDetailPage {
     this.cacheBytes = bytes;
     await GitHubConfigRepository.init();
     this.githubTokenSaved = GitHubConfigRepository.tokenPreview().length > 0;
+    await WebDavConfigRepository.init();
+    this.webdavCredentialsSaved = WebDavConfigRepository.isConfigured();
   }
 
   // ---- NetEase QR login (state machine lives in QrLoginPanel) ------------
@@ -441,6 +458,172 @@ export struct SettingsDetailPage {
           GitHubConfigRepository.clear().then(() => {
             this.githubTokenSaved = false;
             promptAction.openToast({ message: 'GitHub 配置已清除' });
+          });
+        }
+      }
+    });
+  }
+
+  private async runGithubSync(): Promise<void> {
+    if (this.githubBusy || this.webdavBusy) {
+      return;
+    }
+    this.githubBusy = true;
+    try {
+      this.showSyncReport('GitHub 同步报告', await SyncService.syncGitHub());
+    } finally {
+      this.githubBusy = false;
+    }
+  }
+
+  // ---- WebDAV transport config and coordinated sync ----------------------
+
+  private openWebDavConfigDialog(): void {
+    if (this.webdavConfigController === null) {
+      this.webdavConfigController = new CustomDialogController({
+        builder: WebDavConfigDialog({
+          prefillServerUrl: this.webdavServerUrl,
+          prefillBasePath: this.webdavBasePath,
+          onSaved: () => {
+            this.webdavCredentialsSaved = true;
+          }
+        }),
+        autoCancel: true,
+        customStyle: false
+      });
+    }
+    this.webdavConfigController.open();
+  }
+
+  private webdavErrorText(error: Error): string {
+    const apiError = error as WebDavError;
+    if (apiError instanceof WebDavError) {
+      if (apiError.kind === WebDavErrorKind.AUTH) {
+        return 'WebDAV 用户名或密码错误';
+      }
+      if (apiError.kind === WebDavErrorKind.FILE_NOT_FOUND) {
+        return '远端暂无备份文件（首次同步时将创建）';
+      }
+      if (apiError.kind === WebDavErrorKind.CONTENT_CONFLICT) {
+        return '远端文件已被其他设备修改，请重新拉取后同步';
+      }
+      if (apiError.kind === WebDavErrorKind.NETWORK) {
+        return `网络错误：${apiError.message}`;
+      }
+      return apiError.message;
+    }
+    return error.message;
+  }
+
+  private async beginWebDavAction(): Promise<WebDavActionContext | null> {
+    if (this.webdavBusy) {
+      return null;
+    }
+    const config = await WebDavConfigRepository.loadConfig();
+    if (config === null) {
+      promptAction.openToast({ message: '请先配置 WebDAV 服务器与凭据' });
+      return null;
+    }
+    this.webdavBusy = true;
+    const context = new WebDavActionContext();
+    context.transport = new WebDavTransport(new OhosWebDavExecutor(), config.username, config.password);
+    context.serverUrl = config.serverUrl;
+    context.basePath = config.basePath;
+    context.remoteFileUrl = config.remoteFileUrl();
+    return context;
+  }
+
+  private async runWebDavCheck(): Promise<void> {
+    const context = await this.beginWebDavAction();
+    if (context === null) {
+      return;
+    }
+    try {
+      await context.transport.validateConnection(context.serverUrl, context.basePath);
+      promptAction.openToast({ message: 'WebDAV 连接成功，目标目录可访问' });
+    } catch (error) {
+      promptAction.openToast({ message: this.webdavErrorText(error as Error) });
+    } finally {
+      this.webdavBusy = false;
+    }
+  }
+
+  private async runWebDavRemoteCheck(): Promise<void> {
+    const context = await this.beginWebDavAction();
+    if (context === null) {
+      return;
+    }
+    try {
+      const snapshot = await new WebDavSyncClient(context.transport)
+        .fetchRemoteSnapshot(context.remoteFileUrl);
+      if (snapshot === null) {
+        promptAction.openToast({ message: '远端暂无备份文件（首次同步时将创建）' });
+        return;
+      }
+      const decoded = deserializeSyncContent(snapshot.content);
+      if (decoded.data === null) {
+        promptAction.openToast({ message: `远端备份解析失败：${decoded.errorMessage}` });
+        return;
+      }
+      const data = decoded.data;
+      const modified = data.lastModified > 0 ? new Date(data.lastModified).toLocaleString() : '未知';
+      const tokenKind = snapshot.version.token !== null && snapshot.version.token.etag !== null ?
+        'ETag' : snapshot.version.token !== null && snapshot.version.token.lastModified !== null ?
+          'Last-Modified' : 'SHA-256 指纹回退';
+      promptAction.openToast({
+        message: `远端备份正常：${data.playlists.length} 歌单 · ${data.recentPlays.length} 最近播放 · ${tokenKind} · 更新于 ${modified}`
+      });
+    } catch (error) {
+      promptAction.openToast({ message: this.webdavErrorText(error as Error) });
+    } finally {
+      this.webdavBusy = false;
+    }
+  }
+
+  private async runWebDavSync(): Promise<void> {
+    if (this.webdavBusy || this.githubBusy) {
+      return;
+    }
+    this.webdavBusy = true;
+    try {
+      this.showSyncReport('WebDAV 同步报告', await SyncService.syncWebDav());
+    } finally {
+      this.webdavBusy = false;
+    }
+  }
+
+  private showSyncReport(title: string, report: SyncReport): void {
+    let message = report.summary();
+    for (const conflict of report.conflicts) {
+      message += `\n\n${conflict.description}（${conflict.resolution}）`;
+    }
+    AlertDialog.show({
+      title: report.success ? title : `${title}失败`,
+      message,
+      confirm: {
+        value: '确定',
+        action: () => {
+        }
+      }
+    });
+  }
+
+  private confirmWebDavClear(): void {
+    AlertDialog.show({
+      title: '清除 WebDAV 配置',
+      message: '将移除服务器地址、用户名和密码，不影响本地或远端数据。确定继续？',
+      primaryButton: {
+        value: '取消',
+        action: () => {
+        }
+      },
+      secondaryButton: {
+        value: '清除',
+        fontColor: Theme.danger(Theme.isDark()),
+        action: (): void => {
+          WebDavConfigRepository.clear().then(() => {
+            this.webdavCredentialsSaved = false;
+            promptAction.openToast({ message: 'WebDAV 配置已清除' });
           });
         }
       }
@@ -800,6 +983,13 @@ export struct SettingsDetailPage {
                 showArrow: false,
                 onTap: () => this.runGithubRemoteCheck()
               })
+              SettingRow({
+                title: '立即同步',
+                subtitle: this.githubBusy ? '正在同步…' : '拉取、三路合并并条件上传，完成后写回本地',
+                icon: '↻',
+                showArrow: false,
+                onTap: () => this.runGithubSync()
+              })
             }
             .width('100%')
             .backgroundColor(Theme.surface(Theme.isDark()))
@@ -834,17 +1024,59 @@ export struct SettingsDetailPage {
             .borderRadius(Theme.cardRadius())
             .clip(true)
 
+            Text('WebDAV 备份')
+              .fontSize(13)
+              .fontColor(Theme.textSecondary(Theme.isDark()))
+              .width('100%')
+              .margin({ left: 6, top: 14, bottom: 6 })
+            Column({ space: 1 }) {
+              SettingRow({
+                title: '服务器与凭据',
+                subtitle: this.webdavCredentialsSaved && this.webdavServerUrl.length > 0 ?
+                  `${this.webdavServerUrl}${this.webdavBasePath.length > 0 ? `/${this.webdavBasePath}` : ''}` :
+                  '未配置（服务器地址、目录、用户名与密码）',
+                icon: '🗂',
+                onTap: () => this.openWebDavConfigDialog()
+              })
+              SettingRow({
+                title: '测试 WebDAV 连接',
+                subtitle: this.webdavBusy ? '正在请求…' : '使用 PROPFIND 检查目录和登录凭据',
+                icon: '🔌',
+                showArrow: false,
+                onTap: () => this.runWebDavCheck()
+              })
+              SettingRow({
+                title: '检查 WebDAV 备份',
+                subtitle: this.webdavBusy ? '正在请求…' : '读取、校验并解析 neriplayer-sync.json',
+                icon: '🛰',
+                showArrow: false,
+                onTap: () => this.runWebDavRemoteCheck()
+              })
+              SettingRow({
+                title: '立即同步',
+                subtitle: this.webdavBusy ? '正在同步…' : '拉取、三路合并并使用 ETag/指纹条件上传',
+                icon: '↻',
+                showArrow: false,
+                onTap: () => this.runWebDavSync()
+              })
+              SettingRow({
+                title: '清除 WebDAV 配置',
+                subtitle: '移除服务器与安全存储中的凭据',
+                icon: '🗑',
+                danger: true,
+                onTap: () => this.confirmWebDavClear()
+              })
+            }
+            .width('100%')
+            .backgroundColor(Theme.surface(Theme.isDark()))
+            .borderRadius(Theme.cardRadius())
+            .clip(true)
+
             Text('其他同步方式')
               .fontSize(13)
               .fontColor(Theme.textSecondary(Theme.isDark()))
               .width('100%')
               .margin({ left: 6, top: 14, bottom: 6 })
-            SettingRow({
-              title: 'WebDAV 同步',
-              subtitle: '远端文件元数据同步（待移植）',
-              icon: '🗂',
-              onTap: () => promptAction.openToast({ message: 'WebDAV 同步待移植' })
-            })
             SettingRow({
               title: '一起听服务器',
               subtitle: '自定义服务器地址（待移植）',
@@ -982,6 +1214,13 @@ class GithubActionContext {
   dataSaver: boolean = false;
 }
 
+class WebDavActionContext {
+  transport: WebDavTransport = new WebDavTransport(new OhosWebDavExecutor(), '', '');
+  serverUrl: string = '';
+  basePath: string = '';
+  remoteFileUrl: string = '';
+}
+
 @CustomDialog
 struct GitHubConfigDialog {
   controller?: CustomDialogController;
@@ -1062,6 +1301,123 @@ struct GitHubConfigDialog {
           .layoutWeight(1)
           .height(38)
           .fontSize(14)
+          .backgroundColor(Theme.primary(Theme.isDark()))
+          .fontColor(Theme.onPrimary(Theme.isDark()))
+          .onClick(() => {
+            this.save();
+          })
+      }
+      .width('100%')
+    }
+    .padding(20)
+    .width('92%')
+  }
+}
+
+@CustomDialog
+struct WebDavConfigDialog {
+  controller?: CustomDialogController;
+  @State serverUrlText: string = '';
+  @State basePathText: string = '';
+  @State usernameText: string = '';
+  @State passwordText: string = '';
+  @State saving: boolean = false;
+  prefillServerUrl: string = '';
+  prefillBasePath: string = '';
+  onSaved: () => void = () => {
+  };
+
+  aboutToAppear(): void {
+    this.serverUrlText = this.prefillServerUrl;
+    this.basePathText = this.prefillBasePath;
+    this.usernameText = WebDavConfigRepository.usernamePreview();
+  }
+
+  private async save(): Promise<void> {
+    if (this.saving) {
+      return;
+    }
+    const serverUrl = this.serverUrlText.trim();
+    const basePath = this.basePathText.trim();
+    const username = this.usernameText.trim();
+    const password = this.passwordText;
+    if (serverUrl.length === 0 || username.length === 0 || password.length === 0) {
+      promptAction.openToast({ message: '请填写服务器地址、用户名和密码' });
+      return;
+    }
+    this.saving = true;
+    try {
+      const transport = new WebDavTransport(new OhosWebDavExecutor(), username, password);
+      await transport.validateConnection(serverUrl, basePath);
+      const persisted = await WebDavConfigRepository.saveConfig(serverUrl, basePath, username, password);
+      promptAction.openToast({
+        message: persisted ? 'WebDAV 配置已验证并保存' :
+          '配置已验证，但凭据仅本会话有效（安全存储不可用）'
+      });
+      this.onSaved();
+      this.controller?.close();
+    } catch (error) {
+      const e = error as WebDavError;
+      if (e instanceof WebDavError && e.kind === WebDavErrorKind.AUTH) {
+        promptAction.openToast({ message: '验证失败：用户名或密码错误' });
+      } else {
+        promptAction.openToast({ message: `验证失败：${(error as Error).message}` });
+      }
+    } finally {
+      this.saving = false;
+    }
+  }
+
+  build() {
+    Column({ space: 14 }) {
+      Text('WebDAV 同步配置')
+        .fontSize(17)
+        .fontWeight(FontWeight.Bold)
+        .fontColor(Theme.textPrimary(Theme.isDark()))
+      Text('目标目录必须已存在。备份文件固定为 neriplayer-sync.json；用户名和密码仅保存在本机安全存储。')
+        .fontSize(12)
+        .fontColor(Theme.textSecondary(Theme.isDark()))
+      TextInput({ placeholder: 'https://dav.example.com/remote.php/dav/files/user',
+        text: this.serverUrlText })
+        .height(40)
+        .fontSize(13)
+        .onChange((value: string) => {
+          this.serverUrlText = value;
+        })
+      TextInput({ placeholder: '目录路径（可留空，如 NeriPlayer/Backup）', text: this.basePathText })
+        .height(40)
+        .fontSize(13)
+        .onChange((value: string) => {
+          this.basePathText = value;
+        })
+      TextInput({ placeholder: '用户名', text: this.usernameText })
+        .height(40)
+        .fontSize(13)
+        .onChange((value: string) => {
+          this.usernameText = value;
+        })
+      TextInput({ placeholder: '密码 / 应用专用密码', text: this.passwordText })
+        .type(InputType.Password)
+        .height(40)
+        .fontSize(13)
+        .onChange((value: string) => {
+          this.passwordText = value;
+        })
+      Row({ space: 10 }) {
+        Button('取消')
+          .layoutWeight(1)
+          .height(38)
+          .fontSize(14)
+          .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+          .fontColor(Theme.textPrimary(Theme.isDark()))
+          .onClick(() => {
+            this.controller?.close();
+          })
+        Button(this.saving ? '验证中…' : '验证并保存')
+          .layoutWeight(1)
+          .height(38)
+          .fontSize(14)
+          .enabled(!this.saving)
           .backgroundColor(Theme.primary(Theme.isDark()))
           .fontColor(Theme.onPrimary(Theme.isDark()))
           .onClick(() => {
