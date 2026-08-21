@@ -21,7 +21,14 @@ export class SettingsRepository {
   static readonly KEY_LAST_CRASH_DETECTED: string = 'np.last_crash_detected';
   static readonly KEY_SHOW_LYRICS: string = 'np.show_lyrics';
   static readonly KEY_DOWNLOAD_CONCURRENCY: string = 'np.download_concurrency';
+  // Listen Together server. Android keeps two keys with different clearing
+  // rules: _SERVER is what the client dials and is stored only for a custom
+  // address (the built-in default is represented by absence, so changing the
+  // default later reaches existing installs), while _INPUT is what the settings
+  // dialog shows and falls back to _SERVER when unset. Both hold the normalized
+  // address. Rules live in listentogether/network/ListenTogetherServerSetting.
   static readonly KEY_LISTEN_TOGETHER_SERVER: string = 'np.listen_together_server';
+  static readonly KEY_LISTEN_TOGETHER_SERVER_INPUT: string = 'np.listen_together_server_input';
   static readonly KEY_AUDIO_QUALITY: string = 'np.audio_quality';
   static readonly KEY_LYRIC_TRANSLATION: string = 'np.lyric_translation';
   static readonly KEY_LYRIC_PHONETIC: string = 'np.lyric_phonetic';
@@ -63,6 +70,7 @@ export class SettingsRepository {
     [SettingsRepository.KEY_SHOW_LYRICS, true],
     [SettingsRepository.KEY_DOWNLOAD_CONCURRENCY, 6],
     [SettingsRepository.KEY_LISTEN_TOGETHER_SERVER, ''],
+    [SettingsRepository.KEY_LISTEN_TOGETHER_SERVER_INPUT, ''],
     [SettingsRepository.KEY_AUDIO_QUALITY, 'standard'],
     [SettingsRepository.KEY_LYRIC_TRANSLATION, true],
     [SettingsRepository.KEY_LYRIC_PHONETIC, false],

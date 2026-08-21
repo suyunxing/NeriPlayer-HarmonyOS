@@ -46,6 +46,7 @@ import listenTogetherMappingTest from './ets/test/ListenTogetherMapping.test';
 import listenTogetherPlaybackTest from './ets/test/ListenTogetherPlayback.test';
 import listenTogetherEventCompatibilityTest from './ets/test/ListenTogetherEventCompatibility.test';
 import listenTogetherSessionTest from './ets/test/ListenTogetherSession.test';
+import listenTogetherNetworkClientTest from './ets/test/ListenTogetherNetworkClient.test';
 
 export default function testsuite(): void {
   lrcParserTest();
@@ -96,4 +97,5 @@ export default function testsuite(): void {
   listenTogetherPlaybackTest();
   listenTogetherEventCompatibilityTest();
   listenTogetherSessionTest();
+  listenTogetherNetworkClientTest();
 }
