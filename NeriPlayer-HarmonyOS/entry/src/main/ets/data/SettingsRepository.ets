@@ -29,6 +29,15 @@ export class SettingsRepository {
   // address. Rules live in listentogether/network/ListenTogetherServerSetting.
   static readonly KEY_LISTEN_TOGETHER_SERVER: string = 'np.listen_together_server';
   static readonly KEY_LISTEN_TOGETHER_SERVER_INPUT: string = 'np.listen_together_server_input';
+  // Listen Together identity and room settings (upstream
+  // data/listentogether/ListenTogetherPreferences.kt DataStore keys). Identity
+  // is not a credential: Android keeps it in plaintext DataStore too.
+  static readonly KEY_LISTEN_TOGETHER_LAST_USER_ID: string = 'np.listen_together_last_user_id';
+  static readonly KEY_LISTEN_TOGETHER_LAST_USER_UUID: string = 'np.listen_together_last_user_uuid';
+  static readonly KEY_LISTEN_TOGETHER_LAST_NICKNAME: string = 'np.listen_together_last_nickname';
+  static readonly KEY_LISTEN_TOGETHER_ALLOW_MEMBER_CONTROL: string = 'np.listen_together_allow_member_control';
+  static readonly KEY_LISTEN_TOGETHER_AUTO_PAUSE_ON_MEMBER_CHANGE: string = 'np.listen_together_auto_pause_on_member_change';
+  static readonly KEY_LISTEN_TOGETHER_SHARE_AUDIO_LINKS: string = 'np.listen_together_share_audio_links';
   static readonly KEY_AUDIO_QUALITY: string = 'np.audio_quality';
   static readonly KEY_LYRIC_TRANSLATION: string = 'np.lyric_translation';
   static readonly KEY_LYRIC_PHONETIC: string = 'np.lyric_phonetic';
@@ -71,6 +80,12 @@ export class SettingsRepository {
     [SettingsRepository.KEY_DOWNLOAD_CONCURRENCY, 6],
     [SettingsRepository.KEY_LISTEN_TOGETHER_SERVER, ''],
     [SettingsRepository.KEY_LISTEN_TOGETHER_SERVER_INPUT, ''],
+    [SettingsRepository.KEY_LISTEN_TOGETHER_LAST_USER_ID, ''],
+    [SettingsRepository.KEY_LISTEN_TOGETHER_LAST_USER_UUID, ''],
+    [SettingsRepository.KEY_LISTEN_TOGETHER_LAST_NICKNAME, ''],
+    [SettingsRepository.KEY_LISTEN_TOGETHER_ALLOW_MEMBER_CONTROL, true],
+    [SettingsRepository.KEY_LISTEN_TOGETHER_AUTO_PAUSE_ON_MEMBER_CHANGE, true],
+    [SettingsRepository.KEY_LISTEN_TOGETHER_SHARE_AUDIO_LINKS, true],
     [SettingsRepository.KEY_AUDIO_QUALITY, 'standard'],
     [SettingsRepository.KEY_LYRIC_TRANSLATION, true],
     [SettingsRepository.KEY_LYRIC_PHONETIC, false],
