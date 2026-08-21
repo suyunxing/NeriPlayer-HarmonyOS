@@ -47,6 +47,10 @@ import listenTogetherPlaybackTest from './ets/test/ListenTogetherPlayback.test';
 import listenTogetherEventCompatibilityTest from './ets/test/ListenTogetherEventCompatibility.test';
 import listenTogetherSessionTest from './ets/test/ListenTogetherSession.test';
 import listenTogetherNetworkClientTest from './ets/test/ListenTogetherNetworkClient.test';
+import listenTogetherSyncPlannerTest from './ets/test/ListenTogetherSyncPlanner.test';
+import listenTogetherSessionPoliciesTest from './ets/test/ListenTogetherSessionPolicies.test';
+import listenTogetherControlHardeningTest from './ets/test/ListenTogetherControlHardening.test';
+import listenTogetherEventFactoryTest from './ets/test/ListenTogetherEventFactory.test';
 
 export default function testsuite(): void {
   lrcParserTest();
@@ -98,4 +102,8 @@ export default function testsuite(): void {
   listenTogetherEventCompatibilityTest();
   listenTogetherSessionTest();
   listenTogetherNetworkClientTest();
+  listenTogetherSyncPlannerTest();
+  listenTogetherSessionPoliciesTest();
+  listenTogetherControlHardeningTest();
+  listenTogetherEventFactoryTest();
 }
