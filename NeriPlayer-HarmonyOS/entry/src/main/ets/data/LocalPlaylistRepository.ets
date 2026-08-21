@@ -5,6 +5,20 @@ import { Playlist, mergePlaylistSongs } from '../model/Playlist';
 import { MusicPlatform } from '../model/MusicPlatform';
 import { SongItem } from '../model/SongItem';
 import { stableKeyOf } from '../model/SongIdentity';
+import { util } from '@kit.ArkTS';
+import { SyncDeletionStore } from '../sync/SyncDeletionStore';
+import { SyncPlaylistSongDeletion, songIdKeyText, syncSongIdentity } from '../sync/SyncModels';
+import { playlistIdToSync, syncSongFromSongItem } from '../sync/SyncSongConvert';
+
+export class LocalPlaylistTombstone {
+  id: string;
+  deletedAt: number;
+
+  constructor(id: string = '', deletedAt: number = 0) {
+    this.id = id;
+    this.deletedAt = deletedAt;
+  }
+}
 
 /**
  * Local playlist + favorites repository, mirroring LocalPlaylistRepository and
@@ -13,6 +27,7 @@ import { stableKeyOf } from '../model/SongIdentity';
 export class LocalPlaylistRepository {
   static readonly FAVORITES_ID: string = 'favorites';
   private static readonly KEY: string = 'playlists';
+  private static readonly DELETED_KEY: string = 'playlists.deleted';
 
   static parseJson(json: string): Playlist[] | null {
     const rawList = JSON.parse(json) as Object[];
@@ -41,6 +56,30 @@ export class LocalPlaylistRepository {
     await AppPreferences.putString(SyncPendingState.KEY, SyncPendingState.toJson(SyncPendingState.clearPending(ids, playlistId)));
   }
 
+  static async clearAllSyncPending(): Promise<void> {
+    await AppPreferences.putString(SyncPendingState.KEY, '[]');
+  }
+
+  static async getDeletedTombstones(): Promise<LocalPlaylistTombstone[]> {
+    const json = await AppPreferences.getString(LocalPlaylistRepository.DELETED_KEY, '[]');
+    try {
+      const raw = JSON.parse(json) as Object[];
+      if (!Array.isArray(raw)) {
+        return [];
+      }
+      return raw.map((item: Object): LocalPlaylistTombstone => {
+        const value = item as Record<string, Object>;
+        return new LocalPlaylistTombstone(String(value['id'] ?? ''), Number(value['deletedAt'] ?? 0));
+      }).filter((item: LocalPlaylistTombstone): boolean => item.id.length > 0 && item.deletedAt > 0);
+    } catch (error) {
+      return [];
+    }
+  }
+
+  static async replaceDeletedTombstones(tombstones: LocalPlaylistTombstone[]): Promise<void> {
+    await AppPreferences.putString(LocalPlaylistRepository.DELETED_KEY, JSON.stringify(tombstones));
+  }
+
   private static async saveAll(playlists: Playlist[], changedId: string = ''): Promise<void> {
     const json = JSON.stringify(playlists.map((item: Playlist) => Playlist.fromJson(item.toJson())));
     await SchemaStore.save(LocalPlaylistRepository.KEY, json, (value: string) => value);
@@ -48,6 +87,12 @@ export class LocalPlaylistRepository {
       const ids = await LocalPlaylistRepository.getSyncPendingIds();
       await AppPreferences.putString(SyncPendingState.KEY, SyncPendingState.toJson(SyncPendingState.markPending(ids, changedId)));
     }
+  }
+
+  /** Applies a merged remote snapshot without creating another pending marker. */
+  static async replaceAllFromSync(playlists: Playlist[]): Promise<void> {
+    const json = JSON.stringify(playlists.map((item: Playlist) => Playlist.fromJson(item.toJson())));
+    await SchemaStore.save(LocalPlaylistRepository.KEY, json, (value: string) => value);
   }
 
   static async ensureFavorites(): Promise<Playlist> {
@@ -81,7 +126,8 @@ export class LocalPlaylistRepository {
   ): Promise<Playlist> {
     const playlists = await LocalPlaylistRepository.loadAll();
     const playlist = new Playlist(`local_${Date.now()}`, name, source);
-    const merge = mergePlaylistSongs(playlist.songKeys, playlist.songs, songs);
+    const stamped = await LocalPlaylistRepository.stampSongsForInsert(songs, Date.now());
+    const merge = mergePlaylistSongs(playlist.songKeys, playlist.songs, stamped);
     playlist.songKeys = merge.keys;
     playlist.songs = merge.songs;
     playlists.unshift(playlist);
@@ -96,7 +142,9 @@ export class LocalPlaylistRepository {
     if (playlist === undefined) {
       return 0;
     }
-    const merge = mergePlaylistSongs(playlist.songKeys, playlist.songs, songs);
+    const stamped = await LocalPlaylistRepository.stampSongsForInsert(songs,
+      Math.max(Date.now(), LocalPlaylistRepository.latestAddedAt(playlist) + 1));
+    const merge = mergePlaylistSongs(playlist.songKeys, playlist.songs, stamped);
     playlist.songKeys = merge.keys;
     playlist.songs = merge.songs;
     playlist.updatedAt = Date.now();
@@ -114,10 +162,17 @@ export class LocalPlaylistRepository {
     if (playlist.songKeys.indexOf(songKey) >= 0) {
       return false;
     }
-    playlist.songKeys.unshift(songKey);
-    playlist.songs.unshift(song);
+    const stamped = (await LocalPlaylistRepository.stampSongsForInsert([song],
+      Math.max(Date.now(), LocalPlaylistRepository.latestAddedAt(playlist) + 1)))[0];
+    playlist.songKeys.unshift(stableKeyOf(stamped));
+    playlist.songs.unshift(stamped);
     playlist.updatedAt = Date.now();
     await LocalPlaylistRepository.saveAll(playlists, playlistId);
+    const syncSong = syncSongFromSongItem(stamped);
+    if (syncSong !== null) {
+      await SyncDeletionStore.clearPlaylistSongDeletion(
+        playlistIdToSync(playlistId), syncSongIdentity(syncSong).stableKey());
+    }
     return true;
   }
 
@@ -131,10 +186,20 @@ export class LocalPlaylistRepository {
     if (index < 0) {
       return false;
     }
+    const removedSong = playlist.songs[index];
     playlist.songKeys.splice(index, 1);
     playlist.songs.splice(index, 1);
     playlist.updatedAt = Date.now();
     await LocalPlaylistRepository.saveAll(playlists, playlistId);
+    const syncSong = syncSongFromSongItem(removedSong);
+    if (syncSong !== null) {
+      const deviceId = await SyncDeletionStore.getOrCreateDeviceId(
+        (): string => util.generateRandomUUID(false));
+      await SyncDeletionStore.recordPlaylistSongDeletion(new SyncPlaylistSongDeletion(
+        playlistIdToSync(playlistId), syncSong.id, syncSong.album, syncSong.mediaUri,
+        Date.now(), deviceId, syncSong.syncMembershipTokens, songIdKeyText(syncSong)
+      ));
+    }
     return true;
   }
 
@@ -171,5 +236,39 @@ export class LocalPlaylistRepository {
     const playlists = await LocalPlaylistRepository.loadAll();
     const filtered = playlists.filter((item: Playlist) => item.id !== playlistId);
     await LocalPlaylistRepository.saveAll(filtered, playlistId);
+    const tombstones = await LocalPlaylistRepository.getDeletedTombstones();
+    const next = tombstones.filter((item: LocalPlaylistTombstone): boolean => item.id !== playlistId);
+    next.push(new LocalPlaylistTombstone(playlistId, Date.now()));
+    await LocalPlaylistRepository.replaceDeletedTombstones(next);
+  }
+
+  private static latestAddedAt(playlist: Playlist): number {
+    let latest = 0;
+    for (const song of playlist.songs) {
+      latest = Math.max(latest, song.addedAt);
+    }
+    return latest;
+  }
+
+  private static async stampSongsForInsert(songs: SongItem[], newestAt: number): Promise<SongItem[]> {
+    let syncableCount = 0;
+    for (const song of songs) {
+      if (syncSongFromSongItem(song) !== null) {
+        syncableCount++;
+      }
+    }
+    const tokens = await SyncDeletionStore.nextCausalTokens(syncableCount,
+      (): string => util.generateRandomUUID(false));
+    let tokenIndex = 0;
+    const stamped: SongItem[] = [];
+    for (let index = 0; index < songs.length; index++) {
+      const copy = SongItem.fromJson(songs[index].toJson());
+      copy.addedAt = Math.max(newestAt - index, 1);
+      if (syncSongFromSongItem(copy) !== null) {
+        copy.syncMembershipTokens = [tokens[tokenIndex++]];
+      }
+      stamped.push(copy);
+    }
+    return stamped;
   }
 }

@@ -29,6 +29,21 @@ import syncSnapshotBuilderTest from './ets/test/SyncSnapshotBuilder.test';
 import syncDeletionStoreTest from './ets/test/SyncDeletionStore.test';
 import githubErrorsTest from './ets/test/GitHubErrors.test';
 import githubTransportTest from './ets/test/GitHubTransport.test';
+import webDavTransportTest from './ets/test/WebDavTransport.test';
+import syncCoordinatorTest from './ets/test/SyncCoordinator.test';
+import syncLocalMetadataTest from './ets/test/SyncLocalMetadata.test';
+import ytmPlayerParserTest from './ets/test/YtmPlayerParser.test';
+import ytmFormatSelectorTest from './ets/test/YtmFormatSelector.test';
+import ytmUrlCacheTest from './ets/test/YtmUrlCache.test';
+import ytmClientHealthTrackerTest from './ets/test/YtmClientHealthTracker.test';
+import ytmClientChainTest from './ets/test/YtmClientChain.test';
+import ytmLoopbackHttpTest from './ets/test/YtmLoopbackHttp.test';
+import listenTogetherProtocolJsonTest from './ets/test/ListenTogetherProtocolJson.test';
+import listenTogetherBaseUrlTest from './ets/test/ListenTogetherBaseUrl.test';
+import listenTogetherValidationTest from './ets/test/ListenTogetherValidation.test';
+import listenTogetherMappingTest from './ets/test/ListenTogetherMapping.test';
+import listenTogetherEventCompatibilityTest from './ets/test/ListenTogetherEventCompatibility.test';
+import listenTogetherSessionTest from './ets/test/ListenTogetherSession.test';
 
 export default function testsuite(): void {
   lrcParserTest();
@@ -62,4 +77,19 @@ export default function testsuite(): void {
   syncDeletionStoreTest();
   githubErrorsTest();
   githubTransportTest();
+  webDavTransportTest();
+  syncCoordinatorTest();
+  syncLocalMetadataTest();
+  ytmPlayerParserTest();
+  ytmFormatSelectorTest();
+  ytmUrlCacheTest();
+  ytmClientHealthTrackerTest();
+  ytmClientChainTest();
+  ytmLoopbackHttpTest();
+  listenTogetherProtocolJsonTest();
+  listenTogetherBaseUrlTest();
+  listenTogetherValidationTest();
+  listenTogetherMappingTest();
+  listenTogetherEventCompatibilityTest();
+  listenTogetherSessionTest();
 }
