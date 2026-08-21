@@ -16,6 +16,7 @@ export class Router {
   static readonly STATS: string = 'stats';
   static readonly DEBUG: string = 'debug';
   static readonly SETTINGS_DETAIL: string = 'settings_detail';
+  static readonly LISTEN_TOGETHER: string = 'listen_together';
 
   static push(name: string, param: string = ''): void {
     AppStorage.setOrCreate(Router.KEY_NAME, name);
