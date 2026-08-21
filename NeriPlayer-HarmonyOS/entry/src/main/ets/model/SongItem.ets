@@ -1,4 +1,5 @@
 import { MusicPlatform } from './MusicPlatform';
+import { SyncCausalToken, normalizedSyncCausalTokens } from '../sync/SyncModels';
 
 /**
  * Faithful port of the Android SongItem data class (moe.ouom.neriplayer.data.model.SongItem).
@@ -34,6 +35,8 @@ export class SongItem {
   sourceStableKey: string;
   streamUrl: string;
   addedAt: number;
+  syncMembershipTokens: SyncCausalToken[];
+  syncIdText: string;
   platform: MusicPlatform;
 
   constructor(
@@ -76,6 +79,8 @@ export class SongItem {
     this.sourceStableKey = '';
     this.streamUrl = '';
     this.addedAt = 0;
+    this.syncMembershipTokens = [];
+    this.syncIdText = '';
     this.platform = platform;
   }
 
@@ -130,6 +135,18 @@ export class SongItem {
     song.sourceStableKey = String(raw['sourceStableKey'] ?? '');
     song.streamUrl = String(raw['streamUrl'] ?? '');
     song.addedAt = Number(raw['addedAt'] ?? 0);
+    const rawTokens = raw['syncMembershipTokens'];
+    if (rawTokens instanceof Array) {
+      const tokenItems: Object[] = rawTokens as Object[];
+      const tokens: SyncCausalToken[] = [];
+      for (const rawToken of tokenItems) {
+        const token = rawToken as Record<string, Object>;
+        tokens.push(new SyncCausalToken(
+          String(token['deviceId'] ?? ''), Number(token['counter'] ?? 0)));
+      }
+      song.syncMembershipTokens = normalizedSyncCausalTokens(tokens);
+    }
+    song.syncIdText = String(raw['syncIdText'] ?? '');
     song.platform = Number(raw['platform'] ?? MusicPlatform.NETEASE) as MusicPlatform;
     return song;
   }

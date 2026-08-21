@@ -14,7 +14,8 @@ import {
   SyncPlaylist,
   CURRENT_SYNC_METADATA_VERSION,
   DISPLAY_ORDER_SONG_ORDER_VERSION,
-  cloneSyncSong
+  cloneSyncSong,
+  normalizedSyncCausalTokens
 } from './SyncModels';
 
 function emptyToNull(value: string): string | null {
@@ -77,9 +78,10 @@ export function syncSongFromSongItem(song: SongItem): SyncSong | null {
     emptyToNull(song.audioId),
     emptyToNull(song.subAudioId),
     emptyToNull(song.playlistContextId),
-    [],
+    normalizedSyncCausalTokens(song.syncMembershipTokens),
     CURRENT_SYNC_METADATA_VERSION,
-    null
+    null,
+    song.syncIdText
   );
 }
 
@@ -141,6 +143,8 @@ export function songItemFromSyncSong(song: SyncSong): SongItem {
   item.subAudioId = nullToEmpty(song.subAudioId);
   item.playlistContextId = nullToEmpty(song.playlistContextId);
   item.addedAt = song.addedAt;
+  item.syncMembershipTokens = normalizedSyncCausalTokens(song.syncMembershipTokens);
+  item.syncIdText = song.syncIdText;
   return item;
 }
 
