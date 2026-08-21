@@ -53,6 +53,7 @@ import listenTogetherControlHardeningTest from './ets/test/ListenTogetherControl
 import listenTogetherEventFactoryTest from './ets/test/ListenTogetherEventFactory.test';
 import listenTogetherSessionRuntimeTest from './ets/test/ListenTogetherSessionRuntime.test';
 import listenTogetherConfigSnapshotTest from './ets/test/ListenTogetherConfigSnapshot.test';
+import listenTogetherStateApplierTest from './ets/test/ListenTogetherStateApplier.test';
 
 export default function testsuite(): void {
   lrcParserTest();
@@ -110,4 +111,5 @@ export default function testsuite(): void {
   listenTogetherEventFactoryTest();
   listenTogetherSessionRuntimeTest();
   listenTogetherConfigSnapshotTest();
+  listenTogetherStateApplierTest();
 }
