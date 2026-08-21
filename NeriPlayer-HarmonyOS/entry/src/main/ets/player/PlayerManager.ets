@@ -114,6 +114,14 @@ export class PlayerManager {
   private static positionMs: number = 0;
   private static durationMs: number = 0;
   private static errorAttempts: number = 0;
+  /**
+   * Supersession token for in-flight loads: listener state application can
+   * trigger several loadSong calls in quick succession (join snapshot, then
+   * LINK_READY, then a heartbeat re-seek), and two chains interleaving on the
+   * one AVPlayer produced 5400102 "not idle, unsupport setMediaSource" churn
+   * on device. A superseded chain stops at its next await and must not retry.
+   */
+  private static loadGeneration: number = 0;
   private static listenedMs: number = 0;
   private static lastTimeMs: number = 0;
   private static lastPublishMs: number = 0;
@@ -728,12 +736,18 @@ export class PlayerManager {
     Logger.info(`PlayerManager restored queue: ${state.songs.length} songs at index ${state.queueIndex}`);
   }
 
-  private static async loadSong(startPositionMs: number = 0): Promise<void> {
+  private static async loadSong(startPositionMs: number = 0, isRetry: boolean = false): Promise<void> {
+    const generation = ++PlayerManager.loadGeneration;
     const song = PlayerManager.getCurrentSong();
     if (song === null) {
       return;
     }
-    PlayerManager.errorAttempts = 0;
+    // A retry must not reset the attempt budget: with the reset here the
+    // counter never passed 1 and handleLoadFailure retried without a cap,
+    // flooding the stream API fast enough to trip platform risk control.
+    if (!isRetry) {
+      PlayerManager.errorAttempts = 0;
+    }
     PlayerManager.flushPlaybackStatsAsync();
     PlayerManager.positionMs = startPositionMs;
     PlayerManager.restoredPositionMs = 0;
@@ -750,12 +764,21 @@ export class PlayerManager {
 
     try {
       const player = await PlayerManager.ensurePlayer();
+      if (generation !== PlayerManager.loadGeneration) {
+        return;
+      }
       const uri = await PlayerManager.resolveStreamUrl(song);
+      if (generation !== PlayerManager.loadGeneration) {
+        return;
+      }
       if (uri.length === 0) {
         throw new Error(`No playable stream for ${song.displayName}`);
       }
       PlayerManager.setCurrentMediaUrl(uri);
       await player.reset();
+      if (generation !== PlayerManager.loadGeneration) {
+        return;
+      }
       // Bilibili CDN hosts require a web Referer + desktop UA (plus the login
       // cookie when present) or the player's own fetch is rejected with 403.
       const biliCookie = BiliCookieRepository.isLoggedIn()
@@ -769,6 +792,9 @@ export class PlayerManager {
       await PlayerManager.waitForState(['initialized']);
       await player.prepare();
       await PlayerManager.waitForState(['prepared']);
+      if (generation !== PlayerManager.loadGeneration) {
+        return;
+      }
       // Shared focus mode keeps a single focus owner inside this app; must be
       // set between prepare and the first play of each source.
       player.audioInterruptMode = audio.InterruptMode.SHARE_MODE;
@@ -804,6 +830,11 @@ export class PlayerManager {
       Logger.info(`PlayerManager playback started: ${song.displayName}`);
     } catch (error) {
       const e = error as Error;
+      if (generation !== PlayerManager.loadGeneration) {
+        // A newer load superseded this chain; its own outcome wins.
+        Logger.debug(`loadSong superseded for ${song.displayName}: ${e.message}`);
+        return;
+      }
       Logger.error(`PlayerManager.loadSong failed for ${song.displayName}: ${e.message}`);
       await PlayerManager.handleLoadFailure();
     }
@@ -871,7 +902,7 @@ export class PlayerManager {
     }
     if (PlayerManager.errorAttempts < 2) {
       Logger.warn(`Retrying playback for ${song.displayName} (attempt ${PlayerManager.errorAttempts})`);
-      await PlayerManager.loadSong();
+      await PlayerManager.loadSong(0, true);
       return;
     }
     Logger.warn(`Giving up on ${song.displayName}, skipping to next`);

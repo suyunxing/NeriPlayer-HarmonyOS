@@ -1501,9 +1501,6 @@ export class ListenTogetherSessionManager implements ListenTogetherPlaybackDeleg
   private publishStates(): void {
     AppStorage.setOrCreate(SESSION_STATE_KEY, JSON.stringify(this.sessionState));
     AppStorage.setOrCreate(ROOM_STATE_KEY, this.roomState === null ? '' : JSON.stringify(this.roomState));
-    Logger.info(
-      `LT publish conn=${this.sessionState.connectionState} room=${this.sessionState.roomId ?? '-'}`
-    );
   }
 
   private localPlaybackSnapshot(): ListenTogetherLocalPlaybackSnapshot {
