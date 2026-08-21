@@ -1,21 +1,6 @@
 # NeriPlayer → HarmonyOS 完整移植执行计划（GLM-5.3 执行版）
 
-> 创建：2026-08-16。最近修订：2026-08-19（M6.0 spike 后 D2 决策修正、M6 任务重排）。执行者：GLM-5.3（ZCode agent）。本文档是**任务级执行计划兼跨会话进度看板**，与既有文档分工如下，冲突时以本文档的任务排序为准、以仓库源码为最终事实：
->
-> - 战略路线图：`docs/HARMONYOS_PORTING_PLAN.md`（架构原则、阶段划分，本文档细化其执行）。
-> - 能力状态：`docs/FEATURE_MATRIX.md`（本文档的进度以矩阵状态为准同步更新）。
-> - 环境与构建：根 `AGENTS.md` + `docs/hm.md`（命令与版本事实）。
-> - 原型历史：`NeriPlayer-HarmonyOS/PORTING.md`。
->
-> **使用方式**：每次会话按 §1 工作循环执行；每完成一个任务，在 §6 对应条目打 `[x]` 并追加一行证据（日期 + 命令 + 结果）；无法完成时写明阻塞原因。不确定的事实先查源码/文档，禁止凭记忆推断。
-
----
-
-## 1. 执行守则（每个会话必读）
-
-...（其余内容与之前相同，保留完整）
-
-> 创建：2026-08-16。执行者：GLM-5.3（ZCode agent）。本文档是**任务级执行计划兼跨会话进度看板**，与既有文档分工如下，冲突时以本文档的任务排序为准、以仓库源码为最终事实：
+> 创建：2026-08-16（初版执行者 GLM-5.3）。最近修订：2026-08-21（M7.1 协议与纯逻辑落地；YTM 回环桥/应用代理预备 M6.5；修复文档头部重复块；现执行者 ZCode agent / ox-alpha）。本文档是**任务级执行计划兼跨会话进度看板**，与既有文档分工如下，冲突时以本文档的任务排序为准、以仓库源码为最终事实：
 >
 > - 战略路线图：`docs/HARMONYOS_PORTING_PLAN.md`（架构原则、阶段划分，本文档细化其执行）。
 > - 能力状态：`docs/FEATURE_MATRIX.md`（本文档的进度以矩阵状态为准同步更新）。
@@ -313,10 +298,12 @@ eport-m61-recheck.json）：IOS 直出窗口仍开——fbvvS8e1KgI playability 
 - [ ] M6.3 solver 兜底链（可选增强，触发条件：M6.2 上线后 IOS 路径被风控/PoToken 收紧致兜底命中率显著）：`network/ytm/SolverRuntime.ets`——按 M6.0 调研结论实现离屏 Web（onControllerAttached 加载 $rawfile + onPageEnd 后 runJavaScriptExt，单实例、FAST_MODE 按需销毁；资产自 Android assets 复制，GPL 兼容）；signature/n 解算入队（对齐 `YouTubeJsSolveQueue`）。实施前复核当时 client 可用性（重跑探针）。
 - [ ] M6.4 YouTube 登录（可选）：Web 组件 cookie 导出入 `data/auth/youtube/`（对齐 `YouTubeAuthRepository`/`YouTubeCookieRotator` 最小集）；天然仍需 Web 组件，与 D2 修正不冲突。
 - [ ] M6.5 验收：模拟器实测 YTM 搜索→取流→播放；DebugPage YTM 探针；FEATURE_MATRIX YouTube 行状态更新。
+  - 预备（2026-08-21，随 M7.1 提交）：①`ytm/YtmLoopbackStreamBridge` 本地回环 HTTP 桥——AVPlayer 连 127.0.0.1，上游 NetworkKit 显式走应用代理，逐 Range 建立上游流免整曲预下载（补 AVPlayer 不支持 per-request usingProxy 的代理盲区），`YtmLoopbackHttp` 纯解析单测覆盖；②应用代理设置 `np.proxy_host/port`——HttpClient 全方法 usingProxy 接线 + `connection.setAppHttpProxy` 进程级同步（媒体组件共享），DebugPage 增配置区；③搜索修正（主机实证 music/search 对匿名 WEB_REMIX 404）——端点改通用 `/youtubei/v1/search`+songs 过滤、WEB_REMIX 版本钉 1.20260811.15.00、API key 优先 bootstrap、解析抽出 `YtmSearchParser`；④ohosTest 新增 `YtmPlaybackSmoke.test`（未配置代理时缺省 10.0.2.2:7897=QEMU NAT 主机 Clash 别名）。设备端真网执行仍待本任务验收（模拟器在线+代理环境）。
 
 ### M7 一起听客户端（D7 外部依赖：服务端地址）
 
-- [ ] M7.1 协议与纯逻辑 `listentogether/protocol/`：信封/事件/房间模型 + 校验（对齐 Android `protocol/`、`validation/`）+ 邀请链接解析；单测对齐 `listentogether/**` 10 个测试。
+- [x] M7.1 协议与纯逻辑 `listentogether/protocol/`：信封/事件/房间模型 + 校验（对齐 Android `protocol/`、`validation/`）+ 邀请链接解析；单测对齐 `listentogether/**` 10 个测试。
+  - 证据：2026-08-21 新增 `listentogether/` 九子域 33 文件（对齐 Android 包结构）：protocol（SocketEnvelope/EventModels/RoomModels/SessionModels/HttpMessages/Track/Channels/Json 手写编解码）、validation（字段/建房校验/错误分类）、invite（InviteBuilder/InviteParser 邀请链接构建解析/BaseUrlResolver/Identity）、mapping（TrackIdentity 稳定身份/TrackMapping/StreamUrlPolicy）、playback（PlaybackPosition/PlaybackTrack/QueuePolicy/ShareabilityPolicy/ShareableQueueSnapshot/StreamPolicy）、session（SessionRole/MembershipCredential/JoinPolicy）、control（ControlEventTypes/PlaybackCommandSnapshot）、compat（旧版事件兼容）、network（BaseUrl/WsUrl）。单测 6 文件对齐 Android 11 测试中 BaseUrl/Validation/EventCompatibility/SessionPolicies 子集+协议 JSON 往返/映射用例；SessionManager 系与 PlayerSyncPlanner 测试随 M7.3 落地。验证：本地单测 **535/535 全绿**（423 存量+112 新增，含 ytm/YtmLoopbackHttp）；entry@default 与 entry@ohosTest 构建 BUILD SUCCESSFUL。**未验证项（如实记录）**：WebSocket 客户端/重连属 M7.2、会话管理器与播放同步属 M7.3、UI 属 M7.4；服务端联通依赖 D7 外部地址。
 - [ ] M7.2 WebSocket 客户端：`@ohos.net.webSocket`（对齐 `ListenTogetherWebSocketClient` onOpen/onMessage/onClosed + `ListenTogetherReconnectPolicy` 指数退避）；服务器地址设置项接线（占位在 `SettingsDetailPage.ets:355-357`）。
 - [ ] M7.3 会话与播放同步：`ListenTogetherSessionManager` 语义（加入/离开/主持权切换）+ 播放对齐（`ListenTogetherPlayerSyncPlanner`/`StateApplier`：position 校正、时钟偏移估计、阈值内不抖动）；与 PlayerManager 通过监听器集成，不依赖页面。
 - [ ] M7.4 UI：房间页/邀请分享；最小可用（不追求 Android 全部 58 文件规模）。
