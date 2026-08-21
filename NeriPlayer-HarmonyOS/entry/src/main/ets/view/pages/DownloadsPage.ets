@@ -129,12 +129,11 @@ export struct DownloadsPage {
                       .borderRadius(8)
                       .objectFit(ImageFit.Cover)
                   } else {
-                    Text('♫')
-                      .fontSize(18)
-                      .width(50)
-                      .height(50)
-                      .textAlign(TextAlign.Center)
-                      .fontColor(Theme.primary(Theme.isDark()))
+                    Image($r('app.media.ic_music_note_24'))
+                      .width(22)
+                      .height(22)
+                      .fillColor(Theme.primary(Theme.isDark()))
+                      .margin({ left: 14, right: 14, top: 14, bottom: 14 })
                       .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
                       .borderRadius(8)
                   }

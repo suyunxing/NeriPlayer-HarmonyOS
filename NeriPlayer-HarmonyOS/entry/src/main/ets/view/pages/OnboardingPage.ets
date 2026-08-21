@@ -18,9 +18,9 @@ export struct OnboardingPage {
       Swiper() {
         ForEach(this.pages(), (page: string[]) => {
           Column({ space: 18 }) {
-            Text('♫')
-              .fontSize(72)
-              .fontColor(Theme.primary(Theme.isDark()))
+            Image($r('app.media.ic_neriplayer'))
+              .width(88)
+              .height(88)
               .margin({ top: 80 })
             Text(page[0])
               .fontSize(24)
