@@ -56,6 +56,7 @@ import {
 } from '../../../main/ets/listentogether/protocol/ListenTogetherRoomModels';
 import { createListenTogetherEvent } from '../../../main/ets/listentogether/protocol/ListenTogetherEventModels';
 import { LISTEN_TOGETHER_WORKER_CONTROLLER_TIMEOUT_MS } from '../../../main/ets/listentogether/session/ListenTogetherIncomingStatePolicy';
+import { ListenTogetherSessionOperationGate } from '../../../main/ets/listentogether/session/ListenTogetherSessionOperationGate';
 
 const TTL_MS: number = 18_000;
 const RETRY_INTERVAL_MS: number = 3_000;
@@ -174,6 +175,16 @@ export default function listenTogetherSessionRuntimeTest() {
 
       expect(outcome).assertEqual('accepted');
       expect(clock.estimatedOffsetMs()).assertEqual(5000);
+    });
+
+    it('uses an HTTP state response as a round-trip clock sample', 0, () => {
+      const clock = new ListenTogetherServerClockOffset();
+
+      const outcome = clock.acceptHttpRoundTrip(52_000, 1000, 50_000, 1400, 50_400);
+
+      expect(outcome).assertEqual('accepted');
+      // rtt=400, reference=50000+200, offset=1800.
+      expect(clock.estimatedOffsetMs()).assertEqual(1800);
     });
 
     it('keeps the legacy-ping tri-state across resets', 0, () => {
@@ -425,6 +436,19 @@ export default function listenTogetherSessionRuntimeTest() {
       // A request must be able to reach its max attempts within its TTL.
       expect(LISTEN_TOGETHER_PENDING_MEMBER_CONTROL_REQUEST_RETRY_INTERVAL_MS <
         LISTEN_TOGETHER_PENDING_MEMBER_CONTROL_REQUEST_TTL_MS).assertTrue();
+    });
+  });
+
+  describe('ListenTogetherSessionOperationGate', () => {
+    it('invalidates older asynchronous session work', 0, () => {
+      const gate = new ListenTogetherSessionOperationGate();
+      const first = gate.begin();
+      expect(gate.isCurrent(first)).assertTrue();
+      expect(gate.current()).assertEqual(first);
+
+      const second = gate.begin();
+      expect(gate.isCurrent(first)).assertFalse();
+      expect(gate.isCurrent(second)).assertTrue();
     });
   });
 }
