@@ -28,16 +28,16 @@
 | 迷你播放器 | 播放中显示当前歌曲 + 进度条 + 来源角标，点击进入 NowPlaying 页 |
 | 崩溃安全模式 | 标记后重启进入 SafeMode（代码路径，未实测崩溃注入） |
 
-## 当前状态（2026-08-13 复核）
+## 当前状态（2026-08-19 复核）
 
 2026-08-13 在本机 6.1.1 Release 工具链完成可重复验证：`ohpm install --all`、`hvigorw clean`、Debug `assembleHap` 构建成功（存在 6 条"Function may throw exceptions"非阻塞警告，分布在 `LibraryPage.ets`、`PlaylistDetailPage.ets`、`DebugPage.ets`）；ArkTS 单元测试 3/3 通过（`entry/src/test/`，LRC 解析/翻译合并/时间格式化）；调试签名、模拟器安装、冷启动与设置页 smoke test 通过。完整记录见 `../docs/hm.md` §7.4。
 
-该验证只覆盖构建、启动、安全区和设置页入口，不代表下述能力已完成。当前待办（代码中均有 porting seam 标注，不得在文档中标为已完成）：
+该验证只覆盖构建、启动、安全区和设置页入口，不代表下述能力已完成。2026-08-19 又完成同步核心的本地验证：WebDAV PROPFIND/GET/PUT 与 ETag/Last-Modified/SHA-256 回退、SyncCoordinator 三路合并与冲突重试、真实仓库快照接线、apply journal 和设置页同步报告；本地单测 378/378、`entry@default`/`entry@ohosTest` 构建成功、CodeLinter 0 error。真实 PAT/WebDAV 写入和双设备冲突仍未验证。当前待办（代码中均有 porting seam 标注，不得在文档中标为已完成）：
 
 1. **weapi 风控**：`weapi/cloudsearch/get/web` 在本模拟器网络环境返回 `{"code":50000005}`（无浏览器指纹/IP 风控），目前靠旧版接口回退可用；后续可补 eapi 路径或二维码登录后携带 `MUSIC_U` 重试。
 2. **YouTube 取流**：仍缺 signature/n 参数、PoToken 与 EJS 引擎，仅搜索可用（`YouTubeMusicApi.ets` 取流当前直接抛错）。
 3. **下载管线**：`DownloadsPage` 与任务目录已完成，需移植 Range 断点续传 + 实际文件落盘。
-4. **同步**：GitHub / WebDAV 同步待移植。
+4. **同步验收**：核心传输、合并和本地接线已完成；真实 PAT/WebDAV 写路径、省流格式写出及双设备冲突验收待完成。
 5. **一起听 / USB 独占 / 悬浮歌词**：待移植（USB 需 NAPI C++）。
 6. **动态取色与高级模糊**：设置页已有入口，引擎待实现。
 
@@ -106,7 +106,8 @@ $env:DEVECO_STUDIO_HOME = 'D:\HarmonyOS\Tools\devecostudio-windows-26.0.0.621\De
 | 本地媒体 | `LocalAudioImportManager` | `data/LocalMediaScanner.ets` | ⏳ 待真机验证 |
 | 主题 | Material3 色板（浅/深色） | `view/Theme.ets` | ✅ 浅/深色；动态取色待移植 |
 | 下载 | `GlobalDownloadManager` | `view/pages/DownloadsPage.ets` + `DownloadsRepository` | ✅ UI/目录；传输管线待移植 |
-| 同步/一起听/USB/悬浮歌词 | — | 设置页占位 | ⏳ 待移植 |
+| 同步 | GitHub/WebDAV 三路合并 | `sync/`、`SettingsDetailPage.ets` | ✅ 核心；真实凭据/双设备验收待完成 |
+| 一起听/USB/悬浮歌词 | — | 设置页占位 | ⏳ 待移植 |
 
 ### UI 页面映射（Android → HarmonyOS）
 
@@ -140,7 +141,7 @@ $env:DEVECO_STUDIO_HOME = 'D:\HarmonyOS\Tools\devecostudio-windows-26.0.0.621\De
 
 1. YouTube 取流：移植 yt-dlp EJS 引擎或集成 JS 运行时（签名/n、PoToken、HLS 回退）。
 2. 下载管线：共享 HTTP 客户端上的分块 Range 续传、HLS 段索引、启动恢复、sidecar 元数据。
-3. 同步：GitHub（Git Data API blob/tree/commit）、WebDAV（ETag/条件写 + SHA-256 指纹）三路合并。
+3. 同步验收：真实 PAT/WebDAV 写入、省流格式写出、双设备冲突和设备 smoke test。
 4. 一起听：WebSocket 房间协议、Durable Objects 状态机、时钟偏移校正。
 5. USB 独占：NAPI C++ 移植 UAC1/UAC2 传输与反馈时钟路径。
 6. 歌词扩展：悬浮歌词、状态栏歌词、Lyricon/SuperLyric、歌词卡片生成、音译。

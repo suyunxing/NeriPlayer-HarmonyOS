@@ -1,5 +1,6 @@
-import { http } from '@kit.NetworkKit';
+import { connection, http } from '@kit.NetworkKit';
 import { Logger } from '../app/Logger';
+import { SettingsRepository } from '../data/SettingsRepository';
 import { HttpHeaderParser } from './HttpHeaderParser';
 
 export class HttpFormResult {
@@ -17,6 +18,49 @@ export class HttpClient {
 
   // Minimal cookie jar (per host), enough for the NetEase weapi session flow.
   private static cookies: Record<string, string> = {};
+  private static appliedAppProxyKey: string | null = null;
+
+  /**
+   * Synchronizes the persisted proxy with the process-wide NetworkKit proxy.
+   * Media components such as AVPlayer do not see per-request `usingProxy`, but
+   * can use the application-level default proxy configured by NetworkKit.
+   */
+  static applyConfiguredProxy(): void {
+    const host = SettingsRepository.getString(SettingsRepository.KEY_PROXY_HOST, '').trim();
+    const port = SettingsRepository.getNumber(SettingsRepository.KEY_PROXY_PORT, 0);
+    const valid = host.length > 0 && port > 0 && port <= 65535;
+    const key = valid ? `${host}:${port}` : '';
+    if (HttpClient.appliedAppProxyKey === key) {
+      return;
+    }
+    try {
+      const proxy: connection.HttpProxy = {
+        host: valid ? host : '',
+        port: valid ? port : 0,
+        exclusionList: []
+      };
+      connection.setAppHttpProxy(proxy);
+      HttpClient.appliedAppProxyKey = key;
+    } catch (error) {
+      const e = error as Error;
+      Logger.warn(`HttpClient.applyConfiguredProxy failed: ${e.message}`);
+    }
+  }
+
+  /**
+   * Explicit proxy from np.proxy_host/np.proxy_port (set on the debug page).
+   * undefined = direct connection, identical to not passing usingProxy at all.
+   */
+  static usingProxyValue(): boolean | http.HttpProxy | undefined {
+    const host = SettingsRepository.getString(SettingsRepository.KEY_PROXY_HOST, '').trim();
+    const port = SettingsRepository.getNumber(SettingsRepository.KEY_PROXY_PORT, 0);
+    HttpClient.applyConfiguredProxy();
+    if (host.length === 0 || port <= 0 || port > 65535) {
+      return undefined;
+    }
+    const proxy: http.HttpProxy = { host: host, port: port, exclusionList: [] };
+    return proxy;
+  }
 
   static async getText(
     url: string,
@@ -38,7 +82,8 @@ export class HttpClient {
         header: header,
         connectTimeout: timeoutMs,
         readTimeout: timeoutMs,
-        expectDataType: http.HttpDataType.STRING
+        expectDataType: http.HttpDataType.STRING,
+        usingProxy: HttpClient.usingProxyValue()
       });
       const code = response.responseCode;
       const text = response.result as string;
@@ -83,7 +128,8 @@ export class HttpClient {
         extraData: HttpClient.encodeForm(form),
         connectTimeout: timeoutMs,
         readTimeout: timeoutMs,
-        expectDataType: http.HttpDataType.STRING
+        expectDataType: http.HttpDataType.STRING,
+        usingProxy: HttpClient.usingProxyValue()
       });
       const code = response.responseCode;
       const text = response.result as string;
@@ -103,20 +149,29 @@ export class HttpClient {
     }
   }
 
-  static async postJson(url: string, jsonBody: string, timeoutMs: number = 15000): Promise<string> {
+  static async postJson(
+    url: string,
+    jsonBody: string,
+    timeoutMs: number = 15000,
+    extraHeaders: Record<string, string> = {}
+  ): Promise<string> {
     const request = http.createHttp();
     try {
       const header: Record<string, string> = {
         'User-Agent': HttpClient.DEFAULT_UA,
         'Content-Type': 'application/json'
       };
+      for (const key of Object.keys(extraHeaders)) {
+        header[key] = extraHeaders[key];
+      }
       const response = await request.request(url, {
         method: http.RequestMethod.POST,
         header: header,
         extraData: jsonBody,
         connectTimeout: timeoutMs,
         readTimeout: timeoutMs,
-        expectDataType: http.HttpDataType.STRING
+        expectDataType: http.HttpDataType.STRING,
+        usingProxy: HttpClient.usingProxyValue()
       });
       const code = response.responseCode;
       const text = response.result as string;
@@ -162,7 +217,8 @@ export class HttpClient {
         extraData: HttpClient.encodeForm(form),
         connectTimeout: timeoutMs,
         readTimeout: timeoutMs,
-        expectDataType: http.HttpDataType.STRING
+        expectDataType: http.HttpDataType.STRING,
+        usingProxy: HttpClient.usingProxyValue()
       });
       const code = response.responseCode;
       const text = response.result as string;
