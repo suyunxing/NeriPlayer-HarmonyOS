@@ -23,9 +23,42 @@ import { QueueEngine, TrackEndAction } from './queue/QueueEngine';
 import { AudioInterruptPolicy, InterruptAction } from './AudioInterruptPolicy';
 import { SleepTimer, SleepTimerMode } from './SleepTimer';
 import { PlaybackConstants, PlaybackStatus, RepeatMode } from './PlaybackConstants';
+import {
+  ListenTogetherPlaybackCommand,
+  ListenTogetherPlaybackCommandSource,
+  createListenTogetherPlaybackCommand
+} from '../listentogether/control/ListenTogetherPlaybackCommand';
+import { shouldHoldListenTogetherPlaybackForSafetyPause } from '../listentogether/playback/ListenTogetherListenerSafetyPausePolicy';
 
 export interface PlayerListener {
   onSnapshotChanged(): void;
+}
+
+/**
+ * Observes transport commands issued by the local user. Remote-sync commands
+ * are filtered out before delivery (upstream `emitPlaybackCommand`), so a
+ * session manager never echoes the room's own decisions back into the room.
+ */
+export interface PlayerCommandListener {
+  onPlaybackCommand(command: ListenTogetherPlaybackCommand): void;
+}
+
+/**
+ * The questions the player asks back about the listen-together session, answered
+ * by the session manager once one exists (and by nobody before that). Keeping the
+ * seam here avoids player -> session imports: upstream reaches the session
+ * singleton directly, which this port cannot do without a dependency cycle.
+ */
+export interface ListenTogetherPlaybackDelegate {
+  isListenTogetherActive(): boolean;
+  isCurrentUserController(): boolean;
+  /** Upstream `shouldUseListenTogetherListenerSafetyPause()` against live state. */
+  shouldUseListenerSafetyPause(): boolean;
+  /** Upstream `SessionManager.resumeListenerAfterSafetyPause()`. */
+  requestListenerSafetyResume(): void;
+  /** Upstream `shouldWaitForListenTogetherAuthoritativeStream(song)`. */
+  shouldWaitForAuthoritativeStream(song: SongItem): boolean;
+  resolveAuthoritativeStreamUrls(song: SongItem): string[];
 }
 
 class PlayerControlListener implements SessionControlListener {
@@ -81,9 +114,36 @@ export class PlayerManager {
   private static positionMs: number = 0;
   private static durationMs: number = 0;
   private static errorAttempts: number = 0;
+  /**
+   * Supersession token for in-flight loads: listener state application can
+   * trigger several loadSong calls in quick succession (join snapshot, then
+   * LINK_READY, then a heartbeat re-seek), and two chains interleaving on the
+   * one AVPlayer produced 5400102 "not idle, unsupport setMediaSource" churn
+   * on device. A superseded chain stops at its next await and must not retry.
+   */
+  private static loadGeneration: number = 0;
   private static listenedMs: number = 0;
   private static lastTimeMs: number = 0;
   private static lastPublishMs: number = 0;
+  // ---- Listen-together support surface (upstream PlayerManager fields) ----
+  private static commandListeners: PlayerCommandListener[] = [];
+  private static listenTogetherDelegate: ListenTogetherPlaybackDelegate | null = null;
+  // Listener safety pause: set when an output-device loss pauses a pinned
+  // listener; playback stays down until the room's authoritative resume.
+  private static safetyPausePendingResume: boolean = false;
+  private static safetyResumeInFlight: boolean = false;
+  // A play has been issued but may not have been observed to start yet
+  // (upstream `playWhenReadyFlow`). LOADING covers the same idea for stall
+  // detection, but the applier needs the intent flag separately.
+  private static playWhenReady: boolean = false;
+  // Soft drift correction, upstream `listenTogetherSyncPlaybackRate`. API 24
+  // quantizes AVPlayer speeds to fixed steps, so sub-step rates land on 1.00x;
+  // the value is still tracked so the surface (and any future finer engine
+  // path) behaves like upstream.
+  private static listenTogetherSyncPlaybackRate: number = 1.0;
+  // The stream URL the current song was last resolved to (upstream
+  // `currentMediaUrlFlow`), used to detect stale controller-shared links.
+  private static currentMediaUrl: string | null = null;
   // Position restored from disk, consumed by the first play() after restore.
   private static restoredPositionMs: number = 0;
   private static persistTimer: number = -1;
@@ -120,6 +180,216 @@ export class PlayerManager {
     }
   }
 
+  // --------------------------------------------------------------------------
+  // Listen-together support surface
+  // --------------------------------------------------------------------------
+
+  static addCommandListener(listener: PlayerCommandListener): void {
+    PlayerManager.commandListeners.push(listener);
+  }
+
+  static removeCommandListener(listener: PlayerCommandListener): void {
+    const index = PlayerManager.commandListeners.indexOf(listener);
+    if (index >= 0) {
+      PlayerManager.commandListeners.splice(index, 1);
+    }
+  }
+
+  static setListenTogetherDelegate(delegate: ListenTogetherPlaybackDelegate | null): void {
+    PlayerManager.listenTogetherDelegate = delegate;
+  }
+
+  /** Upstream `emitPlaybackCommand`: only user-initiated commands are published. */
+  private static emitPlaybackCommand(command: ListenTogetherPlaybackCommand): void {
+    if (command.source !== ListenTogetherPlaybackCommandSource.LOCAL) {
+      return;
+    }
+    for (const listener of PlayerManager.commandListeners) {
+      listener.onPlaybackCommand(command);
+    }
+  }
+
+  private static localCommand(type: string): ListenTogetherPlaybackCommand {
+    return createListenTogetherPlaybackCommand(
+      type,
+      ListenTogetherPlaybackCommandSource.LOCAL,
+      Date.now()
+    );
+  }
+
+  /**
+   * Upstream `playImpl`'s first gate: while a safety resume is pending, a local
+   * play is consumed as the request to resume instead of starting playback.
+   */
+  private static consumeLocalPlayForSafetyResume(source: ListenTogetherPlaybackCommandSource): boolean {
+    if (source !== ListenTogetherPlaybackCommandSource.LOCAL ||
+      PlayerManager.listenTogetherDelegate === null) {
+      return false;
+    }
+    if (!PlayerManager.requestListenTogetherSafetyPauseResume()) {
+      return false;
+    }
+    Logger.info('PlayerManager local play consumed by listen-together safety resume');
+    return true;
+  }
+
+  static markListenTogetherSafetyPausePendingResume(): void {
+    PlayerManager.safetyPausePendingResume = true;
+    PlayerManager.safetyResumeInFlight = false;
+  }
+
+  static shouldHoldListenTogetherPlaybackForSafetyPause(causeType: string | null): boolean {
+    return shouldHoldListenTogetherPlaybackForSafetyPause(
+      PlayerManager.safetyPausePendingResume,
+      causeType
+    );
+  }
+
+  static clearListenTogetherSafetyPause(): void {
+    PlayerManager.safetyPausePendingResume = false;
+    PlayerManager.safetyResumeInFlight = false;
+  }
+
+  /** Keeps the pending flag so the next local play can retry the resume. */
+  static retryListenTogetherSafetyPauseResume(): void {
+    PlayerManager.safetyResumeInFlight = false;
+  }
+
+  static completeListenTogetherSafetyPauseResume(): void {
+    PlayerManager.safetyPausePendingResume = false;
+    PlayerManager.safetyResumeInFlight = false;
+  }
+
+  /**
+   * Upstream `requestListenTogetherSafetyPauseResume`: true when the caller must
+   * not start playback because the resume handshake took over.
+   */
+  static requestListenTogetherSafetyPauseResume(): boolean {
+    if (!PlayerManager.safetyPausePendingResume) {
+      return false;
+    }
+    const delegate = PlayerManager.listenTogetherDelegate;
+    const active = delegate !== null && delegate.isListenTogetherActive();
+    const controller = delegate !== null && delegate.isCurrentUserController();
+    if (!active || controller) {
+      PlayerManager.clearListenTogetherSafetyPause();
+      return false;
+    }
+    if (PlayerManager.safetyResumeInFlight) {
+      return true;
+    }
+    PlayerManager.safetyResumeInFlight = true;
+    if (delegate !== null) {
+      delegate.requestListenerSafetyResume();
+    }
+    return true;
+  }
+
+  /** Upstream `setListenTogetherSyncPlaybackRate`, clamped to [0.95, 1.05]. */
+  static setListenTogetherSyncPlaybackRate(rate: number): void {
+    const resolved = Math.min(1.05, Math.max(0.95, rate));
+    if (Math.abs(PlayerManager.listenTogetherSyncPlaybackRate - resolved) < 0.001) {
+      return;
+    }
+    PlayerManager.listenTogetherSyncPlaybackRate = resolved;
+    PlayerManager.applyEffectiveSpeed();
+  }
+
+  static resetListenTogetherSyncPlaybackRate(): void {
+    PlayerManager.setListenTogetherSyncPlaybackRate(1.0);
+  }
+
+  static getListenTogetherSyncPlaybackRate(): number {
+    return PlayerManager.listenTogetherSyncPlaybackRate;
+  }
+
+  /** Applies speed * sync rate to the engine; API 24 quantizes to fixed steps. */
+  private static applyEffectiveSpeed(): void {
+    if (PlayerManager.player === null) {
+      return;
+    }
+    try {
+      PlayerManager.player.setSpeed(
+        PlayerManager.toPlaybackSpeed(PlayerManager.speed * PlayerManager.listenTogetherSyncPlaybackRate)
+      );
+    } catch (error) {
+      const e = error as Error;
+      Logger.warn(`applyEffectiveSpeed failed: ${e.message}`);
+    }
+  }
+
+  /**
+   * Upstream `applyListenTogetherPlaybackModeImpl`: applies only the parts the
+   * room actually specifies, persists like the user-facing setters, and never
+   * publishes a PLAYBACK_MODE command (the room already knows).
+   */
+  static applyListenTogetherPlaybackMode(repeatMode: number | null, shuffleEnabled: boolean | null): void {
+    let normalizedRepeatMode: RepeatMode | null = null;
+    if (repeatMode !== null) {
+      normalizedRepeatMode =
+        repeatMode === RepeatMode.OFF || repeatMode === RepeatMode.ONE || repeatMode === RepeatMode.ALL
+          ? repeatMode as RepeatMode
+          : RepeatMode.OFF;
+    }
+    if (normalizedRepeatMode !== null && normalizedRepeatMode !== PlayerManager.engine.repeatMode) {
+      PlayerManager.engine.setRepeatMode(normalizedRepeatMode);
+      AppStorage.setOrCreate(PlaybackConstants.KEY_REPEAT_MODE, normalizedRepeatMode);
+      PlayerManager.schedulePersist(0);
+      PlayerManager.notify();
+    }
+    if (shuffleEnabled !== null && shuffleEnabled !== PlayerManager.engine.shuffle) {
+      PlayerManager.engine.setShuffle(shuffleEnabled);
+      PlayerManager.publishQueue();
+    }
+  }
+
+  static shouldWaitForListenTogetherAuthoritativeStream(song: SongItem): boolean {
+    const delegate = PlayerManager.listenTogetherDelegate;
+    return delegate !== null && delegate.shouldWaitForAuthoritativeStream(song);
+  }
+
+  /** Upstream `isTransportActive()` mapped onto this port's state model. */
+  static isTransportActive(): boolean {
+    return PlayerManager.getCurrentSong() !== null &&
+      (PlayerManager.playWhenReady ||
+        PlayerManager.status === PlaybackStatus.PLAYING ||
+        PlayerManager.status === PlaybackStatus.LOADING);
+  }
+
+  static isPlayWhenReady(): boolean {
+    return PlayerManager.playWhenReady;
+  }
+
+  static getCurrentMediaUrl(): string | null {
+    return PlayerManager.currentMediaUrl;
+  }
+
+  static getShareableListenTogetherStreamUrls(): string[] {
+    const url = (PlayerManager.currentMediaUrl ?? '').trim();
+    if (url.length === 0) {
+      return [];
+    }
+    const lowered = url.toLowerCase();
+    return lowered.startsWith('http://') || lowered.startsWith('https://') ? [url] : [];
+  }
+
+  static async resolveShareableListenTogetherStreamUrls(song: SongItem): Promise<string[]> {
+    const current = PlayerManager.getCurrentSong();
+    if (current !== null && stableKeyOf(current) === stableKeyOf(song)) {
+      const currentUrls = PlayerManager.getShareableListenTogetherStreamUrls();
+      if (currentUrls.length > 0) {
+        return currentUrls;
+      }
+    }
+    const resolved = await PlayerManager.resolveStreamUrl(song);
+    const lowered = resolved.trim().toLowerCase();
+    return lowered.startsWith('http://') || lowered.startsWith('https://') ? [resolved.trim()] : [];
+  }
+
+  private static setCurrentMediaUrl(url: string | null): void {
+    PlayerManager.currentMediaUrl = url;
+  }
+
   static getCurrentSong(): SongItem | null {
     const queueIndex = PlayerManager.engine.getCurrentQueueIndex();
     if (queueIndex < 0 || queueIndex >= PlayerManager.queue.length) {
@@ -136,7 +406,19 @@ export class PlayerManager {
     return PlayerManager.status;
   }
 
-  static async playPlaylist(songs: SongItem[], startIndex: number): Promise<void> {
+  static getRepeatMode(): RepeatMode {
+    return PlayerManager.engine.repeatMode;
+  }
+
+  static isShuffleEnabled(): boolean {
+    return PlayerManager.engine.shuffle;
+  }
+
+  static async playPlaylist(
+    songs: SongItem[],
+    startIndex: number,
+    source: ListenTogetherPlaybackCommandSource = ListenTogetherPlaybackCommandSource.LOCAL
+  ): Promise<void> {
     if (songs.length === 0) {
       return;
     }
@@ -144,10 +426,25 @@ export class PlayerManager {
     PlayerManager.engine.setQueueSize(songs.length);
     PlayerManager.engine.start(startIndex, PlayerManager.engine.shuffle, PlayerManager.engine.repeatMode);
     PlayerManager.publishQueue();
+    PlayerManager.playWhenReady = true;
+    const command = createListenTogetherPlaybackCommand('PLAY_PLAYLIST', source, Date.now());
+    command.queue = songs.slice();
+    command.currentIndex = startIndex;
+    command.shouldPlay = true;
+    PlayerManager.emitPlaybackCommand(command);
     await PlayerManager.loadSong();
   }
 
-  static async play(): Promise<void> {
+  static async play(
+    source: ListenTogetherPlaybackCommandSource = ListenTogetherPlaybackCommandSource.LOCAL
+  ): Promise<void> {
+    if (PlayerManager.consumeLocalPlayForSafetyResume(source)) {
+      return;
+    }
+    PlayerManager.playWhenReady = true;
+    const command = createListenTogetherPlaybackCommand('PLAY', source, Date.now());
+    command.positionMs = Math.max(0, PlayerManager.positionMs);
+    PlayerManager.emitPlaybackCommand(command);
     const player = PlayerManager.player;
     if (player !== null && PlayerManager.status === PlaybackStatus.PAUSED) {
       try {
@@ -176,14 +473,20 @@ export class PlayerManager {
       return;
     }
     if (PlayerManager.status === PlaybackStatus.COMPLETED) {
-      await PlayerManager.seekTo(0);
+      await PlayerManager.seekTo(0, source);
       await PlayerManager.resumeIfPrepared();
     }
   }
 
-  static async pause(): Promise<void> {
+  static async pause(
+    source: ListenTogetherPlaybackCommandSource = ListenTogetherPlaybackCommandSource.LOCAL
+  ): Promise<void> {
     // User-facing pause cancels any pending auto-resume intent.
     PlayerManager.resumeOnFocusRegain = false;
+    PlayerManager.playWhenReady = false;
+    const command = createListenTogetherPlaybackCommand('PAUSE', source, Date.now());
+    command.positionMs = Math.max(0, PlayerManager.positionMs);
+    PlayerManager.emitPlaybackCommand(command);
     const player = PlayerManager.player;
     if (player === null) {
       return;
@@ -207,34 +510,54 @@ export class PlayerManager {
     }
   }
 
-  static async next(auto: boolean = false): Promise<void> {
+  static async next(
+    auto: boolean = false,
+    source: ListenTogetherPlaybackCommandSource = ListenTogetherPlaybackCommandSource.LOCAL
+  ): Promise<void> {
     // Force (wrap/rebuild) is only legitimate under repeat-all or explicit
     // skip-after-failure, mirroring Android nextImpl(force).
     const force = auto && PlayerManager.engine.repeatMode === RepeatMode.ALL;
     const target = PlayerManager.engine.next(force);
     if (target < 0) {
       if (!auto) {
-        await PlayerManager.pause();
+        await PlayerManager.pause(source);
       }
       PlayerManager.publishStatus(PlaybackStatus.COMPLETED);
       return;
     }
+    PlayerManager.playWhenReady = true;
+    const command = createListenTogetherPlaybackCommand('NEXT', source, Date.now());
+    command.positionMs = Math.max(0, PlayerManager.positionMs);
+    PlayerManager.emitPlaybackCommand(command);
     await PlayerManager.loadSong();
   }
 
-  static async previous(): Promise<void> {
+  static async previous(
+    source: ListenTogetherPlaybackCommandSource = ListenTogetherPlaybackCommandSource.LOCAL
+  ): Promise<void> {
     const target = PlayerManager.engine.previous();
     if (target < 0) {
       return;
     }
+    PlayerManager.playWhenReady = true;
+    const command = createListenTogetherPlaybackCommand('PREVIOUS', source, Date.now());
+    command.positionMs = Math.max(0, PlayerManager.positionMs);
+    PlayerManager.emitPlaybackCommand(command);
     await PlayerManager.loadSong();
   }
 
   /**
    * Jumps to a specific queue position (used by the queue sheet).
    */
-  static async playAt(queueIndex: number): Promise<void> {
+  static async playAt(
+    queueIndex: number,
+    source: ListenTogetherPlaybackCommandSource = ListenTogetherPlaybackCommandSource.LOCAL
+  ): Promise<void> {
     PlayerManager.engine.playAt(queueIndex);
+    PlayerManager.playWhenReady = true;
+    const command = createListenTogetherPlaybackCommand('PLAY_FROM_QUEUE', source, Date.now());
+    command.currentIndex = queueIndex;
+    PlayerManager.emitPlaybackCommand(command);
     await PlayerManager.loadSong();
   }
 
@@ -242,7 +565,13 @@ export class PlayerManager {
     return PlayerManager.engine.getCurrentQueueIndex();
   }
 
-  static async seekTo(timeMs: number): Promise<void> {
+  static async seekTo(
+    timeMs: number,
+    source: ListenTogetherPlaybackCommandSource = ListenTogetherPlaybackCommandSource.LOCAL
+  ): Promise<void> {
+    const command = createListenTogetherPlaybackCommand('SEEK', source, Date.now());
+    command.positionMs = Math.max(0, timeMs);
+    PlayerManager.emitPlaybackCommand(command);
     const player = PlayerManager.player;
     if (player === null) {
       return;
@@ -255,9 +584,16 @@ export class PlayerManager {
     }
   }
 
-  static setShuffle(enabled: boolean): void {
+  static setShuffle(
+    enabled: boolean,
+    source: ListenTogetherPlaybackCommandSource = ListenTogetherPlaybackCommandSource.LOCAL
+  ): void {
     PlayerManager.engine.setShuffle(enabled);
     PlayerManager.publishQueue();
+    const command = createListenTogetherPlaybackCommand('PLAYBACK_MODE', source, Date.now());
+    command.repeatMode = PlayerManager.engine.repeatMode;
+    command.shuffleEnabled = enabled;
+    PlayerManager.emitPlaybackCommand(command);
   }
 
   static setRepeatMode(mode: RepeatMode): void {
@@ -265,14 +601,24 @@ export class PlayerManager {
     AppStorage.setOrCreate(PlaybackConstants.KEY_REPEAT_MODE, mode);
     PlayerManager.schedulePersist(0);
     PlayerManager.notify();
+    const command = PlayerManager.localCommand('PLAYBACK_MODE');
+    command.repeatMode = mode;
+    command.shuffleEnabled = PlayerManager.engine.shuffle;
+    PlayerManager.emitPlaybackCommand(command);
   }
 
   /** Android order: OFF -> ALL -> ONE. */
-  static cycleRepeatMode(): RepeatMode {
+  static cycleRepeatMode(
+    source: ListenTogetherPlaybackCommandSource = ListenTogetherPlaybackCommandSource.LOCAL
+  ): RepeatMode {
     const mode = PlayerManager.engine.cycleRepeatMode();
     AppStorage.setOrCreate(PlaybackConstants.KEY_REPEAT_MODE, mode);
     PlayerManager.schedulePersist(0);
     PlayerManager.notify();
+    const command = createListenTogetherPlaybackCommand('PLAYBACK_MODE', source, Date.now());
+    command.repeatMode = mode;
+    command.shuffleEnabled = PlayerManager.engine.shuffle;
+    PlayerManager.emitPlaybackCommand(command);
     return mode;
   }
 
@@ -280,14 +626,7 @@ export class PlayerManager {
     PlayerManager.speed = speed;
     AppStorage.setOrCreate(PlaybackConstants.KEY_SPEED, speed);
     PlayerManager.schedulePersist(0);
-    if (PlayerManager.player !== null) {
-      try {
-        PlayerManager.player.setSpeed(PlayerManager.toPlaybackSpeed(speed));
-      } catch (error) {
-        const e = error as Error;
-        Logger.warn(`PlayerManager.setSpeed failed: ${e.message}`);
-      }
-    }
+    PlayerManager.applyEffectiveSpeed();
   }
 
   // --------------------------------------------------------------------------
@@ -397,17 +736,24 @@ export class PlayerManager {
     Logger.info(`PlayerManager restored queue: ${state.songs.length} songs at index ${state.queueIndex}`);
   }
 
-  private static async loadSong(startPositionMs: number = 0): Promise<void> {
+  private static async loadSong(startPositionMs: number = 0, isRetry: boolean = false): Promise<void> {
+    const generation = ++PlayerManager.loadGeneration;
     const song = PlayerManager.getCurrentSong();
     if (song === null) {
       return;
     }
-    PlayerManager.errorAttempts = 0;
+    // A retry must not reset the attempt budget: with the reset here the
+    // counter never passed 1 and handleLoadFailure retried without a cap,
+    // flooding the stream API fast enough to trip platform risk control.
+    if (!isRetry) {
+      PlayerManager.errorAttempts = 0;
+    }
     PlayerManager.flushPlaybackStatsAsync();
     PlayerManager.positionMs = startPositionMs;
     PlayerManager.restoredPositionMs = 0;
     PlayerManager.durationMs = song.durationMs;
     PlayerManager.lastTimeMs = 0;
+    PlayerManager.setCurrentMediaUrl(null);
     PlayerManager.publishCurrentSong(song);
     PlayerManager.publishPosition();
     PlayerManager.publishDuration();
@@ -418,11 +764,21 @@ export class PlayerManager {
 
     try {
       const player = await PlayerManager.ensurePlayer();
+      if (generation !== PlayerManager.loadGeneration) {
+        return;
+      }
       const uri = await PlayerManager.resolveStreamUrl(song);
+      if (generation !== PlayerManager.loadGeneration) {
+        return;
+      }
       if (uri.length === 0) {
         throw new Error(`No playable stream for ${song.displayName}`);
       }
+      PlayerManager.setCurrentMediaUrl(uri);
       await player.reset();
+      if (generation !== PlayerManager.loadGeneration) {
+        return;
+      }
       // Bilibili CDN hosts require a web Referer + desktop UA (plus the login
       // cookie when present) or the player's own fetch is rejected with 403.
       const biliCookie = BiliCookieRepository.isLoggedIn()
@@ -436,6 +792,9 @@ export class PlayerManager {
       await PlayerManager.waitForState(['initialized']);
       await player.prepare();
       await PlayerManager.waitForState(['prepared']);
+      if (generation !== PlayerManager.loadGeneration) {
+        return;
+      }
       // Shared focus mode keeps a single focus owner inside this app; must be
       // set between prepare and the first play of each source.
       player.audioInterruptMode = audio.InterruptMode.SHARE_MODE;
@@ -450,7 +809,9 @@ export class PlayerManager {
         Logger.debug(`getAVPlayerDuration failed: ${e.message}`);
       }
       try {
-        player.setSpeed(PlayerManager.toPlaybackSpeed(PlayerManager.speed));
+        player.setSpeed(
+          PlayerManager.toPlaybackSpeed(PlayerManager.speed * PlayerManager.listenTogetherSyncPlaybackRate)
+        );
       } catch (error) {
         const e = error as Error;
         Logger.debug(`setPlaybackSpeed failed: ${e.message}`);
@@ -469,6 +830,11 @@ export class PlayerManager {
       Logger.info(`PlayerManager playback started: ${song.displayName}`);
     } catch (error) {
       const e = error as Error;
+      if (generation !== PlayerManager.loadGeneration) {
+        // A newer load superseded this chain; its own outcome wins.
+        Logger.debug(`loadSong superseded for ${song.displayName}: ${e.message}`);
+        return;
+      }
       Logger.error(`PlayerManager.loadSong failed for ${song.displayName}: ${e.message}`);
       await PlayerManager.handleLoadFailure();
     }
@@ -484,6 +850,12 @@ export class PlayerManager {
         if (localUrl.length > 0) {
           return localUrl;
         }
+      }
+      // A listener may consume the controller's already-resolved stream after
+      // the offline catalog has had a chance to satisfy the request.
+      const authoritativeUrls = PlayerManager.listenTogetherDelegate?.resolveAuthoritativeStreamUrls(song) ?? [];
+      if (authoritativeUrls.length > 0) {
+        return authoritativeUrls[0];
       }
       // NetEase songs fall back to a matched Bilibili source when the direct
       // stream is unavailable and the setting is on.
@@ -530,7 +902,7 @@ export class PlayerManager {
     }
     if (PlayerManager.errorAttempts < 2) {
       Logger.warn(`Retrying playback for ${song.displayName} (attempt ${PlayerManager.errorAttempts})`);
-      await PlayerManager.loadSong();
+      await PlayerManager.loadSong(0, true);
       return;
     }
     Logger.warn(`Giving up on ${song.displayName}, skipping to next`);
@@ -621,9 +993,19 @@ export class PlayerManager {
       PlayerManager.sleepTimer.cancel();
       PlayerManager.publishSleepState();
       PlayerManager.publishStatus(PlaybackStatus.COMPLETED);
+      PlayerManager.playWhenReady = false;
       PlayerManager.persistNow();
       return;
     }
+    // Natural track end is a local playback fact the session must forward
+    // (upstream emits TRACK_FINISHED from handleTrackEnded). Emitted for every
+    // non-sleep-stopped completion, including repeat-one replays: the room
+    // decides what "next" means, the local repeat decision stays independent.
+    const finishedCommand = PlayerManager.localCommand('TRACK_FINISHED');
+    finishedCommand.queue = PlayerManager.queue.slice();
+    finishedCommand.currentIndex = PlayerManager.engine.getCurrentQueueIndex();
+    finishedCommand.positionMs = Math.max(0, PlayerManager.durationMs);
+    PlayerManager.emitPlaybackCommand(finishedCommand);
     const action = PlayerManager.engine.onTrackEnded();
     if (action === TrackEndAction.REPLAY) {
       const player = PlayerManager.player;
@@ -691,6 +1073,14 @@ export class PlayerManager {
 
   private static onOutputDeviceChange(info: audio.AudioStreamDeviceChangeInfo): void {
     const action = AudioInterruptPolicy.decideForDeviceChange(info.changeReason);
+    // Upstream `pauseForAudioRouteLoss`: a pinned listener losing its output
+    // device arms the safety pause instead of the ordinary auto-resume intent,
+    // because resuming locally would desync the room.
+    if (action === InterruptAction.PAUSE_PERMANENT &&
+      PlayerManager.listenTogetherDelegate !== null &&
+      PlayerManager.listenTogetherDelegate.shouldUseListenerSafetyPause()) {
+      PlayerManager.markListenTogetherSafetyPausePendingResume();
+    }
     PlayerManager.applyInterruptAction(action);
   }
 
@@ -699,17 +1089,20 @@ export class PlayerManager {
     switch (action) {
       case InterruptAction.PAUSE_TRANSIENT:
         PlayerManager.resumeOnFocusRegain = true;
+        PlayerManager.playWhenReady = false;
         PlayerManager.publishStatus(PlaybackStatus.PAUSED);
         PlayerManager.flushPlaybackStatsAsync();
         break;
       case InterruptAction.PAUSE_PERMANENT:
         PlayerManager.resumeOnFocusRegain = false;
+        PlayerManager.playWhenReady = false;
         PlayerManager.publishStatus(PlaybackStatus.PAUSED);
         PlayerManager.flushPlaybackStatsAsync();
         PlayerManager.persistNow();
         break;
       case InterruptAction.RESUME:
         PlayerManager.resumeOnFocusRegain = false;
+        PlayerManager.playWhenReady = true;
         if (player !== null && PlayerManager.status === PlaybackStatus.PAUSED) {
           player.play().catch((error: Object) => {
             const e = error as Error;
