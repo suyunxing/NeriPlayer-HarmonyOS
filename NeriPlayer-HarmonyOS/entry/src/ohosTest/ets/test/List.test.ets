@@ -11,6 +11,7 @@ import githubTransportDeviceTest from './GitHubTransportDevice.test';
 import listenTogetherNetworkDeviceTest from './ListenTogetherNetworkDevice.test';
 import listenTogetherRoomSmokeDeviceTest from './ListenTogetherRoomSmokeDevice.test';
 import listenTogetherReconnectProbeTest from './ListenTogetherReconnectProbe.test';
+import syncWebdavDeviceTest from './SyncWebdavDevice.test';
 
 export default function testsuite(): void {
   abilityTest();
@@ -26,4 +27,5 @@ export default function testsuite(): void {
   listenTogetherNetworkDeviceTest();
   listenTogetherRoomSmokeDeviceTest();
   listenTogetherReconnectProbeTest();
+  syncWebdavDeviceTest();
 }
