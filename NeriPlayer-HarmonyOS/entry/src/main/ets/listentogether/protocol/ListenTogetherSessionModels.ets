@@ -6,6 +6,8 @@
  * so the wire form is preserved without a separate mapping table.
  */
 
+import { JsonRecord, jsonRecordFromText, optString } from './ListenTogetherJson';
+
 export enum ListenTogetherConnectionState {
   DISCONNECTED = 'disconnected',
   CONNECTING = 'connecting',
@@ -52,3 +54,36 @@ export function cloneListenTogetherSessionState(
 /** Role strings compared verbatim by the session and control policies. */
 export const LISTEN_TOGETHER_ROLE_CONTROLLER: string = 'controller';
 export const LISTEN_TOGETHER_ROLE_LISTENER: string = 'listener';
+
+/**
+ * Reads back what the session manager publishes to AppStorage. Unknown
+ * connection values fall back to DISCONNECTED instead of failing the page.
+ */
+export function listenTogetherSessionStateFromRecord(raw: JsonRecord): ListenTogetherSessionState {
+  const state = new ListenTogetherSessionState();
+  state.baseUrl = optString(raw, 'baseUrl');
+  state.roomId = optString(raw, 'roomId');
+  state.userUuid = optString(raw, 'userUuid');
+  state.nickname = optString(raw, 'nickname');
+  state.role = optString(raw, 'role');
+  state.token = optString(raw, 'token');
+  state.memberSecret = optString(raw, 'memberSecret');
+  state.joinSecret = optString(raw, 'joinSecret');
+  state.wsUrl = optString(raw, 'wsUrl');
+  const connection = optString(raw, 'connectionState');
+  if (connection === ListenTogetherConnectionState.CONNECTING) {
+    state.connectionState = ListenTogetherConnectionState.CONNECTING;
+  } else if (connection === ListenTogetherConnectionState.CONNECTED) {
+    state.connectionState = ListenTogetherConnectionState.CONNECTED;
+  } else {
+    state.connectionState = ListenTogetherConnectionState.DISCONNECTED;
+  }
+  state.lastError = optString(raw, 'lastError');
+  state.roomNotice = optString(raw, 'roomNotice');
+  return state;
+}
+
+export function listenTogetherSessionStateFromJson(text: string): ListenTogetherSessionState | null {
+  const raw = jsonRecordFromText(text);
+  return raw === null ? null : listenTogetherSessionStateFromRecord(raw);
+}

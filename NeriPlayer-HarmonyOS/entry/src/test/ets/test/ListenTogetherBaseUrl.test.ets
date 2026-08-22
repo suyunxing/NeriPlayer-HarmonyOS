@@ -25,7 +25,8 @@ import {
 import {
   buildListenTogetherWsUrl,
   listenTogetherRoomWsPath,
-  redactListenTogetherWsUrlForLog
+  redactListenTogetherWsUrlForLog,
+  resolveListenTogetherWsUrl
 } from '../../../main/ets/listentogether/network/ListenTogetherWsUrl';
 
 const WORKER_BASE_URL: string = 'https://neriplayerltw.cwuomcwuom.workers.dev';
@@ -252,6 +253,18 @@ export default function listenTogetherBaseUrlTest(): void {
     it('percentEncodesTheToken', 0, () => {
       expect(buildListenTogetherWsUrl('https://example.com', 'ABC234', 'a+b/c=d'))
         .assertEqual('wss://example.com/api/rooms/ABC234/ws?token=a%2Bb%2Fc%3Dd');
+    });
+
+    it('rebuildsInternalWorkerWebsocketPlaceholders', 0, () => {
+      expect(resolveListenTogetherWsUrl(
+        'https://worker.example', 'ABC234', 'token-1', 'wss://public.example/room'))
+        .assertEqual('wss://public.example/room');
+      expect(resolveListenTogetherWsUrl(
+        'https://worker.example', 'ABC234', 'token-1', 'wss://room.internal/api/rooms/ABC234/ws'))
+        .assertEqual('wss://worker.example/api/rooms/ABC234/ws?token=token-1');
+      expect(resolveListenTogetherWsUrl(
+        'https://worker.example', 'ABC234', null, 'wss://room.internal:8787/ws'))
+        .assertNull();
     });
 
     it('neverLeavesTheTokenInALogLine', 0, () => {
