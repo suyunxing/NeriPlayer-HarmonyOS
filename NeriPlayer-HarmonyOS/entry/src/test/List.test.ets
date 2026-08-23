@@ -55,6 +55,11 @@ import listenTogetherEventFactoryTest from './ets/test/ListenTogetherEventFactor
 import listenTogetherSessionRuntimeTest from './ets/test/ListenTogetherSessionRuntime.test';
 import listenTogetherConfigSnapshotTest from './ets/test/ListenTogetherConfigSnapshot.test';
 import listenTogetherStateApplierTest from './ets/test/ListenTogetherStateApplier.test';
+import paletteTest from './ets/test/Palette.test';
+import dynamicThemeTest from './ets/test/DynamicTheme.test';
+import ttmlParserTest from './ets/test/TtmlParser.test';
+import amllLyricsResolverTest from './ets/test/AmllLyricsResolver.test';
+import lyricLineTrackerTest from './ets/test/LyricLineTracker.test';
 
 export default function testsuite(): void {
   lrcParserTest();
@@ -114,4 +119,9 @@ export default function testsuite(): void {
   listenTogetherSessionRuntimeTest();
   listenTogetherConfigSnapshotTest();
   listenTogetherStateApplierTest();
+  paletteTest();
+  dynamicThemeTest();
+  ttmlParserTest();
+  amllLyricsResolverTest();
+  lyricLineTrackerTest();
 }

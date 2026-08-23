@@ -11,9 +11,32 @@ export struct MiniPlayer {
   @StorageLink('player.status') status: number = PlaybackStatus.IDLE;
   @StorageLink('player.positionMs') positionMs: number = 0;
   @StorageLink('player.durationMs') durationMs: number = 0;
+  // Mirror the cover seed into @State and read it directly in the accent
+  // expressions: AppStorage reads hidden inside Theme.* calls are invisible
+  // to minimal-update tracking (M7.4 pitfall), so the raw copy is required.
+  @StorageProp('player.coverSeedHex') @Watch('onCoverSeedChanged') coverSeedHex: string = '';
+  @StorageProp('np.glass_effect') glassEffect: boolean = true;
+  @State seedHex: string = '';
+  // Horizontal swipe-to-skip (Android NeriMiniPlayer: 72vp raw threshold,
+  // visual offset eased with exponential resistance peaking at 52vp).
+  @State swipeOffset: number = 0;
+  @State swiping: boolean = false;
+
+  private static readonly SWIPE_TRIGGER_VP = 72;
+  private static readonly SWIPE_MAX_OFFSET_VP = 52;
+
+  private resistedOffset(rawOffset: number): number {
+    const direction = rawOffset >= 0 ? 1 : -1;
+    const magnitude = MiniPlayer.SWIPE_MAX_OFFSET_VP * (1 - Math.exp(-Math.abs(rawOffset) / 160));
+    return direction * magnitude;
+  }
 
   private song(): SongItem {
     return this.currentSongJson.length > 0 ? SongItem.fromJson(this.currentSongJson) : new SongItem();
+  }
+
+  private onCoverSeedChanged(): void {
+    this.seedHex = this.coverSeedHex;
   }
 
   build() {
@@ -24,7 +47,9 @@ export struct MiniPlayer {
       })
         .width('100%')
         .height(2)
-        .color(Theme.primary(Theme.isDark()))
+        .color(this.seedHex.length > 0
+          ? Theme.primaryFor(this.seedHex, Theme.isDark())
+          : Theme.primary(Theme.isDark()))
         .backgroundColor('#22000000')
 
       Row({ space: 12 }) {
@@ -84,7 +109,9 @@ export struct MiniPlayer {
         .width(40)
         .height(40)
         .type(ButtonType.Circle)
-        .backgroundColor(Theme.primary(Theme.isDark()))
+        .backgroundColor(this.seedHex.length > 0
+          ? Theme.primaryFor(this.seedHex, Theme.isDark())
+          : Theme.primary(Theme.isDark()))
         .onClick(() => {
           PlayerManager.togglePlayPause();
         })
@@ -109,9 +136,38 @@ export struct MiniPlayer {
       .onClick(() => {
         Router.push(Router.NOW_PLAYING);
       })
+      .gesture(
+        PanGesture({ fingers: 1, direction: PanDirection.Horizontal, distance: 12 })
+          .onActionStart(() => {
+            this.swiping = true;
+          })
+          .onActionUpdate((event: GestureEvent) => {
+            this.swipeOffset = this.resistedOffset(event.offsetX);
+          })
+          .onActionEnd((event: GestureEvent) => {
+            if (event.offsetX >= MiniPlayer.SWIPE_TRIGGER_VP) {
+              PlayerManager.previous();
+            } else if (event.offsetX <= -MiniPlayer.SWIPE_TRIGGER_VP) {
+              PlayerManager.next(false);
+            }
+            animateTo({ duration: 180, curve: Curve.Friction }, () => {
+              this.swipeOffset = 0;
+              this.swiping = false;
+            });
+          })
+          .onActionCancel(() => {
+            animateTo({ duration: 180, curve: Curve.Friction }, () => {
+              this.swipeOffset = 0;
+              this.swiping = false;
+            });
+          })
+      )
+      .translate({ x: this.swipeOffset })
+      .scale(this.swiping ? { x: 0.975, y: 0.975 } : { x: 1, y: 1 })
     }
     .width('100%')
-    .backgroundColor(Theme.surface(Theme.isDark()))
+    .backgroundColor(this.glassEffect ? Theme.surfaceGlass(Theme.isDark()) : Theme.surface(Theme.isDark()))
+    .backgroundBlurStyle(this.glassEffect ? BlurStyle.COMPONENT_THICK : BlurStyle.NONE)
     .borderRadius(16)
     .clip(true)
     .margin({ left: 10, right: 10, bottom: 8 })

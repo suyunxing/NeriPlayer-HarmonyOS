@@ -24,6 +24,9 @@ export interface SessionControlListener {
 export class AVSessionManager {
   private static session: avSession.AVSession | null = null;
   private static controlListener: SessionControlListener | null = null;
+  // Last lyric line pushed via metadata title (Android "bluetooth lyrics"
+  // slot); guards against re-sending identical metadata every position tick.
+  private static lastLyricLine: string = '';
 
   static async init(context: common.UIAbilityContext, listener: SessionControlListener): Promise<void> {
     AVSessionManager.controlListener = listener;
@@ -102,6 +105,7 @@ export class AVSessionManager {
     if (session === null) {
       return;
     }
+    AVSessionManager.lastLyricLine = '';
     try {
       const metadata: avSession.AVMetadata = {
         // Stable across platforms: a bare numeric id would collide between
@@ -120,6 +124,50 @@ export class AVSessionManager {
     } catch (error) {
       const e = error as Error;
       Logger.warn(`AVSessionManager.updateMetadata failed: ${e.message}`);
+    }
+  }
+
+  /**
+   * Publishes the current lyric line through the session title (and the
+   * "song - artist" credits through artist), which the system player
+   * surfaces in the notification/control center and remote AVRCP devices.
+   * `null` restores the real song metadata. Deliberately global (no
+   * audio-output-device gating, unlike Android's bluetooth-only behavior):
+   * the feature is user-toggled (np.bt_lyric), see FEATURE_MATRIX.
+   */
+  static async updateLyricLine(lineText: string | null, song: SongItem, durationMs: number): Promise<void> {
+    const session = AVSessionManager.session;
+    if (session === null) {
+      return;
+    }
+    if (lineText === null) {
+      if (AVSessionManager.lastLyricLine.length === 0) {
+        return;
+      }
+      AVSessionManager.lastLyricLine = '';
+      await AVSessionManager.updateMetadata(song, durationMs);
+      return;
+    }
+    if (lineText === AVSessionManager.lastLyricLine) {
+      return;
+    }
+    AVSessionManager.lastLyricLine = lineText;
+    try {
+      const metadata: avSession.AVMetadata = {
+        assetId: `${song.platform}:${song.id}:${song.mediaUri}`,
+        title: lineText,
+        artist: `${song.displayName} - ${song.displayArtist}`,
+        album: song.album,
+        duration: durationMs,
+      };
+      const cover = song.effectiveCoverUrl;
+      if (cover.length > 0) {
+        metadata.mediaImage = cover;
+      }
+      await session.setAVMetadata(metadata);
+    } catch (error) {
+      const e = error as Error;
+      Logger.warn(`AVSessionManager.updateLyricLine failed: ${e.message}`);
     }
   }
 

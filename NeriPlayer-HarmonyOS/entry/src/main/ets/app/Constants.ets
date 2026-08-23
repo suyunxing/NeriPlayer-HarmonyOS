@@ -11,6 +11,7 @@ export class Constants {
   static readonly BILI_BASE: string = 'https://api.bilibili.com';
   static readonly YTM_BASE: string = 'https://music.youtube.com';
   static readonly LRCLIB_BASE: string = 'https://lrclib.net/api';
+  static readonly AMLL_BASE: string = 'https://amlldb.bikonoo.com';
 
   // Public YouTube Music web client key (anonymous search only).
   static readonly YTM_WEB_API_KEY: string = 'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8';
