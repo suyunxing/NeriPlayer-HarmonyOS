@@ -33,6 +33,7 @@ interface NeteaseUrlResponse {
 interface NeteaseLyricResponse {
   lrc?: NeteaseLyricBlock;
   tlyric?: NeteaseLyricBlock;
+  romalrc?: NeteaseLyricBlock;
 }
 
 interface NeteaseLyricBlock {
@@ -231,11 +232,15 @@ export class NeteaseApi {
 
   static async getLyric(id: number): Promise<LyricPayload> {
     const text = await HttpClient.getText(
-      `${Constants.NETEASE_BASE}/api/song/lyric?id=${id}&lv=-1&kv=-1&tv=-1`,
+      `${Constants.NETEASE_BASE}/api/song/lyric?id=${id}&lv=-1&kv=-1&tv=-1&roma=-1`,
       NeteaseApi.headers()
     );
     const response = JSON.parse(text) as NeteaseLyricResponse;
-    return new LyricPayload(response.lrc?.lyric ?? '', response.tlyric?.lyric ?? '');
+    return new LyricPayload(
+      response.lrc?.lyric ?? '',
+      response.tlyric?.lyric ?? '',
+      response.romalrc?.lyric ?? ''
+    );
   }
 
   static async getPlaylistDetail(id: number): Promise<SongItem[]> {
@@ -427,9 +432,11 @@ export class NeteaseApi {
 export class LyricPayload {
   lyric: string;
   translated: string;
+  phonetic: string;
 
-  constructor(lyric: string = '', translated: string = '') {
+  constructor(lyric: string = '', translated: string = '', phonetic: string = '') {
     this.lyric = lyric;
     this.translated = translated;
+    this.phonetic = phonetic;
   }
 }

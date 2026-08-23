@@ -19,6 +19,9 @@ import { PlaybackStateRepository } from '../data/PlaybackStateRepository';
 import { PersistedPlaybackState } from '../model/PersistedPlaybackState';
 import { AVSessionManager, SessionControlListener } from './AVSessionManager';
 import { BackgroundTaskRunner } from './BackgroundTaskRunner';
+import { CoverArtColorCache } from '../view/theme/CoverArtColorCache';
+import { LyricLineTracker } from '../lyrics/LyricLineTracker';
+import { SettingsRepository } from '../data/SettingsRepository';
 import { QueueEngine, TrackEndAction } from './queue/QueueEngine';
 import { AudioInterruptPolicy, InterruptAction } from './AudioInterruptPolicy';
 import { SleepTimer, SleepTimerMode } from './SleepTimer';
@@ -1192,6 +1195,7 @@ export class PlayerManager {
   private static publishCurrentSong(song: SongItem): void {
     AppStorage.setOrCreate(PlaybackConstants.KEY_CURRENT_SONG, song.toJson());
     AppStorage.setOrCreate(PlaybackConstants.KEY_QUEUE_INDEX, PlayerManager.engine.getCurrentQueueIndex());
+    CoverArtColorCache.onSongChanged(song.effectiveCoverUrl);
     PlayerManager.notify();
   }
 
@@ -1205,11 +1209,51 @@ export class PlayerManager {
       PlayerManager.durationMs,
       PlayerManager.engine.repeatMode
     );
+    if (status !== PlaybackStatus.PLAYING && status !== PlaybackStatus.LOADING) {
+      PlayerManager.restoreLyricMetadata();
+    }
     PlayerManager.notify();
   }
 
   private static publishPosition(): void {
     AppStorage.setOrCreate(PlaybackConstants.KEY_POSITION_MS, PlayerManager.positionMs);
+    PlayerManager.publishLyricLine();
+  }
+
+  /**
+   * Bridges lyric line changes into the AppStorage feed (floating bar) and,
+   * when np.bt_lyric is on, into the AVSession title slot (bluetooth /
+   * notification lyric line, Android metadata-slot semantics).
+   */
+  private static publishLyricLine(): void {
+    const line = LyricLineTracker.getInstance().onPosition(
+      PlayerManager.positionMs,
+      SettingsRepository.getNumber(SettingsRepository.KEY_LYRIC_OFFSET_MS, 0)
+    );
+    if (line === null) {
+      return;
+    }
+    AppStorage.setOrCreate('player.currentLyricLine', line);
+    if (!SettingsRepository.getBoolean(SettingsRepository.KEY_BT_LYRIC, false)) {
+      return;
+    }
+    const index = PlayerManager.engine.getCurrentQueueIndex();
+    if (index < 0 || index >= PlayerManager.queue.length) {
+      return;
+    }
+    AVSessionManager.updateLyricLine(line, PlayerManager.queue[index], PlayerManager.durationMs);
+  }
+
+  /** Restores real song metadata after a bt-lyric takeover on pause/stop. */
+  private static restoreLyricMetadata(): void {
+    if (!SettingsRepository.getBoolean(SettingsRepository.KEY_BT_LYRIC, false)) {
+      return;
+    }
+    const index = PlayerManager.engine.getCurrentQueueIndex();
+    if (index < 0 || index >= PlayerManager.queue.length) {
+      return;
+    }
+    AVSessionManager.updateLyricLine(null, PlayerManager.queue[index], PlayerManager.durationMs);
   }
 
   private static publishDuration(): void {

@@ -1,15 +1,16 @@
 import { SongItem } from '../../model/SongItem';
 import { LyricLine } from '../../model/LyricLine';
 import { QueueState } from '../../model/QueueState';
-import { MusicPlatform } from '../../model/MusicPlatform';
-import { LyricApi } from '../../network/LyricApi';
-import { LyricPayload } from '../../network/NeteaseApi';
-import { LrcParser } from '../../lyrics/LrcParser';
+import { LyricDispatcher } from '../../lyrics/LyricDispatcher';
+import { LyricLineTracker } from '../../lyrics/LyricLineTracker';
 import { LocalPlaylistRepository } from '../../data/LocalPlaylistRepository';
 import { PlayerManager } from '../../player/PlayerManager';
 import { PlaybackStatus, RepeatMode } from '../../player/PlaybackConstants';
 import { Theme } from '../Theme';
+import { DynamicTheme } from '../theme/DynamicTheme';
 import { LyricView } from '../components/LyricView';
+import { WaveformSlider } from '../components/WaveformSlider';
+import { LyricShareSheet } from '../components/LyricShareSheet';
 import { Router } from '../Router';
 import { formatDuration, platformName } from '../components/Ui';
 
@@ -25,7 +26,7 @@ const SLEEP_OPTIONS: [string, number][] = [
 
 @Component
 export struct NowPlayingPage {
-  @StorageLink('player.currentSong') currentSongJson: string = '';
+  @StorageLink('player.currentSong') @Watch('onSongJsonChanged') currentSongJson: string = '';
   @StorageLink('player.status') status: number = PlaybackStatus.IDLE;
   @StorageLink('player.positionMs') positionMs: number = 0;
   @StorageLink('player.durationMs') durationMs: number = 0;
@@ -39,11 +40,25 @@ export struct NowPlayingPage {
   @State favorite: boolean = false;
   @State showQueue: boolean = false;
   @State showSleep: boolean = false;
+  @State showShare: boolean = false;
   @State sleepLabel: string = '关闭';
   @StorageLink('player.sleepActive') sleepActive: boolean = false;
   @StorageLink('player.sleepRemainingMin') sleepRemainingMin: number = 0;
-  @State sliderPosition: number = 0;
-  @State sliding: boolean = false;
+  @State previewMs: number = -1;
+  // Cover-seed backdrop (Android NowPlayingAccentBackdrop). The raw seed is
+  // mirrored into a @State accent computed via @Watch because minimal-update
+  // tracking cannot see AppStorage reads inside expressions (M7.4 pitfall).
+  @StorageProp('player.coverSeedHex') @Watch('onCoverSeedChanged') coverSeedHex: string = '';
+  @StorageProp('np.dynamic_color') @Watch('onCoverSeedChanged') dynamicColor: boolean = true;
+  @State accentHex: string = '';
+  // Blurred-cover backdrop with track-switch crossfade (Android keeps the old
+  // artwork blurred while the new cover fades in). Layer B sits on top; once
+  // its fade finishes it collapses into layer A without animation.
+  @StorageProp('np.nowplaying_blur_strength') blurStrength: number = 300;
+  @State bgUnderUrl: string = '';
+  @State bgOverUrl: string = '';
+  @State bgOverOpacity: number = 0;
+  private crossfadeToken: number = 0;
 
   private song(): SongItem {
     return this.currentSongJson.length > 0 ? SongItem.fromJson(this.currentSongJson) : new SongItem();
@@ -54,24 +69,78 @@ export struct NowPlayingPage {
   }
 
   async aboutToAppear(): Promise<void> {
+    this.recomputeAccent();
+    this.bgUnderUrl = this.song().effectiveCoverUrl;
+    this.bgOverUrl = '';
+    this.bgOverOpacity = 0;
     await this.reloadSongData();
+  }
+
+  private onSongJsonChanged(): void {
+    this.transitionCover(this.song().effectiveCoverUrl);
+  }
+
+  /**
+   * Crossfades the blurred backdrop to the next cover: layer B fades in over
+   * the still-visible old layer, then collapses into layer A. Same-URL and
+   * empty-URL switches short-circuit without animation.
+   */
+  private transitionCover(nextUrl: string): void {
+    if (nextUrl === this.bgUnderUrl && this.bgOverUrl.length === 0) {
+      return;
+    }
+    this.crossfadeToken += 1;
+    const token = this.crossfadeToken;
+    if (nextUrl.length === 0) {
+      this.bgUnderUrl = '';
+      this.bgOverUrl = '';
+      this.bgOverOpacity = 0;
+      return;
+    }
+    this.bgOverUrl = nextUrl;
+    this.bgOverOpacity = 0;
+    animateTo({ duration: 400, curve: Curve.EaseOut }, () => {
+      this.bgOverOpacity = 1;
+    });
+    setTimeout(() => {
+      if (token === this.crossfadeToken && this.bgOverUrl === nextUrl) {
+        this.bgUnderUrl = nextUrl;
+        this.bgOverUrl = '';
+        this.bgOverOpacity = 0;
+      }
+    }, 460);
+  }
+
+  private recomputeAccent(): void {
+    const seed = this.dynamicColor ? this.coverSeedHex.trim() : '';
+    this.accentHex = seed.length > 0 ? DynamicTheme.adjustedAccentColor(seed, Theme.isDark()) : '';
+  }
+
+  private onCoverSeedChanged(): void {
+    this.recomputeAccent();
+  }
+
+  private currentLyricIndex(): number {
+    let index = -1;
+    for (let i = 0; i < this.lyrics.length; i++) {
+      if (this.lyrics[i].timeMs <= this.positionMs) {
+        index = i;
+      } else {
+        break;
+      }
+    }
+    return index;
   }
 
   private async reloadSongData(): Promise<void> {
     const song = this.song();
     this.favorite = await LocalPlaylistRepository.isFavorite(song);
     this.lyrics = [];
+    LyricLineTracker.getInstance().setLines([]);
     if (song.audioId.length > 0) {
       try {
-        let payload: LyricPayload;
-        if (song.platform === MusicPlatform.NETEASE) {
-          payload = await LyricApi.fetchFromNetease(Number(song.audioId));
-        } else {
-          payload = await LyricApi.fetchFromLrcLib(song.displayName, song.displayArtist, song.durationMs);
-        }
-        let parsed = LrcParser.parse(payload.lyric);
-        parsed = LrcParser.mergeTranslation(parsed, payload.translated);
-        this.lyrics = parsed;
+        this.lyrics = await LyricDispatcher.loadLyrics(song);
+        LyricLineTracker.getInstance().setLines(this.lyrics);
       } catch (error) {
         const e = error as Error;
         this.lyrics = [];
@@ -129,15 +198,35 @@ export struct NowPlayingPage {
 
   build() {
     Stack() {
-      // Blurred cover backdrop
-      if (this.song().effectiveCoverUrl.length > 0) {
-        Image(this.song().effectiveCoverUrl)
+      // Seed-accent backdrop under the blurred cover: prevents black flashes
+      // while a cover loads and tints artwork-less songs (Android keeps the
+      // same accent layer under its blurred artwork).
+      if (this.accentHex.length > 0) {
+        Column()
+          .width('100%')
+          .height('100%')
+          .backgroundColor(this.accentHex)
+      }
+      // Blurred cover backdrop; np.nowplaying_blur_strength is Android's
+      // 0..500 scale mapped onto blur vp (0 disables blur entirely).
+      if (this.bgUnderUrl.length > 0) {
+        Image(this.bgUnderUrl)
           .width('100%')
           .height('100%')
           .objectFit(ImageFit.Cover)
-          .blur(60)
+          .blur(this.blurStrength * 80 / 500)
           .scale({ x: 1.4, y: 1.4 })
-      } else {
+      }
+      if (this.bgOverUrl.length > 0) {
+        Image(this.bgOverUrl)
+          .width('100%')
+          .height('100%')
+          .objectFit(ImageFit.Cover)
+          .blur(this.blurStrength * 80 / 500)
+          .scale({ x: 1.4, y: 1.4 })
+          .opacity(this.bgOverOpacity)
+      }
+      if (this.bgUnderUrl.length === 0 && this.bgOverUrl.length === 0) {
         Column()
           .width('100%')
           .height('100%')
@@ -266,27 +355,19 @@ export struct NowPlayingPage {
         }
 
         Column() {
-          Slider({
-            value: this.sliding ? this.sliderPosition : this.positionMs,
-            min: 0,
-            max: Math.max(1, this.durationMs),
-            step: 1000,
-            style: SliderStyle.OutSet
+          WaveformSlider({
+            positionMs: this.positionMs,
+            durationMs: this.durationMs,
+            playing: this.status === PlaybackStatus.PLAYING,
+            loading: this.status === PlaybackStatus.LOADING,
+            onSeek: (ms: number) => PlayerManager.seekTo(ms),
+            onPreview: (fraction: number) => {
+              this.previewMs = fraction >= 0 ? Math.round(fraction * Math.max(1, this.durationMs)) : -1;
+            }
           })
-            .showTips(false)
-            .blockColor('#FFFFFF')
-            .selectedColor('#FFFFFF')
-            .trackColor('#33FFFFFF')
-            .onChange((value: number, mode: SliderChangeMode) => {
-              this.sliderPosition = value;
-              this.sliding = mode !== SliderChangeMode.End;
-              if (mode === SliderChangeMode.End || mode === SliderChangeMode.Click) {
-                PlayerManager.seekTo(value);
-              }
-            })
 
           Row() {
-            Text(formatDuration(this.sliding ? this.sliderPosition : this.positionMs))
+            Text(formatDuration(this.previewMs >= 0 ? this.previewMs : this.positionMs))
               .fontSize(12)
               .fontColor('#B8FFFFFF')
             Blank()
@@ -365,6 +446,15 @@ export struct NowPlayingPage {
               .onClick(() => {
                 this.showLyrics = !this.showLyrics;
               })
+            Button('分享')
+              .height(32)
+              .fontSize(12)
+              .fontColor('#FFFFFF')
+              .backgroundColor('#33FFFFFF')
+              .borderRadius(16)
+              .onClick(() => {
+                this.showShare = true;
+              })
             Button() {
               Image($r('app.media.ic_queue_music_24'))
                 .width(18)
@@ -399,6 +489,19 @@ export struct NowPlayingPage {
           },
           onPlay: (orderIndex: number) => {
             PlayerManager.playAt(orderIndex);
+          }
+        })
+      }
+
+      if (this.showShare) {
+        LyricShareSheet({
+          lyrics: this.lyrics,
+          songName: this.song().displayName,
+          artistName: this.song().displayArtist,
+          coverSeedHex: this.coverSeedHex,
+          initialSelection: this.currentLyricIndex(),
+          onClose: () => {
+            this.showShare = false;
           }
         })
       }
@@ -472,6 +575,7 @@ struct QueueSheet {
   currentOrderIndex: number = 0;
   onClose: () => void = () => {};
   onPlay: (orderIndex: number) => void = () => {};
+  @StorageProp('np.glass_effect') glassEffect: boolean = true;
 
   private queue(): QueueState {
     return this.queueJson.length > 0 ? QueueState.fromJson(this.queueJson) : new QueueState();
@@ -533,7 +637,8 @@ struct QueueSheet {
       .width('100%')
       .height('62%')
       .padding(16)
-      .backgroundColor(Theme.surface(Theme.isDark()))
+      .backgroundColor(this.glassEffect ? Theme.surfaceGlass(Theme.isDark()) : Theme.surface(Theme.isDark()))
+      .backgroundBlurStyle(this.glassEffect ? BlurStyle.COMPONENT_THICK : BlurStyle.NONE)
       .borderRadius({ topLeft: 22, topRight: 22 })
       .position({ x: 0, y: '38%' })
     }

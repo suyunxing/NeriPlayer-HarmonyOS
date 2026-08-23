@@ -1,6 +1,7 @@
 import { Router } from '../Router';
 import { Theme } from '../Theme';
 import { MiniPlayer } from '../components/MiniPlayer';
+import { FloatingLyricBar } from '../components/FloatingLyricBar';
 import { HomePage } from './HomePage';
 import { ExplorePage } from './ExplorePage';
 import { LibraryPage } from './LibraryPage';
@@ -72,38 +73,46 @@ export struct MainShell {
     } else if (this.routeName === Router.LISTEN_TOGETHER) {
       ListenTogetherPage()
     } else {
-      Column() {
-        if (this.currentSongJson.length > 0) {
-          MiniPlayer()
-        }
-        Stack() {
-          if (this.currentTab === 0) {
-            HomePage()
-          } else if (this.currentTab === 1) {
-            ExplorePage()
-          } else if (this.currentTab === 2) {
-            LibraryPage()
-          } else {
-            SettingsPage()
+      Stack({ alignContent: Alignment.Top }) {
+        Column() {
+          if (this.currentSongJson.length > 0) {
+            MiniPlayer()
           }
-        }
-        .layoutWeight(1)
-        .width('100%')
+          Stack() {
+            if (this.currentTab === 0) {
+              HomePage()
+            } else if (this.currentTab === 1) {
+              ExplorePage()
+            } else if (this.currentTab === 2) {
+              LibraryPage()
+            } else {
+              SettingsPage()
+            }
+          }
+          .layoutWeight(1)
+          .width('100%')
 
-        Row() {
-          this.tabItem(0, '首页', $r('app.media.ic_tab_home_24'))
-          this.tabItem(1, '探索', $r('app.media.ic_tab_search_24'))
-          this.tabItem(2, '资料库', $r('app.media.ic_tab_library_24'))
-          this.tabItem(3, '设置', $r('app.media.ic_tab_settings_24'))
+          Row() {
+            this.tabItem(0, '首页', $r('app.media.ic_tab_home_24'))
+            this.tabItem(1, '探索', $r('app.media.ic_tab_search_24'))
+            this.tabItem(2, '资料库', $r('app.media.ic_tab_library_24'))
+            this.tabItem(3, '设置', $r('app.media.ic_tab_settings_24'))
+          }
+          .width('100%')
+          .height(88)
+          .padding({ top: 6, bottom: 32 })
+          .backgroundColor(Theme.surface(Theme.isDark()))
         }
         .width('100%')
-        .height(88)
-        .padding({ top: 6, bottom: 32 })
-        .backgroundColor(Theme.surface(Theme.isDark()))
+        .height('100%')
+        .backgroundColor(Theme.background(Theme.isDark()))
+
+        // In-app floating lyric overlay (D4 fallback), floats above content.
+        FloatingLyricBar()
+          .margin({ top: 46 })
       }
       .width('100%')
       .height('100%')
-      .backgroundColor(Theme.background(Theme.isDark()))
     }
   }
 

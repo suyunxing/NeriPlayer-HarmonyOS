@@ -20,15 +20,18 @@ export class LyricLine {
   timeMs: number;
   text: string;
   translated: string;
+  /** Romanization line aligned to this line (AMLL x-roman / netease romalrc). */
+  phonetic: string;
   /** Word timings for enhanced LRC lines; empty for plain lines. */
   words: LyricWord[];
   /** End of the line: next line's start, or start + 5000ms for the last. */
   endTimeMs: number;
 
-  constructor(timeMs: number = 0, text: string = '', translated: string = '') {
+  constructor(timeMs: number = 0, text: string = '', translated: string = '', phonetic: string = '') {
     this.timeMs = timeMs;
     this.text = text;
     this.translated = translated;
+    this.phonetic = phonetic;
     this.words = [];
     this.endTimeMs = 0;
   }

@@ -76,6 +76,11 @@ export struct SettingsDetailPage {
   @StorageProp('np.lyric_font_size') lyricFontSize: number = 16;
   @StorageProp('np.lyric_offset_ms') lyricOffsetMs: number = 0;
   @StorageProp('np.lyric_translation') lyricTranslation: boolean = true;
+  @StorageProp('np.amll_lyrics') amllLyrics: boolean = true;
+  @StorageProp('np.glass_effect') glassEffect: boolean = true;
+  @StorageProp('np.nowplaying_blur_strength') nowplayingBlurStrength: number = 300;
+  @StorageProp('np.floating_lyric') floatingLyric: boolean = false;
+  @StorageProp('np.bt_lyric') btLyric: boolean = false;
   @StorageProp('np.lyric_phonetic') lyricPhonetic: boolean = false;
   @StorageProp('np.lyric_blur') lyricBlur: boolean = true;
   @StorageProp('np.download_concurrency') downloadConcurrency: number = 6;
@@ -843,6 +848,13 @@ export struct SettingsDetailPage {
             .borderRadius(Theme.cardRadius())
 
             SettingRow({
+              title: 'AMLL 逐字歌词',
+              subtitle: this.amllLyrics ? '已开启（优先逐字 TTML 词库）' : '已关闭',
+              icon: '✍',
+              showArrow: false,
+              onTap: () => SettingsRepository.setBoolean(SettingsRepository.KEY_AMLL_LYRICS, !this.amllLyrics)
+            })
+            SettingRow({
               title: '显示翻译',
               subtitle: this.lyricTranslation ? '已开启' : '已关闭',
               icon: '🌐',
@@ -863,6 +875,20 @@ export struct SettingsDetailPage {
               showArrow: false,
               onTap: () => SettingsRepository.setBoolean(SettingsRepository.KEY_LYRIC_BLUR, !this.lyricBlur)
             })
+            SettingRow({
+              title: '应用内悬浮歌词',
+              subtitle: this.floatingLyric ? '已开启（页面顶部悬浮一行，系统级悬浮不受支持）' : '已关闭',
+              icon: '👓',
+              showArrow: false,
+              onTap: () => SettingsRepository.setBoolean(SettingsRepository.KEY_FLOATING_LYRIC, !this.floatingLyric)
+            })
+            SettingRow({
+              title: '通知栏/蓝牙歌词',
+              subtitle: this.btLyric ? '已开启（播放时通知栏与蓝牙设备显示当前歌词行）' : '已关闭',
+              icon: '📡',
+              showArrow: false,
+              onTap: () => SettingsRepository.setBoolean(SettingsRepository.KEY_BT_LYRIC, !this.btLyric)
+            })
           } else if (this.section === SETTING_APPEARANCE) {
             SettingRow({
               title: '语言',
@@ -871,11 +897,22 @@ export struct SettingsDetailPage {
               onTap: () => promptAction.openToast({ message: '语言切换待移植' })
             })
             SettingRow({
-              title: '高级毛玻璃',
-              subtitle: '封面背景模糊（Now Playing）',
+              title: '毛玻璃面板',
+              subtitle: this.glassEffect ? '已开启（迷你播放条/播放列表面板）' : '已关闭',
               icon: '✨',
               showArrow: false,
-              onTap: () => promptAction.openToast({ message: '高级毛玻璃待移植' })
+              onTap: () => SettingsRepository.setBoolean(SettingsRepository.KEY_GLASS_EFFECT, !this.glassEffect)
+            })
+            SettingRow({
+              title: '播放页背景模糊',
+              subtitle: this.nowplayingBlurStrength <= 0 ? '关闭' : `强度 ${this.nowplayingBlurStrength} / 500`,
+              icon: '🌫',
+              onTap: () => {
+                const steps: number[] = [0, 100, 300, 500];
+                const index = steps.indexOf(this.nowplayingBlurStrength);
+                const next = steps[index < 0 || index === steps.length - 1 ? 0 : index + 1];
+                SettingsRepository.setNumber(SettingsRepository.KEY_NOWPLAYING_BLUR_STRENGTH, next);
+              }
             })
           } else if (this.section === SETTING_TRAFFIC) {
             SettingRow({

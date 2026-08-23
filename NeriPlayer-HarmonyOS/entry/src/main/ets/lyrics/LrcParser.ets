@@ -74,6 +74,26 @@ export class LrcParser {
     return lines;
   }
 
+  /**
+   * Merges a romanized LRC block (netease romalrc) into parsed lines by
+   * timestamp; same ±150ms tolerance as translation merging.
+   */
+  static mergePhonetic(lines: LyricLine[], phoneticText: string): LyricLine[] {
+    if (phoneticText.length === 0) {
+      return lines;
+    }
+    const phonetic = LrcParser.parse(phoneticText);
+    for (const target of lines) {
+      for (const source of phonetic) {
+        if (Math.abs(target.timeMs - source.timeMs) < 150) {
+          target.phonetic = source.text;
+          break;
+        }
+      }
+    }
+    return lines;
+  }
+
   static formatTime(timeMs: number): string {
     const totalSeconds = Math.max(0, Math.floor(timeMs / 1000));
     const minutes = Math.floor(totalSeconds / 60);
