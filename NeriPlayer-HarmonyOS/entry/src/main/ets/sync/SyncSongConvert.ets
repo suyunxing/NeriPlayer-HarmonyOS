@@ -167,8 +167,15 @@ export function playlistIdToSync(id: string): number {
   return hashStableId(id);
 }
 
+/**
+ * Reverse mapping for playlists that only exist on the sync side (created on
+ * another device). Must satisfy playlistIdToSync(syncPlaylistIdToLocal(id))
+ * === id and follows the "local_<ts>" convention of createPlaylist so that
+ * local by-id lookups keep working after an apply round-trip. The favorites
+ * playlist never flows through here (special-cased upstream).
+ */
 export function syncPlaylistIdToLocal(id: number): string {
-  return `${id}`;
+  return `${LOCAL_PLAYLIST_ID_PREFIX}${id}`;
 }
 
 /** SyncPlaylist.fromLocalPlaylist: createdAt uses the playlist id, per Android. */

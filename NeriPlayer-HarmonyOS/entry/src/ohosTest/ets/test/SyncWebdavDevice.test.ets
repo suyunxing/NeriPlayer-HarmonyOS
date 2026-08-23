@@ -4,6 +4,8 @@ import { WebDavSyncClient, WebDavTransport } from '../../../main/ets/sync/webdav
 import { OhosWebDavExecutor } from '../../../main/ets/sync/webdav/OhosWebDavExecutor';
 import { WebDavError, WebDavErrorKind } from '../../../main/ets/sync/webdav/WebDavErrors';
 import { SyncService } from '../../../main/ets/sync/SyncService';
+import { deserializeSyncContent } from '../../../main/ets/sync/SyncDataJsonCodec';
+import { playlistIdToSync } from '../../../main/ets/sync/SyncSongConvert';
 import { LocalPlaylistRepository } from '../../../main/ets/data/LocalPlaylistRepository';
 import { Playlist } from '../../../main/ets/model/Playlist';
 
@@ -136,6 +138,63 @@ export default function syncWebdavDeviceTest(): void {
           await LocalPlaylistRepository.removePlaylist(item.id);
         }
       }
+    });
+
+    it('deletedPlaylistTombstonePropagatesToRemote', 0, async () => {
+      // M5.7 regression: deleting a playlist right after a sync used to leave
+      // a live row on the remote (the apply had rewritten the local id shape,
+      // so the exact-match removal missed it and the next snapshot resurrect
+      // it). The tombstone must now reach the remote and stay deleted locally.
+      await WebDavConfigRepository.init();
+      const configured = await WebDavConfigRepository.saveConfig(
+        SERVER_URL, BASE_PATH, USERNAME, PASSWORD);
+      expect(configured).assertTrue();
+
+      const playlist = await LocalPlaylistRepository.createPlaylist(
+        `${PLAYLIST_PREFIX}del${Date.now().toString(36)}`);
+      const pid = playlistIdToSync(playlist.id);
+
+      let report = await SyncService.syncWebDav();
+      expect(report.success).assertTrue();
+      if (!report.success) {
+        expect(`upload phase failure: ${report.message}`).assertEqual('');
+      }
+
+      await LocalPlaylistRepository.removePlaylist(playlist.id);
+      const stillLive = (await LocalPlaylistRepository.loadAll())
+        .some((item: Playlist): boolean => playlistIdToSync(item.id) === pid);
+      expect(stillLive).assertFalse();
+
+      report = await SyncService.syncWebDav();
+      expect(report.success).assertTrue();
+      if (!report.success) {
+        expect(`tombstone phase failure: ${report.message}`).assertEqual('');
+      }
+      expect(report.uploadPerformed).assertTrue();
+
+      const config = await WebDavConfigRepository.loadConfig();
+      expect(config !== null).assertTrue();
+      if (config !== null) {
+        const snapshot = await new WebDavSyncClient(
+          new WebDavTransport(new OhosWebDavExecutor(), USERNAME, PASSWORD))
+          .fetchRemoteSnapshot(config.remoteFileUrl());
+        expect(snapshot !== null).assertTrue();
+        if (snapshot !== null) {
+          const decoded = deserializeSyncContent(snapshot.content);
+          expect(decoded.data !== null).assertTrue();
+          if (decoded.data !== null) {
+            const row = decoded.data.playlists.find((item): boolean => item.id === pid);
+            expect(row !== undefined).assertTrue();
+            if (row !== undefined) {
+              expect(row.isDeleted).assertTrue();
+            }
+          }
+        }
+      }
+
+      const resurrected = (await LocalPlaylistRepository.loadAll())
+        .some((item: Playlist): boolean => playlistIdToSync(item.id) === pid);
+      expect(resurrected).assertFalse();
     });
   });
 }
