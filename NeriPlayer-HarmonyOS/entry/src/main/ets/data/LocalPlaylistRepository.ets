@@ -233,11 +233,17 @@ export class LocalPlaylistRepository {
   }
 
   static async removePlaylist(playlistId: string): Promise<void> {
+    // Compare through the numeric sync id: local ids may appear as
+    // "local_<ts>" or plain numeric text (Android import / legacy apply), and
+    // an exact string match would silently keep the other shape alive.
+    const targetKey = playlistIdToSync(playlistId);
     const playlists = await LocalPlaylistRepository.loadAll();
-    const filtered = playlists.filter((item: Playlist) => item.id !== playlistId);
+    const filtered = playlists.filter((item: Playlist): boolean =>
+      playlistIdToSync(item.id) !== targetKey);
     await LocalPlaylistRepository.saveAll(filtered, playlistId);
     const tombstones = await LocalPlaylistRepository.getDeletedTombstones();
-    const next = tombstones.filter((item: LocalPlaylistTombstone): boolean => item.id !== playlistId);
+    const next = tombstones.filter((item: LocalPlaylistTombstone): boolean =>
+      playlistIdToSync(item.id) !== targetKey);
     next.push(new LocalPlaylistTombstone(playlistId, Date.now()));
     await LocalPlaylistRepository.replaceDeletedTombstones(next);
   }

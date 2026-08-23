@@ -145,6 +145,7 @@ export class SyncAppLocalStore implements SyncLocalStore {
 
   private async buildSnapshot(nowMs: number): Promise<SyncData> {
     const playlists = await LocalPlaylistRepository.loadAll();
+    const tombstones = await LocalPlaylistRepository.getDeletedTombstones();
     const history = await HistoryRepository.getRecent();
     const deletionState = await SyncDeletionStore.load();
     const stats = await PlaybackStatsRepository.snapshot();
@@ -154,7 +155,6 @@ export class SyncAppLocalStore implements SyncLocalStore {
     for (const playlist of playlists) {
       input.playlists.push(new SnapshotPlaylistInput(playlist, playlist.updatedAt));
     }
-    const tombstones = await LocalPlaylistRepository.getDeletedTombstones();
     for (const tombstone of tombstones) {
       input.deletedPlaylists.push(new SnapshotDeletedPlaylistInput(
         playlistIdToSync(tombstone.id), tombstone.deletedAt));
@@ -198,8 +198,12 @@ export class SyncAppLocalStore implements SyncLocalStore {
   }
 
   private playlistFromSync(syncPlaylist: SyncPlaylist, existing: Playlist | undefined): Playlist {
+    // Keep the id string shape the local store already uses for this playlist
+    // (both "local_<ts>" and plain numeric Android-imported ids round-trip to
+    // the same sync id); rewriting the shape would orphan existing references.
     const id = syncPlaylist.id === FAVORITES_SYNC_ID
-      ? LocalPlaylistRepository.FAVORITES_ID : syncPlaylistIdToLocal(syncPlaylist.id);
+      ? LocalPlaylistRepository.FAVORITES_ID
+      : (existing !== undefined ? existing.id : syncPlaylistIdToLocal(syncPlaylist.id));
     const playlist = new Playlist(id, syncPlaylist.name, MusicPlatform.LOCAL);
     playlist.createdAt = syncPlaylist.createdAt;
     playlist.updatedAt = syncPlaylist.modifiedAt;

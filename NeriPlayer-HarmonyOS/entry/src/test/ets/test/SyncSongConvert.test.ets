@@ -103,7 +103,10 @@ export default function syncSongConvertTest(): void {
       expect(playlistIdToSync('42')).assertEqual(42);
       const hashed = playlistIdToSync('custom-name');
       expect(hashed > 0).assertTrue();
-      expect(syncPlaylistIdToLocal(42)).assertEqual('42');
+      // M5.7: the reverse mapping restores the "local_" shape so an apply
+      // round-trip cannot rewrite a created playlist's id string.
+      expect(syncPlaylistIdToLocal(42)).assertEqual('local_42');
+      expect(playlistIdToSync(syncPlaylistIdToLocal(42))).assertEqual(42);
     });
   });
 
