@@ -221,7 +221,7 @@ export struct LibraryPage {
             .fontColor(Theme.textPrimary(Theme.isDark()))
             .layoutWeight(1)
           Button('＋ 新建')
-            .height(32)
+            .height(40)
             .fontSize(13)
             .backgroundColor(Theme.primary(Theme.isDark()))
             .onClick(() => this.createPlaylist())
@@ -283,7 +283,7 @@ export struct LibraryPage {
               .fontColor(Theme.textPrimary(Theme.isDark()))
               .layoutWeight(1)
             Button(this.neteaseLoading ? '加载中…' : '刷新')
-              .height(32)
+              .height(40)
               .fontSize(13)
               .backgroundColor(Theme.surface(Theme.isDark()))
               .fontColor(Theme.textPrimary(Theme.isDark()))
@@ -299,7 +299,7 @@ export struct LibraryPage {
                 .fontSize(13)
                 .fontColor(Theme.textSecondary(Theme.isDark()))
               Button('重试')
-                .height(32)
+                .height(40)
                 .fontSize(13)
                 .backgroundColor(Theme.primary(Theme.isDark()))
                 .onClick(() => this.refreshNeteasePlaylists())
@@ -370,7 +370,7 @@ export struct LibraryPage {
               .fontColor(Theme.textPrimary(Theme.isDark()))
               .layoutWeight(1)
             Button(this.biliLoading ? '加载中…' : '刷新')
-              .height(32)
+              .height(40)
               .fontSize(13)
               .backgroundColor(Theme.surface(Theme.isDark()))
               .fontColor(Theme.textPrimary(Theme.isDark()))
@@ -386,7 +386,7 @@ export struct LibraryPage {
                 .fontSize(13)
                 .fontColor(Theme.textSecondary(Theme.isDark()))
               Button('重试')
-                .height(32)
+                .height(40)
                 .fontSize(13)
                 .backgroundColor(Theme.primary(Theme.isDark()))
                 .onClick(() => this.refreshBiliFavFolders())
@@ -455,7 +455,7 @@ export struct LibraryPage {
             .fontColor(Theme.textPrimary(Theme.isDark()))
             .layoutWeight(1)
           Button('扫描')
-            .height(32)
+            .height(40)
             .fontSize(13)
             .backgroundColor(Theme.surface(Theme.isDark()))
             .fontColor(Theme.textPrimary(Theme.isDark()))
@@ -509,9 +509,9 @@ export struct LibraryPage {
           })
           SettingRow({
             title: '一起听',
-            subtitle: 'Listen Together（待移植）',
+            subtitle: '创建或加入房间，与好友同步播放',
             icon: '👥',
-            onTap: () => promptAction.openToast({ message: 'Listen Together 待移植' })
+            onTap: () => Router.push(Router.LISTEN_TOGETHER)
           })
         }
         .width('100%')

@@ -42,7 +42,11 @@ export struct SongRow {
   build() {
     Column({ space: 2 }) {
       Row({ space: 12 }) {
-        Stack() {
+        // The badge used a percentage .position(), which resolves against the
+        // Stack's measured width; at 1.45x system font that width grew and the
+        // badge landed on top of the duration text (device audit 2026-08-24).
+        // Pinning the box and aligning to a corner is font-size independent.
+        Stack({ alignContent: Alignment.TopEnd }) {
           if (this.song().effectiveCoverUrl.length > 0) {
             Image(this.song().effectiveCoverUrl)
               .width(52)
@@ -66,9 +70,11 @@ export struct SongRow {
               .padding({ left: 4, right: 4, top: 2, bottom: 2 })
               .backgroundColor(Theme.scrim(Theme.isDark()))
               .borderRadius(6)
-              .position({ x: '72%', y: '2%' })
+              .margin({ top: 2, right: 2 })
           }
         }
+        .width(52)
+        .height(52)
 
         Column({ space: 3 }) {
           Row({ space: 6 }) {
@@ -106,10 +112,13 @@ export struct SongRow {
         }
 
         Image($r('app.media.ic_more_horiz_24'))
-          .width(18)
-          .height(18)
+          // 18vp glyph inside a 40vp box: padding keeps the icon the same size
+          // while the tap area reaches the 40vp floor.
+          .width(40)
+          .height(40)
           .fillColor(Theme.textSecondary(Theme.isDark()))
-          .padding(8)
+          .padding(11)
+          .accessibilityText('更多操作')
           .onClick(() => {
             this.menuOpen = !this.menuOpen;
           })

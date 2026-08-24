@@ -289,6 +289,24 @@ API 26 Beta2 只作为独立预览适配矩阵，不能替代 Release 回归。
 Navigation 宽度小于 600vp 时建议单栏，大于等于 600vp 时建议分栏；使用 `NavigationMode.Auto` 可让系统按容器宽度切换。
 这对 tablet 和 2in1 尤其重要。
 
+**系统字号跟随必须显式开启（2026-08-24 M9.3 设备实证，此前的推断是错的）。** HarmonyOS 应用默认 `nonFollowSystem`，即**不跟随系统字体大小**；"UI 全用 fp 所以自动跟随"是错的——fp 只保证换算单位，不代表订阅了系统档位。开启方式是新增 `AppScope/resources/base/profile/configuration.json`：
+
+```json
+{ "configuration": { "fontSizeScale": "followSystem", "fontSizeMaxScale": "1.75" } }
+```
+
+并在 `AppScope/app.json5` 里以 `"configuration": "$profile:configuration"` 引用。
+
+档位倍率（设备实测）：小 0.85 / 标准 1.0 / 大1 1.15 / 大2 1.3 / **大3 1.45** / 大4 1.75 / 大5 2.0 / 大6 3.2。取证路径有个坑：「设置→显示和亮度→字体大小」滑杆**最高只到 1.45×**，要到 1.75× 必须走「设置→关怀和无障碍→关怀模式→放大显示」的「大 4 档」；而且滑杆拖到**最左不是标准而是 0.85 档**，标准是右移一格。声明了 `fontSizeMaxScale` 就要真的在该倍率下验证过，否则是空承诺。
+
+官方适配要求：≥1.75× 时布局不得错乱、**组件不得叠加**、文字不得截断；被挤压时的正解是"将 X 轴扩展至 Y 轴"，即 `Row` → `Flex({ wrap: FlexWrap.Wrap })`。
+
+**守则：布局代码避免 `.position()` 的百分比值。** 百分比按父容器的**实测宽度**解析，字号放大后父容器变宽会把子元素推到别的元素上（M9.3 的 SongRow 序号角标就这样压在时长文字上，重叠 36×57px）。稳定写法是 `Stack({ alignContent: ... })` + 给容器钉死 `.width()/.height()` + 用 `.margin()` 微调，结果与字号无关。
+
+**布局回归要用度量而不是看截图。** `hdc shell uitest dumpLayout` 导出的节点树里，`bounds` 是**裁剪后的可见矩形**、`origBounds` 是**布局矩形**，两者之差正是缺陷信号；据此可分出四类：非滚动区溢出屏幕（`origBounds` 越出根节点宽度或左边界为负——元素被排到屏外，**滚动也到不了**，真缺陷）、非滚动区被裁剪、滚动区裁剪（在 Scroll/List/Grid/Swiper/WaterFlow 内，允许）、`Text` 叶子两两相交 >2px（对应"组件不得叠加"）。判定时屏宽应取自根节点 `bounds` 而非写死，这样同一套判据能直接跑折叠屏/平板 dump。两个易踩的假信号：① 只比 `Text` 叶子，容器天然互相包含；② 每份 dump 里都有的 `'12, :, XX'` 一类裁剪是**系统状态栏时钟**，非应用内容。
+
+屏幕密度在模拟器上读不到（`param get const.display.density` 等键均 errNum 1002），可用应用内已知 vp 尺寸的控件反推——例如 `.width(40).height(40)` 的返回按钮实测 125px → 3.125 px/vp。
+
 ### 6.3 ArkTS 与状态管理
 
 ArkTS 是严格约束的 TypeScript 方言。避免 `any`、隐式类型、动态对象字段和把页面状态当作全局可变变量。
@@ -504,6 +522,7 @@ $hdc = 'D:\HarmonyOS\Tools\command-line-tools\sdk\default\openharmony\toolchains
 - [x] 账号登录以及下载、同步、一起听、USB、YouTube 取流等未完成项已显式标注，不得伪装为已支持。
 - [ ] 正式证书、Profile、私钥和密码不在仓库或日志中。
 - [ ] 完成无障碍、平板/2in1、性能、功耗、隐私和上架预检。
+  - 2026-08-24 M9.3 部分闭合，逐项实况见 `docs/RELEASE_CHECKLIST.md`：**已完成**——字号缩放（开启 followSystem 并在 1.45×/1.75× 两档度量，修掉 3 处真实缺陷）、触控目标（度量确认 40vp 下限，**并修正旧结论：实际未达 ≥48vp 推荐值，约 30 控件落在 40–48vp**）、内存冒烟（127–151 MB 无单调增长）、隐私与市场合规清单（权限四项全 normal、无第三方统计/崩溃 SDK、诊断仅本地+导出前脱敏、凭据走 asset）、phone 377vp 与 foldable 展开内屏 707vp 两形态布局回归。**仍未完成**——tablet 2880×1920 与 2in1 3120×2080（镜像未下载，执行计划 M9.3a）、折叠外屏 346vp（传感器 hdc 无法注入）、横屏、真机全部指标、屏幕朗读实际听读效果（已补 21 处 `.accessibilityText`/13 文件，但 `uitest dumpLayout -e accessibilityText` 被工具拒绝、本链路无法导出无障碍属性验证）、熄屏 30 分钟功耗（CPU 0.017%/0.74% 只是代理指标，模拟器无电量计）。故本项**不得整体勾选**。
 
 ## 10. 官方资料索引
 
