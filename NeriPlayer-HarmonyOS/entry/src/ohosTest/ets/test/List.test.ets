@@ -13,6 +13,8 @@ import listenTogetherRoomSmokeDeviceTest from './ListenTogetherRoomSmokeDevice.t
 import listenTogetherReconnectProbeTest from './ListenTogetherReconnectProbe.test';
 import syncWebdavDeviceTest from './SyncWebdavDevice.test';
 import diagnosticsDeviceTest from './DiagnosticsDevice.test';
+import desktopLyricProbeTest from './DesktopLyricProbe.test';
+import audioRendererProbeTest from './AudioRendererProbe.test';
 
 export default function testsuite(): void {
   abilityTest();
@@ -30,4 +32,6 @@ export default function testsuite(): void {
   listenTogetherReconnectProbeTest();
   syncWebdavDeviceTest();
   diagnosticsDeviceTest();
+  desktopLyricProbeTest();
+  audioRendererProbeTest();
 }

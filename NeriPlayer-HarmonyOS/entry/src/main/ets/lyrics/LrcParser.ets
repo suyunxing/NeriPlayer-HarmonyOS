@@ -7,6 +7,7 @@ import { LrcMetadata, LrcParseResult, LyricLine, LyricWord } from '../model/Lyri
  * preserves [ti:]/[ar:]/[al:]/[by:] metadata, parses enhanced word LRC
  * (`<mm:ss.ff>` per-word prefixes) and fills per-line end times (next
  * line's start, last line + 5000ms, Android parseNeteaseLrc semantics).
+ * serialize() is the inverse direction, added for AVMetadata.lyric.
  */
 export class LrcParser {
   private static readonly TIMESTAMP_REGEX: RegExp = /\[(\d{1,2}):(\d{1,2})(?:[.:](\d{1,3}))?\]/g;
@@ -99,6 +100,65 @@ export class LrcParser {
     const minutes = Math.floor(totalSeconds / 60);
     const seconds = totalSeconds % 60;
     return `${minutes}:${`${seconds}`.padStart(2, '0')}`;
+  }
+
+  /**
+   * Serializes parsed lines back into standard LRC text, the inverse of
+   * parse(). Needed by AVSessionManager: AVMetadata.lyric is documented as
+   * "should be in standard lyric format", and the system player derives the
+   * scrolling-lyrics view in the media control center from it.
+   *
+   * Deliberately lossy in three ways, all so that players which do not
+   * understand our extensions still render correctly:
+   * - word timings (`<mm:ss.ff>`) are dropped, only line.text is written;
+   *   an unsupported reader would otherwise show the tags as literal text.
+   * - translation / phonetic lines are dropped (a same-timestamp second line
+   *   reads as a duplicate in the control center).
+   * - `[offset:]` is never written back: parse() already folded the offset
+   *   into every timeMs, so re-emitting the tag would apply it twice.
+   */
+  static serialize(lines: LyricLine[], metadata?: LrcMetadata): string {
+    const out: string[] = [];
+    if (metadata !== undefined) {
+      if (metadata.title.length > 0) {
+        out.push(`[ti:${metadata.title}]`);
+      }
+      if (metadata.artist.length > 0) {
+        out.push(`[ar:${metadata.artist}]`);
+      }
+      if (metadata.album.length > 0) {
+        out.push(`[al:${metadata.album}]`);
+      }
+      if (metadata.author.length > 0) {
+        out.push(`[by:${metadata.author}]`);
+      }
+    }
+    for (const line of lines) {
+      // Same empty-text fallback as LyricLineTracker.onPosition, so a
+      // translation-only line is not silently dropped.
+      const text = line.text.length > 0 ? line.text : line.translated;
+      if (text.trim().length === 0) {
+        continue;
+      }
+      out.push(`${LrcParser.toTimestamp(line.timeMs)}${text}`);
+    }
+    return out.join('\n');
+  }
+
+  /**
+   * `[mm:ss.SSS]`, millisecond precision so parse(serialize(x)) is lossless.
+   * A negative time (reachable when a positive [offset:] advanced the first
+   * lines past zero) clamps to 0 rather than emitting an unparsable stamp.
+   */
+  private static toTimestamp(timeMs: number): string {
+    const safe = Math.max(0, Math.round(timeMs));
+    const minutes = Math.floor(safe / 60000);
+    const seconds = Math.floor((safe % 60000) / 1000);
+    const millis = safe % 1000;
+    const mm = `${minutes}`.padStart(2, '0');
+    const ss = `${seconds}`.padStart(2, '0');
+    const sss = `${millis}`.padStart(3, '0');
+    return `[${mm}:${ss}.${sss}]`;
   }
 
   /** Positive [offset:] advances lyrics: effective time = timestamp - offset. */

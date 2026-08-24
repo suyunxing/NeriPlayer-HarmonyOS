@@ -62,6 +62,7 @@ import amllLyricsResolverTest from './ets/test/AmllLyricsResolver.test';
 import lyricLineTrackerTest from './ets/test/LyricLineTracker.test';
 import diagnosticsTest from './ets/test/Diagnostics.test';
 import routeStackTest from './ets/test/RouteStack.test';
+import playbackSpeedMapTest from './ets/test/PlaybackSpeedMap.test';
 
 export default function testsuite(): void {
   lrcParserTest();
@@ -128,4 +129,5 @@ export default function testsuite(): void {
   lyricLineTrackerTest();
   diagnosticsTest();
   routeStackTest();
+  playbackSpeedMapTest();
 }

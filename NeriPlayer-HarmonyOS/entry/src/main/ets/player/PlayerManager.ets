@@ -21,11 +21,14 @@ import { AVSessionManager, SessionControlListener } from './AVSessionManager';
 import { BackgroundTaskRunner } from './BackgroundTaskRunner';
 import { CoverArtColorCache } from '../view/theme/CoverArtColorCache';
 import { LyricLineTracker } from '../lyrics/LyricLineTracker';
+import { LyricLine } from '../model/LyricLine';
+import { LocalPlaylistRepository } from '../data/LocalPlaylistRepository';
 import { SettingsRepository } from '../data/SettingsRepository';
 import { QueueEngine, TrackEndAction } from './queue/QueueEngine';
 import { AudioInterruptPolicy, InterruptAction } from './AudioInterruptPolicy';
 import { SleepTimer, SleepTimerMode } from './SleepTimer';
 import { PlaybackConstants, PlaybackStatus, RepeatMode } from './PlaybackConstants';
+import { effectivePlaybackRate, toPlaybackSpeedStep } from './PlaybackSpeedMap';
 import {
   ListenTogetherPlaybackCommand,
   ListenTogetherPlaybackCommandSource,
@@ -97,6 +100,10 @@ class PlayerControlListener implements SessionControlListener {
 
   onLoopMode(mode: RepeatMode): void {
     PlayerManager.setRepeatMode(mode);
+  }
+
+  onToggleFavorite(assetId: string): void {
+    PlayerManager.toggleFavoriteByAssetId(assetId);
   }
 }
 
@@ -170,6 +177,12 @@ export class PlayerManager {
     PlayerManager.publishDefaults();
     PlayerManager.restoreFromDisk();
     AVSessionManager.init(context, new PlayerControlListener());
+    // Lyrics are fetched by the UI layer; subscribe to the shared tracker so
+    // the whole-song LRC reaches AVMetadata.lyric (scrolling lyrics in the
+    // media control center) without duplicating the fetch here.
+    LyricLineTracker.getInstance().setLinesListener((lines: LyricLine[]) => {
+      PlayerManager.publishLyrics(lines);
+    });
   }
 
   static addListener(listener: PlayerListener): void {
@@ -315,6 +328,9 @@ export class PlayerManager {
       PlayerManager.player.setSpeed(
         PlayerManager.toPlaybackSpeed(PlayerManager.speed * PlayerManager.listenTogetherSyncPlaybackRate)
       );
+      // Like a seek, this moves the extrapolation baseline's slope without
+      // changing `status`, so the session needs the new rate pushed to it.
+      PlayerManager.publishSessionPlaybackState();
     } catch (error) {
       const e = error as Error;
       Logger.warn(`applyEffectiveSpeed failed: ${e.message}`);
@@ -581,6 +597,15 @@ export class PlayerManager {
     }
     try {
       await player.seek(Math.max(0, timeMs), media.SeekMode.SEEK_PREV_SYNC);
+      // A seek moves the extrapolation baseline while `status` is unchanged,
+      // so nothing else would push it to the session and the control center
+      // would keep counting from the pre-seek datum until the next play/pause.
+      PlayerManager.positionMs = Math.max(0, timeMs);
+      // Rebase the listened-time accumulator too: onTimeUpdate credits
+      // `timeMs - lastTimeMs` to listenedMs, so a forward seek would otherwise
+      // bank the skipped span as if it had been played.
+      PlayerManager.lastTimeMs = PlayerManager.positionMs;
+      PlayerManager.publishSessionPlaybackState();
     } catch (error) {
       const e = error as Error;
       Logger.warn(`PlayerManager.seekTo failed: ${e.message}`);
@@ -699,6 +724,7 @@ export class PlayerManager {
     AppStorage.setOrCreate(PlaybackConstants.KEY_SHUFFLE, PlayerManager.engine.shuffle);
     AppStorage.setOrCreate(PlaybackConstants.KEY_SPEED, PlayerManager.speed);
     AppStorage.setOrCreate(PlaybackConstants.KEY_QUEUE_JSON, '');
+    AppStorage.setOrCreate(PlaybackConstants.KEY_FAVORITE, false);
   }
 
   /**
@@ -757,13 +783,16 @@ export class PlayerManager {
     PlayerManager.durationMs = song.durationMs;
     PlayerManager.lastTimeMs = 0;
     PlayerManager.setCurrentMediaUrl(null);
+    // Before any publish* call: it resets the session's lyric caches and its
+    // duration, so a publishDuration triggered by the new length cannot push
+    // the previous song's lyrics alongside the new title.
+    AVSessionManager.updateMetadata(song, PlayerManager.durationMs);
     PlayerManager.publishCurrentSong(song);
     PlayerManager.publishPosition();
     PlayerManager.publishDuration();
     PlayerManager.publishQueue();
     PlayerManager.publishStatus(PlaybackStatus.LOADING);
     HistoryRepository.addSong(song);
-    AVSessionManager.updateMetadata(song, PlayerManager.durationMs);
 
     try {
       const player = await PlayerManager.ensurePlayer();
@@ -793,6 +822,29 @@ export class PlayerManager {
         : media.createMediaSourceWithUrl(uri);
       await player.setMediaSource(source);
       await PlayerManager.waitForState(['initialized']);
+      // Pin the stream to the music usage. This is the only window the SDK
+      // accepts it in: the initialized state, before the first prepare().
+      //
+      // It is not a bug fix — AVPlayer already defaults to
+      // STREAM_USAGE_MUSIC for a source with no video track, which is every
+      // source we feed it today (Bilibili resolves to the DASH audio-only
+      // baseUrl, the rest are plain audio URLs). It flips to
+      // STREAM_USAGE_MOVIE only when the container carries video, which
+      // prepare() decides by probing and we cannot see beforehand. Declaring
+      // it keeps the system's audio policy — volume curve, focus arbitration,
+      // low-power offload — on the music path no matter what a future source
+      // resolves to, and satisfies the usage precondition of setLoudnessGain().
+      try {
+        const rendererInfo: audio.AudioRendererInfo = {
+          usage: audio.StreamUsage.STREAM_USAGE_MUSIC,
+          // Reserved by the SDK; 0 is the documented default.
+          rendererFlags: 0,
+        };
+        player.audioRendererInfo = rendererInfo;
+      } catch (error) {
+        const e = error as BusinessError;
+        Logger.warn(`setAudioRendererInfo failed: ${e.code} ${e.message}`);
+      }
       await player.prepare();
       await PlayerManager.waitForState(['prepared']);
       if (generation !== PlayerManager.loadGeneration) {
@@ -942,21 +994,11 @@ export class PlayerManager {
 
   /**
    * Maps a numeric playback speed to the media.PlaybackSpeed enum (API 24).
+   * The quantization itself lives in PlaybackSpeedMap so it can be unit-tested
+   * together with its inverse; this only re-types the step.
    */
   private static toPlaybackSpeed(speed: number): media.PlaybackSpeed {
-    if (speed <= 0.75) {
-      return speed <= 0.6 ? media.PlaybackSpeed.SPEED_FORWARD_0_50_X : media.PlaybackSpeed.SPEED_FORWARD_0_75_X;
-    }
-    if (speed < 1.2) {
-      return media.PlaybackSpeed.SPEED_FORWARD_1_00_X;
-    }
-    if (speed < 1.4) {
-      return media.PlaybackSpeed.SPEED_FORWARD_1_25_X;
-    }
-    if (speed < 1.9) {
-      return media.PlaybackSpeed.SPEED_FORWARD_1_50_X;
-    }
-    return media.PlaybackSpeed.SPEED_FORWARD_2_00_X;
+    return toPlaybackSpeedStep(speed) as media.PlaybackSpeed;
   }
 
   private static onPlayerStateChange(state: string): void {
@@ -1196,23 +1238,50 @@ export class PlayerManager {
     AppStorage.setOrCreate(PlaybackConstants.KEY_CURRENT_SONG, song.toJson());
     AppStorage.setOrCreate(PlaybackConstants.KEY_QUEUE_INDEX, PlayerManager.engine.getCurrentQueueIndex());
     CoverArtColorCache.onSongChanged(song.effectiveCoverUrl);
+    PlayerManager.publishFavorite(song);
     PlayerManager.notify();
   }
 
   private static publishStatus(status: PlaybackStatus): void {
     PlayerManager.status = status;
     AppStorage.setOrCreate(PlaybackConstants.KEY_STATUS, status);
-    AVSessionManager.updatePlaybackState(
-      status,
-      PlayerManager.positionMs,
-      PlayerManager.speed,
-      PlayerManager.durationMs,
-      PlayerManager.engine.repeatMode
-    );
+    PlayerManager.publishSessionPlaybackState();
     if (status !== PlaybackStatus.PLAYING && status !== PlaybackStatus.LOADING) {
       PlayerManager.restoreLyricMetadata();
     }
     PlayerManager.notify();
+  }
+
+  /**
+   * Re-sends AVPlaybackState without touching the in-app feed.
+   *
+   * The system does not poll us: it extrapolates the control center's (and the
+   * desktop lyric window's) progress from `position.elapsedTime` +
+   * `updateTime` + `speed`. So a fresh datum is needed exactly when that
+   * baseline moves, and never on a timer — which is why the 500ms
+   * `publishPosition` throttle deliberately stays out of the session and only
+   * feeds AppStorage.
+   *
+   * Seeking and changing the speed both move the baseline while `status` stays
+   * the same, so neither is covered by publishStatus() alone.
+   */
+  private static publishSessionPlaybackState(): void {
+    AVSessionManager.updatePlaybackState(
+      PlayerManager.status,
+      PlayerManager.positionMs,
+      PlayerManager.effectivePlaybackSpeed(),
+      PlayerManager.durationMs,
+      PlayerManager.engine.repeatMode
+    );
+  }
+
+  /**
+   * The rate the player actually runs at, i.e. what the system must use to
+   * extrapolate. Reporting the requested `speed` instead would drift whenever
+   * the quantization in toPlaybackSpeed() rounds it to a different step.
+   */
+  private static effectivePlaybackSpeed(): number {
+    return effectivePlaybackRate(PlayerManager.speed * PlayerManager.listenTogetherSyncPlaybackRate);
   }
 
   private static publishPosition(): void {
@@ -1222,8 +1291,8 @@ export class PlayerManager {
 
   /**
    * Bridges lyric line changes into the AppStorage feed (floating bar) and,
-   * when np.bt_lyric is on, into the AVSession title slot (bluetooth /
-   * notification lyric line, Android metadata-slot semantics).
+   * when np.bt_lyric is on, into AVMetadata.singleLyricText (notification /
+   * AVRCP lyric line, Android metadata-slot semantics).
    */
   private static publishLyricLine(): void {
     const line = LyricLineTracker.getInstance().onPosition(
@@ -1241,10 +1310,10 @@ export class PlayerManager {
     if (index < 0 || index >= PlayerManager.queue.length) {
       return;
     }
-    AVSessionManager.updateLyricLine(line, PlayerManager.queue[index], PlayerManager.durationMs);
+    AVSessionManager.updateLyricLine(line, PlayerManager.queue[index]);
   }
 
-  /** Restores real song metadata after a bt-lyric takeover on pause/stop. */
+  /** Clears the single-line lyric slot after a bt-lyric takeover on pause/stop. */
   private static restoreLyricMetadata(): void {
     if (!SettingsRepository.getBoolean(SettingsRepository.KEY_BT_LYRIC, false)) {
       return;
@@ -1253,11 +1322,94 @@ export class PlayerManager {
     if (index < 0 || index >= PlayerManager.queue.length) {
       return;
     }
-    AVSessionManager.updateLyricLine(null, PlayerManager.queue[index], PlayerManager.durationMs);
+    AVSessionManager.updateLyricLine(null, PlayerManager.queue[index]);
+  }
+
+  /**
+   * Pushes the whole-song LRC to AVMetadata.lyric (the control center's
+   * scrolling-lyrics source). Unlike the single-line slot this is not gated
+   * on np.bt_lyric: it is the officially documented metadata field, not a
+   * takeover of another field, so there is nothing to opt out of.
+   */
+  private static publishLyrics(lines: LyricLine[]): void {
+    const index = PlayerManager.engine.getCurrentQueueIndex();
+    if (index < 0 || index >= PlayerManager.queue.length) {
+      return;
+    }
+    AVSessionManager.updateLyrics(lines, PlayerManager.queue[index]);
+  }
+
+  /**
+   * Handles the control center's favorite button. `assetId` is matched
+   * against the current song rather than searched across the queue: the
+   * control center only ever shows the currently playing asset, and a stale
+   * id (arriving after a track change) must not toggle the wrong song.
+   */
+  static async toggleFavoriteByAssetId(assetId: string): Promise<void> {
+    const song = PlayerManager.currentSong();
+    if (song === null) {
+      return;
+    }
+    if (AVSessionManager.assetIdOf(song) !== assetId) {
+      Logger.warn('AVSession toggleFavorite for a stale assetId, ignored');
+      return;
+    }
+    await PlayerManager.toggleFavoriteForCurrentSong();
+  }
+
+  /**
+   * Single entry point for flipping the current song's favorite state, shared
+   * by the in-app button and the media control center so both observe the
+   * same published flag.
+   */
+  static async toggleFavoriteForCurrentSong(): Promise<void> {
+    const song = PlayerManager.currentSong();
+    if (song === null) {
+      return;
+    }
+    try {
+      const favorite = await LocalPlaylistRepository.isFavorite(song);
+      if (favorite) {
+        await LocalPlaylistRepository.removeFavorite(song);
+      } else {
+        await LocalPlaylistRepository.addFavorite(song);
+      }
+      await PlayerManager.publishFavorite(song);
+    } catch (error) {
+      const e = error as Error;
+      Logger.warn(`toggleFavorite failed: ${e.message}`);
+    }
+  }
+
+  /**
+   * Re-reads the favorite flag, publishes it to the UI feed and re-sends the
+   * playback state so the control center's favorite icon matches.
+   */
+  private static async publishFavorite(song: SongItem): Promise<void> {
+    const favorite = await LocalPlaylistRepository.isFavorite(song);
+    AppStorage.setOrCreate(PlaybackConstants.KEY_FAVORITE, favorite);
+    AVSessionManager.setFavorite(favorite);
+    PlayerManager.publishStatus(PlayerManager.status);
+  }
+
+  private static currentSong(): SongItem | null {
+    const index = PlayerManager.engine.getCurrentQueueIndex();
+    if (index < 0 || index >= PlayerManager.queue.length) {
+      return null;
+    }
+    return PlayerManager.queue[index];
   }
 
   private static publishDuration(): void {
     AppStorage.setOrCreate(PlaybackConstants.KEY_DURATION_MS, PlayerManager.durationMs);
+    // The control center's progress bar reads AVMetadata.duration, so the real
+    // length resolved by the player has to reach the session too, not just the
+    // in-app feed (previously it only ever saw the catalog's declared length).
+    const index = PlayerManager.engine.getCurrentQueueIndex();
+    if (index < 0 || index >= PlayerManager.queue.length) {
+      return;
+    }
+    AVSessionManager.updateDuration(PlayerManager.queue[index], PlayerManager.durationMs);
   }
 
   private static publishQueue(): void {

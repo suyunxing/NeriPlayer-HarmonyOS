@@ -1,5 +1,8 @@
 import { LyricLine } from '../model/LyricLine';
 
+/** Sink for whole-lyric replacement, see setLinesListener. */
+export type LyricLinesListener = (lines: LyricLine[]) => void;
+
 /**
  * Tracks which lyric line the playhead is on, the shared data source for the
  * in-app floating lyric bar (D4 fallback: ordinary HarmonyOS apps have no
@@ -20,10 +23,25 @@ export class LyricLineTracker {
 
   private lines: LyricLine[] = [];
   private lastIndex: number = -1;
+  private linesListener: LyricLinesListener | null = null;
+
+  /**
+   * Registers the sink for whole-lyric changes. Lyrics are loaded by the UI
+   * layer (NowPlayingPage -> LyricDispatcher), but AVMetadata.lyric needs the
+   * full LRC from the player layer; rather than duplicating the fetch in
+   * PlayerManager, it subscribes here. Single slot: PlayerManager owns it.
+   */
+  setLinesListener(listener: LyricLinesListener | null): void {
+    this.linesListener = listener;
+  }
 
   setLines(lines: LyricLine[]): void {
     this.lines = lines;
     this.lastIndex = -1;
+    const listener = this.linesListener;
+    if (listener !== null) {
+      listener(lines);
+    }
   }
 
   reset(): void {
