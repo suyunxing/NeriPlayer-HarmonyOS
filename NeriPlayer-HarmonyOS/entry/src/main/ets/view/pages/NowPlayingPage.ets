@@ -173,6 +173,14 @@ export struct NowPlayingPage {
     PlayerManager.cycleRepeatMode();
   }
 
+  /** Announces the current repeat mode; the icon alone carries no label. */
+  private repeatLabel(): string {
+    if (this.repeatMode === RepeatMode.ONE) {
+      return '单曲循环，点击切换';
+    }
+    return this.repeatMode === RepeatMode.OFF ? '不循环，点击切换' : '列表循环，点击切换';
+  }
+
   private sleepButtonText(): string {
     if (!this.sleepActive) {
       return '定时';
@@ -249,6 +257,7 @@ export struct NowPlayingPage {
           .height(40)
           .type(ButtonType.Circle)
           .backgroundColor(Theme.onSurfaceOverlay(Theme.isDark()))
+          .accessibilityText('返回')
           .onClick(() => Router.pop())
           Text('正在播放')
             .fontSize(16)
@@ -266,6 +275,7 @@ export struct NowPlayingPage {
           .height(40)
           .type(ButtonType.Circle)
           .backgroundColor(Theme.onSurfaceOverlay(Theme.isDark()))
+          .accessibilityText('一起听')
           .onClick(() => Router.push(Router.LISTEN_TOGETHER))
           Button('⋯')
             .width(40)
@@ -274,6 +284,8 @@ export struct NowPlayingPage {
             .backgroundColor(Theme.onSurfaceOverlay(Theme.isDark()))
             .fontColor('#FFFFFF')
             .fontSize(18)
+            // '⋯' on its own is read out as punctuation, or skipped entirely.
+            .accessibilityText('播放列表')
             .onClick(() => this.showQueue = true)
         }
         .width('100%')
@@ -381,10 +393,12 @@ export struct NowPlayingPage {
             PlayerControlButton({
               icon: $r('app.media.ic_shuffle_24'),
               active: this.shuffle,
+              label: this.shuffle ? '关闭随机播放' : '随机播放',
               onTap: () => PlayerManager.setShuffle(!this.shuffle)
             })
             PlayerControlButton({
               icon: $r('app.media.round_skip_previous_24'),
+              label: '上一首',
               onTap: () => PlayerManager.previous()
             })
             PlayerControlButton({
@@ -393,10 +407,12 @@ export struct NowPlayingPage {
                 : $r('app.media.round_play_arrow_24'),
               active: true,
               buttonSize: 64,
+              label: this.status === PlaybackStatus.PLAYING ? '暂停' : '播放',
               onTap: () => PlayerManager.togglePlayPause()
             })
             PlayerControlButton({
               icon: $r('app.media.round_skip_next_24'),
+              label: '下一首',
               onTap: () => PlayerManager.next(false)
             })
             PlayerControlButton({
@@ -404,6 +420,7 @@ export struct NowPlayingPage {
                 ? $r('app.media.ic_repeat_one_24')
                 : $r('app.media.ic_repeat_24'),
               active: this.repeatMode !== RepeatMode.OFF,
+              label: this.repeatLabel(),
               onTap: () => this.cycleRepeat()
             })
           }
@@ -413,11 +430,12 @@ export struct NowPlayingPage {
 
           Row({ space: 8 }) {
             Button(`${this.speed}x`)
-              .height(32)
+              .height(40)
               .fontSize(12)
               .fontColor('#FFFFFF')
               .backgroundColor('#33FFFFFF')
               .borderRadius(16)
+              .accessibilityText(`播放速度 ${this.speed} 倍，点击切换`)
               .onClick(() => this.cycleSpeed())
             Button() {
               Row({ space: 6 }) {
@@ -430,7 +448,7 @@ export struct NowPlayingPage {
                   .fontColor('#FFFFFF')
               }
             }
-            .height(32)
+            .height(40)
             .padding({ left: 12, right: 12 })
             .backgroundColor('#33FFFFFF')
             .borderRadius(16)
@@ -438,7 +456,7 @@ export struct NowPlayingPage {
               this.showSleep = true;
             })
             Button('歌词')
-              .height(32)
+              .height(40)
               .fontSize(12)
               .fontColor(this.showLyrics ? '#1A1A1A' : '#FFFFFF')
               .backgroundColor(this.showLyrics ? '#FFFFFF' : '#33FFFFFF')
@@ -447,7 +465,7 @@ export struct NowPlayingPage {
                 this.showLyrics = !this.showLyrics;
               })
             Button('分享')
-              .height(32)
+              .height(40)
               .fontSize(12)
               .fontColor('#FFFFFF')
               .backgroundColor('#33FFFFFF')
@@ -461,10 +479,12 @@ export struct NowPlayingPage {
                 .height(18)
                 .fillColor('#FFFFFF')
             }
-            .width(36)
-            .height(32)
+            // Was 36x32; every chip in this row is now at the 40vp floor.
+            .width(40)
+            .height(40)
             .backgroundColor('#33FFFFFF')
             .borderRadius(16)
+            .accessibilityText('播放列表')
             .onClick(() => {
               this.showQueue = true;
             })
@@ -552,6 +572,9 @@ struct PlayerControlButton {
   @Prop icon: Resource = $r('app.media.round_play_arrow_24');
   @Prop active: boolean = false;
   @Prop buttonSize: number = 48;
+  // Transport buttons carry no text, so the label has to be supplied here or a
+  // screen reader announces an anonymous button (device audit 2026-08-24).
+  @Prop label: string = '';
   onTap: () => void = () => {};
 
   build() {
@@ -565,6 +588,7 @@ struct PlayerControlButton {
     .height(this.buttonSize)
     .type(ButtonType.Circle)
     .backgroundColor(this.buttonSize >= 60 ? Theme.primary(false) : Color.Transparent)
+    .accessibilityText(this.label)
     .onClick(() => this.onTap())
   }
 }

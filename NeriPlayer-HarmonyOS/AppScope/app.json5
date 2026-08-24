@@ -5,6 +5,10 @@
     "versionCode": 1000000,
     "versionName": "1.0.0",
     "icon": "$media:app_icon",
-    "label": "$string:app_name"
+    "label": "$string:app_name",
+    // Fonts do not follow the system size unless this profile opts in
+    // (HarmonyOS defaults to nonFollowSystem). Capped at 1.75x, the largest
+    // ratio the guideline requires a layout to survive without truncation.
+    "configuration": "$profile:configuration"
   }
 }

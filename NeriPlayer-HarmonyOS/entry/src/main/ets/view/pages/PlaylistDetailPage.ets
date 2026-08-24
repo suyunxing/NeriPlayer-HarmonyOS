@@ -1,4 +1,4 @@
-import { promptAction } from '@kit.ArkUI';
+import { LengthMetrics, promptAction } from '@kit.ArkUI';
 import { Playlist } from '../../model/Playlist';
 import { SongItem } from '../../model/SongItem';
 import { LocalPlaylistRepository } from '../../data/LocalPlaylistRepository';
@@ -78,8 +78,10 @@ export struct PlaylistDetailPage {
       Column() {
         Row({ space: 8 }) {
           Button('‹')
-            .width(38)
-            .height(38)
+            .width(40)
+            .height(40)
+            // '‹' is punctuation to a screen reader; name the action.
+            .accessibilityText('返回')
             .type(ButtonType.Circle)
             .backgroundColor(Color.Transparent)
             .fontColor(Theme.textPrimary(Theme.isDark()))
@@ -94,12 +96,13 @@ export struct PlaylistDetailPage {
             .textOverflow({ overflow: TextOverflow.Ellipsis })
           if (!this.isFavorites()) {
             Button('⋯')
-              .width(38)
-              .height(38)
+              .width(40)
+              .height(40)
               .type(ButtonType.Circle)
               .backgroundColor(Color.Transparent)
               .fontColor(Theme.textPrimary(Theme.isDark()))
               .fontSize(18)
+              .accessibilityText('歌单管理')
               .onClick(() => {
                 this.renameValue = this.playlist?.name ?? '';
                 this.showRenameDialog = true;
@@ -133,22 +136,26 @@ export struct PlaylistDetailPage {
                 Text(`${this.playlist.songKeys.length} 首`)
                   .fontSize(13)
                   .fontColor(Theme.textSecondary(Theme.isDark()))
-                Row({ space: 8 }) {
+                // Same X-to-Y trade as the NetEase header: the button pair sits
+                // in a layoutWeight(1) column beside a 92vp cover, so at large
+                // system fonts a plain Row runs off the right edge.
+                Flex({ wrap: FlexWrap.Wrap, space: { main: LengthMetrics.vp(8), cross: LengthMetrics.vp(8) } }) {
                   Button('全部播放')
-                    .height(32)
+                    .height(40)
                     .fontSize(12)
                     .fontColor(Theme.onPrimary(Theme.isDark()))
                     .backgroundColor(Theme.primary(Theme.isDark()))
                     .borderRadius(16)
                     .onClick(() => this.playAll(false))
                   Button('随机播放')
-                    .height(32)
+                    .height(40)
                     .fontSize(12)
                     .fontColor(Theme.textPrimary(Theme.isDark()))
                     .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
                     .borderRadius(16)
                     .onClick(() => this.playAll(true))
                 }
+                .width('100%')
               }
               .layoutWeight(1)
               .alignItems(HorizontalAlign.Start)
@@ -165,7 +172,7 @@ export struct PlaylistDetailPage {
                 .fontColor(Theme.textPrimary(Theme.isDark()))
                 .layoutWeight(1)
               Button('＋ 添加')
-                .height(30)
+                .height(40)
                 .fontSize(12)
                 .backgroundColor(Theme.surface(Theme.isDark()))
                 .fontColor(Theme.primary(Theme.isDark()))
@@ -202,10 +209,11 @@ export struct PlaylistDetailPage {
                           .height(16)
                           .fillColor(Theme.textDisabled(Theme.isDark()))
                       }
-                      .width(30)
-                      .height(30)
+                      .width(40)
+                      .height(40)
                       .type(ButtonType.Circle)
                       .backgroundColor(Color.Transparent)
+                      .accessibilityText('从歌单移除')
                       .onClick(() => this.removeSong(stableKeyOf(song)))
                     }
                     .width('100%')

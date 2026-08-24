@@ -1,4 +1,4 @@
-import { promptAction } from '@kit.ArkUI';
+import { LengthMetrics, promptAction } from '@kit.ArkUI';
 import { SongItem } from '../../model/SongItem';
 import { MusicPlatform } from '../../model/MusicPlatform';
 import { LocalPlaylistRepository } from '../../data/LocalPlaylistRepository';
@@ -128,8 +128,10 @@ export struct NeteasePlaylistPage {
       Column() {
         Row({ space: 8 }) {
           Button('‹')
-            .width(38)
-            .height(38)
+            .width(40)
+            .height(40)
+            // '‹' is punctuation to a screen reader; name the action.
+            .accessibilityText('返回')
             .type(ButtonType.Circle)
             .backgroundColor(Color.Transparent)
             .fontColor(Theme.textPrimary(Theme.isDark()))
@@ -156,7 +158,7 @@ export struct NeteasePlaylistPage {
           Column() {
             EmptyState({ icon: '⚠', title: '加载失败', subtitle: this.loadError })
             Button('重试')
-              .height(34)
+              .height(40)
               .fontSize(13)
               .backgroundColor(Theme.primary(Theme.isDark()))
               .onClick(() => this.reload())
@@ -178,29 +180,33 @@ export struct NeteasePlaylistPage {
                   : `网易云 · ${this.overview.songs.length} 首`)
                   .fontSize(13)
                   .fontColor(Theme.textSecondary(Theme.isDark()))
-                Row({ space: 8 }) {
+                // Wraps instead of a plain Row: at 1.45x system font '导入'
+                // ran past the right screen edge with only a third of it
+                // visible (device audit 2026-08-24).
+                Flex({ wrap: FlexWrap.Wrap, space: { main: LengthMetrics.vp(8), cross: LengthMetrics.vp(8) } }) {
                   Button('全部播放')
-                    .height(32)
+                    .height(40)
                     .fontSize(12)
                     .fontColor(Theme.onPrimary(Theme.isDark()))
                     .backgroundColor(Theme.primary(Theme.isDark()))
                     .borderRadius(16)
                     .onClick(() => this.playAll(false))
                   Button('随机播放')
-                    .height(32)
+                    .height(40)
                     .fontSize(12)
                     .fontColor(Theme.textPrimary(Theme.isDark()))
                     .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
                     .borderRadius(16)
                     .onClick(() => this.playAll(true))
                   Button('导入')
-                    .height(32)
+                    .height(40)
                     .fontSize(12)
                     .fontColor(Theme.primary(Theme.isDark()))
                     .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
                     .borderRadius(16)
                     .onClick(() => this.openImportDialog())
                 }
+                .width('100%')
               }
               .layoutWeight(1)
               .alignItems(HorizontalAlign.Start)
