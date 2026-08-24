@@ -96,6 +96,7 @@ export struct HomePage {
         .height(40)
         .type(ButtonType.Circle)
         .backgroundColor(Theme.surface(Theme.isDark()))
+        .accessibilityText('刷新推荐')
         .onClick(() => this.refresh())
       }
       .width('100%')

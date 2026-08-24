@@ -1,3 +1,4 @@
+import { LengthMetrics } from '@kit.ArkUI';
 import { SongItem } from '../../model/SongItem';
 import { NeteaseApi } from '../../network/NeteaseApi';
 import { BiliApi } from '../../network/BiliApi';
@@ -91,7 +92,7 @@ export struct ExplorePage {
         .fontSize(13)
         .fontColor(this.platform === index ? Theme.onPrimary(Theme.isDark()) : Theme.textSecondary(Theme.isDark()))
     }
-    .height(34)
+    .height(40)
     .padding({ left: 14, right: 14 })
     .backgroundColor(this.platform === index ? Theme.primary(Theme.isDark()) : Theme.surface(Theme.isDark()))
     .borderRadius(17)
@@ -131,7 +132,10 @@ export struct ExplorePage {
       }
       .width('100%')
 
-      Row({ space: 10 }) {
+      // Wraps instead of a plain Row: at 1.45x system font the third chip
+      // overflowed the right edge and became unreachable (device audit
+      // 2026-08-24). Trading the X axis for the Y axis keeps it tappable.
+      Flex({ wrap: FlexWrap.Wrap, space: { main: LengthMetrics.vp(10), cross: LengthMetrics.vp(8) } }) {
         this.platformButton(0, '网易云', $r('app.media.ic_netease_cloud_music'))
         this.platformButton(1, 'Bilibili', $r('app.media.ic_bilibili'))
         this.platformButton(2, 'YouTube Music', $r('app.media.ic_youtube'))

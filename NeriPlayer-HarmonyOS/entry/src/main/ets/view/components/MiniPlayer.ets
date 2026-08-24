@@ -112,6 +112,9 @@ export struct MiniPlayer {
         .backgroundColor(this.seedHex.length > 0
           ? Theme.primaryFor(this.seedHex, Theme.isDark())
           : Theme.primary(Theme.isDark()))
+        // Icon-only control: without an explicit label a screen reader reads
+        // nothing at all (device audit 2026-08-24 found 9 such buttons).
+        .accessibilityText(this.status === PlaybackStatus.PLAYING ? '暂停' : '播放')
         .onClick(() => {
           PlayerManager.togglePlayPause();
         })
@@ -122,10 +125,12 @@ export struct MiniPlayer {
             .height(22)
             .fillColor(Theme.textPrimary(Theme.isDark()))
         }
-        .width(36)
-        .height(36)
+        // 36vp measured on device; 40vp is the touch-target floor this port holds to.
+        .width(40)
+        .height(40)
         .type(ButtonType.Circle)
         .backgroundColor(Color.Transparent)
+        .accessibilityText('下一首')
         .onClick(() => {
           PlayerManager.next(false);
         })

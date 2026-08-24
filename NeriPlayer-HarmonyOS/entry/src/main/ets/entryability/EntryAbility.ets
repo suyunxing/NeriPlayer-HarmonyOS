@@ -11,6 +11,7 @@ import { GitHubConfigRepository } from '../sync/github/GitHubConfigRepository';
 import { WebDavConfigRepository } from '../sync/webdav/WebDavConfigRepository';
 import { SystemBars } from '../util/SystemBars';
 import { ListenTogetherSessionManager } from '../listentogether/ListenTogetherSessionManager';
+import { CrashEventWatcher } from '../app/diagnostics/CrashEventWatcher';
 
 const TAG: string = 'EntryAbility';
 const DOMAIN: number = 0x4E50;
@@ -19,6 +20,12 @@ export default class EntryAbility extends UIAbility {
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
     hilog.info(DOMAIN, TAG, 'Ability onCreate');
     SettingsRepository.initialize(this.context);
+    // Start the diagnostics loop before Index resolves the startup phase:
+    // init() pulls this app's fault history, arms the SafeMode flag when a
+    // fault falls inside the window since the previous launch (the crash or
+    // freeze that killed the last session), then subscribes for live fault
+    // events. Index @Watch-es the flag so a late arm still switches.
+    CrashEventWatcher.init(this.context);
     AppStorage.setOrCreate('abilityContext', this.context);
     AppStorage.setOrCreate('systemDark', false);
     PlayerManager.initialize(this.context);

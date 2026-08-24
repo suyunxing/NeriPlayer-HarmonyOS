@@ -23,8 +23,10 @@ export struct StatsPage {
     Column() {
       Row({ space: 8 }) {
         Button('‹')
-          .width(38)
-          .height(38)
+          .width(40)
+          .height(40)
+          // '‹' is punctuation to a screen reader; name the action.
+          .accessibilityText('返回')
           .type(ButtonType.Circle)
           .backgroundColor(Color.Transparent)
           .fontColor(Theme.textPrimary(Theme.isDark()))

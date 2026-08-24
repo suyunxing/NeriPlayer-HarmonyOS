@@ -1,9 +1,39 @@
 import { promptAction } from '@kit.ArkUI';
+import { pasteboard } from '@kit.BasicServicesKit';
 import { Theme } from '../Theme';
+import { DiagnosticsStore } from '../../app/diagnostics/DiagnosticsStore';
+import { formatRecordLine } from '../../app/diagnostics/DiagnosticsModels';
+import { Logger } from '../../app/Logger';
 
 @Component
 export struct SafeModePage {
   onRestoreNormal: () => void = () => {};
+
+  private async exportDiagnostics(): Promise<void> {
+    try {
+      const report = await DiagnosticsStore.buildExportReport(Logger.recentLogLines(), Date.now());
+      const message = await DiagnosticsStore.exportViaPicker(report);
+      promptAction.openToast({ message });
+    } catch (error) {
+      promptAction.openToast({ message: `导出失败：${(error as Error).message}` });
+    }
+  }
+
+  private async copyDiagnosticsSummary(): Promise<void> {
+    try {
+      const records = await DiagnosticsStore.listRecords();
+      if (records.length === 0) {
+        promptAction.openToast({ message: '暂无诊断记录' });
+        return;
+      }
+      const lines = records.map((record): string => formatRecordLine(record));
+      const pasteData = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, lines.join('\n'));
+      pasteboard.getSystemPasteboard().setData(pasteData);
+      promptAction.openToast({ message: `已复制 ${records.length} 条诊断摘要` });
+    } catch (error) {
+      promptAction.openToast({ message: `复制失败：${(error as Error).message}` });
+    }
+  }
 
   build() {
     Column({ space: 16 }) {
@@ -25,10 +55,17 @@ export struct SafeModePage {
 
       Column({ space: 1 }) {
         SafeActionRow({
-          title: '导出日志',
-          subtitle: '日志导出将在 Debug 页面完善',
+          title: '导出诊断报告',
+          subtitle: '崩溃/冻结记录 + 详情 + 最近日志，保存为文本文件',
           onTap: () => {
-            promptAction.openToast({ message: '日志导出将在 Debug 页面完善' });
+            this.exportDiagnostics();
+          }
+        })
+        SafeActionRow({
+          title: '复制诊断摘要',
+          subtitle: '将最近故障记录摘要复制到剪贴板',
+          onTap: () => {
+            this.copyDiagnosticsSummary();
           }
         })
         SafeActionRow({

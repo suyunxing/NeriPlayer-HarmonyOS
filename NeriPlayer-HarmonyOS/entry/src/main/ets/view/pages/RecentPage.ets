@@ -27,8 +27,10 @@ export struct RecentPage {
     Column() {
       Row({ space: 8 }) {
         Button('‹')
-          .width(38)
-          .height(38)
+          .width(40)
+          .height(40)
+          // '‹' is punctuation to a screen reader; name the action.
+          .accessibilityText('返回')
           .type(ButtonType.Circle)
           .backgroundColor(Color.Transparent)
           .fontColor(Theme.textPrimary(Theme.isDark()))
@@ -40,7 +42,7 @@ export struct RecentPage {
           .fontColor(Theme.textPrimary(Theme.isDark()))
           .layoutWeight(1)
         Button('清空')
-          .height(32)
+          .height(40)
           .fontSize(13)
           .backgroundColor(Theme.surface(Theme.isDark()))
           .fontColor(Theme.danger(Theme.isDark()))

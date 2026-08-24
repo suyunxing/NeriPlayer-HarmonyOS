@@ -19,6 +19,11 @@ export class SettingsRepository {
   static readonly KEY_PLAYBACK_SPEED: string = 'np.playback_speed';
   static readonly KEY_DEFAULT_START_TAB: string = 'np.default_start_tab';
   static readonly KEY_LAST_CRASH_DETECTED: string = 'np.last_crash_detected';
+  // Wall clock of the previous launch. CrashEventWatcher reads it to bound the
+  // SafeMode arming window (only a fault newer than the previous launch can be
+  // what killed the last session) and immediately replaces it with this
+  // launch's timestamp. 0 means "no mark yet" and never arms SafeMode.
+  static readonly KEY_LAST_STARTUP_MS: string = 'np.last_startup_ms';
   static readonly KEY_SHOW_LYRICS: string = 'np.show_lyrics';
   static readonly KEY_DOWNLOAD_CONCURRENCY: string = 'np.download_concurrency';
   // Listen Together server. Android keeps two keys with different clearing
@@ -88,6 +93,7 @@ export class SettingsRepository {
     [SettingsRepository.KEY_PLAYBACK_SPEED, 1.0],
     [SettingsRepository.KEY_DEFAULT_START_TAB, 0],
     [SettingsRepository.KEY_LAST_CRASH_DETECTED, false],
+    [SettingsRepository.KEY_LAST_STARTUP_MS, 0],
     [SettingsRepository.KEY_SHOW_LYRICS, true],
     [SettingsRepository.KEY_DOWNLOAD_CONCURRENCY, 6],
     [SettingsRepository.KEY_LISTEN_TOGETHER_SERVER, ''],
