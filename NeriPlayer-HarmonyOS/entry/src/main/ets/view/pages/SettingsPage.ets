@@ -153,9 +153,9 @@ export struct SettingsPage {
           })
           SettingRow({
             title: '一起听',
-            subtitle: 'Listen Together（待移植）',
+            subtitle: '创建或加入房间，与好友同步播放',
             icon: '👥',
-            onTap: () => promptAction.openToast({ message: 'Listen Together 待移植' })
+            onTap: () => Router.push(Router.LISTEN_TOGETHER)
           })
         }
         .width('100%')

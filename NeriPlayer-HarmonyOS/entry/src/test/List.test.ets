@@ -60,6 +60,8 @@ import dynamicThemeTest from './ets/test/DynamicTheme.test';
 import ttmlParserTest from './ets/test/TtmlParser.test';
 import amllLyricsResolverTest from './ets/test/AmllLyricsResolver.test';
 import lyricLineTrackerTest from './ets/test/LyricLineTracker.test';
+import diagnosticsTest from './ets/test/Diagnostics.test';
+import routeStackTest from './ets/test/RouteStack.test';
 
 export default function testsuite(): void {
   lrcParserTest();
@@ -124,4 +126,6 @@ export default function testsuite(): void {
   ttmlParserTest();
   amllLyricsResolverTest();
   lyricLineTrackerTest();
+  diagnosticsTest();
+  routeStackTest();
 }

@@ -5,6 +5,8 @@ import { window } from '@kit.ArkUI';
 import { Hypium } from '@ohos/hypium';
 import testsuite from '../test/List.test';
 import { AppPreferences } from '../../../main/ets/data/AppPreferences';
+import { SettingsRepository } from '../../../main/ets/data/SettingsRepository';
+import { DiagnosticsStore } from '../../../main/ets/app/diagnostics/DiagnosticsStore';
 
 const ON_DESTROY_ERROR = -2;
 
@@ -26,6 +28,8 @@ export default class TestAbility extends UIAbility {
     // AbilityDelegator.getAppContext() is rejected by @ohos.data.preferences
     // ("invalid context"), so initialize the store from the ability context.
     AppPreferences.init(this.context);
+    SettingsRepository.initialize(this.context);
+    DiagnosticsStore.init(this.context);
     Hypium.hypiumTest(this.abilityDelegator, abilityDelegatorArguments, testsuite);
   }
 

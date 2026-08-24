@@ -391,7 +391,7 @@ export struct ListenTogetherPage {
             .maxLines(2)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
           Button('复制邀请')
-            .height(36)
+            .height(40)
             .fontSize(13)
             .fontColor(Theme.onPrimary(Theme.isDark()))
             .backgroundColor(Theme.primary(Theme.isDark()))
@@ -430,7 +430,7 @@ export struct ListenTogetherPage {
 
       Row({ space: 10 }) {
         Button('刷新状态')
-          .height(38)
+          .height(40)
           .fontSize(13)
           .layoutWeight(1)
           .fontColor(Theme.textPrimary(Theme.isDark()))
@@ -440,7 +440,7 @@ export struct ListenTogetherPage {
             this.refreshState();
           })
         Button('离开房间')
-          .height(38)
+          .height(40)
           .fontSize(13)
           .layoutWeight(1)
           .fontColor('#E5484D')
@@ -462,8 +462,10 @@ export struct ListenTogetherPage {
     Column() {
       Row({ space: 8 }) {
         Button('‹')
-          .width(38)
-          .height(38)
+          .width(40)
+          .height(40)
+          // '‹' is punctuation to a screen reader; name the action.
+          .accessibilityText('返回')
           .type(ButtonType.Circle)
           .backgroundColor(Color.Transparent)
           .fontColor(Theme.textPrimary(Theme.isDark()))

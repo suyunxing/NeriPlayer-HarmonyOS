@@ -11,6 +11,9 @@ import { SearchHistoryRepository } from '../../data/SearchHistoryRepository';
 import { DownloadEngine } from '../../download/DownloadEngine';
 import { DownloadStorage } from '../../download/DownloadStorage';
 import { DownloadStatus } from '../../download/DownloadModels';
+import { DiagnosticsStore } from '../../app/diagnostics/DiagnosticsStore';
+import { formatRecordLine } from '../../app/diagnostics/DiagnosticsModels';
+import { Logger } from '../../app/Logger';
 import { Router } from '../Router';
 import { Theme } from '../Theme';
 
@@ -150,6 +153,55 @@ export struct DebugPage {
     promptAction.openToast({ message: '已模拟崩溃标记，重启后进入安全模式' });
   }
 
+  private async probeDiagnostics(): Promise<void> {
+    try {
+      const records = await DiagnosticsStore.listRecords();
+      if (records.length === 0) {
+        this.result = '诊断探针：无记录（无故障历史或未发生崩溃）';
+        return;
+      }
+      const lines = records.map((record): string => formatRecordLine(record));
+      this.result = `诊断探针：${records.length} 条记录\n${lines.join('\n')}`;
+    } catch (error) {
+      this.result = `诊断探针失败：${(error as Error).message}`;
+    }
+  }
+
+  private async exportDiagnostics(): Promise<void> {
+    try {
+      const report = await DiagnosticsStore.buildExportReport(Logger.recentLogLines(), Date.now());
+      const message = await DiagnosticsStore.exportViaPicker(report);
+      this.result = message;
+    } catch (error) {
+      this.result = `诊断导出失败：${(error as Error).message}`;
+    }
+  }
+
+  private async clearDiagnostics(): Promise<void> {
+    await DiagnosticsStore.clearAll();
+    this.result = '已清空诊断记录';
+  }
+
+  private confirmRealCrash(): void {
+    this.getUIContext().showAlertDialog({
+      title: '触发真实 JS 崩溃？',
+      message: '应用进程将立即崩溃退出。下次启动应进入安全模式并自动记录 JSCRASH 诊断（M9.2 验证路径）。',
+      primaryButton: {
+        value: '取消',
+        action: (): void => {}
+      },
+      secondaryButton: {
+        value: '崩溃',
+        fontColor: '#FF5252',
+        action: (): void => {
+          // Deliberately uncaught: exercises the JSCRASH -> HiAppEvent ->
+          // DiagnosticsStore -> SafeMode chain on the next launch.
+          throw new Error('NeriPlayer debug crash (M9.2 diagnostics probe)');
+        }
+      }
+    });
+  }
+
   @Builder
   testButton(label: string, action: () => void) {
     Button(label)
@@ -167,6 +219,8 @@ export struct DebugPage {
         Button('‹')
           .width(40)
           .height(40)
+          // '‹' is punctuation to a screen reader; name the action.
+          .accessibilityText('返回')
           .type(ButtonType.Circle)
           .backgroundColor(Color.Transparent)
           .fontColor(Theme.textPrimary(Theme.isDark()))
@@ -191,6 +245,10 @@ export struct DebugPage {
           this.testButton('清空搜索历史', () => this.clearSearchHistory())
           this.testButton('清空下载任务', () => this.clearDownloads())
           this.testButton('下载管线探针', () => this.probeDownloads())
+          this.testButton('诊断记录探针', () => this.probeDiagnostics())
+          this.testButton('导出诊断报告', () => this.exportDiagnostics())
+          this.testButton('清空诊断记录', () => this.clearDiagnostics())
+          this.testButton('触发真实 JS 崩溃', () => this.confirmRealCrash())
           this.testButton('模拟崩溃 → 安全模式', () => this.simulateCrash())
 
           Text('HTTP 代理（模拟器填宿主机 10.0.2.2:7897；同时用于接口请求与媒体拉流）')
@@ -225,7 +283,7 @@ export struct DebugPage {
           .width('100%')
           .margin({ bottom: 8 })
 
-          Text('USB 独占播放 / 下载恢复 / 一起听 / 同步 仍为待移植模块，见 PORTING.md')
+          Text('USB 独占播放按 M9.1 spike 结论不移植（USB DAC 走系统音频路径，见 docs/USB_M91_SPIKE.md）；YTM 完整播放待 D2 决策')
             .fontSize(12)
             .fontColor(Theme.textSecondary(Theme.isDark()))
             .width('100%')

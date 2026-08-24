@@ -1,4 +1,5 @@
 import { SettingsRepository } from '../data/SettingsRepository';
+import { Router } from '../view/Router';
 import { LoadingPage } from '../view/pages/LoadingPage';
 import { DisclaimerPage } from '../view/pages/DisclaimerPage';
 import { OnboardingPage } from '../view/pages/OnboardingPage';
@@ -22,7 +23,10 @@ enum StartupPhase {
 struct Index {
   @StorageProp('np.disclaimer_accepted') disclaimerAccepted: boolean = false;
   @StorageProp('np.onboarding_completed') onboardingCompleted: boolean = false;
-  @StorageProp('np.last_crash_detected') lastCrashDetected: boolean = false;
+  // The crash flag is armed asynchronously by CrashEventWatcher (fault
+  // history pull on startup); watch it so a late flag still switches a
+  // already-rendered main UI into Safe Mode.
+  @StorageProp('np.last_crash_detected') @Watch('onCrashFlagChanged') lastCrashDetected: boolean = false;
   @State phase: StartupPhase = StartupPhase.LOADING;
   @State loadingDone: boolean = false;
 
@@ -31,6 +35,12 @@ struct Index {
     await SettingsRepository.initialize();
     this.phase = this.resolvePhase();
     this.loadingDone = true;
+  }
+
+  private onCrashFlagChanged(): void {
+    if (this.lastCrashDetected && this.phase === StartupPhase.MAIN) {
+      this.phase = StartupPhase.SAFE_MODE;
+    }
   }
 
   private resolvePhase(): StartupPhase {
@@ -59,6 +69,25 @@ struct Index {
   private onRestoreNormal(): void {
     SettingsRepository.setBoolean(SettingsRepository.KEY_LAST_CRASH_DETECTED, false);
     this.phase = this.resolvePhase();
+  }
+
+  /**
+   * System back key and back-swipe gesture. ArkUI delivers them only to the
+   * @Entry component, and nothing consumed them before: back on any
+   * full-screen route (设置详情/播放页/调试页…) put the whole ability in the
+   * background instead of returning to the previous page — device-observed
+   * 2026-08-24 (播放设置 → back → 桌面, process still alive).
+   *
+   * Consume it while the route stack has something to pop; at the root, and in
+   * the startup gates (免责声明/引导/安全模式), fall through so the system
+   * default (leave the app) still applies.
+   */
+  onBackPress(): boolean {
+    if (this.phase === StartupPhase.MAIN && Router.canPop()) {
+      Router.pop();
+      return true;
+    }
+    return false;
   }
 
   build() {
