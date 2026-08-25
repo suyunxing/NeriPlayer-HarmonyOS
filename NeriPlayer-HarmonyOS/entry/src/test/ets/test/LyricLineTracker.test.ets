@@ -59,5 +59,35 @@ export default function lyricLineTrackerTest(): void {
       tracker.setLines([new LyricLine(0, 'b', '')]);
       expect(tracker.onPosition(0)).assertEqual('b');
     });
+
+    it('notifiesLinesListenerOnEveryReplacement', 0, () => {
+      const tracker = new LyricLineTracker();
+      const seen: number[] = [];
+      tracker.setLinesListener((lines: LyricLine[]) => {
+        seen.push(lines.length);
+      });
+
+      tracker.setLines([new LyricLine(0, 'a', ''), new LyricLine(1000, 'b', '')]);
+      // reset() goes through setLines, so clearing must notify too — that is
+      // what wipes the previous song's AVMetadata.lyric.
+      tracker.reset();
+
+      expect(seen.length).assertEqual(2);
+      expect(seen[0]).assertEqual(2);
+      expect(seen[1]).assertEqual(0);
+    });
+
+    it('detachedLinesListenerStopsReceiving', 0, () => {
+      const tracker = new LyricLineTracker();
+      let calls = 0;
+      tracker.setLinesListener(() => {
+        calls++;
+      });
+      tracker.setLines([new LyricLine(0, 'a', '')]);
+      tracker.setLinesListener(null);
+      tracker.setLines([new LyricLine(0, 'b', '')]);
+
+      expect(calls).assertEqual(1);
+    });
   });
 }

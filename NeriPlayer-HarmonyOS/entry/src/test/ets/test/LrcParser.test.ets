@@ -100,5 +100,79 @@ export default function lrcParserTest(): void {
       expect(lines[0].text).assertEqual('line');
       expect(lines[1].text).assertEqual('next');
     });
+
+    // ------------------------------------------------------------------
+    // serialize(): the inverse direction, feeding AVMetadata.lyric.
+    // ------------------------------------------------------------------
+
+    it('serializesLinesAsStandardLrcTimestamps', 0, () => {
+      const lines = LrcParser.parse('[00:01.00]first\n[01:05.43]second');
+
+      expect(LrcParser.serialize(lines)).assertEqual('[00:01.000]first\n[01:05.430]second');
+    });
+
+    it('serializeRoundTripsThroughParse', 0, () => {
+      const source = '[00:00.123]a\n[00:12.456]b\n[02:03.789]c';
+      const lines = LrcParser.parse(source);
+      const reparsed = LrcParser.parse(LrcParser.serialize(lines));
+
+      expect(reparsed.length).assertEqual(3);
+      for (let i = 0; i < reparsed.length; i++) {
+        expect(reparsed[i].timeMs).assertEqual(lines[i].timeMs);
+        expect(reparsed[i].text).assertEqual(lines[i].text);
+      }
+    });
+
+    it('serializeClampsNegativeTimesToZero', 0, () => {
+      // A positive [offset:] advances lines past zero (timeMs -= offset).
+      const lines = LrcParser.parse('[offset:+2000]\n[00:01.00]early');
+      expect(lines[0].timeMs).assertEqual(-1000);
+
+      expect(LrcParser.serialize(lines)).assertEqual('[00:00.000]early');
+    });
+
+    it('serializeNeverReEmitsOffsetTag', 0, () => {
+      // parse() already folded the offset into every timeMs; writing the tag
+      // back would apply it a second time on the next read.
+      const parsed = LrcParser.parseWithMetadata('[offset:+500]\n[ti:Song]\n[00:02.00]a');
+      const text = LrcParser.serialize(parsed.lines, parsed.metadata);
+
+      expect(text.includes('offset')).assertFalse();
+      expect(text).assertEqual('[ti:Song]\n[00:01.500]a');
+    });
+
+    it('serializeWritesOnlyNonEmptyMetadataTags', 0, () => {
+      const parsed = LrcParser.parseWithMetadata('[ti:T]\n[by:B]\n[00:01.00]a');
+
+      expect(LrcParser.serialize(parsed.lines, parsed.metadata)).assertEqual('[ti:T]\n[by:B]\n[00:01.000]a');
+    });
+
+    it('serializeDropsWordTagsAndKeepsPlainText', 0, () => {
+      // Enhanced-LRC word tags would show up as literal text in readers that
+      // do not understand them, so only line.text is written out.
+      const lines = LrcParser.parse('[00:01.00]<00:01.00>he<00:01.50>llo');
+      expect(lines[0].words.length).assertEqual(2);
+
+      expect(LrcParser.serialize(lines)).assertEqual('[00:01.000]hello');
+    });
+
+    it('serializeFallsBackToTranslationForEmptyText', 0, () => {
+      const lines = LrcParser.parse('[00:01.00]original');
+      lines[0].text = '';
+      lines[0].translated = 'translated';
+
+      expect(LrcParser.serialize(lines)).assertEqual('[00:01.000]translated');
+    });
+
+    it('serializeSkipsLinesWithNoUsableText', 0, () => {
+      const lines = LrcParser.parse('[00:01.00]a\n[00:02.00]b');
+      lines[0].text = '   ';
+
+      expect(LrcParser.serialize(lines)).assertEqual('[00:02.000]b');
+    });
+
+    it('serializeReturnsEmptyStringForNoLines', 0, () => {
+      expect(LrcParser.serialize([])).assertEqual('');
+    });
   });
 }

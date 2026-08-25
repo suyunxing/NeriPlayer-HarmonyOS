@@ -3,7 +3,6 @@ import { LyricLine } from '../../model/LyricLine';
 import { QueueState } from '../../model/QueueState';
 import { LyricDispatcher } from '../../lyrics/LyricDispatcher';
 import { LyricLineTracker } from '../../lyrics/LyricLineTracker';
-import { LocalPlaylistRepository } from '../../data/LocalPlaylistRepository';
 import { PlayerManager } from '../../player/PlayerManager';
 import { PlaybackStatus, RepeatMode } from '../../player/PlaybackConstants';
 import { Theme } from '../Theme';
@@ -34,10 +33,12 @@ export struct NowPlayingPage {
   @StorageLink('player.repeatMode') repeatMode: number = RepeatMode.ALL;
   @StorageLink('player.speed') speed: number = 1.0;
   @StorageLink('player.queueJson') queueJson: string = '';
+  // Published by PlayerManager rather than read locally, so toggling from the
+  // media control center keeps this button in sync (M10.1).
+  @StorageLink('player.favorite') favorite: boolean = false;
 
   @State lyrics: LyricLine[] = [];
   @State showLyrics: boolean = true;
-  @State favorite: boolean = false;
   @State showQueue: boolean = false;
   @State showSleep: boolean = false;
   @State showShare: boolean = false;
@@ -134,7 +135,6 @@ export struct NowPlayingPage {
 
   private async reloadSongData(): Promise<void> {
     const song = this.song();
-    this.favorite = await LocalPlaylistRepository.isFavorite(song);
     this.lyrics = [];
     LyricLineTracker.getInstance().setLines([]);
     if (song.audioId.length > 0) {
@@ -150,14 +150,9 @@ export struct NowPlayingPage {
   }
 
   private async toggleFavorite(): Promise<void> {
-    const song = this.song();
-    if (this.favorite) {
-      await LocalPlaylistRepository.removeFavorite(song);
-      this.favorite = false;
-    } else {
-      await LocalPlaylistRepository.addFavorite(song);
-      this.favorite = true;
-    }
+    // Goes through PlayerManager so the repository write, the AppStorage flag
+    // and the AVSession favorite state stay in one place.
+    await PlayerManager.toggleFavoriteForCurrentSong();
   }
 
   private cycleSpeed(): void {
