@@ -7,6 +7,7 @@ import { Logger } from '../../app/Logger';
 
 @Component
 export struct SafeModePage {
+  @StorageProp('theme.isDark') isDark: boolean = false; // see Theme.IS_DARK_KEY
   onRestoreNormal: () => void = () => {};
 
   private async exportDiagnostics(): Promise<void> {
@@ -40,15 +41,15 @@ export struct SafeModePage {
       Image($r('app.media.ic_warning_24'))
         .width(64)
         .height(64)
-        .fillColor(Theme.warning(Theme.isDark()))
+        .fillColor(Theme.warning(this.isDark))
         .margin({ top: 90 })
       Text('安全模式')
         .fontSize(24)
         .fontWeight(FontWeight.Bold)
-        .fontColor(Theme.textPrimary(Theme.isDark()))
+        .fontColor(Theme.textPrimary(this.isDark))
       Text('上次启动出现异常，已进入安全模式。\n播放与本地功能保持可用，网络与扩展功能已禁用。')
         .fontSize(14)
-        .fontColor(Theme.textSecondary(Theme.isDark()))
+        .fontColor(Theme.textSecondary(this.isDark))
         .textAlign(TextAlign.Center)
         .lineHeight(21)
         .padding({ left: 30, right: 30 })
@@ -75,7 +76,7 @@ export struct SafeModePage {
         })
       }
       .width('88%')
-      .backgroundColor(Theme.surface(Theme.isDark()))
+      .backgroundColor(Theme.surface(this.isDark))
       .borderRadius(Theme.cardRadius())
       .clip(true)
       .margin({ top: 20 })
@@ -83,12 +84,13 @@ export struct SafeModePage {
     .width('100%')
     .height('100%')
     .alignItems(HorizontalAlign.Center)
-    .backgroundColor(Theme.background(Theme.isDark()))
+    .backgroundColor(Theme.background(this.isDark))
   }
 }
 
 @Component
 struct SafeActionRow {
+  @StorageProp('theme.isDark') isDark: boolean = false; // see Theme.IS_DARK_KEY
   title: string = '';
   subtitle: string = '';
   onTap: () => void = () => {};
@@ -98,10 +100,10 @@ struct SafeActionRow {
       Text(this.title)
         .fontSize(15)
         .fontWeight(FontWeight.Medium)
-        .fontColor(Theme.textPrimary(Theme.isDark()))
+        .fontColor(Theme.textPrimary(this.isDark))
       Text(this.subtitle)
         .fontSize(12)
-        .fontColor(Theme.textSecondary(Theme.isDark()))
+        .fontColor(Theme.textSecondary(this.isDark))
     }
     .width('100%')
     .padding({ left: 16, right: 16, top: 14, bottom: 14 })

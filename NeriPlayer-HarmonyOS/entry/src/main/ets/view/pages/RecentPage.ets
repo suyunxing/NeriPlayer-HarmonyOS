@@ -9,6 +9,7 @@ import { Router } from '../Router';
 
 @Component
 export struct RecentPage {
+  @StorageProp('theme.isDark') isDark: boolean = false; // see Theme.IS_DARK_KEY
   @State songs: SongItem[] = [];
   @State usage: UsageEntry[] = [];
   @State loaded: boolean = false;
@@ -33,19 +34,19 @@ export struct RecentPage {
           .accessibilityText('返回')
           .type(ButtonType.Circle)
           .backgroundColor(Color.Transparent)
-          .fontColor(Theme.textPrimary(Theme.isDark()))
+          .fontColor(Theme.textPrimary(this.isDark))
           .fontSize(20)
           .onClick(() => Router.pop())
         Text('播放历史')
           .fontSize(20)
           .fontWeight(FontWeight.Bold)
-          .fontColor(Theme.textPrimary(Theme.isDark()))
+          .fontColor(Theme.textPrimary(this.isDark))
           .layoutWeight(1)
         Button('清空')
           .height(40)
           .fontSize(13)
-          .backgroundColor(Theme.surface(Theme.isDark()))
-          .fontColor(Theme.danger(Theme.isDark()))
+          .backgroundColor(Theme.surface(this.isDark))
+          .fontColor(Theme.danger(this.isDark))
           .onClick(async () => {
             await HistoryRepository.clear();
             this.songs = [];
@@ -59,7 +60,7 @@ export struct RecentPage {
           LoadingProgress()
             .width(36)
             .height(36)
-            .color(Theme.primary(Theme.isDark()))
+            .color(Theme.primary(this.isDark))
         }
         .layoutWeight(1)
         .width('100%')
@@ -90,6 +91,6 @@ export struct RecentPage {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor(Theme.background(Theme.isDark()))
+    .backgroundColor(Theme.background(this.isDark))
   }
 }

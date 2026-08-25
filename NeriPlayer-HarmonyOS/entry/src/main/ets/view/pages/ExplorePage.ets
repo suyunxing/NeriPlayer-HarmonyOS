@@ -1,4 +1,4 @@
-import { LengthMetrics } from '@kit.ArkUI';
+import { LengthMetrics, promptAction } from '@kit.ArkUI';
 import { SongItem } from '../../model/SongItem';
 import { NeteaseApi } from '../../network/NeteaseApi';
 import { BiliApi } from '../../network/BiliApi';
@@ -13,6 +13,10 @@ import { EmptyState, LoadingState } from '../components/Ui';
 
 @Component
 export struct ExplorePage {
+  // Target for focusControl.requestFocus when the "搜索歌曲" card is tapped.
+  private static readonly SEARCH_INPUT_ID: string = 'explore_search_input';
+
+  @StorageProp('theme.isDark') isDark: boolean = false; // see Theme.IS_DARK_KEY
   @State query: string = '';
   @State platform: number = 0;
   @State results: SongItem[] = [];
@@ -90,11 +94,11 @@ export struct ExplorePage {
         .height(18)
       Text(label)
         .fontSize(13)
-        .fontColor(this.platform === index ? Theme.onPrimary(Theme.isDark()) : Theme.textSecondary(Theme.isDark()))
+        .fontColor(this.platform === index ? Theme.onPrimary(this.isDark) : Theme.textSecondary(this.isDark))
     }
     .height(40)
     .padding({ left: 14, right: 14 })
-    .backgroundColor(this.platform === index ? Theme.primary(Theme.isDark()) : Theme.surface(Theme.isDark()))
+    .backgroundColor(this.platform === index ? Theme.primary(this.isDark) : Theme.surface(this.isDark))
     .borderRadius(17)
     .onClick(() => {
       this.platform = index;
@@ -109,12 +113,13 @@ export struct ExplorePage {
       Text('探索')
         .fontSize(26)
         .fontWeight(FontWeight.Bold)
-        .fontColor(Theme.textPrimary(Theme.isDark()))
+        .fontColor(Theme.textPrimary(this.isDark))
         .width('100%')
         .margin({ top: 12 })
 
       Row({ space: 8 }) {
         TextInput({ placeholder: '搜索歌曲 / 歌手 / 歌单', text: this.query })
+          .id(ExplorePage.SEARCH_INPUT_ID)
           .layoutWeight(1)
           .height(42)
           .fontSize(14)
@@ -127,7 +132,7 @@ export struct ExplorePage {
         Button('搜索')
           .height(42)
           .fontSize(14)
-          .backgroundColor(Theme.primary(Theme.isDark()))
+          .backgroundColor(Theme.primary(this.isDark))
           .onClick(() => this.search())
       }
       .width('100%')
@@ -147,11 +152,11 @@ export struct ExplorePage {
           Row() {
             Text('搜索历史')
               .fontSize(13)
-              .fontColor(Theme.textSecondary(Theme.isDark()))
+              .fontColor(Theme.textSecondary(this.isDark))
               .layoutWeight(1)
             Text('清空')
               .fontSize(12)
-              .fontColor(Theme.danger(Theme.isDark()))
+              .fontColor(Theme.danger(this.isDark))
               .onClick(async () => {
                 this.history = await SearchHistoryRepository.clear();
               })
@@ -161,9 +166,9 @@ export struct ExplorePage {
             ForEach(this.history, (keyword: string) => {
               Text(keyword)
                 .fontSize(13)
-                .fontColor(Theme.textPrimary(Theme.isDark()))
+                .fontColor(Theme.textPrimary(this.isDark))
                 .padding({ left: 12, right: 12, top: 7, bottom: 7 })
-                .backgroundColor(Theme.surface(Theme.isDark()))
+                .backgroundColor(Theme.surface(this.isDark))
                 .borderRadius(16)
                 .margin({ right: 8, bottom: 8 })
                 .onClick(() => this.useHistory(keyword))
@@ -177,7 +182,16 @@ export struct ExplorePage {
       if (this.loading) {
         LoadingState()
       } else if (this.error.length > 0) {
-        EmptyState({ icon: '!', title: this.error })
+        // The bare EmptyState left a dead end on a failed/offline search.
+        Column({ space: 4 }) {
+          EmptyState({ icon: '!', title: this.error })
+          Button('重新搜索')
+            .height(40)
+            .fontSize(14)
+            .backgroundColor(Theme.primary(this.isDark))
+            .onClick(() => this.search())
+        }
+        .width('100%')
       } else if (this.searched && this.results.length > 0) {
         List() {
           ForEach(this.results, (item: SongItem, index: number) => {
@@ -200,51 +214,62 @@ export struct ExplorePage {
             Image($r('app.media.ic_music_note_24'))
               .width(26)
               .height(26)
-              .fillColor(Theme.primary(Theme.isDark()))
+              .fillColor(Theme.primary(this.isDark))
             Column({ space: 2 }) {
               Text('搜索歌曲')
                 .fontSize(15)
                 .fontWeight(FontWeight.Medium)
-                .fontColor(Theme.textPrimary(Theme.isDark()))
+                .fontColor(Theme.textPrimary(this.isDark))
               Text('输入关键词搜索网易云 / Bilibili / YouTube Music')
                 .fontSize(12)
-                .fontColor(Theme.textSecondary(Theme.isDark()))
+                .fontColor(Theme.textSecondary(this.isDark))
             }
             .alignItems(HorizontalAlign.Start)
             .layoutWeight(1)
             Text('›')
               .fontSize(18)
-              .fontColor(Theme.textDisabled(Theme.isDark()))
+              .fontColor(Theme.textDisabled(this.isDark))
           }
           .width('100%')
           .padding(14)
-          .backgroundColor(Theme.surface(Theme.isDark()))
+          .backgroundColor(Theme.surface(this.isDark))
           .borderRadius(Theme.cardRadius())
+          // The card carried a › affordance but no handler, so it read as a
+          // broken button. It now does what its label says: focus the field.
+          .onClick(() => {
+            focusControl.requestFocus(ExplorePage.SEARCH_INPUT_ID);
+          })
 
           Row({ space: 12 }) {
             Image($r('app.media.ic_queue_music_24'))
               .width(26)
               .height(26)
-              .fillColor(Theme.primary(Theme.isDark()))
+              .fillColor(Theme.primary(this.isDark))
             Column({ space: 2 }) {
               Text('搜索歌单')
                 .fontSize(15)
                 .fontWeight(FontWeight.Medium)
-                .fontColor(Theme.textPrimary(Theme.isDark()))
-              Text('查找网易云歌单与 Bilibili 收藏夹')
+                .fontColor(Theme.textPrimary(this.isDark))
+              Text('待移植；可在「资料库」打开已导入的歌单与收藏夹')
                 .fontSize(12)
-                .fontColor(Theme.textSecondary(Theme.isDark()))
+                .fontColor(Theme.textSecondary(this.isDark))
             }
             .alignItems(HorizontalAlign.Start)
             .layoutWeight(1)
             Text('›')
               .fontSize(18)
-              .fontColor(Theme.textDisabled(Theme.isDark()))
+              .fontColor(Theme.textDisabled(this.isDark))
           }
           .width('100%')
           .padding(14)
-          .backgroundColor(Theme.surface(Theme.isDark()))
+          .backgroundColor(Theme.surface(this.isDark))
           .borderRadius(Theme.cardRadius())
+          // No playlist-search API is wired up, and both playlist routes need a
+          // concrete id, so there is nothing honest to navigate to yet. Say so
+          // rather than stay silent (registered in RELEASE_CHECKLIST.md §6).
+          .onClick(() => {
+            promptAction.openToast({ message: '歌单搜索待移植，请在「资料库」打开已导入的歌单' });
+          })
         }
         .width('100%')
       }
@@ -252,6 +277,6 @@ export struct ExplorePage {
     .padding({ left: 16, right: 16 })
     .width('100%')
     .height('100%')
-    .backgroundColor(Theme.background(Theme.isDark()))
+    .backgroundColor(Theme.background(this.isDark))
   }
 }

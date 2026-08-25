@@ -133,7 +133,13 @@
 - `LyricView` 新增 `private scroller = new Scroller()`，`Scroll(this.scroller)` 传入
 - `@Watch('onPositionChanged')` + `onCoverSeedChanged` 范式（对齐 `MiniPlayer.ets:38-40` 已有写法），在 watch 回调里计算当前行的 Y 偏移后 `scroller.scrollTo({ yOffset })`
 - 活跃行定位在视口 30%（对齐 Android `playedLyricViewportFraction = 0.30f`）
-- 复用 `LyricLineTracker.getInstance().currentIndex()` 替代 `LyricView.currentIndex()`（`:23-34`）中的 O(n) 全量扫描（见 ❼）
+- ~~复用 `LyricLineTracker.getInstance().currentIndex()` 替代 `LyricView.currentIndex()`（`:23-34`）中的 O(n) 全量扫描（见 ❼）~~
+
+> **2026-08-26 实施时更正（本条原文两处不准确）**：
+> 1. `LyricLineTracker` 并**不**提供 O(1) 查询。`onPosition()` 自身就是线性扫描；只有 `currentIndex()` 这个取 `lastIndex` 缓存的 getter 是 O(1)，而 `lastIndex` 由 `PlayerManager.publishPosition` 单向喂数、且 `setLines()` 会重置为 -1。于是**暂停时打开歌词页会拿到 -1**（既不高亮也不滚动），把它当视图的真源会引入回归。
+> 2. 交叉引用写错了：O(n×m) 的论述在 §5，不在 ❼（❼ 是 Tab 持久化）。
+>
+> 实际做法：抽出纯逻辑 `lyrics/LyricIndexResolver.ets`，`resolve(lines, displayTimeMs, hint)` 从上次结果续扫，常态每 tick 一次比较，回退 seek / 越界 hint 自动退化为整表扫描；配 11 条确定性单测。`LyricLineTracker` 保持其原职责（悬浮歌词栏 / AVSession 标题的「行是否变了」）不动。
 
 **验证**：模拟器 Pura 90 开歌词视图，确认视口随播放位置自动滚动。
 
@@ -183,6 +189,18 @@ private onThemeChanged(): void {
 **未改（M11.1 剩余）**：同样处理 `NowPlayingPage`、`HomePage`、`LibraryPage`、`ExplorePage` 四页。
 其余页面路由转场时重建，已自然刷新，暂不修。
 
+> **2026-08-26 实施时更正 + 范围扩大（已征得用户确认）**
+>
+> 1. **上一轮 `MainShell` 本身只修了一半**：`tabItem` 改了，但同文件 `build()` 里 Tab 栏背景与页面背景两处 `Theme.isDark()` 未改，即"切深色 Tab 图标变了、Tab 栏底色不变"。本轮补齐。
+> 2. **"只改四页"会产生撕裂**：`HomePage` 渲染的 `PlaylistCard`/`SectionHeader`/`EmptyState`（`Ui.ets`）与 `SongRow` 都是独立 `@Component`，其 `@Prop` 未变 → ArkUI 不会重渲染它们。只改页面的结果是"页面背景变深、卡片仍是浅色"，比不改更容易被察觉。
+> 3. **"其余页面路由转场时重建，已自然刷新"这句话需要限定**：全屏路由页是 `MainShell.build()` 里的子组件，`MainShell` 的 `isDark` 变化不会重渲染它们；它们只在**下一次导航**时才刷新，在此之前保持旧配色。
+>
+> 因此改为**单一派生键**方案并覆盖全部 24 个文件 / 440 处调用：`Theme.IS_DARK_KEY = 'theme.isDark'` + `Theme.refreshIsDark()` 发布解析后的布尔值，每个 struct 只加一行 `@StorageProp('theme.isDark') isDark: boolean = false`，表达式里直读 `this.isDark`。相比"每组件 3 行 `@StorageProp×2 + @Watch + @State` 镜像"，样板代码少一个数量级，且彻底消除该类缺陷而不是逐页打补丁。
+>
+> 发布点仅 4 处：`EntryAbility.onCreate`（从启动配置播种）、`EntryAbility.onConfigurationUpdate`（系统切换）、`Index.aboutToAppear`（持久化的 `np.dark_mode` 异步加载完成后补发——`onCreate` 时 `SettingsRepository` 只塞了默认值）、`SettingsPage.cycleDarkMode`（用户手动切，读 `refreshIsDark()` 的返回值而非本地镜像，因为同一次同步调用内 `@StorageProp` 尚未传播）。
+>
+> 顺带：删除 `EntryAbility` 里与 `Theme.isDark()` 逻辑重复的私有 `isDark()`；并让系统栏跟随**解析后**的主题——原 `onConfigurationUpdate` 用的是裸系统 colorMode，用户把应用锁定浅色时系统切深色会让状态栏与应用表面不一致。
+
 ### ❹ `np.lyric_blur` 是静默死设置（**未登记在 RELEASE_CHECKLIST §6**）
 
 **文件**：`view/pages/SettingsDetailPage.ets:873-879`
@@ -194,10 +212,12 @@ private onThemeChanged(): void {
 
 **处置（M11.1）**：二选一：
   - 方案 A（接线）：`LyricView` 增加 `@StorageProp('np.lyric_blur') lyricBlur: boolean = true`，
-    当前行文字做 `.blur(lyricBlur ? 4 : 0)`（对齐 `AdvancedLyricsView.kt` 的 `lyricBlurEnabled` 参数）
+    ~~当前行文字做 `.blur(lyricBlur ? 4 : 0)`~~（对齐 `AdvancedLyricsView.kt` 的 `lyricBlurEnabled` 参数）
   - 方案 B（如实标注）：副标题改为「功能开发中，设置暂不生效」，同步补入 `RELEASE_CHECKLIST.md` §6
 
 **推荐方案 A**，副作用为零（接线而非改功能），M11.2 歌词改造时同步落地更方便。
+
+> **2026-08-26 实施时更正**：已按方案 A 落地，但**模糊对象与原文相反**。原文写「当前行文字做 `.blur(...)`」会把用户正在读的那一行糊掉；Android `AdvancedLyricsView` 是对**非活跃行**按距离模糊、活跃行保持清晰。实际实现：`.blur()` 仅作用于非活跃行，半径 = `min(4, |index - activeIndex|)` vp，活跃行恒为 0。表达式里直读 `this.lyricBlur` 与 `this.activeIndex`（不走辅助方法，否则同样撞 M7.4 追踪盲区）。**模糊观感与逐行 `.blur()` 的性能开销未经设备验证。**
 
 ### ❺ `np.show_lyrics` 是静默死设置（**未登记**）
 
@@ -399,51 +419,51 @@ Stack({ alignContent: Alignment.TopEnd }) {
 
 本次交付范围：**M11.1 + M11.2**（由用户确认）。
 
-### M11.1 视图层缺陷清零（进行中）
+### M11.1 视图层缺陷清零（已完成，2026-08-26；构建+单测已过，设备未验证）
 
 **目标**：闭合 ❷–❿ 所有已确认缺陷；处置全部死设置。
 
-**本轮已改（4 文件，未经任何门禁验证）**：
+| 缺陷 | 文件 | 改动 | 状态 |
+| --- | --- | --- | --- |
+| ❷ | `entryability/EntryAbility.ets` | `systemDark` 从 `this.context.config.colorMode` 播种 | ✅ |
+| ❷ | `pages/Index.ets` | 移除会把真值打回浅色的重复覆写；补发 `refreshIsDark()` | ✅ |
+| ❸ | `view/Theme.ets` + `view/pages/*` + `view/components/*`（24 文件 / 440 处） | 新增派生键 `theme.isDark` + `Theme.refreshIsDark()`；每个 struct 一行 `@StorageProp`，表达式直读 `this.isDark` | ✅ 范围较原计划扩大，见 ❸ 更正框 |
+| ❺ | `view/pages/NowPlayingPage.ets` | `@State showLyrics` → `@StorageProp('np.show_lyrics')`，切换走 `SettingsRepository.setBoolean` | ✅ |
+| ❻ | `view/components/SongRow.ets` | 「加入歌单」「分享」加「（暂不可用）」+ toast 指向可用替代 | ✅ 功能本身仍未移植 |
+| ❼ | `view/pages/MainShell.ets` | `selectTab` 改走 `SettingsRepository.setNumber`；键名换常量 | ✅ |
+| ❽ | `view/components/Ui.ets`、`view/pages/DownloadsPage.ets` | 百分比 `.position()` → `Stack({alignContent: TopEnd})` + 固定 margin | ✅ |
+| ❾ | `view/pages/PlaylistDetailPage.ets` | 新增 `showDeleteConfirm` 二次确认对话框 | ✅ |
+| ❿ | `view/pages/ExplorePage.ets` | 「搜索歌曲」→ `focusControl.requestFocus()`；「搜索歌单」→ toast + 副标题如实说明；错误态补「重新搜索」 | ✅ |
 
-| 缺陷 | 文件 | 改动 |
-| --- | --- | --- |
-| ❷ | `entryability/EntryAbility.ets:29-35` | `systemDark` 改为从 `this.context.config.colorMode` 播种 |
-| ❷ | `pages/Index.ets:33-37` | 移除重复的 `setOrCreate('systemDark', false)` 覆写 |
-| ❸ | `view/pages/MainShell.ets:22-33,49-52` | 增双 `@StorageProp+@Watch` 镜像进 `@State isDark`；`tabItem` 改读 `this.isDark` |
-| ❼ | `view/pages/MainShell.ets:120-126` | `selectTab` 改走 `SettingsRepository.setNumber`；键名换常量 |
+**死设置 ❹ `np.lyric_blur`** 已随 M11.2 落地（见 ❹ 更正框：模糊对象与原文相反）。
 
-**剩余未改**：
+**验证门槛实际结果**（2026-08-26，`hvigorw 6.24.4` / DevEco Studio 6.1.1.300 / SDK 6.1.1.125 API 24）：
 
-| 缺陷 | 文件 | 待做 |
-| --- | --- | --- |
-| ❸ | `NowPlayingPage` / `HomePage` / `LibraryPage` / `ExplorePage` | 同样的主题镜像推广到四页 |
-| ❺ | `view/pages/NowPlayingPage.ets:41` | 本地 `@State showLyrics` 换 `@StorageProp('np.show_lyrics')`，切换时走 `SettingsRepository.setBoolean` |
-| ❻ | `view/components/SongRow.ets:136-151` | 两个死菜单项加「暂不可用」提示或移除 |
-| ❽ | `view/components/Ui.ets:138`、`view/pages/DownloadsPage.ets:151` | 百分比 `.position()` 改 `Stack({alignContent: Alignment.TopEnd})` + 固定 margin |
-| ❾ | `view/pages/PlaylistDetailPage.ets:335-339` | 删除歌单加二次确认 |
-| ❿ | `view/pages/ExplorePage.ets:199-247`、`:180` | 两张卡片补 `onClick`；错误态补重试按钮 |
+| 门槛 | 结果 |
+| --- | --- |
+| `assembleHap entry@default` | ✅ BUILD SUCCESSFUL |
+| `assembleHap entry@ohosTest` | ✅ BUILD SUCCESSFUL |
+| 本地单测（基线只增不减） | ✅ **827/827 pass, 0 failure, 0 error**（816 基线 + 新增 11）。**必须读 `coverage.log`**：本轮实证 hvigor 在有用例失败时仍打印 `BUILD SUCCESSFUL` 且 `exit=0` |
+| ArkTS 编译错误 | ✅ 0 |
+| CodeLinter 与基线逐字一致 | ❌ **未跑** —— 命令行入口已不存在（只剩 IDE 插件）。历史上还记录过两个互相矛盾的基线（`AGENTS.md` 旧文 "17 warn + 1 suggestion" vs 本文原 "24 warn + 2 suggestion"），两者当前都无法从命令行复现 |
+| `uitest dumpLayout` ×3 档字号验证 ❽ | ❌ **未跑** —— 需设备，见下 |
 
-**死设置 ❹ `np.lyric_blur`** 移入 M11.2 歌词改造时一并落地。
+### M11.2 歌词视图对齐（已完成，2026-08-26；构建+单测已过，设备未验证）
 
-**验证门槛**（遵守 AGENTS.md §构建与验证，**本轮尚未执行任何一项**）：
-- `hvigorw assembleHap`（`entry@default` + `entry@ohosTest`）BUILD SUCCESSFUL
-- 本地单测：**816/816 基线只增不减**（❷❺❼ 有纯逻辑改动，视需要补单测）
-- CodeLinter：与 `0 error / 24 warn / 2 suggestion` 基线**逐字一致**
-- `uitest dumpLayout` 在 phone 377vp × 字号 1.0/1.45/1.75 三档复跑：❽ 两处角标无重叠
-
-### M11.2 歌词视图对齐
-
-**目标**：歌词自动滚动（❶）+ 接线 `np.lyric_blur`（❹）+ 消除 O(n²)。
+**目标**：歌词自动滚动（❶）+ 接线 `np.lyric_blur`（❹）+ 消除 O(n×m)。
 
 改动文件：
-- `view/components/LyricView.ets`（主体）
-- `view/pages/NowPlayingPage.ets`（移除重复的 `currentLyricIndex` 逻辑，改用 `LyricLineTracker`）
+- `view/components/LyricView.ets`（主体重写）
+- `lyrics/LyricIndexResolver.ets`（**新增**，纯逻辑，可单测）
+- `entry/src/test/ets/test/LyricIndexResolver.test.ets`（**新增** 11 例，已注册进 `entry/src/test/List.test.ets`）
+- `view/pages/NowPlayingPage.ets`（`currentLyricIndex()` 改走同一 resolver 并补上此前缺失的 `np.lyric_offset_ms`）
 
-**可复用的已有实现**：
-- `lyrics/LyricLineTracker.ets` — 提供 `getInstance().currentIndex()` O(1) 查询，`NowPlayingPage` 已 import 且在 `aboutToAppear`/`reloadSongData` 中调用；`LyricView` 订阅 `player.positionMs` 后直接调即可
-- `view/components/MiniPlayer.ets:17-40` — `@StorageProp+@Watch` 镜像 + `Scroller` 调用范式
+落地要点：
+- **自动滚动**：`Scroll(this.scroller)` + `@Watch` 监听 `player.positionMs` / `np.lyric_offset_ms`；行 Y 偏移经每行 `onAreaChange` 实测缓存（存普通字段，避免在布局回调里写 `@State` 引发重入）；视口高存 `@State` 并带 1vp 死区，用于给首/末行留 30%/70% 内边距，使它们也能进入 30% 带位；`scrollTo` 动画 420ms EaseOut。手动触摸后 2.5s 内不抢滚动，点击行 seek 立即解除抑制。
+- **性能**：`LyricIndexResolver.resolve(lines, time, hint)` 从上次结果续扫（常态每 tick 一次比较），取代原先每行 4 次的全表扫描。**未用 `LyricLineTracker`**，理由见 ❶ 更正框。
+- **卡拉 OK 逐词高亮**：从 `wordState()` 辅助方法改为在 `Span` 表达式里直读 `positionMs`/`lyricOffsetMs`——原写法同样撞 M7.4 盲区，只在无关父级重建恰好重造整个视图时才碰巧刷新。
 
-**验证门槛**：同 M11.1 + 模拟器确认歌词视口随播放位置自动滚动。
+**验证门槛**：同 M11.1（构建 + 单测已过）。**模拟器确认歌词视口随播放位置自动滚动一项未执行**，原因见 §8。
 
 ### M11.3–M11.7 路线（后续里程碑，本次不实施）
 
@@ -459,22 +479,27 @@ Stack({ alignContent: Alignment.TopEnd }) {
 
 ## 8. 未验证项（如实登记）
 
-- **本轮的 4 个文件改动（❷❸❼）未通过任何门禁**：未跑 `hvigorw assembleHap`、
-  未跑本地单测、未跑 CodeLinter、未上模拟器。按 AGENTS.md
-  「ArkUI 页面或资源：至少完成主线 debug 构建」的最低验证要求，**这批改动目前不满足交付条件**，
-  不得在任何材料中表述为已修复。
-- **❷❸ 深色模式行为**：冷启动失效与切换不重绘为静态推断，未在设备确认；
-  修法方向正确但效果未验证。
-- **❶ 歌词滚动**：修法已有方向，实现效果（滚动流畅度、视口位置）需模拟器验证。
-- **❽ 角标缩放稳定性**：`.position()` 修法与 M9.3 字号回归结果方向一致，
-  但本轮未在新角标写法下重跑 `uitest dumpLayout`。
-- **`BiliFavPage`**：本轮未走查（需 B 站登录态，`RELEASE_CHECKLIST` §6 已记录）。
-- **MiniPlayer 顶部位置**：是笔误还是有意？产品侧未确认，不作为缺陷处置。
-- **性能数据**：§5 所有项在本轮均无实测支撑，全部为静态代码路径分析。
-- **对比度审计**：语义色不参与动态调色板的对比度风险尚未量化。
-- **§2 计数表**：全部来自 grep 逐模式单独计数（多模式 `|` 交替在本环境出现过假阴性），
-  未经编译期符号级核对；`TabContent` 的 2 次命中已确认为 `YtmSearchParser.ets` 中的
-  同名文本，非 ArkUI 组件使用。
+> 2026-08-26 更新：M11.1/M11.2 的代码改动**已通过构建与本地单测**，但**全部 UI 行为仍未在设备上验证**。
+> 下面第一条是上一轮（2026-08-25）的登记，现已可撤回；其余条目按当前状态重写。
+
+- ~~**本轮的 4 个文件改动（❷❸❼）未通过任何门禁**~~ —— **2026-08-26 已补齐门禁**：`assembleHap entry@default` 与 `entry@ohosTest` 双双 BUILD SUCCESSFUL、ArkTS error 0、本地单测 **827/827**（0 failure / 0 error，816 基线只增不减）。**但 CodeLinter 与设备验证仍未执行**（见下）。
+- **CodeLinter 本轮未跑**：DevEco Studio 6.1.1.300 不再提供 `codelinter` 命令行入口（只剩 IDE 插件 `E:\DevEco Studio\plugins\codelinter`）。历史上记录过两个互相矛盾的基线（`AGENTS.md` 旧文 "17 warn + 1 suggestion" vs 本文原 "0 error / 24 warn / 2 suggestion"），**两者当前都无法从命令行复现**，因此本轮既不能声称"与基线一致"，也无法判定新增代码是否引入新 warn。需在 IDE 内补跑并重新确立单一基线。
+- **设备验证本轮未执行，且有明确前置阻塞**：模拟器本身可用（2026-08-26 实测 `hdc list targets` → `127.0.0.1:5555` 存活，`const.ohos.apiversion` = 24、`const.ohos.fullname` = `OpenHarmony-6.1.1.125`，与工程目标 SDK 一致，且 `moe.ouom.neriplayer` 已安装）。阻塞在签名：
+  - `NERIPLAYER_SIGNING_PASSWORD`（33 位私有 keystore 口令）在本会话**未设置**，而 `sign-local.ps1` 强制要求 ≥32 字符；
+  - SDK 自带 `OpenHarmony.p12`（公开默认口令 `123456`，含 `openharmony application profile debug` 别名，实测可打开）会被该校验直接拒绝；
+  - 即便绕过校验，设备上已安装的包是用私有 keystore 签的，签名不一致会让 `hdc install -r` 失败，只能先 uninstall——**而 uninstall 会丢掉 `preferences/neri_player_data` 等用户数据**，故未执行。
+  - 解除办法：在设置了 `NERIPLAYER_SIGNING_PASSWORD` 的会话里跑 `.\sign-local.ps1 -HvigorwPath 'E:\DevEco Studio\tools\hvigor\bin\hvigorw.bat' -DeviceIds <udid>`，再按 §9 清单复跑。
+- **❷❸ 深色模式行为**：冷启动播种与派生键重绘为静态推断 + 编译期保证（每个读 `this.isDark` 的 struct 都必须声明该 `@StorageProp`，否则编译失败——本轮确实用这一点抓到了 `SettingsPage` 漏声明），但"切深色后整屏是否真的立即、且**无撕裂**地重绘"未在设备确认。派生键在 `EntryAbility.onCreate` 播种，若某条启动路径先于它渲染，`@StorageProp` 会用组件默认值 `false` 建键——此风险未在设备排除。
+- **❶ 歌词滚动**：滚动流畅度、活跃行是否真的落在视口 30%、`onAreaChange` 实测行高在换行/翻译/音译行存在时是否准确，均未验证。首/末行的 30%/70% 内边距在极短歌词（1–2 行）下的观感未验证。
+- **❹ 歌词模糊**：逐行 `.blur()` 的**性能开销未实测**。当前无 `LazyForEach`（M11.3），`ForEach` 会实例化全部行，长歌词（60+ 行）下同时挂载数十个模糊节点的代价未知；若实测卡顿，应改为只对活跃行附近若干行施加模糊。
+- **❽ 角标缩放稳定性**：改法与 M9.3 字号回归结论同向（已在 `SongRow` 验证过同一写法），但本轮未在新角标写法下重跑 `uitest dumpLayout`（1.0 / 1.45 / 1.75 三档）。
+- **❿ `focusControl.requestFocus()`**：API 存在于 `component/common.d.ts`（全局 ambient namespace，无需 import，已编译通过），但**点击卡片后软键盘是否真的弹出、焦点是否真的落到 `TextInput`** 未在设备验证。
+- **❾ 删除确认**：对话框沿用了同文件 `showRenameDialog` 的写法，包括其"外层 `Column.onClick` 关闭遮罩"结构——点击对话框内的非交互区域（如说明文字）会冒泡到遮罩而关闭对话框。这是**沿袭既有实现的已知小瑕疵**，非本轮引入，未修以保持局部一致。
+- **`BiliFavPage`**：仍未走查（需 B 站登录态，`RELEASE_CHECKLIST` §6 已记录）。本轮只对它做了 ❸ 的机械替换（`Theme.isDark()` → `this.isDark`），未做布局走查。
+- **MiniPlayer 顶部位置**：仍未处置。产品侧未确认是笔误还是有意，按边界约定不作改动。
+- **性能数据**：§5 所有项在本轮仍无实测支撑（`WaveformSlider` 50ms 空转、`SongItem` JSON 往返、`SongRow` 批量异步读、`SettingsDetailPage` 开局遍历下载编目均未动，已登记 M11.3/M11.7）。
+- **对比度审计**：语义色不参与动态调色板的对比度风险尚未量化（未动）。
+- **§2 计数表**：`Theme.isDark()` 一行原记 "439 次 / 24 文件"，本轮按**出现次数**（非命中行数）实测为 **440 处 / 24 文件**，差异来自同一行出现两次的情况；该行现已全部消除，仅 `Theme.refreshIsDark()` 内部保留一处对 `Theme.isDark()` 的调用。其余计数未复核。
 
 ---
 

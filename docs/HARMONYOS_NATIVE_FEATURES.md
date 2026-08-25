@@ -20,7 +20,7 @@
 | **已静态确认** | 直接来自本工程当前文件内容或 grep 计数。 |
 | **待设备验证** | API 存在且基线可用，但本轮**未在设备/模拟器上实际调用**，行为未观测。 |
 
-SDK 路径：`D:\HarmonyOS\Tools\command-line-tools\sdk\default\openharmony\ets\api\`。
+SDK 路径：`E:\DevEco Studio\sdk\default\openharmony\ets\api\`（2026-08-26 校正；旧记录的 `D:\HarmonyOS\Tools\command-line-tools\sdk\` 已不存在）。
 
 ### 一条重要的自我修正
 
@@ -865,7 +865,7 @@ AudioRendererProbe setLoudnessGain(0.0)=hung(>10000ms)
 
 ### SDK 声明位置
 
-根路径 `D:\HarmonyOS\Tools\command-line-tools\sdk\default\`：
+根路径 `E:\DevEco Studio\sdk\default\`（2026-08-26 校正，见本文档开头的 SDK 路径说明）：
 
 | 能力 | 文件 |
 | --- | --- |

@@ -93,41 +93,51 @@
 
 工程基线为 SDK `6.1.1(24)`（HarmonyOS 6.1.1 Release，API 24，官方 2026-05-26 发布，截至 2026-08 仍是最新稳定 Release）。HarmonyOS 7.0 对应开发套件 `26.0.0`（API 26，2026-07-28 处于 Beta2；版本号自 26.0.0 起改用 SemVer）。版本映射以官方[所有 HarmonyOS 开发套件版本](https://developer.huawei.com/consumer/cn/doc/harmonyos-releases/overview-allversion)页为准，不得凭目录名推断。
 
-本机工具链位于 `D:\HarmonyOS\Tools\`（2026-08-14 已修复用户级 PATH 与环境变量，新开的终端可直接裸调 `ohpm`/`hvigorw`/`hdc`；已运行的旧会话仍持有迁移前的环境，需完整路径调用）：
+本机工具链位于 `E:\DevEco Studio\`（2026-08-26 实测校正：旧记录的 `D:\HarmonyOS\Tools\` 整条路径已不存在，环境已迁移到 DevEco Studio 自带工具链，`command-line-tools` 不再安装）：
 
-- 命令行工具 6.1.1.300：`D:\HarmonyOS\Tools\command-line-tools\bin\` 下的 `ohpm.bat`（6.1.2.285）、`hvigorw.bat`（6.24.4）、`codelinter.bat`、`Emulator.bat`；Node 18.20.1 在 `tool\node\`。`hvigorw.bat` 包装器会自动定位自身 SDK 与 Node，通常无需手动设置 `DEVECO_SDK_HOME`/`NODE_HOME`。
-- 唯一完整的 API 24 SDK：`D:\HarmonyOS\Tools\command-line-tools\sdk\default`（6.1.1.125 Release）；`hdc.exe` 在其 `openharmony\toolchains\` 下。
-- DevEco Studio 26.0.0.621（Beta2，自带 API 26 SDK）：`D:\HarmonyOS\Tools\devecostudio-windows-26.0.0.621\DevEco Studio\`，当前主力 IDE（含 `jbr`，其 Java 可运行 hap-sign-tool）。**注意：26.0.0 Beta2 的 hvigor 不支持构建 6.1.1(24) 工程（报 00303031，要求 compileSdkVersion=26.0.0），构建必须用 command-line-tools 的 hvigorw。**
-- 用户级环境变量（2026-08-14 已修正）：`DEVECO_SDK_HOME`/`HOS_SDK_HOME` → `D:\HarmonyOS\Tools\command-line-tools\sdk`，`DEVECO_STUDIO_HOME` → 26.0.0.621 Studio，`NERIPLAYER_SIGNING_PASSWORD` → 本地调试签名口令（33 位，供 sign-local.ps1 读取，勿写入仓库）。
-- `NeriPlayer-HarmonyOS/local.properties`（gitignore 的本机文件）指向 `D:/HarmonyOS/Tools/command-line-tools/sdk/default`。
-- 模拟器系统镜像只有 HarmonyOS-6.1.1（API 24）；API 26 镜像尚未下载，鸿蒙 7.0 模拟器验证需先在 DevEco Studio SDK Manager 下载镜像。
+- DevEco Studio **6.1.1.300**（`build.txt` = `DS-243.24978.46.36.611300`）：`E:\DevEco Studio\`，当前唯一 IDE，自带 `jbr`（`jbr\bin\java.exe`、`keytool.exe`）。
+- 唯一 SDK：`E:\DevEco Studio\sdk\default`（`sdk-pkg.json` = API **24** / HarmonyOS **6.1.1** / **6.1.1.125 Release**），与工程 `compatibleSdkVersion 6.1.1(24)` 自洽。
+- `hvigorw.bat`：`E:\DevEco Studio\tools\hvigor\bin\hvigorw.bat`（`--version` = **6.24.4**，2026-08-26 实测可构建本工程）。
+- `ohpm.bat`：`E:\DevEco Studio\tools\ohpm\bin\ohpm.bat`；Node 在 `E:\DevEco Studio\tools\node\`。
+- `hdc.exe`：`E:\DevEco Studio\sdk\default\openharmony\toolchains\hdc.exe`；`hap-sign-tool.jar` 与 `OpenHarmony.p12` 在同目录的 `lib\` 下。
+- 模拟器：`E:\DevEco Studio\tools\emulator\Emulator.exe`。
+- 用户级环境变量（已指向新位置，无需重设）：`DEVECO_SDK_HOME` = `HOS_SDK_HOME` = `E:\DevEco Studio\sdk`，`DEVECO_STUDIO_HOME` = `E:\DevEco Studio`。
+- `NeriPlayer-HarmonyOS/local.properties` **当前不存在**，且 2026-08-26 实测**构建不需要它**——`DEVECO_SDK_HOME` 已足够。若某工具坚持要求，按新路径重建（该文件 gitignore，不入仓）：`sdk.dir=E\:\\DevEco Studio\\sdk\\default`。
 
-依赖同步与主线 debug 构建优先使用 CLI：
+**两条已作废的旧结论，不要再沿用**：
+
+1. ~~"DevEco 26.0.0 Beta2 的 hvigor 不支持构建 6.1.1(24)（报 00303031），构建必须用 command-line-tools 的 hvigorw"~~ —— 该 Studio 与 command-line-tools 均已不存在。现在 Studio 6.1.1.300 自带的 hvigor 6.24.4 与 API 24 SDK 版本自洽，**只能也应当**用它构建。
+2. ~~"静态检查用 `codelinter.bat`"~~ —— **命令行入口已不存在**，只剩 IDE 插件 `E:\DevEco Studio\plugins\codelinter`。历史上记录过两个互相矛盾的基线（本节旧文 "17 warn + 1 suggestion"、`docs/UI_REVIEW_M11.md` §7 "0 error / 24 warn / 2 suggestion"），**两者当前都无法从命令行复现**。CodeLinter 只能在 IDE 内跑；命令行会话中应如实记为"本轮未跑 lint"，不得伪造该项通过。
+
+依赖同步与主线 debug 构建：
 
 ```powershell
-$cli = 'D:\HarmonyOS\Tools\command-line-tools\bin'
+$hv   = 'E:\DevEco Studio\tools\hvigor\bin\hvigorw.bat'
+$ohpm = 'E:\DevEco Studio\tools\ohpm\bin\ohpm.bat'
 cd NeriPlayer-HarmonyOS
-& "$cli\ohpm.bat" install --all
-& "$cli\hvigorw.bat" assembleHap --mode module -p module=entry@default -p product=default -p buildMode=debug --no-daemon
-& "$cli\hvigorw.bat" test --mode module -p product=default -p buildMode=debug --no-daemon
-& "$cli\hvigorw.bat" assembleHap --mode module -p module=entry@ohosTest -p product=default -p buildMode=debug --no-daemon
+& $ohpm install --all
+& $hv assembleHap --mode module -p module=entry@default  -p product=default -p buildMode=debug --no-daemon
+& $hv test        --mode module                          -p product=default -p buildMode=debug --no-daemon
+& $hv assembleHap --mode module -p module=entry@ohosTest -p product=default -p buildMode=debug --no-daemon
 ```
 
 仓库脚本需要解析 Studio/SDK 目录时，使用本机真实路径：
 
 ```powershell
-$env:DEVECO_SDK_HOME = 'D:\HarmonyOS\Tools\command-line-tools\sdk'
-$env:DEVECO_STUDIO_HOME = 'D:\HarmonyOS\Tools\devecostudio-windows-26.0.0.621\DevEco Studio'
+$env:DEVECO_SDK_HOME    = 'E:\DevEco Studio\sdk'
+$env:DEVECO_STUDIO_HOME = 'E:\DevEco Studio'
 ```
 
-需要走仓库提供的本地调试签名流程时（2026-08-14 已全链验证：构建→签名→安装→冷启动通过）：
+需要走仓库提供的本地调试签名流程时：
 
 ```powershell
 cd NeriPlayer-HarmonyOS
-.\sign-local.ps1 -HvigorwPath 'D:\HarmonyOS\Tools\command-line-tools\bin\hvigorw.bat'
+.\sign-local.ps1 -HvigorwPath 'E:\DevEco Studio\tools\hvigor\bin\hvigorw.bat'
 ```
 
-sign-local.ps1 依赖以下环境（用户级已持久化）：`DEVECO_SDK_HOME`（command-line-tools 的 API 24 SDK，提供 hap-sign-tool 与 hdc）、`DEVECO_STUDIO_HOME`（26.0.0.621 Studio，提供 jbr 的 java）、`NERIPLAYER_SIGNING_PASSWORD`（33 位本地调试口令）与 `NERIPLAYER_DEVICE_IDS` 或 `-DeviceIds`（目标设备 UDID，可用 `hdc shell bm get --udid` 获取）。`-HvigorwPath` 指定用 command-line-tools 的 hvigorw 构建（默认回退到 Studio hvigor，而 26 Beta2 的 hvigor 无法构建 6.1.1(24) 工程）。
+sign-local.ps1 依赖：`DEVECO_SDK_HOME`（提供 hap-sign-tool 与 hdc）、`DEVECO_STUDIO_HOME`（提供 jbr 的 java）、`NERIPLAYER_SIGNING_PASSWORD`（本地调试 keystore 口令）与 `NERIPLAYER_DEVICE_IDS` 或 `-DeviceIds`（目标设备 UDID，用 `hdc shell bm get --udid` 获取）。签名与安装用 `hdc install -r`（替换安装，不 uninstall）。
+
+**签名口令是本机私有前置条件**：脚本第 93 行强制要求 keystore 口令 **≥32 字符**，SDK 自带的 `OpenHarmony.p12`（口令为公开默认值 `123456`，含 `openharmony application profile debug` 别名）会被该校验直接拒绝。2026-08-26 实测：`NERIPLAYER_SIGNING_PASSWORD` 未设置时签名链无法启动；且模拟器上已安装的包是用私有 keystore 签的，换用 SDK 默认 keystore 签出的 HAP 签名不一致，`install -r` 会失败，只能先 uninstall（**会丢失 `preferences/neri_player_data` 等应用数据**）。因此在没有该口令的会话里，**不要**为了跑设备验证去 uninstall 用户的应用，应如实记录设备验证未执行。
 
 设备侧 ohosTest（`entry/src/ohosTest/`，2026-08-14 已验证 1/1 通过）：先构建并签名 ohosTest HAP（用 hap-sign-tool 对 `entry-ohosTest-unsigned.hap` 执行与 sign-local.ps1 相同的 sign-app 命令），安装两个 HAP 后执行：
 
@@ -136,6 +146,12 @@ hdc -t 127.0.0.1:5555 shell "aa test -b moe.ouom.neriplayer -m entry_test -s uni
 ```
 
 模拟器冷启动后需 `hdc tconn 127.0.0.1:5555` 才会出现在 `hdc list targets`。
+
+模拟器现状（2026-08-26 实测，**旧记录的"镜像只有 phone_all_x86"属于迁移前事实，已重新核对**）：
+
+- `hdc list targets` 返回 `127.0.0.1:5555`，实测存活；`param get` 显示 `const.product.model` = `emulator`、`const.ohos.apiversion` = **24**、`const.ohos.fullname` = `OpenHarmony-6.1.1.125`，与工程目标 SDK 一致。`moe.ouom.neriplayer` 已安装（`appProvisionType` = debug，且 `preferences/neri_player_data` 存在，即**含用户数据**）。
+- ⚠️ `E:\DevEco Studio\tools\emulator\platforms\` 里只有 `qwindows.dll`——那是 **Qt 平台插件目录，不是系统镜像目录**，不要据此判断"没有镜像"。
+- 镜像 zip 实际暂存在 `%LOCALAPPDATA%\Huawei\Sdk\.temp\system-image,HarmonyOS-6.1.1,phone_all_x86\install\system-image-phone_all-x86.zip`（2.16 GB，2026-08-16），未解包进 SDK；`%LOCALAPPDATA%\Huawei\Emulator\deployed\phone_config.json` 为 `[]`（无 AVD 定义）。即已运行的实例并非由该暂存包部署，新建 AVD 仍需在 SDK Manager 内完成。
 
 仅在有明确设备验证需求且设备已准备好时运行安装流程：
 
@@ -146,7 +162,16 @@ $env:NERIPLAYER_SIGNING_PASSWORD = '本地调试口令'
 .\sign-local.ps1
 ```
 
-主线已在 `entry/src/test/` 建立本地单元测试（`@ohos/hypium` 1.0.28，覆盖 LRC 解析/翻译合并/时间格式化 3 用例，2026-08-14 复核全部执行通过），并在 `entry/src/ohosTest/` 建立设备测试骨架（TestAbility + OpenHarmonyTestRunner + ActsAbilityTest，2026-08-14 模拟器实测 1/1 通过）。修改纯逻辑时应优先补充或更新 `entry/src/test/` 用例；涉及 Ability、权限、AVPlayer、AVSession、后台播放或系统 UI 时补充 `entry/src/ohosTest/` 用例并按上文 `aa test` 流程验证。静态检查用 `codelinter.bat`（2026-08-14 基线：17 warn + 1 suggestion，无 error）。
+主线已在 `entry/src/test/` 建立本地单元测试（`@ohos/hypium` 1.0.28；**2026-08-26 实测基线 827/827，0 failure 0 error**，其中 816 为 M11 之前的基线、11 为 `LyricIndexResolver.test.ets` 新增），并在 `entry/src/ohosTest/` 建立设备测试骨架（TestAbility + OpenHarmonyTestRunner + ActsAbilityTest，2026-08-14 模拟器实测 1/1 通过）。
+
+⚠️ **`hvigorw test` 的 `BUILD SUCCESSFUL` 与退出码 0 不代表用例通过**——2026-08-26 实证：一个 `assertEqual` 失败时 hvigor 仍打印 `BUILD SUCCESSFUL`、`exit=0`，失败只出现在日志的 `ERROR: Error in <caseName>` 行。真实结果必须读：
+
+```powershell
+# 权威结果（取最后一行）
+Select-String -Path entry\.test\default\intermediates\test\coverage_data\coverage.log -Pattern 'OHOS_REPORT_RESULT: stream=Tests run:' | Select-Object -Last 1
+```
+
+新增用例**必须注册进 `entry/src/test/List.test.ets`**（import + 在函数体内调用）；未注册的 suite 能编译但永不执行，测试数不会增加。修改纯逻辑时应优先补充或更新 `entry/src/test/` 用例；涉及 Ability、权限、AVPlayer、AVSession、后台播放或系统 UI 时补充 `entry/src/ohosTest/` 用例并按上文 `aa test` 流程验证。静态检查见上文 CodeLinter 说明（当前无命令行入口）。
 
 ### Android 参照工程
 
@@ -166,8 +191,8 @@ cd NeriPlayer-master
 
 ```powershell
 cd NeriPlayer-ASCF
-& 'D:\HarmonyOS\Tools\command-line-tools\bin\ohpm.bat' install --all
-& 'D:\HarmonyOS\Tools\command-line-tools\bin\hvigorw.bat' assembleHap --mode module -p module=entry@default -p product=default -p buildMode=debug --no-daemon
+& 'E:\DevEco Studio\tools\ohpm\bin\ohpm.bat' install --all
+& 'E:\DevEco Studio\tools\hvigor\bin\hvigorw.bat' assembleHap --mode module -p module=entry@default -p product=default -p buildMode=debug --no-daemon
 ```
 
 ohpm 官方默认 registry 为 `https://ohpm.openharmony.cn/ohpm/`，通常无需 `--registry` 覆盖。

@@ -1,3 +1,4 @@
+import { promptAction } from '@kit.ArkUI';
 import { SongItem } from '../../model/SongItem';
 import { LocalPlaylistRepository } from '../../data/LocalPlaylistRepository';
 import { DownloadEngine } from '../../download/DownloadEngine';
@@ -6,6 +7,7 @@ import { formatDuration, platformName } from './Ui';
 
 @Component
 export struct SongRow {
+  @StorageProp('theme.isDark') isDark: boolean = false; // see Theme.IS_DARK_KEY
   @Prop songJson: string;
   @Prop index: number = -1;
   @Prop showPlatform: boolean = false;
@@ -53,22 +55,22 @@ export struct SongRow {
               .height(52)
               .borderRadius(8)
               .objectFit(ImageFit.Cover)
-              .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+              .backgroundColor(Theme.surfaceVariant(this.isDark))
           } else {
             Image($r('app.media.ic_music_note_24'))
               .width(22)
               .height(22)
-              .fillColor(Theme.primary(Theme.isDark()))
+              .fillColor(Theme.primary(this.isDark))
               .margin({ left: 15, right: 15, top: 15, bottom: 15 })
-              .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+              .backgroundColor(Theme.surfaceVariant(this.isDark))
               .borderRadius(8)
           }
           if (this.index >= 0) {
             Text(`${this.index + 1}`)
               .fontSize(11)
-              .fontColor(Theme.textSecondary(Theme.isDark()))
+              .fontColor(Theme.textSecondary(this.isDark))
               .padding({ left: 4, right: 4, top: 2, bottom: 2 })
-              .backgroundColor(Theme.scrim(Theme.isDark()))
+              .backgroundColor(Theme.scrim(this.isDark))
               .borderRadius(6)
               .margin({ top: 2, right: 2 })
           }
@@ -81,15 +83,15 @@ export struct SongRow {
             Text(this.song().displayName)
               .fontSize(15)
               .fontWeight(FontWeight.Medium)
-              .fontColor(Theme.textPrimary(Theme.isDark()))
+              .fontColor(Theme.textPrimary(this.isDark))
               .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
             if (this.showPlatform) {
               Text(platformName(this.song().platform))
                 .fontSize(10)
-                .fontColor(Theme.primary(Theme.isDark()))
+                .fontColor(Theme.primary(this.isDark))
                 .padding({ left: 6, right: 6, top: 2, bottom: 2 })
-                .backgroundColor(Theme.primaryContainer(Theme.isDark()))
+                .backgroundColor(Theme.primaryContainer(this.isDark))
                 .borderRadius(6)
             }
           }
@@ -97,7 +99,7 @@ export struct SongRow {
 
           Text(this.song().displayArtist)
             .fontSize(12)
-            .fontColor(Theme.textSecondary(Theme.isDark()))
+            .fontColor(Theme.textSecondary(this.isDark))
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
             .width('100%')
@@ -108,7 +110,7 @@ export struct SongRow {
         if (this.song().durationMs > 0) {
           Text(formatDuration(this.song().durationMs))
             .fontSize(12)
-            .fontColor(Theme.textSecondary(Theme.isDark()))
+            .fontColor(Theme.textSecondary(this.isDark))
         }
 
         Image($r('app.media.ic_more_horiz_24'))
@@ -116,7 +118,7 @@ export struct SongRow {
           // while the tap area reaches the 40vp floor.
           .width(40)
           .height(40)
-          .fillColor(Theme.textSecondary(Theme.isDark()))
+          .fillColor(Theme.textSecondary(this.isDark))
           .padding(11)
           .accessibilityText('更多操作')
           .onClick(() => {
@@ -134,9 +136,13 @@ export struct SongRow {
             onTap: () => this.toggleFavorite()
           })
           MenuItemRow({
-            label: '加入歌单',
+            label: '加入歌单（暂不可用）',
             onTap: () => {
               this.menuOpen = false;
+              // There is no playlist picker yet. Saying so beats closing the
+              // menu silently, which read as a broken button
+              // (registered in RELEASE_CHECKLIST.md §6).
+              promptAction.openToast({ message: '加入歌单待移植，当前可用「收藏」' });
             }
           })
           MenuItemRow({
@@ -144,17 +150,18 @@ export struct SongRow {
             onTap: () => this.download()
           })
           MenuItemRow({
-            label: '分享',
+            label: '分享（暂不可用）',
             onTap: () => {
               this.menuOpen = false;
+              promptAction.openToast({ message: '分享歌曲待移植，播放页「分享」可生成歌词卡片' });
             }
           })
         }
         .width('100%')
         .padding(8)
-        .backgroundColor(Theme.surfaceHigh(Theme.isDark()))
+        .backgroundColor(Theme.surfaceHigh(this.isDark))
         .borderRadius(12)
-        .shadow(Theme.shadow(Theme.isDark()))
+        .shadow(Theme.shadow(this.isDark))
         .margin({ bottom: 6 })
       }
     }
@@ -164,13 +171,14 @@ export struct SongRow {
 
 @Component
 struct MenuItemRow {
+  @StorageProp('theme.isDark') isDark: boolean = false; // see Theme.IS_DARK_KEY
   label: string = '';
   onTap: () => void = () => {};
 
   build() {
     Text(this.label)
       .fontSize(14)
-      .fontColor(Theme.textPrimary(Theme.isDark()))
+      .fontColor(Theme.textPrimary(this.isDark))
       .width('100%')
       .padding({ left: 12, right: 12, top: 10, bottom: 10 })
       .onClick(() => this.onTap())

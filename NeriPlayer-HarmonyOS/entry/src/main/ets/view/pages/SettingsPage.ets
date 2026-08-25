@@ -20,6 +20,7 @@ export const SETTING_ABOUT: string = 'about';
 @Component
 export struct SettingsPage {
   @StorageProp('np.dark_mode') darkMode: string = 'auto';
+  @StorageProp('theme.isDark') isDark: boolean = false; // see Theme.IS_DARK_KEY
   @StorageProp('np.youtube_enabled') youtubeEnabled: boolean = true;
   @StorageProp('np.dev_mode') devMode: boolean = false;
   @StorageProp('np.dynamic_color') dynamicColor: boolean = true;
@@ -28,7 +29,7 @@ export struct SettingsPage {
   sectionTitle(title: string) {
     Text(title)
       .fontSize(13)
-      .fontColor(Theme.textSecondary(Theme.isDark()))
+      .fontColor(Theme.textSecondary(this.isDark))
       .width('100%')
       .margin({ left: 6, top: 14, bottom: 4 })
   }
@@ -36,9 +37,13 @@ export struct SettingsPage {
   private cycleDarkMode(): void {
     const next = this.darkMode === 'auto' ? 'light' : (this.darkMode === 'light' ? 'dark' : 'auto');
     SettingsRepository.setString(SettingsRepository.KEY_DARK_MODE, next);
+    // Republish the resolved flag so every subscribing component repaints.
+    // Use the return value, not the local mirror — @StorageProp has not
+    // necessarily propagated yet inside this same synchronous call.
+    const dark = Theme.refreshIsDark();
     const context = AppStorage.get<common.UIAbilityContext>('abilityContext');
     if (context !== undefined) {
-      SystemBars.apply(context, Theme.isDark());
+      SystemBars.apply(context, dark);
     }
   }
 
@@ -48,7 +53,7 @@ export struct SettingsPage {
         Text('设置')
           .fontSize(26)
           .fontWeight(FontWeight.Bold)
-          .fontColor(Theme.textPrimary(Theme.isDark()))
+          .fontColor(Theme.textPrimary(this.isDark))
           .width('100%')
           .margin({ top: 12, bottom: 4 })
 
@@ -74,7 +79,7 @@ export struct SettingsPage {
           })
         }
         .width('100%')
-        .backgroundColor(Theme.surface(Theme.isDark()))
+        .backgroundColor(Theme.surface(this.isDark))
         .borderRadius(Theme.cardRadius())
         .clip(true)
 
@@ -107,7 +112,7 @@ export struct SettingsPage {
           })
         }
         .width('100%')
-        .backgroundColor(Theme.surface(Theme.isDark()))
+        .backgroundColor(Theme.surface(this.isDark))
         .borderRadius(Theme.cardRadius())
         .clip(true)
 
@@ -127,7 +132,7 @@ export struct SettingsPage {
           })
         }
         .width('100%')
-        .backgroundColor(Theme.surface(Theme.isDark()))
+        .backgroundColor(Theme.surface(this.isDark))
         .borderRadius(Theme.cardRadius())
         .clip(true)
 
@@ -159,7 +164,7 @@ export struct SettingsPage {
           })
         }
         .width('100%')
-        .backgroundColor(Theme.surface(Theme.isDark()))
+        .backgroundColor(Theme.surface(this.isDark))
         .borderRadius(Theme.cardRadius())
         .clip(true)
 
@@ -187,7 +192,7 @@ export struct SettingsPage {
           })
         }
         .width('100%')
-        .backgroundColor(Theme.surface(Theme.isDark()))
+        .backgroundColor(Theme.surface(this.isDark))
         .borderRadius(Theme.cardRadius())
         .clip(true)
       }
@@ -198,6 +203,6 @@ export struct SettingsPage {
     .scrollBar(BarState.Off)
     .width('100%')
     .height('100%')
-    .backgroundColor(Theme.background(Theme.isDark()))
+    .backgroundColor(Theme.background(this.isDark))
   }
 }

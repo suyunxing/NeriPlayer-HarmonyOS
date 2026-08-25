@@ -82,6 +82,7 @@ function roomStatusLabel(status: string): string {
  */
 @Component
 export struct ListenTogetherPage {
+  @StorageProp('theme.isDark') isDark: boolean = false; // see Theme.IS_DARK_KEY
   // Parsing is mirrored into @State objects via @Watch instead of parsed in
   // render expressions: a state read hidden inside a method call is NOT
   // dependency-tracked on this platform, so `this.session()` in a builder
@@ -248,12 +249,12 @@ export struct ListenTogetherPage {
         Text('昵称')
           .fontSize(14)
           .fontWeight(FontWeight.Medium)
-          .fontColor(Theme.textPrimary(Theme.isDark()))
+          .fontColor(Theme.textPrimary(this.isDark))
         TextInput({ text: this.nicknameInput, placeholder: '留空自动生成' })
           .height(42)
           .fontSize(14)
           .maxLength(24)
-          .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+          .backgroundColor(Theme.surfaceVariant(this.isDark))
           .onChange((value: string) => {
             // Plain assignment only; no derived state is reset here, so the
             // TextInput programmatic-echo pitfall does not apply.
@@ -266,8 +267,8 @@ export struct ListenTogetherPage {
         .width('100%')
         .height(42)
         .fontSize(14)
-        .fontColor(Theme.onPrimary(Theme.isDark()))
-        .backgroundColor(Theme.primary(Theme.isDark()))
+        .fontColor(Theme.onPrimary(this.isDark))
+        .backgroundColor(Theme.primary(this.isDark))
         .enabled(!this.busy && hasPlayableQueue())
         .onClick(() => {
           this.createRoom();
@@ -275,7 +276,7 @@ export struct ListenTogetherPage {
       if (!hasPlayableQueue()) {
         Text('播放列表为空：先播放一首歌，再创建房间')
           .fontSize(12)
-          .fontColor(Theme.textSecondary(Theme.isDark()))
+          .fontColor(Theme.textSecondary(this.isDark))
       }
 
       Divider().margin({ top: 6, bottom: 6 })
@@ -284,11 +285,11 @@ export struct ListenTogetherPage {
         Text('邀请链接')
           .fontSize(14)
           .fontWeight(FontWeight.Medium)
-          .fontColor(Theme.textPrimary(Theme.isDark()))
+          .fontColor(Theme.textPrimary(this.isDark))
         TextInput({ text: this.inviteInput, placeholder: '粘贴 neriplayer://listen-together/join?… 链接' })
           .height(42)
           .fontSize(13)
-          .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+          .backgroundColor(Theme.surfaceVariant(this.isDark))
           .onChange((value: string) => {
             this.inviteInput = value;
           })
@@ -296,8 +297,8 @@ export struct ListenTogetherPage {
           .width('100%')
           .height(42)
           .fontSize(14)
-          .fontColor(Theme.textPrimary(Theme.isDark()))
-          .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+          .fontColor(Theme.textPrimary(this.isDark))
+          .backgroundColor(Theme.surfaceVariant(this.isDark))
           .enabled(!this.busy && this.inviteInput.trim().length > 0)
           .onClick(() => {
             this.joinByInvite();
@@ -308,7 +309,7 @@ export struct ListenTogetherPage {
     .width('100%')
     .padding(16)
     .borderRadius(16)
-    .backgroundColor(Theme.surface(Theme.isDark()))
+    .backgroundColor(Theme.surface(this.isDark))
   }
 
   // Flat on purpose: rows read the @State mirrors directly. Nested @Builder
@@ -319,47 +320,47 @@ export struct ListenTogetherPage {
     Column({ space: 12 }) {
       Column({ space: 8 }) {
         Row() {
-          Text('房间').fontSize(13).fontColor(Theme.textSecondary(Theme.isDark())).width(76)
+          Text('房间').fontSize(13).fontColor(Theme.textSecondary(this.isDark)).width(76)
           Text(this.sessionView.roomId ?? '—')
-            .fontSize(13).fontColor(Theme.textPrimary(Theme.isDark()))
+            .fontSize(13).fontColor(Theme.textPrimary(this.isDark))
             .layoutWeight(1).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
         }.width('100%')
         Row() {
-          Text('本端角色').fontSize(13).fontColor(Theme.textSecondary(Theme.isDark())).width(76)
+          Text('本端角色').fontSize(13).fontColor(Theme.textSecondary(this.isDark)).width(76)
           Text(ListenTogetherSessionManager.getInstance().isCurrentUserController() ? '控制端' : '监听端')
-            .fontSize(13).fontColor(Theme.textPrimary(Theme.isDark()))
+            .fontSize(13).fontColor(Theme.textPrimary(this.isDark))
             .layoutWeight(1).maxLines(1)
         }.width('100%')
         Row() {
-          Text('连接').fontSize(13).fontColor(Theme.textSecondary(Theme.isDark())).width(76)
+          Text('连接').fontSize(13).fontColor(Theme.textSecondary(this.isDark)).width(76)
           Text(connectionLabel(this.sessionView.connectionState))
-            .fontSize(13).fontColor(Theme.textPrimary(Theme.isDark()))
+            .fontSize(13).fontColor(Theme.textPrimary(this.isDark))
             .layoutWeight(1).maxLines(1)
         }.width('100%')
         if (this.hasRoomState) {
           Row() {
-            Text('房间状态').fontSize(13).fontColor(Theme.textSecondary(Theme.isDark())).width(76)
+            Text('房间状态').fontSize(13).fontColor(Theme.textSecondary(this.isDark)).width(76)
             Text(roomStatusLabel(this.roomViewData.roomStatus))
-              .fontSize(13).fontColor(Theme.textPrimary(Theme.isDark()))
+              .fontSize(13).fontColor(Theme.textPrimary(this.isDark))
               .layoutWeight(1).maxLines(1)
           }.width('100%')
           Row() {
-            Text('成员').fontSize(13).fontColor(Theme.textSecondary(Theme.isDark())).width(76)
+            Text('成员').fontSize(13).fontColor(Theme.textSecondary(this.isDark)).width(76)
             Text(`${this.roomViewData.members.length} 人`)
-              .fontSize(13).fontColor(Theme.textPrimary(Theme.isDark()))
+              .fontSize(13).fontColor(Theme.textPrimary(this.isDark))
               .layoutWeight(1).maxLines(1)
           }.width('100%')
           Row() {
-            Text('当前曲目').fontSize(13).fontColor(Theme.textSecondary(Theme.isDark())).width(76)
+            Text('当前曲目').fontSize(13).fontColor(Theme.textSecondary(this.isDark)).width(76)
             Text(this.roomViewData.track !== null
               ? `${this.roomViewData.track?.name} · ${this.roomViewData.track?.artist}` : '—')
-              .fontSize(13).fontColor(Theme.textPrimary(Theme.isDark()))
+              .fontSize(13).fontColor(Theme.textPrimary(this.isDark))
               .layoutWeight(1).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
           }.width('100%')
           Row() {
-            Text('播放').fontSize(13).fontColor(Theme.textSecondary(Theme.isDark())).width(76)
+            Text('播放').fontSize(13).fontColor(Theme.textSecondary(this.isDark)).width(76)
             Text(this.roomViewData.playback.state === 'playing' ? '播放中' : '已暂停')
-              .fontSize(13).fontColor(Theme.textPrimary(Theme.isDark()))
+              .fontSize(13).fontColor(Theme.textPrimary(this.isDark))
               .layoutWeight(1).maxLines(1)
           }.width('100%')
         }
@@ -369,7 +370,7 @@ export struct ListenTogetherPage {
       if ((this.sessionView.roomNotice ?? '').length > 0) {
         Text(this.sessionView.roomNotice ?? '')
           .fontSize(12)
-          .fontColor(Theme.textSecondary(Theme.isDark()))
+          .fontColor(Theme.textSecondary(this.isDark))
           .width('100%')
       }
       if ((this.sessionView.lastError ?? '').length > 0) {
@@ -384,23 +385,23 @@ export struct ListenTogetherPage {
           Text('邀请')
             .fontSize(14)
             .fontWeight(FontWeight.Medium)
-            .fontColor(Theme.textPrimary(Theme.isDark()))
+            .fontColor(Theme.textPrimary(this.isDark))
           Text(this.inviteShareText(this.sessionView) ?? '邀请信息不可用')
             .fontSize(12)
-            .fontColor(Theme.textSecondary(Theme.isDark()))
+            .fontColor(Theme.textSecondary(this.isDark))
             .maxLines(2)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
           Button('复制邀请')
             .height(40)
             .fontSize(13)
-            .fontColor(Theme.onPrimary(Theme.isDark()))
-            .backgroundColor(Theme.primary(Theme.isDark()))
+            .fontColor(Theme.onPrimary(this.isDark))
+            .backgroundColor(Theme.primary(this.isDark))
             .onClick(() => this.copyInvite())
         }
         .width('100%')
         .padding(12)
         .borderRadius(12)
-        .backgroundColor(Theme.surface(Theme.isDark()))
+        .backgroundColor(Theme.surface(this.isDark))
         .alignItems(HorizontalAlign.Start)
       }
 
@@ -410,13 +411,13 @@ export struct ListenTogetherPage {
             Row() {
               Text(member.nickname)
                 .fontSize(14)
-                .fontColor(Theme.textPrimary(Theme.isDark()))
+                .fontColor(Theme.textPrimary(this.isDark))
                 .layoutWeight(1)
                 .maxLines(1)
                 .textOverflow({ overflow: TextOverflow.Ellipsis })
               Text(member.isController ? '控制端' : '监听端')
                 .fontSize(11)
-                .fontColor(member.isController ? Theme.primary(Theme.isDark()) : Theme.textSecondary(Theme.isDark()))
+                .fontColor(member.isController ? Theme.primary(this.isDark) : Theme.textSecondary(this.isDark))
             }
             .width('100%')
             .padding({ top: 6, bottom: 6 })
@@ -425,7 +426,7 @@ export struct ListenTogetherPage {
         .width('100%')
         .padding(12)
         .borderRadius(12)
-        .backgroundColor(Theme.surface(Theme.isDark()))
+        .backgroundColor(Theme.surface(this.isDark))
       }
 
       Row({ space: 10 }) {
@@ -433,8 +434,8 @@ export struct ListenTogetherPage {
           .height(40)
           .fontSize(13)
           .layoutWeight(1)
-          .fontColor(Theme.textPrimary(Theme.isDark()))
-          .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+          .fontColor(Theme.textPrimary(this.isDark))
+          .backgroundColor(Theme.surfaceVariant(this.isDark))
           .enabled(!this.busy)
           .onClick(() => {
             this.refreshState();
@@ -444,7 +445,7 @@ export struct ListenTogetherPage {
           .fontSize(13)
           .layoutWeight(1)
           .fontColor('#E5484D')
-          .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+          .backgroundColor(Theme.surfaceVariant(this.isDark))
           .enabled(!this.busy)
           .onClick(() => {
             this.leaveRoom();
@@ -455,7 +456,7 @@ export struct ListenTogetherPage {
     .width('100%')
     .padding(16)
     .borderRadius(16)
-    .backgroundColor(Theme.surface(Theme.isDark()))
+    .backgroundColor(Theme.surface(this.isDark))
   }
 
   build() {
@@ -468,13 +469,13 @@ export struct ListenTogetherPage {
           .accessibilityText('返回')
           .type(ButtonType.Circle)
           .backgroundColor(Color.Transparent)
-          .fontColor(Theme.textPrimary(Theme.isDark()))
+          .fontColor(Theme.textPrimary(this.isDark))
           .fontSize(20)
           .onClick(() => Router.pop())
         Text('一起听')
           .fontSize(20)
           .fontWeight(FontWeight.Bold)
-          .fontColor(Theme.textPrimary(Theme.isDark()))
+          .fontColor(Theme.textPrimary(this.isDark))
           .layoutWeight(1)
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -499,6 +500,6 @@ export struct ListenTogetherPage {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor(Theme.background(Theme.isDark()))
+    .backgroundColor(Theme.background(this.isDark))
   }
 }

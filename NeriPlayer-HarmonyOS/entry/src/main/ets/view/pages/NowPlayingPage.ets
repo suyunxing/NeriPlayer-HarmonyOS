@@ -1,7 +1,9 @@
 import { SongItem } from '../../model/SongItem';
 import { LyricLine } from '../../model/LyricLine';
 import { QueueState } from '../../model/QueueState';
+import { SettingsRepository } from '../../data/SettingsRepository';
 import { LyricDispatcher } from '../../lyrics/LyricDispatcher';
+import { LyricIndexResolver } from '../../lyrics/LyricIndexResolver';
 import { LyricLineTracker } from '../../lyrics/LyricLineTracker';
 import { PlayerManager } from '../../player/PlayerManager';
 import { PlaybackStatus, RepeatMode } from '../../player/PlaybackConstants';
@@ -25,6 +27,9 @@ const SLEEP_OPTIONS: [string, number][] = [
 
 @Component
 export struct NowPlayingPage {
+  // Watched, not just read: the accent backdrop is derived from the cover seed
+  // *and* the resolved theme, so a light/dark switch has to recompute it too.
+  @StorageProp('theme.isDark') @Watch('onCoverSeedChanged') isDark: boolean = false;
   @StorageLink('player.currentSong') @Watch('onSongJsonChanged') currentSongJson: string = '';
   @StorageLink('player.status') status: number = PlaybackStatus.IDLE;
   @StorageLink('player.positionMs') positionMs: number = 0;
@@ -38,7 +43,13 @@ export struct NowPlayingPage {
   @StorageLink('player.favorite') favorite: boolean = false;
 
   @State lyrics: LyricLine[] = [];
-  @State showLyrics: boolean = true;
+  // Persisted, not local @State: np.show_lyrics is a user setting, and a local
+  // copy reset the view back to lyrics on every entry to this page while the
+  // stored preference was never read by anyone (static audit 2026-08-25).
+  @StorageProp('np.show_lyrics') showLyrics: boolean = true;
+  // Read for the share sheet's initial selection, which has to match the line
+  // LyricView is highlighting.
+  @StorageProp('np.lyric_offset_ms') lyricOffsetMs: number = 0;
   @State showQueue: boolean = false;
   @State showSleep: boolean = false;
   @State showShare: boolean = false;
@@ -114,23 +125,21 @@ export struct NowPlayingPage {
 
   private recomputeAccent(): void {
     const seed = this.dynamicColor ? this.coverSeedHex.trim() : '';
-    this.accentHex = seed.length > 0 ? DynamicTheme.adjustedAccentColor(seed, Theme.isDark()) : '';
+    this.accentHex = seed.length > 0 ? DynamicTheme.adjustedAccentColor(seed, this.isDark) : '';
   }
 
   private onCoverSeedChanged(): void {
     this.recomputeAccent();
   }
 
+  /**
+   * Line the share sheet should pre-select. Goes through the same resolver as
+   * LyricView and applies np.lyric_offset_ms: the previous hand-rolled scan
+   * ignored the offset, so with an offset configured the sheet opened on a
+   * different line than the one on screen.
+   */
   private currentLyricIndex(): number {
-    let index = -1;
-    for (let i = 0; i < this.lyrics.length; i++) {
-      if (this.lyrics[i].timeMs <= this.positionMs) {
-        index = i;
-      } else {
-        break;
-      }
-    }
-    return index;
+    return LyricIndexResolver.resolve(this.lyrics, this.positionMs + this.lyricOffsetMs, -1);
   }
 
   private async reloadSongData(): Promise<void> {
@@ -233,12 +242,12 @@ export struct NowPlayingPage {
         Column()
           .width('100%')
           .height('100%')
-          .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+          .backgroundColor(Theme.surfaceVariant(this.isDark))
       }
       Column()
         .width('100%')
         .height('100%')
-        .backgroundColor(Theme.scrim(Theme.isDark()))
+        .backgroundColor(Theme.scrim(this.isDark))
 
       Column() {
         Row() {
@@ -251,7 +260,7 @@ export struct NowPlayingPage {
           .width(40)
           .height(40)
           .type(ButtonType.Circle)
-          .backgroundColor(Theme.onSurfaceOverlay(Theme.isDark()))
+          .backgroundColor(Theme.onSurfaceOverlay(this.isDark))
           .accessibilityText('返回')
           .onClick(() => Router.pop())
           Text('正在播放')
@@ -269,14 +278,14 @@ export struct NowPlayingPage {
           .width(40)
           .height(40)
           .type(ButtonType.Circle)
-          .backgroundColor(Theme.onSurfaceOverlay(Theme.isDark()))
+          .backgroundColor(Theme.onSurfaceOverlay(this.isDark))
           .accessibilityText('一起听')
           .onClick(() => Router.push(Router.LISTEN_TOGETHER))
           Button('⋯')
             .width(40)
             .height(40)
             .type(ButtonType.Circle)
-            .backgroundColor(Theme.onSurfaceOverlay(Theme.isDark()))
+            .backgroundColor(Theme.onSurfaceOverlay(this.isDark))
             .fontColor('#FFFFFF')
             .fontSize(18)
             // '⋯' on its own is read out as punctuation, or skipped entirely.
@@ -310,8 +319,8 @@ export struct NowPlayingPage {
                   .aspectRatio(1)
                   .objectFit(ImageFit.Contain)
                   .padding({ left: 32, right: 32, top: 32, bottom: 32 })
-                  .fillColor(Theme.primary(Theme.isDark()))
-                  .backgroundColor(Theme.onSurfaceOverlay(Theme.isDark()))
+                  .fillColor(Theme.primary(this.isDark))
+                  .backgroundColor(Theme.onSurfaceOverlay(this.isDark))
                   .borderRadius(22)
               }
             }
@@ -456,8 +465,11 @@ export struct NowPlayingPage {
               .fontColor(this.showLyrics ? '#1A1A1A' : '#FFFFFF')
               .backgroundColor(this.showLyrics ? '#FFFFFF' : '#33FFFFFF')
               .borderRadius(16)
+              .accessibilityText(this.showLyrics ? '切换到封面' : '切换到歌词')
               .onClick(() => {
-                this.showLyrics = !this.showLyrics;
+                // Through the repository so the choice reaches AppPreferences;
+                // @StorageProp is read-only, the write has to go via the setter.
+                SettingsRepository.setBoolean(SettingsRepository.KEY_SHOW_LYRICS, !this.showLyrics);
               })
             Button('分享')
               .height(40)
@@ -490,7 +502,7 @@ export struct NowPlayingPage {
         }
         .width('100%')
         .padding({ left: 20, right: 20 })
-        .backgroundColor(Theme.scrim(Theme.isDark()))
+        .backgroundColor(Theme.scrim(this.isDark))
       }
       .width('100%')
       .height('100%')
@@ -527,12 +539,12 @@ export struct NowPlayingPage {
             Text('睡眠定时')
               .fontSize(17)
               .fontWeight(FontWeight.Bold)
-              .fontColor(Theme.textPrimary(Theme.isDark()))
+              .fontColor(Theme.textPrimary(this.isDark))
               .margin({ bottom: 8 })
             ForEach(SLEEP_OPTIONS, (option: [string, number]) => {
               Text(option[0])
                 .fontSize(15)
-                .fontColor(this.sleepLabel === option[0] ? Theme.primary(Theme.isDark()) : Theme.textPrimary(Theme.isDark()))
+                .fontColor(this.sleepLabel === option[0] ? Theme.primary(this.isDark) : Theme.textPrimary(this.isDark))
                 .width('100%')
                 .textAlign(TextAlign.Center)
                 .padding(10)
@@ -541,13 +553,13 @@ export struct NowPlayingPage {
           }
           .width('80%')
           .padding(16)
-          .backgroundColor(Theme.surface(Theme.isDark()))
+          .backgroundColor(Theme.surface(this.isDark))
           .borderRadius(18)
         }
         .width('100%')
         .height('100%')
         .justifyContent(FlexAlign.Center)
-        .backgroundColor(Theme.scrim(Theme.isDark()))
+        .backgroundColor(Theme.scrim(this.isDark))
         .onClick(() => {
           this.showSleep = false;
         })
@@ -555,7 +567,7 @@ export struct NowPlayingPage {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor(Theme.background(Theme.isDark()))
+    .backgroundColor(Theme.background(this.isDark))
   }
 }
 
@@ -590,6 +602,7 @@ struct PlayerControlButton {
 
 @Component
 struct QueueSheet {
+  @StorageProp('theme.isDark') isDark: boolean = false; // see Theme.IS_DARK_KEY
   queueJson: string = '';
   currentOrderIndex: number = 0;
   onClose: () => void = () => {};
@@ -607,11 +620,11 @@ struct QueueSheet {
           Text('播放列表')
             .fontSize(17)
             .fontWeight(FontWeight.Bold)
-            .fontColor(Theme.textPrimary(Theme.isDark()))
+            .fontColor(Theme.textPrimary(this.isDark))
             .layoutWeight(1)
           Text('关闭')
             .fontSize(14)
-            .fontColor(Theme.primary(Theme.isDark()))
+            .fontColor(Theme.primary(this.isDark))
             .onClick(() => this.onClose())
         }
         .width('100%')
@@ -623,17 +636,17 @@ struct QueueSheet {
               Row({ space: 10 }) {
                 Text(`${index + 1}`)
                   .fontSize(13)
-                  .fontColor(index === this.currentOrderIndex ? Theme.primary(Theme.isDark()) : Theme.textDisabled(Theme.isDark()))
+                  .fontColor(index === this.currentOrderIndex ? Theme.primary(this.isDark) : Theme.textDisabled(this.isDark))
                   .width(24)
                 Column({ space: 2 }) {
                   Text(song.displayName)
                     .fontSize(14)
-                    .fontColor(index === this.currentOrderIndex ? Theme.primary(Theme.isDark()) : Theme.textPrimary(Theme.isDark()))
+                    .fontColor(index === this.currentOrderIndex ? Theme.primary(this.isDark) : Theme.textPrimary(this.isDark))
                     .maxLines(1)
                     .textOverflow({ overflow: TextOverflow.Ellipsis })
                   Text(song.displayArtist)
                     .fontSize(11)
-                    .fontColor(Theme.textSecondary(Theme.isDark()))
+                    .fontColor(Theme.textSecondary(this.isDark))
                     .maxLines(1)
                     .textOverflow({ overflow: TextOverflow.Ellipsis })
                 }
@@ -641,7 +654,7 @@ struct QueueSheet {
                 .alignItems(HorizontalAlign.Start)
                 Text(formatDuration(song.durationMs))
                   .fontSize(11)
-                  .fontColor(Theme.textDisabled(Theme.isDark()))
+                  .fontColor(Theme.textDisabled(this.isDark))
               }
               .width('100%')
               .padding(8)
@@ -656,14 +669,14 @@ struct QueueSheet {
       .width('100%')
       .height('62%')
       .padding(16)
-      .backgroundColor(this.glassEffect ? Theme.surfaceGlass(Theme.isDark()) : Theme.surface(Theme.isDark()))
+      .backgroundColor(this.glassEffect ? Theme.surfaceGlass(this.isDark) : Theme.surface(this.isDark))
       .backgroundBlurStyle(this.glassEffect ? BlurStyle.COMPONENT_THICK : BlurStyle.NONE)
       .borderRadius({ topLeft: 22, topRight: 22 })
       .position({ x: 0, y: '38%' })
     }
     .width('100%')
     .height('100%')
-    .backgroundColor(Theme.scrim(Theme.isDark()))
+    .backgroundColor(Theme.scrim(this.isDark))
     .onClick(() => this.onClose())
   }
 }

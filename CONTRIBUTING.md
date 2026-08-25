@@ -18,11 +18,21 @@ NeriPlayer 是 Android 到 HarmonyOS 的迁移工作区。日常开发以 `NeriP
 在 `NeriPlayer-HarmonyOS/` 执行与改动相匹配的检查：
 
 ```powershell
-$cli = 'D:\HarmonyOS\Tools\command-line-tools\bin'
-& "$cli\ohpm.bat" install --all
-& "$cli\hvigorw.bat" test --mode module -p product=default -p buildMode=debug --no-daemon
-& "$cli\hvigorw.bat" assembleHap --mode module -p module=entry@default -p product=default -p buildMode=debug --no-daemon
+$hv   = 'E:\DevEco Studio\tools\hvigor\bin\hvigorw.bat'
+$ohpm = 'E:\DevEco Studio\tools\ohpm\bin\ohpm.bat'
+& $ohpm install --all
+& $hv test        --mode module                         -p product=default -p buildMode=debug --no-daemon
+& $hv assembleHap --mode module -p module=entry@default -p product=default -p buildMode=debug --no-daemon
 ```
+
+⚠️ `hvigorw test` 打印 `BUILD SUCCESSFUL` 且退出码 0 **也可能有用例失败**（2026-08-26 实证）。真实结果只认 `coverage.log`：
+
+```powershell
+Select-String -Path entry\.test\default\intermediates\test\coverage_data\coverage.log `
+  -Pattern 'OHOS_REPORT_RESULT: stream=Tests run:' | Select-Object -Last 1
+```
+
+CodeLinter 当前**没有命令行入口**（只剩 DevEco Studio 插件），命令行会话中请如实写「本轮未跑 lint」，不要声称通过。工具链路径以 `AGENTS.md` §构建与验证 为准。
 
 纯逻辑优先补 `entry/src/test/`；涉及 Ability、权限、AVPlayer、AVSession、后台播放或系统 UI 时补 `entry/src/ohosTest/`，并在设备或模拟器上执行对应 smoke test。提交前从仓库根目录运行 `git diff --check`。
 

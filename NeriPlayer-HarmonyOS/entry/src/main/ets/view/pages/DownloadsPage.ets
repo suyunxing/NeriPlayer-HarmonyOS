@@ -26,6 +26,7 @@ class DownloadsListener implements DownloadEngineListener {
 
 @Component
 export struct DownloadsPage {
+  @StorageProp('theme.isDark') isDark: boolean = false; // see Theme.IS_DARK_KEY
   @State tasks: DownloadTask[] = [];
   private listener: DownloadsListener = new DownloadsListener();
 
@@ -94,19 +95,19 @@ export struct DownloadsPage {
           .accessibilityText('返回')
           .type(ButtonType.Circle)
           .backgroundColor(Color.Transparent)
-          .fontColor(Theme.textPrimary(Theme.isDark()))
+          .fontColor(Theme.textPrimary(this.isDark))
           .fontSize(20)
           .onClick(() => Router.pop())
         Text('下载管理')
           .fontSize(20)
           .fontWeight(FontWeight.Bold)
-          .fontColor(Theme.textPrimary(Theme.isDark()))
+          .fontColor(Theme.textPrimary(this.isDark))
           .layoutWeight(1)
         Button('清空记录')
           .height(40)
           .fontSize(13)
-          .backgroundColor(Theme.surface(Theme.isDark()))
-          .fontColor(Theme.danger(Theme.isDark()))
+          .backgroundColor(Theme.surface(this.isDark))
+          .fontColor(Theme.danger(this.isDark))
           .onClick(() => DownloadEngine.clearFinished())
       }
       .width('100%')
@@ -123,7 +124,10 @@ export struct DownloadsPage {
           ForEach(this.tasks, (task: DownloadTask) => {
             ListItem() {
               Row({ space: 12 }) {
-                Stack() {
+                // TopEnd + fixed margin rather than a percentage .position():
+                // percentages resolve against the Stack's measured width, which
+                // grows with the system font scale (M9.3 ruling).
+                Stack({ alignContent: Alignment.TopEnd }) {
                   if (task.song.effectiveCoverUrl.length > 0) {
                     Image(task.song.effectiveCoverUrl)
                       .width(50)
@@ -134,9 +138,9 @@ export struct DownloadsPage {
                     Image($r('app.media.ic_music_note_24'))
                       .width(22)
                       .height(22)
-                      .fillColor(Theme.primary(Theme.isDark()))
+                      .fillColor(Theme.primary(this.isDark))
                       .margin({ left: 14, right: 14, top: 14, bottom: 14 })
-                      .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+                      .backgroundColor(Theme.surfaceVariant(this.isDark))
                       .borderRadius(8)
                   }
                   if (task.status === DownloadStatus.COMPLETED) {
@@ -146,33 +150,35 @@ export struct DownloadsPage {
                       .width(20)
                       .height(20)
                       .textAlign(TextAlign.Center)
-                      .backgroundColor(Theme.success(Theme.isDark()))
+                      .backgroundColor(Theme.success(this.isDark))
                       .borderRadius(10)
-                      .position({ x: '70%', y: '2%' })
+                      .margin({ top: 2, right: 2 })
                   }
                 }
+                .width(50)
+                .height(50)
 
                 Column({ space: 4 }) {
                   Text(task.song.displayName)
                     .fontSize(14)
                     .fontWeight(FontWeight.Medium)
-                    .fontColor(Theme.textPrimary(Theme.isDark()))
+                    .fontColor(Theme.textPrimary(this.isDark))
                     .maxLines(1)
                     .textOverflow({ overflow: TextOverflow.Ellipsis })
                     .width('100%')
                   Text(this.statusLabel(task))
                     .fontSize(11)
                     .fontColor(task.status === DownloadStatus.FAILED
-                      ? Theme.danger(Theme.isDark())
+                      ? Theme.danger(this.isDark)
                       : (task.status === DownloadStatus.COMPLETED
-                        ? Theme.success(Theme.isDark())
-                        : Theme.textSecondary(Theme.isDark())))
+                        ? Theme.success(this.isDark)
+                        : Theme.textSecondary(this.isDark)))
                   if (task.status === DownloadStatus.DOWNLOADING && task.progress !== null
                     && task.progress.percentage() >= 0) {
                     Progress({ value: task.progress.percentage(), total: 100, type: ProgressType.Linear })
                       .height(4)
                       .width('100%')
-                      .color(Theme.primary(Theme.isDark()))
+                      .color(Theme.primary(this.isDark))
                   }
                 }
                 .layoutWeight(1)
@@ -181,15 +187,15 @@ export struct DownloadsPage {
                 Button(this.actionLabel(task))
                   .height(40)
                   .fontSize(12)
-                  .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
-                  .fontColor(Theme.textPrimary(Theme.isDark()))
+                  .backgroundColor(Theme.surfaceVariant(this.isDark))
+                  .fontColor(Theme.textPrimary(this.isDark))
                   .onClick(() => {
                     this.onAction(task);
                   })
               }
               .width('100%')
               .padding(10)
-              .backgroundColor(Theme.surface(Theme.isDark()))
+              .backgroundColor(Theme.surface(this.isDark))
               .borderRadius(Theme.cardRadius())
             }
           }, (task: DownloadTask) => `${stableKeyOf(task.song)}:${task.attemptId}`)
@@ -202,6 +208,6 @@ export struct DownloadsPage {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor(Theme.background(Theme.isDark()))
+    .backgroundColor(Theme.background(this.isDark))
   }
 }

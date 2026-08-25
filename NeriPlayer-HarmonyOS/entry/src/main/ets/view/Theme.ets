@@ -15,8 +15,24 @@ import { DynamicTheme, TonePalette } from './theme/DynamicTheme';
  * (NowPlayingPage backdrop, MiniPlayer, MainShell).
  */
 export class Theme {
-  private static cachedPaletteKey: string = '';
-  private static cachedPalette: TonePalette | null = null;
+  /**
+   * AppStorage key holding the *resolved* dark flag, i.e. the value of
+   * isDark() after np.dark_mode ('auto'|'light'|'dark') and the system
+   * colorMode have been folded together.
+   *
+   * Why this key exists: isDark() reads AppStorage internally, and ArkUI's
+   * minimal-update tracking cannot see through a method call (the M7.4
+   * renderer pitfall). A bare `Theme.surface(Theme.isDark())` in a render
+   * expression therefore never repaints when the theme changes — it only
+   * picks up the new value on some unrelated rebuild. Components subscribe
+   * with `@StorageProp('theme.isDark') isDark: boolean = false` and pass
+   * `this.isDark` down instead, which *is* tracked.
+   *
+   * The literal is duplicated in the components' decorators on purpose:
+   * @StorageProp requires a compile-time string literal, so it cannot
+   * reference this constant.
+   */
+  static readonly IS_DARK_KEY: string = 'theme.isDark';
 
   static isDark(): boolean {
     const mode = SettingsRepository.getString(SettingsRepository.KEY_DARK_MODE, 'auto');
@@ -29,6 +45,27 @@ export class Theme {
     const systemDark = AppStorage.get<boolean>('systemDark');
     return systemDark === true;
   }
+
+  /**
+   * Recomputes the resolved dark flag and republishes it to IS_DARK_KEY,
+   * which repaints every subscribing component. Must be called after either
+   * input changes:
+   *   - EntryAbility.onCreate          (seed from the launch configuration)
+   *   - EntryAbility.onConfigurationUpdate (system light/dark switch)
+   *   - Index.aboutToAppear            (persisted np.dark_mode has now loaded;
+   *                                     onCreate only saw the defaults)
+   *   - SettingsPage                   (user picked auto/light/dark)
+   * Returns the resolved value so callers that also need it (system bars)
+   * do not have to read it back.
+   */
+  static refreshIsDark(): boolean {
+    const dark = Theme.isDark();
+    AppStorage.setOrCreate(Theme.IS_DARK_KEY, dark);
+    return dark;
+  }
+
+  private static cachedPaletteKey: string = '';
+  private static cachedPalette: TonePalette | null = null;
 
   /** Active cover seed ('#RRGGBB') or null when dynamic color is off/unseeded. */
   static activeSeed(): string | null {

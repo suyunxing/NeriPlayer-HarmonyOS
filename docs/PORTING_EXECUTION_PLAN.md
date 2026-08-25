@@ -40,33 +40,47 @@
 
 ---
 
-## 2. 环境与命令速查（2026-08-14 已全链验证，详见 hm.md §7.5）
+## 2. 环境与命令速查（2026-08-26 实测校正：工具链已整体迁移）
+
+> 旧表记录的 `D:\HarmonyOS\Tools\` 与 `D:\HarmonyOS\Project\` **整条路径均已不存在**。
+> 权威表述见 `AGENTS.md` §构建与验证；下表与之保持同步。
 
 | 项 | 值 |
 | --- | --- |
-| 主力工程 | `D:\HarmonyOS\Project\Neriplayer\NeriPlayer-HarmonyOS`（API 24 = 6.1.1(24) Release 基线） |
-| CLI 工具 | `D:\HarmonyOS\Tools\command-line-tools\bin\`（ohpm.bat / hvigorw.bat / codelinter.bat / Emulator.bat） |
-| 完整 API 24 SDK | `D:\HarmonyOS\Tools\command-line-tools\sdk\default`（hdc 在 `openharmony\toolchains\`） |
-| 26 Studio | `D:\HarmonyOS\Tools\devecostudio-windows-26.0.0.621\DevEco Studio`（仅贡献 jbr java 给 hap-sign-tool） |
+| 主力工程 | `E:\NeriPlayer-HArmonyOS\NeriPlayer-HarmonyOS-ch\NeriPlayer-HarmonyOS`（API 24 = 6.1.1(24) Release 基线） |
+| IDE / 工具链根 | `E:\DevEco Studio\`（DevEco Studio **6.1.1.300**，`build.txt` = `DS-243.24978.46.36.611300`） |
+| hvigorw | `E:\DevEco Studio\tools\hvigor\bin\hvigorw.bat`（**6.24.4**） |
+| ohpm / node | `E:\DevEco Studio\tools\ohpm\bin\ohpm.bat`、`E:\DevEco Studio\tools\node\` |
+| 完整 API 24 SDK | `E:\DevEco Studio\sdk\default`（6.1.1.125 Release；hdc 在 `openharmony\toolchains\`） |
+| jbr java / keytool | `E:\DevEco Studio\jbr\bin\`（供 hap-sign-tool 使用） |
+| command-line-tools | **不再安装** |
+| CodeLinter CLI | **不存在**（只剩 IDE 插件 `E:\DevEco Studio\plugins\codelinter`） |
+| local.properties | 不存在，且实测**构建不需要**（`DEVECO_SDK_HOME` 已足够） |
 
 ```powershell
-# 以下均从 NeriPlayer-HarmonyOS 目录执行（PowerShell；子进程调 pwsh 优先于 powershell 5.1）
-$cli = 'D:\HarmonyOS\Tools\command-line-tools\bin'
-& "$cli\ohpm.bat" install --all
-& "$cli\hvigorw.bat" assembleHap --mode module -p module=entry@default -p product=default -p buildMode=debug --no-daemon   # 构建
-& "$cli\hvigorw.bat" test --mode module -p product=default -p buildMode=debug --no-daemon                                   # 本地单测
-& "$cli\hvigorw.bat" assembleHap --mode module -p module=entry@ohosTest -p product=default -p buildMode=debug --no-daemon   # 设备测试 HAP
-& "$cli\codelinter.bat" .                                                                                                   # 静态检查（基线 24 warn + 2 suggestion，无 error）
+# 以下均从 NeriPlayer-HarmonyOS 目录执行
+$hv   = 'E:\DevEco Studio\tools\hvigor\bin\hvigorw.bat'
+$ohpm = 'E:\DevEco Studio\tools\ohpm\bin\ohpm.bat'
+& $ohpm install --all
+& $hv assembleHap --mode module -p module=entry@default  -p product=default -p buildMode=debug --no-daemon   # 构建
+& $hv test        --mode module                          -p product=default -p buildMode=debug --no-daemon   # 本地单测
+& $hv assembleHap --mode module -p module=entry@ohosTest -p product=default -p buildMode=debug --no-daemon   # 设备测试 HAP
 
-# 签名 + 安装模拟器（需用户级 NERIPLAYER_SIGNING_PASSWORD、DEVECO_SDK_HOME、DEVECO_STUDIO_HOME 已持久化）
-.\sign-local.ps1 -HvigorwPath 'D:\HarmonyOS\Tools\command-line-tools\bin\hvigorw.bat'
+# ⚠️ hvigorw test 的 BUILD SUCCESSFUL / exit 0 不代表用例通过（2026-08-26 实证）。权威结果：
+Select-String -Path entry\.test\default\intermediates\test\coverage_data\coverage.log `
+  -Pattern 'OHOS_REPORT_RESULT: stream=Tests run:' | Select-Object -Last 1
+# 当前基线：Tests run: 827, Failure: 0, Error: 0, Pass: 827
 
-# 模拟器：Emulator.bat 冷启动后先 tconn；ohosTest 用 aa test
+# 签名 + 安装模拟器（需用户级 NERIPLAYER_SIGNING_PASSWORD ≥32 字符；SDK 自带 OpenHarmony.p12 的
+# 默认口令 123456 会被 sign-local.ps1 第 93 行校验拒绝）
+.\sign-local.ps1 -HvigorwPath 'E:\DevEco Studio\tools\hvigor\bin\hvigorw.bat'
+
+# 模拟器：冷启动后先 tconn；ohosTest 用 aa test
 hdc tconn 127.0.0.1:5555
 hdc -t 127.0.0.1:5555 shell "aa test -b moe.ouom.neriplayer -m entry_test -s unittest OpenHarmonyTestRunner -s class ActsAbilityTest#assertContain -s timeout 15000"
 ```
 
-**平台坑**：26 Studio 的 hvigor 不能构建 6.1.1(24) 工程（错误 00303031），构建必须用 CLT 的 hvigorw.bat；Git Bash 下调 hdc 设备路径加 `MSYS_NO_PATHCONV=1`，`hdc file recv` 本地目标用相对路径；**`aa test` 的 runner 参数 `/ets/testrunner/OpenHarmonyTestRunner` 同样会被 MSYS 改写成 Windows 路径**（2026-08-21 实证：报 `Cannot find module '…entry_testC:/Program Files/Git/ets/testrunner/…'`、ResultCode -1 App died，非代码缺陷），整条命令必须前置 `MSYS_NO_PATHCONV=1`；`hdc install` 的本地 HAP 路径给绝对路径会被拼到 cwd 之后（`…NeriPlayer-HarmonyOS\D:/…`）而 Fail，须用相对路径；读崩溃日志看 `devecocli log --crash` 的**头部**（`Error message:` 在前，尾部只有 native 栈帧）。.ps1 禁非 ASCII 字符（GBK 解析会静默吞代码行）。静态语法分析可用 `deveco-mcp` 的 `check` 工具（PROJECT_PATH 已指向主力工程）。
+**平台坑**：~~26 Studio 的 hvigor 不能构建 6.1.1(24)（00303031），必须用 CLT hvigorw~~ —— 该结论随 26 Studio 与 CLT 一并作废，现在只有 Studio 6.1.1.300 自带的 hvigor 6.24.4，版本自洽可直接构建。仍然有效的坑：Git Bash 下调 hdc 设备路径加 `MSYS_NO_PATHCONV=1`，`hdc file recv` 本地目标用相对路径；**`aa test` 的 runner 参数 `/ets/testrunner/OpenHarmonyTestRunner` 同样会被 MSYS 改写成 Windows 路径**（2026-08-21 实证：报 `Cannot find module '…entry_testC:/Program Files/Git/ets/testrunner/…'`、ResultCode -1 App died，非代码缺陷），整条命令必须前置 `MSYS_NO_PATHCONV=1`；`hdc install` 的本地 HAP 路径给绝对路径会被拼到 cwd 之后（`…NeriPlayer-HarmonyOS\D:/…`）而 Fail，须用相对路径；读崩溃日志看 `devecocli log --crash` 的**头部**（`Error message:` 在前，尾部只有 native 栈帧）。.ps1 禁非 ASCII 字符（GBK 解析会静默吞代码行）。静态语法分析可用 `deveco-mcp` 的 `check` 工具（PROJECT_PATH 已指向主力工程）。
 
 **平台坑（M6–M7 实测补记，2026-08-21）**：
 - **ArkUI 渲染依赖追踪盲区（2026-08-22 设备实证，M7.4 排查三轮+双探针定位）**：`@StorageLink/@StorageProp` 字符串本身更新正常（同页探针 Text 直读属性能实时显示新 JSON），但**组件方法内部的状态读取不被依赖追踪**——`this.session()` 这类「读状态→解析→返回对象」的私有方法在 @Builder 参数或属性表达式里求值一次后固化，节点永远显示首帧值（房间页「连接」永远显示「连接中」，而 AppStorage 里早已是 connected，管理器日志/心跳均证明状态机正常）。嵌套 @Builder 的按值参数同样固化为调用时快照。**守则：动态值必须在 build()/@Builder 表达式里直读状态变量；解析逻辑走 `@StorageLink(...) @Watch('onXxx')` 回调镜像进 `@State` 对象（整组件重渲染），不要在渲染表达式里调 this.xxx() 方法链**。另：devecocli emulator start 报 `system image cannot be found` 是其包装的 Studio 26 Emulator.exe 镜像根为空所致，本机正确启动方式是 CLT 的 `Emulator.exe -start "Pura 90"`（实例端口 5559）。
@@ -405,9 +419,22 @@ eport-m61-recheck.json）：IOS 直出窗口仍开——fbvvS8e1KgI playability 
 
 > 边界：M11 全部内容与 `HARMONYOS_NATIVE_FEATURES.md` §12 的 **M10.4 一多适配**正交，**不含** Navigation 迁移、触控 40vp→48vp、tablet/2in1/折叠悬停/横屏——那些留在 M10.4 并依赖 M9.3a 解封（镜像阻塞）。M11 各项零环境依赖，本机即可闭合主体。
 
-- [ ] M11.1 视图层缺陷清零：`docs/UI_REVIEW_M11.md` §3 的 ❷–❿（冷启动深色模式、主题切换重绘、死设置 `np.show_lyrics`、SongRow 死菜单项、Tab 持久化、两处百分比 `.position()`、删除歌单二次确认、探索页死卡片与错误态重试）。
-  - 进行中：2026-08-25 已改 4 文件。①❷ 冷启动深色模式：`EntryAbility.ets:29-35` 改为从 `this.context.config.colorMode` 播种 `systemDark`（原为无条件 `false`，真值只在 `onConfigurationUpdate` 写 → 系统深色下冷启动整个应用渲染成浅色，直到用户去切系统主题才纠正）；`pages/Index.ets:33-37` 移除重复的 `setOrCreate('systemDark', false)` 覆写（会把 EntryAbility 刚播种的真值打回浅色）。②❸ 主题响应：`MainShell.ets:22-33,49-52` 增 `@StorageProp('np.dark_mode')`+`@StorageProp('systemDark')` 双 `@Watch('onThemeChanged')` 镜像进 `@State isDark`，`tabItem` 的 `Theme.isDark()` 改读 `this.isDark`——根因是 `Theme.isDark()` 内部读 AppStorage 而 ArkUI 的最小更新追踪看不穿方法调用（M7.4 已立守则），全工程该调用内联 **439 次 / 24 文件**，而只有 `SettingsPage.ets:22` 一处持有 `np.dark_mode` 的 `@StorageProp` → 切深色只有设置页立刻变色；`systemDark` 此前无任何组件订阅。范式照抄 `MiniPlayer.ets:17-40` 已验证的 `@StorageProp+@Watch` 写法。③❼ Tab 持久化：`MainShell.ets:120-126` 的 `selectTab` 从 `AppStorage.setOrCreate('np.default_start_tab', …)` 改走 `SettingsRepository.setNumber(KEY_DEFAULT_START_TAB, …)`（原写法绕过 `AppPreferences` 不落盘，重启归 0，且运行时导航会在会话内污染这个本应是用户设置的键）；`aboutToAppear` 的字面量键一并换成 `SettingsRepository.KEY_DEFAULT_START_TAB` 常量。**剩余未做**：❺ `np.show_lyrics` 接线、❻ SongRow 两个死菜单项、❽ `Ui.ets:138`/`DownloadsPage.ets:151` 两处百分比 `.position()`、❾ 删除歌单二次确认、❿ 探索页两张无 `onClick` 卡片与错误态重试、❸ 推广到 `NowPlayingPage`/`HomePage`/`LibraryPage`/`ExplorePage` 四页。**未验证**：本轮为静态审查+改码，尚未跑构建、单测、CodeLinter 与设备复跑（清单见 `docs/UI_REVIEW_M11.md` §9）。
-- [ ] M11.2 歌词视图对齐：`LyricView.ets` 接 `Scroller` 实现自动滚动（活跃行定位视口 30%，对齐 Android `playedLyricViewportFraction`）、复用 `lyrics/LyricLineTracker.ets` 消除 `currentIndex()` 在 ForEach 内每行调 4 次的 O(n×m)、接线死设置 `np.lyric_blur`。
+- [x] M11.1 视图层缺陷清零：`docs/UI_REVIEW_M11.md` §3 的 ❷–❿（冷启动深色模式、主题切换重绘、死设置 `np.show_lyrics`、SongRow 死菜单项、Tab 持久化、两处百分比 `.position()`、删除歌单二次确认、探索页死卡片与错误态重试）。
+  - 证据：2026-08-26 `hvigorw 6.24.4`（Studio 6.1.1.300）三门禁全过——`assembleHap entry@default` BUILD SUCCESSFUL、`assembleHap entry@ohosTest` BUILD SUCCESSFUL、`test` 读 `coverage.log` 得 **827/827 pass, 0 failure, 0 error**（基线 816 + `LyricIndexResolver.test.ets` 新增 11，只增未减）；ArkTS error 0。**CodeLinter 未跑**（命令行入口已不存在，见 §2）；**设备未验证**（签名口令 `NERIPLAYER_SIGNING_PASSWORD` 本会话未设置，且换 SDK 默认 keystore 会导致 `install -r` 签名不一致、只能 uninstall 而丢用户数据，故未执行）。
+  - ❷ 冷启动深色模式：`EntryAbility.onCreate` 从 `this.context.config.colorMode` 播种 `systemDark`（原写死 `false`，真值只在 `onConfigurationUpdate` 写 → 系统深色下冷启动整个应用渲染成浅色）；`pages/Index.ets` 移除会把真值打回浅色的重复覆写。
+  - ❸ 主题切换重绘（**范围较原计划扩大，已征得用户确认**）：根因是 `Theme.isDark()` 内部读 AppStorage 而 ArkUI 最小更新追踪看不穿方法调用（M7.4 守则），该调用在视图层内联 **440 处 / 24 文件**。原方案只改 `MainShell` + 四个主页面，但 `HomePage` 渲染的 `PlaylistCard`/`SectionHeader`/`EmptyState`（`Ui.ets`）与 `SongRow` 都是独立 `@Component`，只改页面会得到「页面背景变深、卡片仍浅」的**撕裂**观感——比不改更容易被察觉。改为单一派生键方案：`Theme.IS_DARK_KEY = 'theme.isDark'` + `Theme.refreshIsDark()` 发布解析后的布尔值，每个 struct 只加一行 `@StorageProp('theme.isDark') isDark: boolean = false` 并在表达式里直读 `this.isDark`。发布点 4 处：`EntryAbility.onCreate`（启动配置播种）/`onConfigurationUpdate`（系统切换）、`Index.aboutToAppear`（持久化的 `np.dark_mode` 异步加载完成后补发，onCreate 时只看得到默认值）、`SettingsPage.cycleDarkMode`（用户手动切）。顺带删掉 `EntryAbility` 里与 `Theme.isDark()` 重复的私有 `isDark()`，并让系统栏跟随**解析后**的主题（原来 `onConfigurationUpdate` 用的是裸系统 colorMode，用户锁定浅色时系统切深色会让状态栏与应用表面不一致）。**发现前一轮遗留**：`MainShell` 上一轮只改了 `tabItem`，其 `build()` 里 Tab 栏与页面背景两处 `Theme.isDark()` 仍未改，即该缺陷在 `MainShell` 内部本身就是半修状态，本轮补齐。
+  - ❺ `np.show_lyrics` 接线：`NowPlayingPage` 本地 `@State showLyrics` → `@StorageProp('np.show_lyrics')`，切换走 `SettingsRepository.setBoolean` 落盘；顺带给「歌词」按钮补 `accessibilityText`。
+  - ❻ SongRow 死菜单项：「加入歌单」「分享」标签加「（暂不可用）」并弹 toast 指向可用替代，同步 `RELEASE_CHECKLIST` §6。
+  - ❼ Tab 持久化：`selectTab` 从 `AppStorage.setOrCreate` 改走 `SettingsRepository.setNumber(KEY_DEFAULT_START_TAB, …)`（原写法绕过 `AppPreferences` 不落盘，重启归 0）。
+  - ❽ 百分比 `.position()`：`Ui.ets` PlaylistCard 收藏角标与 `DownloadsPage` 完成对勾改 `Stack({ alignContent: Alignment.TopEnd })` + 固定 margin（对照 `SongRow.ets` 已验证写法）。全工程复查后仅剩 `NowPlayingPage`/`PlaylistDetailPage` 的两处底部面板 `y: '38%'`，那是相对**全屏容器**解析、与字号无关，且已登记 M11.4 改 `bindSheet`，本轮不动。
+  - ❾ 删除歌单二次确认：`PlaylistDetailPage` 新增 `showDeleteConfirm` 对话框，展示歌单名与曲目数并说明不可撤销；确认前不再调用 `deletePlaylist()`。
+  - ❿ 探索页：「搜索歌曲」卡片 `onClick` 走 `focusControl.requestFocus()` 聚焦搜索框；「搜索歌单」无可诚实跳转的目标（无歌单搜索 API，且两个歌单页都要求具体 id 入参），改为 toast + 副标题如实说明「待移植」，并登记进 `RELEASE_CHECKLIST` §6；错误态 `EmptyState` 下补「重新搜索」按钮。
+- [x] M11.2 歌词视图对齐：`LyricView.ets` 接 `Scroller` 实现自动滚动（活跃行定位视口 30%，对齐 Android `playedLyricViewportFraction`）、消除 `currentIndex()` 在 ForEach 内每行调 4 次的 O(n×m)、接线死设置 `np.lyric_blur`。
+  - 证据：2026-08-26 与 M11.1 同批门禁（构建双模块 BUILD SUCCESSFUL、单测 827/827）。新增纯逻辑 `lyrics/LyricIndexResolver.ets` 并配 11 条确定性单测（已注册进 `entry/src/test/List.test.ets`），覆盖冷扫描/hint 续扫一致性/前跳/回退 seek/越界 hint/重复时间戳/空表。**⚠️ 滚动流畅度、30% 落点、模糊观感与开销全部未在设备上验证。**
+  - 自动滚动：`Scroll(this.scroller)`，`@Watch` 监听 `player.positionMs` 与 `np.lyric_offset_ms` → 解析活跃行 → `scroller.scrollTo({ yOffset: top - 视口高 × 0.30, animation: 420ms EaseOut })`。行 Y 偏移经每行 `onAreaChange` 实测缓存（存普通字段而非 `@State`，避免布局回调里写状态引发重入）；视口高存 `@State` 并带 1vp 死区，用于给首/末行留 30%/70% 内边距，使它们也能进入该带位。手动触摸后 2.5s 内不抢滚动，点击行 seek 时立即解除抑制。
+  - 性能：原 `currentIndex()` 在 `ForEach` 内每行调 4 次（60 行约 1.4 万次比较/重绘）。**审查原文建议"复用 `LyricLineTracker` 的 O(1) 查询"，经核对不准确**——`LyricLineTracker.onPosition()` 本身就是线性扫描，只有 `currentIndex()` 这个取缓存的 getter 是 O(1)，且它由 `PlayerManager.publishPosition` 单向喂数、`setLines()` 会把 `lastIndex` 重置为 -1，因此在暂停时打开歌词页会拿到 -1（既不高亮也不滚动）。故改为自持解析：`LyricIndexResolver.resolve(lines, time, hint)` 从上次结果续扫，常态每 tick 一次比较，回退 seek/越界 hint 自动退化为整表扫描。
+  - `np.lyric_blur` 接线：按与活跃行的距离对**非活跃行**做 `.blur()`（1–4vp 饱和），对齐 `AdvancedLyricsView.lyricBlurEnabled`。审查原文的「对当前行 `.blur(lyricBlur ? 4 : 0)`」方向相反（会糊掉正在读的那行），未采纳。
+  - 顺带修正：`NowPlayingPage.currentLyricIndex()` 原先**不加** `np.lyric_offset_ms`（`LyricView` 加），配置了偏移时歌词分享面板会预选到与屏幕上不同的行；现改为与 `LyricView` 走同一个 resolver 和同一份 display time。另把歌词卡拉 OK 逐词高亮从 `wordState()` 辅助方法改为在 `Span` 表达式里直读 `positionMs`/`lyricOffsetMs`——同一个 M7.4 盲区，原写法只在无关的父级重建恰好重造整个视图时才碰巧刷新。
 - [ ] M11.3 列表与状态性能：`LazyForEach`+`IDataSource`+`@Reusable`；消除 `SongItem` JSON 往返（`SongRow.song()` 单次 build 内 8 次 `JSON.parse`，且随 `player.positionMs` 每 tick 重跑）；`WaveformSlider` 50ms 定时器按播放态门控（当前暂停时仍 20fps 刷 Canvas，与 M10.3 低功耗方向相悖）。
 - [ ] M11.4 平台控件归位：布尔设置改 `Toggle(ToggleType.Switch)`（现为「点整行+副标题写已开启/已关闭」，`Toggle(` 全工程命中 0）；5 处手写底部面板改 `bindSheet`；SongRow 菜单改 `bindContextMenu`；补 `stateStyles` 按压反馈；`TextInput` 换 `Search`；首页/资料库补 `Refresh` 下拉刷新。
 - [ ] M11.5 设计令牌与资源化：新建 `float.json` 尺寸令牌；UI 文案抽进 `string.json`（现仅 5 条系统面字符串、零 UI 文案，是 `np.language` 只能弹「语言切换待移植」的根因）；调用点直传 `$r()` 并删除 `util/IconCatalog.ets`（119 行 emoji→资源映射，85 处调用点仍传 emoji，10 个字形未收录静默落 fallback）；收敛封面缩略图（17 处 / 11 文件重复）与 `StatCard`/`StatTile` 双拷贝；语义色纳入动态调色板。

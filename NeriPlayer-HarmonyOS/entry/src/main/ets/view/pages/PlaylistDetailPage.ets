@@ -12,11 +12,13 @@ import { Router } from '../Router';
 
 @Component
 export struct PlaylistDetailPage {
+  @StorageProp('theme.isDark') isDark: boolean = false; // see Theme.IS_DARK_KEY
   @StorageLink('route.param') playlistId: string = '';
   @State playlist: Playlist | null = null;
   @State history: SongItem[] = [];
   @State showAddDialog: boolean = false;
   @State showRenameDialog: boolean = false;
+  @State showDeleteConfirm: boolean = false;
   @State renameValue: string = '';
 
   private isFavorites(): boolean {
@@ -65,7 +67,16 @@ export struct PlaylistDetailPage {
     await this.reload();
   }
 
+  /** Confirmation copy for the delete; there is no recycle bin to undo it. */
+  private deleteWarning(): string {
+    const playlist = this.playlist;
+    const name = playlist !== null ? playlist.name : '';
+    const count = playlist !== null ? playlist.songs.length : 0;
+    return `歌单「${name}」及其 ${count} 首歌曲记录将被删除，此操作无法撤销。`;
+  }
+
   private async deletePlaylist(): Promise<void> {
+    this.showDeleteConfirm = false;
     if (this.isFavorites()) {
       return;
     }
@@ -84,13 +95,13 @@ export struct PlaylistDetailPage {
             .accessibilityText('返回')
             .type(ButtonType.Circle)
             .backgroundColor(Color.Transparent)
-            .fontColor(Theme.textPrimary(Theme.isDark()))
+            .fontColor(Theme.textPrimary(this.isDark))
             .fontSize(20)
             .onClick(() => Router.pop())
           Text(this.playlist !== null ? this.playlist.name : '歌单')
             .fontSize(20)
             .fontWeight(FontWeight.Bold)
-            .fontColor(Theme.textPrimary(Theme.isDark()))
+            .fontColor(Theme.textPrimary(this.isDark))
             .layoutWeight(1)
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -100,7 +111,7 @@ export struct PlaylistDetailPage {
               .height(40)
               .type(ButtonType.Circle)
               .backgroundColor(Color.Transparent)
-              .fontColor(Theme.textPrimary(Theme.isDark()))
+              .fontColor(Theme.textPrimary(this.isDark))
               .fontSize(18)
               .accessibilityText('歌单管理')
               .onClick(() => {
@@ -119,23 +130,23 @@ export struct PlaylistDetailPage {
                 Image($r('app.media.ic_music_note_24'))
                   .width(34)
                   .height(34)
-                  .fillColor(Theme.primary(Theme.isDark()))
+                  .fillColor(Theme.primary(this.isDark))
               }
               .width(92)
               .height(92)
               .justifyContent(FlexAlign.Center)
-              .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+              .backgroundColor(Theme.surfaceVariant(this.isDark))
               .borderRadius(14)
 
               Column({ space: 4 }) {
                 Text(this.playlist.name)
                   .fontSize(20)
                   .fontWeight(FontWeight.Bold)
-                  .fontColor(Theme.textPrimary(Theme.isDark()))
+                  .fontColor(Theme.textPrimary(this.isDark))
                   .maxLines(2)
                 Text(`${this.playlist.songKeys.length} 首`)
                   .fontSize(13)
-                  .fontColor(Theme.textSecondary(Theme.isDark()))
+                  .fontColor(Theme.textSecondary(this.isDark))
                 // Same X-to-Y trade as the NetEase header: the button pair sits
                 // in a layoutWeight(1) column beside a 92vp cover, so at large
                 // system fonts a plain Row runs off the right edge.
@@ -143,15 +154,15 @@ export struct PlaylistDetailPage {
                   Button('全部播放')
                     .height(40)
                     .fontSize(12)
-                    .fontColor(Theme.onPrimary(Theme.isDark()))
-                    .backgroundColor(Theme.primary(Theme.isDark()))
+                    .fontColor(Theme.onPrimary(this.isDark))
+                    .backgroundColor(Theme.primary(this.isDark))
                     .borderRadius(16)
                     .onClick(() => this.playAll(false))
                   Button('随机播放')
                     .height(40)
                     .fontSize(12)
-                    .fontColor(Theme.textPrimary(Theme.isDark()))
-                    .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+                    .fontColor(Theme.textPrimary(this.isDark))
+                    .backgroundColor(Theme.surfaceVariant(this.isDark))
                     .borderRadius(16)
                     .onClick(() => this.playAll(true))
                 }
@@ -162,20 +173,20 @@ export struct PlaylistDetailPage {
             }
             .width('100%')
             .padding(14)
-            .backgroundColor(Theme.surface(Theme.isDark()))
+            .backgroundColor(Theme.surface(this.isDark))
             .borderRadius(Theme.cardRadius())
 
             Row() {
               Text('歌曲')
                 .fontSize(16)
                 .fontWeight(FontWeight.Bold)
-                .fontColor(Theme.textPrimary(Theme.isDark()))
+                .fontColor(Theme.textPrimary(this.isDark))
                 .layoutWeight(1)
               Button('＋ 添加')
                 .height(40)
                 .fontSize(12)
-                .backgroundColor(Theme.surface(Theme.isDark()))
-                .fontColor(Theme.primary(Theme.isDark()))
+                .backgroundColor(Theme.surface(this.isDark))
+                .fontColor(Theme.primary(this.isDark))
                 .onClick(() => {
                   this.showAddDialog = true;
                 })
@@ -207,7 +218,7 @@ export struct PlaylistDetailPage {
                         Image($r('app.media.ic_close_24'))
                           .width(16)
                           .height(16)
-                          .fillColor(Theme.textDisabled(Theme.isDark()))
+                          .fillColor(Theme.textDisabled(this.isDark))
                       }
                       .width(40)
                       .height(40)
@@ -240,11 +251,11 @@ export struct PlaylistDetailPage {
               Text('从播放历史添加')
                 .fontSize(17)
                 .fontWeight(FontWeight.Bold)
-                .fontColor(Theme.textPrimary(Theme.isDark()))
+                .fontColor(Theme.textPrimary(this.isDark))
                 .layoutWeight(1)
               Text('关闭')
                 .fontSize(14)
-                .fontColor(Theme.primary(Theme.isDark()))
+                .fontColor(Theme.primary(this.isDark))
                 .onClick(() => {
                   this.showAddDialog = false;
                 })
@@ -255,7 +266,7 @@ export struct PlaylistDetailPage {
             if (this.history.length === 0) {
               Text('暂无播放历史')
                 .fontSize(14)
-                .fontColor(Theme.textSecondary(Theme.isDark()))
+                .fontColor(Theme.textSecondary(this.isDark))
                 .padding(24)
             } else {
               List() {
@@ -264,17 +275,17 @@ export struct PlaylistDetailPage {
                     Row({ space: 10 }) {
                       Text('＋')
                         .fontSize(16)
-                        .fontColor(Theme.primary(Theme.isDark()))
+                        .fontColor(Theme.primary(this.isDark))
                         .width(28)
                       Column({ space: 2 }) {
                         Text(song.displayName)
                           .fontSize(14)
-                          .fontColor(Theme.textPrimary(Theme.isDark()))
+                          .fontColor(Theme.textPrimary(this.isDark))
                           .maxLines(1)
                           .textOverflow({ overflow: TextOverflow.Ellipsis })
                         Text(song.displayArtist)
                           .fontSize(11)
-                          .fontColor(Theme.textSecondary(Theme.isDark()))
+                          .fontColor(Theme.textSecondary(this.isDark))
                           .maxLines(1)
                           .textOverflow({ overflow: TextOverflow.Ellipsis })
                       }
@@ -295,13 +306,13 @@ export struct PlaylistDetailPage {
           .width('100%')
           .height('62%')
           .padding(16)
-          .backgroundColor(Theme.surface(Theme.isDark()))
+          .backgroundColor(Theme.surface(this.isDark))
           .borderRadius({ topLeft: 22, topRight: 22 })
           .position({ x: 0, y: '38%' })
         }
         .width('100%')
         .height('100%')
-        .backgroundColor(Theme.scrim(Theme.isDark()))
+        .backgroundColor(Theme.scrim(this.isDark))
         .onClick(() => {
           this.showAddDialog = false;
         })
@@ -313,7 +324,7 @@ export struct PlaylistDetailPage {
             Text('重命名歌单')
               .fontSize(17)
               .fontWeight(FontWeight.Bold)
-              .fontColor(Theme.textPrimary(Theme.isDark()))
+              .fontColor(Theme.textPrimary(this.isDark))
             TextInput({ placeholder: '输入歌单名称', text: this.renameValue })
               .onChange((value: string) => {
                 this.renameValue = value;
@@ -321,39 +332,84 @@ export struct PlaylistDetailPage {
             Row({ space: 12 }) {
               Button('取消')
                 .layoutWeight(1)
-                .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
-                .fontColor(Theme.textPrimary(Theme.isDark()))
+                .backgroundColor(Theme.surfaceVariant(this.isDark))
+                .fontColor(Theme.textPrimary(this.isDark))
                 .onClick(() => {
                   this.showRenameDialog = false;
                 })
               Button('保存')
                 .layoutWeight(1)
-                .backgroundColor(Theme.primary(Theme.isDark()))
+                .backgroundColor(Theme.primary(this.isDark))
                 .onClick(() => this.confirmRename())
             }
             .width('100%')
             Button('删除歌单')
               .width('100%')
-              .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
-              .fontColor(Theme.danger(Theme.isDark()))
-              .onClick(() => this.deletePlaylist())
+              .backgroundColor(Theme.surfaceVariant(this.isDark))
+              .fontColor(Theme.danger(this.isDark))
+              .onClick(() => {
+                // Destructive and irreversible, so it now opens a confirmation
+                // instead of deleting on the first tap (static audit 2026-08-25).
+                this.showRenameDialog = false;
+                this.showDeleteConfirm = true;
+              })
           }
           .width('86%')
           .padding(20)
-          .backgroundColor(Theme.surface(Theme.isDark()))
+          .backgroundColor(Theme.surface(this.isDark))
           .borderRadius(18)
         }
         .width('100%')
         .height('100%')
         .justifyContent(FlexAlign.Center)
-        .backgroundColor(Theme.scrim(Theme.isDark()))
+        .backgroundColor(Theme.scrim(this.isDark))
         .onClick(() => {
           this.showRenameDialog = false;
+        })
+      }
+
+      if (this.showDeleteConfirm) {
+        Column() {
+          Column({ space: 12 }) {
+            Text('删除歌单')
+              .fontSize(17)
+              .fontWeight(FontWeight.Bold)
+              .fontColor(Theme.textPrimary(this.isDark))
+            Text(this.deleteWarning())
+              .fontSize(13)
+              .fontColor(Theme.textSecondary(this.isDark))
+              .width('100%')
+            Row({ space: 12 }) {
+              Button('取消')
+                .layoutWeight(1)
+                .backgroundColor(Theme.surfaceVariant(this.isDark))
+                .fontColor(Theme.textPrimary(this.isDark))
+                .onClick(() => {
+                  this.showDeleteConfirm = false;
+                })
+              Button('删除')
+                .layoutWeight(1)
+                .backgroundColor(Theme.danger(this.isDark))
+                .onClick(() => this.deletePlaylist())
+            }
+            .width('100%')
+          }
+          .width('86%')
+          .padding(20)
+          .backgroundColor(Theme.surface(this.isDark))
+          .borderRadius(18)
+        }
+        .width('100%')
+        .height('100%')
+        .justifyContent(FlexAlign.Center)
+        .backgroundColor(Theme.scrim(this.isDark))
+        .onClick(() => {
+          this.showDeleteConfirm = false;
         })
       }
     }
     .width('100%')
     .height('100%')
-    .backgroundColor(Theme.background(Theme.isDark()))
+    .backgroundColor(Theme.background(this.isDark))
   }
 }
