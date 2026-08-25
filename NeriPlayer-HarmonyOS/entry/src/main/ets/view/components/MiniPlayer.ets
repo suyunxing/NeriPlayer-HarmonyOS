@@ -7,6 +7,7 @@ import { platformName } from './Ui';
 
 @Component
 export struct MiniPlayer {
+  @StorageProp('theme.isDark') isDark: boolean = false; // see Theme.IS_DARK_KEY
   @StorageLink('player.currentSong') currentSongJson: string = '';
   @StorageLink('player.status') status: number = PlaybackStatus.IDLE;
   @StorageLink('player.positionMs') positionMs: number = 0;
@@ -48,8 +49,8 @@ export struct MiniPlayer {
         .width('100%')
         .height(2)
         .color(this.seedHex.length > 0
-          ? Theme.primaryFor(this.seedHex, Theme.isDark())
-          : Theme.primary(Theme.isDark()))
+          ? Theme.primaryFor(this.seedHex, this.isDark)
+          : Theme.primary(this.isDark))
         .backgroundColor('#22000000')
 
       Row({ space: 12 }) {
@@ -64,9 +65,9 @@ export struct MiniPlayer {
             Image($r('app.media.ic_music_note_24'))
               .width(22)
               .height(22)
-              .fillColor(Theme.primary(Theme.isDark()))
+              .fillColor(Theme.primary(this.isDark))
               .margin({ left: 11, right: 11, top: 11, bottom: 11 })
-              .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+              .backgroundColor(Theme.surfaceVariant(this.isDark))
               .borderRadius(8)
           }
         }
@@ -76,21 +77,21 @@ export struct MiniPlayer {
             Text(this.song().displayName)
               .fontSize(14)
               .fontWeight(FontWeight.Medium)
-              .fontColor(Theme.textPrimary(Theme.isDark()))
+              .fontColor(Theme.textPrimary(this.isDark))
               .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
             Text(platformName(this.song().platform))
               .fontSize(9)
-              .fontColor(Theme.primary(Theme.isDark()))
+              .fontColor(Theme.primary(this.isDark))
               .padding({ left: 5, right: 5, top: 1, bottom: 1 })
-              .backgroundColor(Theme.primaryContainer(Theme.isDark()))
+              .backgroundColor(Theme.primaryContainer(this.isDark))
               .borderRadius(5)
           }
           .width('100%')
 
           Text(this.song().displayArtist)
             .fontSize(11)
-            .fontColor(Theme.textSecondary(Theme.isDark()))
+            .fontColor(Theme.textSecondary(this.isDark))
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
             .width('100%')
@@ -110,8 +111,8 @@ export struct MiniPlayer {
         .height(40)
         .type(ButtonType.Circle)
         .backgroundColor(this.seedHex.length > 0
-          ? Theme.primaryFor(this.seedHex, Theme.isDark())
-          : Theme.primary(Theme.isDark()))
+          ? Theme.primaryFor(this.seedHex, this.isDark)
+          : Theme.primary(this.isDark))
         // Icon-only control: without an explicit label a screen reader reads
         // nothing at all (device audit 2026-08-24 found 9 such buttons).
         .accessibilityText(this.status === PlaybackStatus.PLAYING ? '暂停' : '播放')
@@ -123,7 +124,7 @@ export struct MiniPlayer {
           Image($r('app.media.round_skip_next_24'))
             .width(22)
             .height(22)
-            .fillColor(Theme.textPrimary(Theme.isDark()))
+            .fillColor(Theme.textPrimary(this.isDark))
         }
         // 36vp measured on device; 40vp is the touch-target floor this port holds to.
         .width(40)
@@ -171,7 +172,7 @@ export struct MiniPlayer {
       .scale(this.swiping ? { x: 0.975, y: 0.975 } : { x: 1, y: 1 })
     }
     .width('100%')
-    .backgroundColor(this.glassEffect ? Theme.surfaceGlass(Theme.isDark()) : Theme.surface(Theme.isDark()))
+    .backgroundColor(this.glassEffect ? Theme.surfaceGlass(this.isDark) : Theme.surface(this.isDark))
     .backgroundBlurStyle(this.glassEffect ? BlurStyle.COMPONENT_THICK : BlurStyle.NONE)
     .borderRadius(16)
     .clip(true)

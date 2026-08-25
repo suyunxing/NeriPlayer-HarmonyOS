@@ -10,6 +10,7 @@ import { BiliCookieRepository } from '../data/auth/BiliCookieRepository';
 import { GitHubConfigRepository } from '../sync/github/GitHubConfigRepository';
 import { WebDavConfigRepository } from '../sync/webdav/WebDavConfigRepository';
 import { SystemBars } from '../util/SystemBars';
+import { Theme } from '../view/Theme';
 import { ListenTogetherSessionManager } from '../listentogether/ListenTogetherSessionManager';
 import { CrashEventWatcher } from '../app/diagnostics/CrashEventWatcher';
 
@@ -33,6 +34,11 @@ export default class EntryAbility extends UIAbility {
     // light until the user toggled the system theme (static audit 2026-08-25).
     AppStorage.setOrCreate('systemDark',
       this.context.config.colorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK);
+    // Publish the resolved flag the whole view layer subscribes to. At this
+    // point only the settings *defaults* are in AppStorage (the persisted load
+    // in doInitialize is async), so an explicit light/dark choice is still
+    // pending — Index.aboutToAppear republishes once it has landed.
+    Theme.refreshIsDark();
     PlayerManager.initialize(this.context);
     ListenTogetherSessionManager.getInstance().start();
     DownloadEngine.init(this.context);
@@ -55,7 +61,7 @@ export default class EntryAbility extends UIAbility {
   onWindowStageCreate(windowStage: window.WindowStage): void {
     hilog.info(DOMAIN, TAG, 'Ability onWindowStageCreate');
     this.applyEdgeToEdge(windowStage);
-    SystemBars.apply(this.context, this.isDark());
+    SystemBars.apply(this.context, Theme.refreshIsDark());
     windowStage.loadContent('pages/Index', (error) => {
       if (error.code) {
         hilog.error(DOMAIN, TAG, 'Failed to load content: %{public}s', JSON.stringify(error));
@@ -75,21 +81,12 @@ export default class EntryAbility extends UIAbility {
   }
 
   onConfigurationUpdate(newConfig: Configuration): void {
-    const dark = newConfig.colorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK;
-    AppStorage.setOrCreate('systemDark', dark);
-    SystemBars.apply(this.context, dark);
-  }
-
-  private isDark(): boolean {
-    const mode = SettingsRepository.getString(SettingsRepository.KEY_DARK_MODE, 'auto');
-    if (mode === 'dark') {
-      return true;
-    }
-    if (mode === 'light') {
-      return false;
-    }
-    const systemDark = AppStorage.get<boolean>('systemDark');
-    return systemDark === true;
+    AppStorage.setOrCreate('systemDark',
+      newConfig.colorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK);
+    // System bars follow the *resolved* theme, not the raw system colorMode:
+    // with np.dark_mode pinned to light/dark, a system switch must not flip the
+    // bars out of step with the app surfaces.
+    SystemBars.apply(this.context, Theme.refreshIsDark());
   }
 
   private applyEdgeToEdge(windowStage: window.WindowStage): void {

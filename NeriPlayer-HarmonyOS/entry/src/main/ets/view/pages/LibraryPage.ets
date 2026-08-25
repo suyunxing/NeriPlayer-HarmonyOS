@@ -22,6 +22,7 @@ import { SETTING_ACCOUNTS } from './SettingsPage';
 
 @Component
 export struct LibraryPage {
+  @StorageProp('theme.isDark') isDark: boolean = false; // see Theme.IS_DARK_KEY
   @State playlists: Playlist[] = [];
   @State favorites: Playlist | null = null;
   @State downloadCount: number = 0;
@@ -149,7 +150,7 @@ export struct LibraryPage {
         Text('资料库')
           .fontSize(26)
           .fontWeight(FontWeight.Bold)
-          .fontColor(Theme.textPrimary(Theme.isDark()))
+          .fontColor(Theme.textPrimary(this.isDark))
           .width('100%')
           .margin({ top: 12 })
 
@@ -210,7 +211,7 @@ export struct LibraryPage {
           })
         }
         .width('100%')
-        .backgroundColor(Theme.surface(Theme.isDark()))
+        .backgroundColor(Theme.surface(this.isDark))
         .borderRadius(Theme.cardRadius())
         .clip(true)
 
@@ -218,12 +219,12 @@ export struct LibraryPage {
           Text('本地歌单')
             .fontSize(18)
             .fontWeight(FontWeight.Bold)
-            .fontColor(Theme.textPrimary(Theme.isDark()))
+            .fontColor(Theme.textPrimary(this.isDark))
             .layoutWeight(1)
           Button('＋ 新建')
             .height(40)
             .fontSize(13)
-            .backgroundColor(Theme.primary(Theme.isDark()))
+            .backgroundColor(Theme.primary(this.isDark))
             .onClick(() => this.createPlaylist())
         }
         .width('100%')
@@ -242,31 +243,31 @@ export struct LibraryPage {
                 Image($r('app.media.ic_library_music_24'))
                   .width(22)
                   .height(22)
-                  .fillColor(Theme.primary(Theme.isDark()))
+                  .fillColor(Theme.primary(this.isDark))
                   .margin({ left: 11, right: 11, top: 11, bottom: 11 })
-                  .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+                  .backgroundColor(Theme.surfaceVariant(this.isDark))
                   .borderRadius(8)
                 Column({ space: 2 }) {
                   Text(playlist.name)
                     .fontSize(15)
                     .fontWeight(FontWeight.Medium)
-                    .fontColor(Theme.textPrimary(Theme.isDark()))
+                    .fontColor(Theme.textPrimary(this.isDark))
                     .maxLines(1)
                     .textOverflow({ overflow: TextOverflow.Ellipsis })
                   Text(playlist.songKeys.length > 0 ? `${playlist.songKeys.length} 首` : '空歌单')
                     .fontSize(12)
-                    .fontColor(Theme.textSecondary(Theme.isDark()))
+                    .fontColor(Theme.textSecondary(this.isDark))
                 }
                 .layoutWeight(1)
                 .alignItems(HorizontalAlign.Start)
                 Image($r('app.media.ic_chevron_right_24'))
                   .width(18)
                   .height(18)
-                  .fillColor(Theme.textDisabled(Theme.isDark()))
+                  .fillColor(Theme.textDisabled(this.isDark))
               }
               .width('100%')
               .padding({ left: 14, right: 14, top: 10, bottom: 10 })
-              .backgroundColor(Theme.surface(Theme.isDark()))
+              .backgroundColor(Theme.surface(this.isDark))
               .onClick(() => Router.push(Router.PLAYLIST_DETAIL, playlist.id))
             }, (playlist: Playlist) => playlist.id)
           }
@@ -280,13 +281,13 @@ export struct LibraryPage {
             Text('网易云歌单')
               .fontSize(18)
               .fontWeight(FontWeight.Bold)
-              .fontColor(Theme.textPrimary(Theme.isDark()))
+              .fontColor(Theme.textPrimary(this.isDark))
               .layoutWeight(1)
             Button(this.neteaseLoading ? '加载中…' : '刷新')
               .height(40)
               .fontSize(13)
-              .backgroundColor(Theme.surface(Theme.isDark()))
-              .fontColor(Theme.textPrimary(Theme.isDark()))
+              .backgroundColor(Theme.surface(this.isDark))
+              .fontColor(Theme.textPrimary(this.isDark))
               .enabled(!this.neteaseLoading)
               .onClick(() => this.refreshNeteasePlaylists())
           }
@@ -297,11 +298,11 @@ export struct LibraryPage {
             Column({ space: 8 }) {
               Text(`加载失败：${this.neteaseError}`)
                 .fontSize(13)
-                .fontColor(Theme.textSecondary(Theme.isDark()))
+                .fontColor(Theme.textSecondary(this.isDark))
               Button('重试')
                 .height(40)
                 .fontSize(13)
-                .backgroundColor(Theme.primary(Theme.isDark()))
+                .backgroundColor(Theme.primary(this.isDark))
                 .onClick(() => this.refreshNeteasePlaylists())
             }
             .width('100%')
@@ -322,37 +323,37 @@ export struct LibraryPage {
                       .height(44)
                       .borderRadius(8)
                       .objectFit(ImageFit.Cover)
-                      .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+                      .backgroundColor(Theme.surfaceVariant(this.isDark))
                   } else {
                     Image($r('app.media.ic_music_note_24'))
                       .width(22)
                       .height(22)
-                      .fillColor(Theme.primary(Theme.isDark()))
+                      .fillColor(Theme.primary(this.isDark))
                       .margin({ left: 11, right: 11, top: 11, bottom: 11 })
-                      .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+                      .backgroundColor(Theme.surfaceVariant(this.isDark))
                       .borderRadius(8)
                   }
                   Column({ space: 2 }) {
                     Text(item.name)
                       .fontSize(15)
                       .fontWeight(FontWeight.Medium)
-                      .fontColor(Theme.textPrimary(Theme.isDark()))
+                      .fontColor(Theme.textPrimary(this.isDark))
                       .maxLines(1)
                       .textOverflow({ overflow: TextOverflow.Ellipsis })
                     Text(item.trackCount > 0 ? `${item.trackCount} 首` : '空歌单')
                       .fontSize(12)
-                      .fontColor(Theme.textSecondary(Theme.isDark()))
+                      .fontColor(Theme.textSecondary(this.isDark))
                   }
                   .layoutWeight(1)
                   .alignItems(HorizontalAlign.Start)
                   Image($r('app.media.ic_chevron_right_24'))
                     .width(18)
                     .height(18)
-                    .fillColor(Theme.textDisabled(Theme.isDark()))
+                    .fillColor(Theme.textDisabled(this.isDark))
                 }
                 .width('100%')
                 .padding({ left: 14, right: 14, top: 10, bottom: 10 })
-                .backgroundColor(Theme.surface(Theme.isDark()))
+                .backgroundColor(Theme.surface(this.isDark))
                 .onClick(() => Router.push(Router.NETEASE_PLAYLIST, `${item.id}`))
               }, (item: NeteasePlaylistSummary) => `${item.id}`)
             }
@@ -367,13 +368,13 @@ export struct LibraryPage {
             Text('B 站收藏夹')
               .fontSize(18)
               .fontWeight(FontWeight.Bold)
-              .fontColor(Theme.textPrimary(Theme.isDark()))
+              .fontColor(Theme.textPrimary(this.isDark))
               .layoutWeight(1)
             Button(this.biliLoading ? '加载中…' : '刷新')
               .height(40)
               .fontSize(13)
-              .backgroundColor(Theme.surface(Theme.isDark()))
-              .fontColor(Theme.textPrimary(Theme.isDark()))
+              .backgroundColor(Theme.surface(this.isDark))
+              .fontColor(Theme.textPrimary(this.isDark))
               .enabled(!this.biliLoading)
               .onClick(() => this.refreshBiliFavFolders())
           }
@@ -384,11 +385,11 @@ export struct LibraryPage {
             Column({ space: 8 }) {
               Text(`加载失败：${this.biliError}`)
                 .fontSize(13)
-                .fontColor(Theme.textSecondary(Theme.isDark()))
+                .fontColor(Theme.textSecondary(this.isDark))
               Button('重试')
                 .height(40)
                 .fontSize(13)
-                .backgroundColor(Theme.primary(Theme.isDark()))
+                .backgroundColor(Theme.primary(this.isDark))
                 .onClick(() => this.refreshBiliFavFolders())
             }
             .width('100%')
@@ -409,36 +410,36 @@ export struct LibraryPage {
                       .height(44)
                       .borderRadius(8)
                       .objectFit(ImageFit.Cover)
-                      .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+                      .backgroundColor(Theme.surfaceVariant(this.isDark))
                   } else {
                     Image($r('app.media.ic_bilibili'))
                       .width(24)
                       .height(24)
                       .margin({ left: 10, right: 10, top: 10, bottom: 10 })
-                      .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+                      .backgroundColor(Theme.surfaceVariant(this.isDark))
                       .borderRadius(8)
                   }
                   Column({ space: 2 }) {
                     Text(item.title)
                       .fontSize(15)
                       .fontWeight(FontWeight.Medium)
-                      .fontColor(Theme.textPrimary(Theme.isDark()))
+                      .fontColor(Theme.textPrimary(this.isDark))
                       .maxLines(1)
                       .textOverflow({ overflow: TextOverflow.Ellipsis })
                     Text(item.mediaCount > 0 ? `${item.mediaCount} 条` : '空收藏夹')
                       .fontSize(12)
-                      .fontColor(Theme.textSecondary(Theme.isDark()))
+                      .fontColor(Theme.textSecondary(this.isDark))
                   }
                   .layoutWeight(1)
                   .alignItems(HorizontalAlign.Start)
                   Image($r('app.media.ic_chevron_right_24'))
                     .width(18)
                     .height(18)
-                    .fillColor(Theme.textDisabled(Theme.isDark()))
+                    .fillColor(Theme.textDisabled(this.isDark))
                 }
                 .width('100%')
                 .padding({ left: 14, right: 14, top: 10, bottom: 10 })
-                .backgroundColor(Theme.surface(Theme.isDark()))
+                .backgroundColor(Theme.surface(this.isDark))
                 .onClick(() => Router.push(Router.BILI_FAV, `${item.mediaId}`))
               }, (item: BiliFavFolderSummary) => `${item.mediaId}`)
             }
@@ -452,13 +453,13 @@ export struct LibraryPage {
           Text('本地音频')
             .fontSize(18)
             .fontWeight(FontWeight.Bold)
-            .fontColor(Theme.textPrimary(Theme.isDark()))
+            .fontColor(Theme.textPrimary(this.isDark))
             .layoutWeight(1)
           Button('扫描')
             .height(40)
             .fontSize(13)
-            .backgroundColor(Theme.surface(Theme.isDark()))
-            .fontColor(Theme.textPrimary(Theme.isDark()))
+            .backgroundColor(Theme.surface(this.isDark))
+            .fontColor(Theme.textPrimary(this.isDark))
             .onClick(() => this.scanLocal())
         }
         .width('100%')
@@ -474,7 +475,7 @@ export struct LibraryPage {
         Text('平台')
           .fontSize(18)
           .fontWeight(FontWeight.Bold)
-          .fontColor(Theme.textPrimary(Theme.isDark()))
+          .fontColor(Theme.textPrimary(this.isDark))
           .width('100%')
           .margin({ top: 12 })
 
@@ -515,7 +516,7 @@ export struct LibraryPage {
           })
         }
         .width('100%')
-        .backgroundColor(Theme.surface(Theme.isDark()))
+        .backgroundColor(Theme.surface(this.isDark))
         .borderRadius(Theme.cardRadius())
         .clip(true)
       }
@@ -526,7 +527,7 @@ export struct LibraryPage {
         .scrollBar(BarState.Off)
         .width('100%')
         .height('100%')
-        .backgroundColor(Theme.background(Theme.isDark()))
+        .backgroundColor(Theme.background(this.isDark))
 
       if (this.showCreateDialog) {
         Column() {
@@ -534,7 +535,7 @@ export struct LibraryPage {
             Text('新建歌单')
               .fontSize(17)
               .fontWeight(FontWeight.Bold)
-              .fontColor(Theme.textPrimary(Theme.isDark()))
+              .fontColor(Theme.textPrimary(this.isDark))
             TextInput({ placeholder: '输入歌单名称', text: this.newPlaylistName })
               .onChange((value: string) => {
                 this.newPlaylistName = value;
@@ -542,27 +543,27 @@ export struct LibraryPage {
             Row({ space: 12 }) {
               Button('取消')
                 .layoutWeight(1)
-                .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
-                .fontColor(Theme.textPrimary(Theme.isDark()))
+                .backgroundColor(Theme.surfaceVariant(this.isDark))
+                .fontColor(Theme.textPrimary(this.isDark))
                 .onClick(() => {
                   this.showCreateDialog = false;
                 })
               Button('创建')
                 .layoutWeight(1)
-                .backgroundColor(Theme.primary(Theme.isDark()))
+                .backgroundColor(Theme.primary(this.isDark))
                 .onClick(() => this.confirmCreate())
             }
             .width('100%')
           }
           .width('86%')
           .padding(20)
-          .backgroundColor(Theme.surface(Theme.isDark()))
+          .backgroundColor(Theme.surface(this.isDark))
           .borderRadius(18)
         }
         .width('100%')
         .height('100%')
         .justifyContent(FlexAlign.Center)
-        .backgroundColor(Theme.scrim(Theme.isDark()))
+        .backgroundColor(Theme.scrim(this.isDark))
         .onClick(() => {
           this.showCreateDialog = false;
         })
@@ -575,6 +576,7 @@ export struct LibraryPage {
 
 @Component
 struct StatCard {
+  @StorageProp('theme.isDark') isDark: boolean = false; // see Theme.IS_DARK_KEY
   icon: string = '';
   value: string = '';
   label: string = '';
@@ -585,20 +587,20 @@ struct StatCard {
       Image(iconForLegacy(this.icon, $r('app.media.ic_music_note_24')))
         .width(22)
         .height(22)
-        .fillColor(Theme.primary(Theme.isDark()))
+        .fillColor(Theme.primary(this.isDark))
       Text(this.value)
         .fontSize(14)
         .fontWeight(FontWeight.Bold)
-        .fontColor(Theme.textPrimary(Theme.isDark()))
+        .fontColor(Theme.textPrimary(this.isDark))
         .maxLines(1)
       Text(this.label)
         .fontSize(11)
-        .fontColor(Theme.textSecondary(Theme.isDark()))
+        .fontColor(Theme.textSecondary(this.isDark))
         .maxLines(1)
     }
     .layoutWeight(1)
     .padding({ top: 14, bottom: 14, left: 6, right: 6 })
-    .backgroundColor(Theme.surface(Theme.isDark()))
+    .backgroundColor(Theme.surface(this.isDark))
     .borderRadius(14)
     .onClick(() => this.onTap())
   }

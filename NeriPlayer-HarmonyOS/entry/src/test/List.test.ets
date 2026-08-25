@@ -60,6 +60,7 @@ import dynamicThemeTest from './ets/test/DynamicTheme.test';
 import ttmlParserTest from './ets/test/TtmlParser.test';
 import amllLyricsResolverTest from './ets/test/AmllLyricsResolver.test';
 import lyricLineTrackerTest from './ets/test/LyricLineTracker.test';
+import lyricIndexResolverTest from './ets/test/LyricIndexResolver.test';
 import diagnosticsTest from './ets/test/Diagnostics.test';
 import routeStackTest from './ets/test/RouteStack.test';
 import playbackSpeedMapTest from './ets/test/PlaybackSpeedMap.test';
@@ -127,6 +128,7 @@ export default function testsuite(): void {
   ttmlParserTest();
   amllLyricsResolverTest();
   lyricLineTrackerTest();
+  lyricIndexResolverTest();
   diagnosticsTest();
   routeStackTest();
   playbackSpeedMapTest();

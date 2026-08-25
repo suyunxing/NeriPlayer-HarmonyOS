@@ -19,6 +19,7 @@ import { Theme } from '../Theme';
  */
 @Component
 export struct LyricShareSheet {
+  @StorageProp('theme.isDark') isDark: boolean = false; // see Theme.IS_DARK_KEY
   // @Prop inputs: the parent feeds them from its own state-linked values,
   // and ArkTS forbids assigning a parent @StorageProp into a regular member.
   @Prop lyrics: LyricLine[] = [];
@@ -174,11 +175,11 @@ export struct LyricShareSheet {
           Text('分享歌词卡片')
             .fontSize(17)
             .fontWeight(FontWeight.Bold)
-            .fontColor(Theme.textPrimary(Theme.isDark()))
+            .fontColor(Theme.textPrimary(this.isDark))
             .layoutWeight(1)
           Text('关闭')
             .fontSize(14)
-            .fontColor(Theme.primary(Theme.isDark()))
+            .fontColor(Theme.primary(this.isDark))
             .onClick(() => this.onClose())
         }
         .width('100%')
@@ -199,11 +200,11 @@ export struct LyricShareSheet {
               Row({ space: 10 }) {
                 Checkbox()
                   .select(this.isSelected(index))
-                  .selectedColor(Theme.primary(Theme.isDark()))
+                  .selectedColor(Theme.primary(this.isDark))
                   .onChange(() => this.toggle(index))
                 Text(line.text)
                   .fontSize(13)
-                  .fontColor(Theme.textPrimary(Theme.isDark()))
+                  .fontColor(Theme.textPrimary(this.isDark))
                   .maxLines(1)
                   .textOverflow({ overflow: TextOverflow.Ellipsis })
                   .layoutWeight(1)
@@ -221,15 +222,15 @@ export struct LyricShareSheet {
         if (this.statusMessage.length > 0) {
           Text(this.statusMessage)
             .fontSize(12)
-            .fontColor(Theme.textSecondary(Theme.isDark()))
+            .fontColor(Theme.textSecondary(this.isDark))
         }
 
         Row({ space: 10 }) {
           Button('复制文本')
             .layoutWeight(1)
             .height(40)
-            .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
-            .fontColor(Theme.textPrimary(Theme.isDark()))
+            .backgroundColor(Theme.surfaceVariant(this.isDark))
+            .fontColor(Theme.textPrimary(this.isDark))
             .onClick(() => this.copyText())
           Column() {
             SaveButton({
@@ -254,12 +255,12 @@ export struct LyricShareSheet {
       .width('100%')
       .height('76%')
       .padding(16)
-      .backgroundColor(Theme.surface(Theme.isDark()))
+      .backgroundColor(Theme.surface(this.isDark))
       .borderRadius({ topLeft: 22, topRight: 22 })
     }
     .width('100%')
     .height('100%')
-    .backgroundColor(Theme.scrim(Theme.isDark()))
+    .backgroundColor(Theme.scrim(this.isDark))
     .onClick(() => this.onClose())
   }
 }

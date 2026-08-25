@@ -19,6 +19,7 @@ import { Theme } from '../Theme';
 
 @Component
 export struct DebugPage {
+  @StorageProp('theme.isDark') isDark: boolean = false; // see Theme.IS_DARK_KEY
   @State result: string = '';
   @State proxyHost: string = '';
   @State proxyPort: string = '';
@@ -207,8 +208,8 @@ export struct DebugPage {
     Button(label)
       .width('100%')
       .height(44)
-      .backgroundColor(Theme.surface(Theme.isDark()))
-      .fontColor(Theme.textPrimary(Theme.isDark()))
+      .backgroundColor(Theme.surface(this.isDark))
+      .fontColor(Theme.textPrimary(this.isDark))
       .margin({ bottom: 8 })
       .onClick(() => action())
   }
@@ -223,13 +224,13 @@ export struct DebugPage {
           .accessibilityText('返回')
           .type(ButtonType.Circle)
           .backgroundColor(Color.Transparent)
-          .fontColor(Theme.textPrimary(Theme.isDark()))
+          .fontColor(Theme.textPrimary(this.isDark))
           .fontSize(22)
           .onClick(() => Router.pop())
         Text('调试')
           .fontSize(18)
           .fontWeight(FontWeight.Bold)
-          .fontColor(Theme.textPrimary(Theme.isDark()))
+          .fontColor(Theme.textPrimary(this.isDark))
       }
       .width('100%')
       .padding({ left: 12, right: 12, top: 8, bottom: 8 })
@@ -253,7 +254,7 @@ export struct DebugPage {
 
           Text('HTTP 代理（模拟器填宿主机 10.0.2.2:7897；同时用于接口请求与媒体拉流）')
             .fontSize(12)
-            .fontColor(Theme.textSecondary(Theme.isDark()))
+            .fontColor(Theme.textSecondary(this.isDark))
             .width('100%')
           TextInput({ placeholder: '代理主机（如 10.0.2.2）', text: this.proxyHost })
             .height(40)
@@ -271,13 +272,13 @@ export struct DebugPage {
             Button('应用代理')
               .layoutWeight(1)
               .height(40)
-              .backgroundColor(Theme.primary(Theme.isDark()))
+              .backgroundColor(Theme.primary(this.isDark))
               .onClick(() => this.applyProxy())
             Button('清除')
               .layoutWeight(1)
               .height(40)
-              .backgroundColor(Theme.surface(Theme.isDark()))
-              .fontColor(Theme.textPrimary(Theme.isDark()))
+              .backgroundColor(Theme.surface(this.isDark))
+              .fontColor(Theme.textPrimary(this.isDark))
               .onClick(() => this.clearProxy())
           }
           .width('100%')
@@ -285,16 +286,16 @@ export struct DebugPage {
 
           Text('USB 独占播放按 M9.1 spike 结论不移植（USB DAC 走系统音频路径，见 docs/USB_M91_SPIKE.md）；YTM 完整播放待 D2 决策')
             .fontSize(12)
-            .fontColor(Theme.textSecondary(Theme.isDark()))
+            .fontColor(Theme.textSecondary(this.isDark))
             .width('100%')
             .padding(12)
 
           Text(this.result)
             .fontSize(13)
-            .fontColor(Theme.primary(Theme.isDark()))
+            .fontColor(Theme.primary(this.isDark))
             .width('100%')
             .padding(12)
-            .backgroundColor(Theme.surface(Theme.isDark()))
+            .backgroundColor(Theme.surface(this.isDark))
             .borderRadius(12)
         }
         .padding({ left: 16, right: 16 })
@@ -306,6 +307,6 @@ export struct DebugPage {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor(Theme.background(Theme.isDark()))
+    .backgroundColor(Theme.background(this.isDark))
   }
 }

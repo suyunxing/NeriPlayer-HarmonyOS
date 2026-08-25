@@ -147,12 +147,13 @@ AppScope/resources/base/profile/configuration.json
 - 元数据 tag 写入无公开 API，下载曲目以 sidecar 编目承载。
 - 省流同步写出降级为 JSON（读三格式全兼容）。
 - **设置页三处功能占位**（点击只弹 toast，不是可用功能，发布说明必须列出）：下载目录选择 `SettingsDetailPage.ets:805`「目录选择待移植」、语言切换 `:897`/`:899`「简体中文（更多语言待移植）」、YouTube 登录 `:1022`/`:1024`「Cookie 会话待移植」。
-- **另有三处「静默失效」的 UI，比上面三处更隐蔽**（2026-08-25 静态审查新增，来源 `docs/UI_REVIEW_M11.md` §3 ❹❺❻；上面三处至少弹 toast 告知用户，这三处不给任何反馈，用户会以为功能已生效）：
-  - 歌词模糊效果开关 `SettingsDetailPage.ets:873-879`：写 `np.lyric_blur`，但该键在全 `main/ets` 只出现在 `SettingsRepository.ets:49`（声明）与 `SettingsDetailPage.ets:85`（回显），**无任何消费方**；开关如实显示「已开启/已关闭」而歌词渲染不受影响。处置登记为 M11.2。
-  - 播放页「歌词/封面」切换不持久化：`SettingsRepository.ets:27` 声明的 `np.show_lyrics`（默认 `true`）全工程无第二处引用，`NowPlayingPage.ets:41` 用的是本地 `@State showLyrics` → 每次进播放页都重置，用户偏好被忽略。处置登记为 M11.1。
-  - 歌曲行菜单两项无实现：`SongRow.ets:138-141`「加入歌单」与 `:146-151`「分享」的 `onTap` 只执行 `this.menuOpen = false`。处置登记为 M11.1。
+- **另有三处「静默失效」的 UI，比上面三处更隐蔽**（2026-08-25 静态审查新增，来源 `docs/UI_REVIEW_M11.md` §3 ❹❺❻；上面三处至少弹 toast 告知用户，这三处不给任何反馈，用户会以为功能已生效）。**2026-08-26 M11.1/M11.2 已处置全部三处**（构建 + 单测已过，设备未验证）：
+  - ~~歌词模糊效果开关 `SettingsDetailPage.ets:873-879` 写 `np.lyric_blur` 但无任何消费方~~ → **已接线**（M11.2）：`LyricView.ets` 新增 `@StorageProp('np.lyric_blur')`，按与活跃行的距离对非活跃行做 `.blur()`（0–4vp 饱和），对齐 Android `AdvancedLyricsView.lyricBlurEnabled`。注意审查原文建议"对当前行做 `.blur(4)`"方向相反（会把正在读的那行糊掉），未采纳。**模糊的实际观感与性能开销未经设备验证。**
+  - ~~播放页「歌词/封面」切换不持久化（`NowPlayingPage.ets:41` 用本地 `@State showLyrics`）~~ → **已修**（M11.1）：改为 `@StorageProp('np.show_lyrics')`，切换走 `SettingsRepository.setBoolean` 落 `AppPreferences`。
+  - ~~歌曲行菜单「加入歌单」「分享」的 `onTap` 只关菜单~~ → **已改为如实告知**（M11.1）：标签加「（暂不可用）」后缀，点击弹 toast 指向可用替代（收藏 / 播放页「分享」歌词卡片）。**这两项功能本身仍未移植**，发布说明仍须列出。
+- **歌单搜索未移植**（2026-08-26 新登记）：探索页「搜索歌单」卡片此前带 `›` 指示符却无 `onClick`（点击无反应）。现已补 toast 并把副标题改为「待移植；可在「资料库」打开已导入的歌单与收藏夹」——没有歌单搜索 API，且 `NeteasePlaylistPage`/`BiliFavPage` 都要求具体 id 入参，无可诚实跳转的目标。
 - B 站收藏页（`BiliFavPage`）本轮**未走查**：进入需 Bilibili 登录态，无可用账号 → 其布局在任何字号/形态下都未验证。
-- **歌词视图不随播放位置自动滚动**（2026-08-25 静态审查，`UI_REVIEW_M11.md` §3 ❶）：`LyricView.ets:63` 是裸 `Scroll()`，无 `Scroller` 控制器（全工程 `scrollToIndex`/`scrollTo` 命中 0），当前行只改字号/颜色/粗细，视口永不跟随，用户须手动滚动才能看到当前歌词。Android 对照实现为 `SyncedLyricsView.kt`(1062) + `AdvancedLyricsView.kt`(415)。处置登记为 M11.2。
+- ~~**歌词视图不随播放位置自动滚动**~~（2026-08-25 登记，2026-08-26 M11.2 已实现）：`LyricView.ets` 现持有 `Scroller`，按 `player.positionMs` 解析活跃行并把它滚到视口 **30%**（对齐 Android `playedLyricViewportFraction = 0.30f`），行几何经 `onAreaChange` 实测、首末行留 30%/70% 内边距以便同样能进入该带位，手动触摸后 2.5s 内不抢滚动（点击某行 seek 会立即重新接管）。**⚠️ 滚动流畅度、30% 落点、模糊开销均未在设备上验证**——门槛只过了构建与单测。Android 对照实现为 `SyncedLyricsView.kt`(1062) + `AdvancedLyricsView.kt`(415)。
 
 ## 7. 验证证据（本轮，2026-08-24）
 

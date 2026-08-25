@@ -346,23 +346,27 @@ WebSocket 统一封装心跳、重连、序列号、超时和关闭原因。
 
 使用与项目基线匹配的 DevEco Studio 和 HarmonyOS SDK。命令行工具应来自同一套开发套件，避免 PATH 中混用不同版本的 `hvigorw`、`ohpm`、`hdc`。
 
-当前可用环境位于 `D:\HarmonyOS\Tools\`（2026-08-14 迁移后布局；同日已修复用户级 PATH 与 `DEVECO_SDK_HOME`/`HOS_SDK_HOME`/`DEVECO_STUDIO_HOME` 环境变量，新终端可直接裸调 `ohpm`/`hvigorw`/`hdc`）：
+当前可用环境位于 `E:\DevEco Studio\`（2026-08-26 实测校正：旧记录的 `D:\HarmonyOS\Tools\` 布局**整条路径已不存在**，环境已迁移到 DevEco Studio 自带工具链，`command-line-tools` 不再安装；用户级 `DEVECO_SDK_HOME`/`HOS_SDK_HOME`/`DEVECO_STUDIO_HOME` 均已指向新位置）：
 
-- 命令行工具 6.1.1.300（`command-line-tools\`）：`bin\ohpm.bat`（ohpm 6.1.2.285）、`bin\hvigorw.bat`（Hvigor 6.24.4，包装器自动定位 SDK 与 Node）、`codelinter`、`Emulator`，Node.js 18.20.1 在 `tool\node\`。
-- HarmonyOS SDK 6.1.1.125 / API 24 Release（`command-line-tools\sdk\default`，本机唯一完整的 API 24 SDK）；`hdc.exe` 在其 `openharmony\toolchains\` 下。
-- DevEco Studio 26.0.0.621 Beta2（`devecostudio-windows-26.0.0.621\DevEco Studio\`）：完整 IDE（jbr、tools\hvigor、tools\ohpm），自带 API 26 Beta2 SDK，当前主力 IDE。**其 hvigor（6.26.x）不能构建 6.1.1(24) 工程（错误 00303031），构建必须用 command-line-tools 的 hvigorw；其 jbr 的 java 可用于运行 hap-sign-tool。**
-- 模拟器系统镜像：仅 HarmonyOS-6.1.1（API 24，phone_all_x86）；已部署 4 个 AVD（Pura 90、Mate X7、MateBook Pro、MatePad Pro 13）。API 26 镜像未下载，鸿蒙 7.0 模拟器验证前需在 SDK Manager 补齐。
-- 本地调试签名：用户级环境变量 `NERIPLAYER_SIGNING_PASSWORD` 保存 33 位口令（`signing/OpenHarmony.p12` 为 SDK stock 调试密钥对的重加密副本，旧口令未知已于 2026-08-14 重置；原文件备份为 `signing/OpenHarmony.p12.bak-20260814`）。
+- DevEco Studio **6.1.1.300**（`build.txt` = `DS-243.24978.46.36.611300`）：完整 IDE，含 `jbr\bin\java.exe` 与 `keytool.exe`（可运行 hap-sign-tool），以及 `tools\hvigor`、`tools\ohpm`、`tools\node`、`tools\emulator`。
+- `tools\hvigor\bin\hvigorw.bat`：Hvigor **6.24.4**（`--version` 实测），可直接构建本工程。
+- `tools\ohpm\bin\ohpm.bat`；Node 在 `tools\node\`。
+- HarmonyOS SDK 6.1.1.125 / API 24 Release：`sdk\default`（`sdk-pkg.json` 实测；本机唯一 SDK）；`hdc.exe` 在其 `openharmony\toolchains\` 下，`hap-sign-tool.jar` 与 `OpenHarmony.p12` 在同目录的 `lib\`。
+- ~~DevEco Studio 26.0.0.621 Beta2 / API 26 SDK~~ —— 已不在本机，鸿蒙 7.0 相关验证当前无环境。
+- ~~"26 Beta2 的 hvigor 不能构建 6.1.1(24)（00303031），构建必须用 command-line-tools 的 hvigorw"~~ —— 该结论随两者一并**作废**：现在只有 Studio 6.1.1.300 自带的 hvigor 6.24.4，与 API 24 SDK 版本自洽，**只能也应当**用它构建。
+- ~~"静态检查用 `codelinter`"~~ —— **命令行入口已不存在**，只剩 IDE 插件 `E:\DevEco Studio\plugins\codelinter`。历史上记录过两个互相矛盾的基线（"17 warn + 1 suggestion" 与 "24 warn + 2 suggestion"），**当前都无法从命令行复现**；命令行会话应如实记为"本轮未跑 lint"。
+- 模拟器：`tools\emulator\Emulator.exe`。2026-08-26 实测 `hdc list targets` 返回 `127.0.0.1:5555` 且存活（`param get` → `const.product.model`=`emulator`、`const.ohos.apiversion`=**24**、`const.ohos.fullname`=`OpenHarmony-6.1.1.125`）。⚠️ `tools\emulator\platforms\` 里只有 `qwindows.dll`，那是 **Qt 平台插件目录，不是系统镜像目录**，别据此判断"无镜像"；镜像 zip 实际暂存在 `%LOCALAPPDATA%\Huawei\Sdk\.temp\system-image,HarmonyOS-6.1.1,phone_all_x86\install\`（2.16 GB，2026-08-16，未解包进 SDK），`%LOCALAPPDATA%\Huawei\Emulator\deployed\phone_config.json` 为 `[]`（无 AVD 定义）。新建 AVD 仍需在 SDK Manager 内完成。
+- 本地调试签名：用户级环境变量 `NERIPLAYER_SIGNING_PASSWORD` 保存 33 位口令。**2026-08-26 实测该变量在当前会话未设置**，签名链无法启动（`sign-local.ps1` 强制要求口令 ≥32 字符，SDK 自带 `OpenHarmony.p12` 的公开默认口令 `123456` 会被直接拒绝）。
 
-项目 `local.properties` 应指向 SDK 根目录：
+项目 `local.properties` **当前不存在，且实测构建不需要它**（`DEVECO_SDK_HOME` 已足够）。若某工具坚持要求，按新路径重建：
 
 ```properties
-sdk.dir=D:/HarmonyOS/Tools/command-line-tools/sdk/default
+sdk.dir=E:/DevEco Studio/sdk/default
 ```
 
 不要把路径写成 `.../sdk/default/openharmony/default`；该目录不存在，并会触发“Cannot find the corresponding SDK version”错误。
 
-华为 6.1.1(24) 版本页在 2026-08-04 更新的配套信息为：API 24 Release、DevEco Studio 6.1.1 Release（最新列出的构建为 6.1.1.300）和 `Ohos_sdk_public 6.1.1.125`。当前本机 command-line-tools（6.1.1.300，SDK 6.1.1.125）与该配套关系一致。
+华为 6.1.1(24) 版本页在 2026-08-04 更新的配套信息为：API 24 Release、DevEco Studio 6.1.1 Release（最新列出的构建为 6.1.1.300）和 `Ohos_sdk_public 6.1.1.125`。当前本机 DevEco Studio 6.1.1.300 + SDK 6.1.1.125 与该配套关系一致。
 
 2026-08-13 的实际验证结果：依赖安装、干净 `clean`、Debug HAP 构建和 ArkTS 单元测试均成功。构建仍有 6 条“Function may throw exceptions”警告，分布在 `LibraryPage.ets`、`PlaylistDetailPage.ets` 和 `DebugPage.ets`，不影响当前产物生成，但应在后续错误处理专项中消除。
 
@@ -371,16 +375,27 @@ sdk.dir=D:/HarmonyOS/Tools/command-line-tools/sdk/default
 在 `NeriPlayer-HarmonyOS` 根目录执行（`hvigorw.bat` 包装器自动定位 SDK 与 Node，无需手动设置环境变量）：
 
 ```powershell
-$cli = 'D:\HarmonyOS\Tools\command-line-tools\bin'
+$hv   = 'E:\DevEco Studio\tools\hvigor\bin\hvigorw.bat'
+$ohpm = 'E:\DevEco Studio\tools\ohpm\bin\ohpm.bat'
 
-& "$cli\ohpm.bat" install --all
-& "$cli\hvigorw.bat" clean --no-daemon
-& "$cli\hvigorw.bat" assembleHap --mode module -p module=entry@default -p product=default -p buildMode=debug --no-daemon
-& "$cli\hvigorw.bat" test --mode module -p product=default -p buildMode=debug --no-daemon
-& "$cli\hvigorw.bat" assembleHap --mode module -p module=entry@ohosTest -p product=default -p buildMode=debug --no-daemon
+& $ohpm install --all
+& $hv clean --no-daemon
+& $hv assembleHap --mode module -p module=entry@default  -p product=default -p buildMode=debug --no-daemon
+& $hv test        --mode module                          -p product=default -p buildMode=debug --no-daemon
+& $hv assembleHap --mode module -p module=entry@ohosTest -p product=default -p buildMode=debug --no-daemon
 ```
 
-ohpm 官方默认 registry 为 `https://ohpm.openharmony.cn/ohpm/`，一般无需 `--registry` 覆盖。若在新终端中 PATH 已包含 `command-line-tools\bin`，可直接裸调 `ohpm`/`hvigorw`；旧会话进程持有迁移前环境变量，需完整路径并显式覆盖 `DEVECO_SDK_HOME`。
+⚠️ **`hvigorw test` 的 `BUILD SUCCESSFUL` 与退出码 0 不代表用例通过**（2026-08-26 实证：一个 `assertEqual` 失败时 hvigor 仍打印 `BUILD SUCCESSFUL`、`exit=0`，失败只体现在日志的 `ERROR: Error in <caseName>` 行）。真实结果必须读 `coverage.log`：
+
+```powershell
+Select-String -Path entry\.test\default\intermediates\test\coverage_data\coverage.log `
+  -Pattern 'OHOS_REPORT_RESULT: stream=Tests run:' | Select-Object -Last 1
+# 2026-08-26 基线：Tests run: 827, Failure: 0, Error: 0, Pass: 827
+```
+
+新增用例**必须注册进 `entry/src/test/List.test.ets`**；未注册的 suite 能编译但永不执行。
+
+ohpm 官方默认 registry 为 `https://ohpm.openharmony.cn/ohpm/`，一般无需 `--registry` 覆盖。
 
 CI 还应保存 SDK、Node、Hvigor、ohpm 版本和完整日志。
 不要提交 `.hvigor`、`build`、HAP、证书、Profile、私钥或含密码的本地配置。
@@ -391,22 +406,24 @@ CI 还应保存 SDK、Node、Hvigor、ohpm 版本和完整日志。
 
 ```powershell
 cd NeriPlayer-HarmonyOS
-.\sign-local.ps1 -HvigorwPath 'D:\HarmonyOS\Tools\command-line-tools\bin\hvigorw.bat'
+.\sign-local.ps1 -HvigorwPath 'E:\DevEco Studio\tools\hvigor\bin\hvigorw.bat'
 ```
 
-依赖的环境变量（用户级已持久化）：`DEVECO_SDK_HOME`（CLT 的 API 24 SDK）、`DEVECO_STUDIO_HOME`（26.0.0.621 Studio，提供 jbr java）、`NERIPLAYER_SIGNING_PASSWORD`（33 位调试口令）。`-HvigorwPath` 不可省略时使用 Studio hvigor 会因 26 Beta2 不支持 6.1.1(24) 而构建失败。口令要求至少 32 位；DevEco/SDK 附带的 OpenHarmony 示例签名材料不满足项目策略时，应使用 DevEco Studio 的调试签名配置或直接按官方 `hap-sign-tool.jar` 流程签名，不要降低正式密钥要求。
+依赖的环境变量：`DEVECO_SDK_HOME`（= `E:\DevEco Studio\sdk`，提供 hap-sign-tool 与 hdc）、`DEVECO_STUDIO_HOME`（= `E:\DevEco Studio`，提供 jbr java）、`NERIPLAYER_SIGNING_PASSWORD`（33 位调试口令）。口令要求至少 32 位；SDK 附带的 `OpenHarmony.p12`（公开默认口令 `123456`，含 `openharmony application profile debug` 别名）会被该校验直接拒绝，**不要为了绕过校验降低密钥要求**。
+
+**2026-08-26 实测的两条约束**：① `NERIPLAYER_SIGNING_PASSWORD` 未设置时签名链无法启动；② 模拟器上已安装的包是用私有 keystore 签的，换用 SDK 默认 keystore 签出的 HAP 签名不一致，`hdc install -r` 会失败，只能先 uninstall——而 uninstall **会丢掉 `preferences/neri_player_data` 等应用数据**。因此在没有该口令的会话里不要为了跑设备验证去 uninstall 用户的应用，应如实记录设备验证未执行。
 正式发布必须在 AppGallery Connect 创建应用，使用正式证书和 Profile 完成签名，并保护密钥和密码。
 
 建议 smoke test 至少覆盖：安装、启动、进入主界面、加载本地 fixture、播放/暂停/seek、系统媒体控制、退出和再次启动。
 多设备连接时显式选择目标设备，并在安装、启动或测试失败时让流水线失败。
 
-当前已验证的模拟器是 DevEco Studio 中已有的 `Pura 90`，HarmonyOS 6.1.1 / API 24。可使用 command-line-tools 自带的 Emulator 启动实例：
+当前已验证的模拟器是 DevEco Studio 中已有的 `Pura 90`，HarmonyOS 6.1.1 / API 24。可使用 DevEco Studio 自带的 Emulator 启动实例：
 
 ```powershell
-& 'D:\HarmonyOS\Tools\command-line-tools\emulator\Emulator.exe' `
+& 'E:\DevEco Studio\tools\emulator\Emulator.exe' `
   -start 'Pura 90' -bootmode coldboot
 
-$hdc = 'D:\HarmonyOS\Tools\command-line-tools\sdk\default\openharmony\toolchains\hdc.exe'
+$hdc = 'E:\DevEco Studio\sdk\default\openharmony\toolchains\hdc.exe'
 & $hdc list targets
 & $hdc install -r '.\entry\build\default\outputs\default\entry-default-signed.hap'
 & $hdc shell aa start -a EntryAbility -b moe.ouom.neriplayer -m entry
@@ -619,7 +636,7 @@ $hdc = 'D:\HarmonyOS\Tools\command-line-tools\sdk\default\openharmony\toolchains
 ### 7.9 2026-08-18 GitHub Actions CI 上线记录
 
 - 仓库根 `.github/workflows/harmonyos-ci.yml`（GitHub `suyunxing/NeriPlayer-HarmonyOS`，私有，当前默认分支 `su`）。触发：push 到 `main`、`dev`，PR 到 `main`、`dev` 或迁移期兼容分支 `su`（直接 push 到 `su` 不触发；paths 限定 `NeriPlayer-HarmonyOS/**` 与 workflow 自身）+ 手动 `workflow_dispatch`；同一 PR 或分支并发取消旧跑。dev 分支上早先手写的 `build-pr.yml` 草稿（npm install/hvigor 命令不可用）已删除，以本文件为准。
-- 工具链：`ErBWs/setup-ohos@v2` action，从社区镜像仓库 `ErBWs/ohos-sdk` Releases 下载 Command Line Tools **6.1.1.280**（SDK 6.1.1.125 / API 24，与本机 CLT 6.1.1.300 同 SDK 基线；hvigorw/ohpm/Node 进 PATH，`cache: true` 缓存 `~/ohos-sdk`）。华为官网 CLT 下载需账号登录无法直链，镜像分卷资产带 sha256 校验。**不要用镜像里的 26.0.0.621**：其 hvigor 6.26.x 不能构建 6.1.1(24) 工程（同 7.1 的 00303031 限制）。
+- 工具链：`ErBWs/setup-ohos@v2` action，从社区镜像仓库 `ErBWs/ohos-sdk` Releases 下载 Command Line Tools **6.1.1.280**（SDK 6.1.1.125 / API 24，与本机 DevEco Studio 6.1.1.300 自带的 SDK 同基线；hvigorw/ohpm/Node 进 PATH，`cache: true` 缓存 `~/ohos-sdk`）。华为官网 CLT 下载需账号登录无法直链，镜像分卷资产带 sha256 校验。**不要用镜像里的 26.0.0.621**：其 hvigor 6.26.x 不能构建 6.1.1(24) 工程（同 7.1 的 00303031 限制）。
 - 步骤：`apt libgl1-mesa-dev` → setup → `ohpm install --all` → debug `assembleHap` → 上传 debug unsigned HAP（PR 保留）→ push/手动运行时再构建并上传 release unsigned HAP（14 天）→ Linux 单测诊断。**hypium 本地 runner 在 Linux CI 上挂死**（`UnitTestArkTS` 编译完成后 `> hvigor Linux` 起零输出；本机 Windows 同命令可完成），故单测限时 4 分钟、保留退出码但不阻塞构建，打印 `.test` 目录树并上传 `test-output` artifact。缓存 `~/ohos-sdk`（action 自带）、`~/.ohpm`、`~/.hvigor`。
 - 已知事实：hypium 断言失败不会使 `hvigorw test` 非零退出（本机 StreamHeaders 用例失败仍 BUILD SUCCESSFUL/EXIT 0），CI 的单测把关需解析报告而非依赖退出码；Linux 挂死根因未明，修复后应移除限时与非阻塞。
 - 2026-08-18 首轮验证：run 32048335317（dev）单测步骤 40 分钟零输出超时取消；二轮 run 32083328097 通过（conclusion success）——单测 `exit=124` 挂死复现（`.test` 下仅 testability 骨架、outputs 从未生成），debug/release HAP 分别 19s/14s 构建成功，`hap-unsigned-2`（782KB）产物正常。工具链下载+解压约 3 分钟；被取消的 run 不写 actions/cache，需完整成功跑一次后后续 run 才命中缓存。

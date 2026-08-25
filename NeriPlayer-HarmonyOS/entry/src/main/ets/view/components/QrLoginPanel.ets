@@ -42,6 +42,7 @@ export class QrLoginPanelController {
  */
 @Component
 export struct QrLoginPanel {
+  @StorageProp('theme.isDark') isDark: boolean = false; // see Theme.IS_DARK_KEY
   controller: QrLoginPanelController | null = null;
   createSession: () => Promise<QrLoginSessionRef> = async (): Promise<QrLoginSessionRef> => new QrLoginSessionRef();
   pollSession: (session: QrLoginSessionRef) => Promise<QrPollOutcome> =
@@ -192,26 +193,26 @@ export struct QrLoginPanel {
         }
         Text(this.status)
           .fontSize(13)
-          .fontColor(Theme.textSecondary(Theme.isDark()))
+          .fontColor(Theme.textSecondary(this.isDark))
           .textAlign(TextAlign.Center)
         Row({ space: 10 }) {
           Button('刷新')
             .height(40)
             .fontSize(13)
-            .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
-            .fontColor(Theme.textPrimary(Theme.isDark()))
+            .backgroundColor(Theme.surfaceVariant(this.isDark))
+            .fontColor(Theme.textPrimary(this.isDark))
             .onClick(() => this.createQrSession())
           Button('取消')
             .height(40)
             .fontSize(13)
-            .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
-            .fontColor(Theme.textPrimary(Theme.isDark()))
+            .backgroundColor(Theme.surfaceVariant(this.isDark))
+            .fontColor(Theme.textPrimary(this.isDark))
             .onClick(() => this.cancel())
         }
       }
       .width('100%')
       .padding(16)
-      .backgroundColor(Theme.surface(Theme.isDark()))
+      .backgroundColor(Theme.surface(this.isDark))
       .borderRadius(Theme.cardRadius())
       .alignItems(HorizontalAlign.Center)
       .margin({ bottom: 8 })

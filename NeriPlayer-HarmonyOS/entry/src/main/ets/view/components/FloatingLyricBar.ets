@@ -13,6 +13,7 @@ import { Theme } from '../Theme';
  */
 @Component
 export struct FloatingLyricBar {
+  @StorageProp('theme.isDark') isDark: boolean = false; // see Theme.IS_DARK_KEY
   @StorageProp('np.floating_lyric') floatingEnabled: boolean = false;
   @StorageProp('player.currentLyricLine') @Watch('onLineChanged') lineFeed: string = '';
   @StorageLink('player.status') status: number = PlaybackStatus.IDLE;
@@ -27,14 +28,14 @@ export struct FloatingLyricBar {
       Row() {
         Text(this.lineText)
           .fontSize(13)
-          .fontColor(Theme.textPrimary(Theme.isDark()))
+          .fontColor(Theme.textPrimary(this.isDark))
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           .layoutWeight(1)
       }
       .width('88%')
       .padding({ left: 14, right: 14, top: 7, bottom: 7 })
-      .backgroundColor(Theme.withAlpha(Theme.surface(Theme.isDark()), 0xE6))
+      .backgroundColor(Theme.withAlpha(Theme.surface(this.isDark), 0xE6))
       .backgroundBlurStyle(BlurStyle.COMPONENT_THICK)
       .borderRadius(18)
       .shadow({ radius: 8, color: '#33000000', offsetY: 2 })

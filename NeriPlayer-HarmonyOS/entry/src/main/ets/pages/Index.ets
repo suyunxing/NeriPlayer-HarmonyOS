@@ -1,5 +1,6 @@
 import { SettingsRepository } from '../data/SettingsRepository';
 import { Router } from '../view/Router';
+import { Theme } from '../view/Theme';
 import { LoadingPage } from '../view/pages/LoadingPage';
 import { DisclaimerPage } from '../view/pages/DisclaimerPage';
 import { OnboardingPage } from '../view/pages/OnboardingPage';
@@ -35,6 +36,11 @@ struct Index {
     // configuration; overwriting it with false here reintroduced the light
     // flash on a dark-mode cold start (static audit 2026-08-25).
     await SettingsRepository.initialize();
+    // EntryAbility.onCreate could only resolve the theme from the defaults;
+    // the persisted np.dark_mode has landed by now, so republish before the
+    // main UI mounts (an explicit light/dark choice would otherwise render
+    // one frame in the system theme).
+    Theme.refreshIsDark();
     this.phase = this.resolvePhase();
     this.loadingDone = true;
   }

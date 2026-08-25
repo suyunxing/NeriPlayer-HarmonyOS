@@ -7,6 +7,7 @@ import { iconForLegacy } from '../../util/IconCatalog';
 
 @Component
 export struct StatsPage {
+  @StorageProp('theme.isDark') isDark: boolean = false; // see Theme.IS_DARK_KEY
   @State totalPlays: number = 0;
   @State totalListenMs: number = 0;
   @State topSongs: SongItem[] = [];
@@ -29,13 +30,13 @@ export struct StatsPage {
           .accessibilityText('返回')
           .type(ButtonType.Circle)
           .backgroundColor(Color.Transparent)
-          .fontColor(Theme.textPrimary(Theme.isDark()))
+          .fontColor(Theme.textPrimary(this.isDark))
           .fontSize(20)
           .onClick(() => Router.pop())
         Text('播放统计')
           .fontSize(20)
           .fontWeight(FontWeight.Bold)
-          .fontColor(Theme.textPrimary(Theme.isDark()))
+          .fontColor(Theme.textPrimary(this.isDark))
       }
       .width('100%')
       .padding({ left: 8, right: 14, top: 8, bottom: 8 })
@@ -45,7 +46,7 @@ export struct StatsPage {
           LoadingProgress()
             .width(36)
             .height(36)
-            .color(Theme.primary(Theme.isDark()))
+            .color(Theme.primary(this.isDark))
         }
         .layoutWeight(1)
         .width('100%')
@@ -66,7 +67,7 @@ export struct StatsPage {
           Text('最近播放')
             .fontSize(16)
             .fontWeight(FontWeight.Bold)
-            .fontColor(Theme.textPrimary(Theme.isDark()))
+            .fontColor(Theme.textPrimary(this.isDark))
             .width('100%')
 
           List() {
@@ -76,16 +77,16 @@ export struct StatsPage {
                   Image($r('app.media.ic_music_note_24'))
                     .width(18)
                     .height(18)
-                    .fillColor(Theme.primary(Theme.isDark()))
+                    .fillColor(Theme.primary(this.isDark))
                   Column({ space: 2 }) {
                     Text(song.displayName)
                       .fontSize(14)
-                      .fontColor(Theme.textPrimary(Theme.isDark()))
+                      .fontColor(Theme.textPrimary(this.isDark))
                       .maxLines(1)
                       .textOverflow({ overflow: TextOverflow.Ellipsis })
                     Text(song.displayArtist)
                       .fontSize(11)
-                      .fontColor(Theme.textSecondary(Theme.isDark()))
+                      .fontColor(Theme.textSecondary(this.isDark))
                       .maxLines(1)
                       .textOverflow({ overflow: TextOverflow.Ellipsis })
                   }
@@ -107,12 +108,13 @@ export struct StatsPage {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor(Theme.background(Theme.isDark()))
+    .backgroundColor(Theme.background(this.isDark))
   }
 }
 
 @Component
 struct StatTile {
+  @StorageProp('theme.isDark') isDark: boolean = false; // see Theme.IS_DARK_KEY
   icon: string = '';
   value: string = '';
   label: string = '';
@@ -122,19 +124,19 @@ struct StatTile {
       Image(iconForLegacy(this.icon, $r('app.media.ic_music_note_24')))
         .width(20)
         .height(20)
-        .fillColor(Theme.primary(Theme.isDark()))
+        .fillColor(Theme.primary(this.isDark))
       Text(this.value)
         .fontSize(16)
         .fontWeight(FontWeight.Bold)
-        .fontColor(Theme.textPrimary(Theme.isDark()))
+        .fontColor(Theme.textPrimary(this.isDark))
         .maxLines(1)
       Text(this.label)
         .fontSize(11)
-        .fontColor(Theme.textSecondary(Theme.isDark()))
+        .fontColor(Theme.textSecondary(this.isDark))
     }
     .layoutWeight(1)
     .padding({ top: 14, bottom: 14 })
-    .backgroundColor(Theme.surface(Theme.isDark()))
+    .backgroundColor(Theme.surface(this.isDark))
     .borderRadius(14)
     .alignItems(HorizontalAlign.Center)
   }

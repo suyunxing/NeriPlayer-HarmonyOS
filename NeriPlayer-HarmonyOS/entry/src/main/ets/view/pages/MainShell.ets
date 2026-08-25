@@ -24,25 +24,18 @@ export struct MainShell {
   @StorageLink('route.param') routeParam: string = '';
   @StorageLink('player.currentSong') currentSongJson: string = '';
   @State currentTab: number = 0;
-  // Theme reactivity: Theme.isDark() reads AppStorage, and ArkUI's
-  // minimal-update tracking cannot see through method calls (M7.4 pitfall), so
-  // the shell subscribes to both inputs and mirrors the resolved value into
-  // @State. Without this, switching dark mode only repainted the settings page
-  // (the one page holding an @StorageProp on np.dark_mode).
-  @StorageProp('np.dark_mode') @Watch('onThemeChanged') darkModePref: string = 'auto';
-  @StorageProp('systemDark') @Watch('onThemeChanged') systemDark: boolean = false;
-  @State isDark: boolean = false;
+  // Resolved dark flag, republished by Theme.refreshIsDark() whenever
+  // np.dark_mode or the system colorMode changes. Subscribing to it here —
+  // rather than calling Theme.isDark() inside the expressions below — is what
+  // makes the shell actually repaint: an AppStorage read hidden inside a
+  // method call is invisible to ArkUI's minimal-update tracking (M7.4).
+  @StorageProp('theme.isDark') isDark: boolean = false;
 
   aboutToAppear(): void {
-    this.isDark = Theme.isDark();
     const stored = AppStorage.get<number>(SettingsRepository.KEY_DEFAULT_START_TAB);
     if (stored !== undefined && stored !== null) {
       this.currentTab = stored;
     }
-  }
-
-  private onThemeChanged(): void {
-    this.isDark = Theme.isDark();
   }
 
   @Builder
@@ -115,11 +108,11 @@ export struct MainShell {
           .width('100%')
           .height(88)
           .padding({ top: 6, bottom: 32 })
-          .backgroundColor(Theme.surface(Theme.isDark()))
+          .backgroundColor(Theme.surface(this.isDark))
         }
         .width('100%')
         .height('100%')
-        .backgroundColor(Theme.background(Theme.isDark()))
+        .backgroundColor(Theme.background(this.isDark))
 
         // In-app floating lyric overlay (D4 fallback), floats above content.
         FloatingLyricBar()

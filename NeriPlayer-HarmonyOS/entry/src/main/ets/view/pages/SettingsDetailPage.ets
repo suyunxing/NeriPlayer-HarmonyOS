@@ -69,6 +69,7 @@ const BILI_QR_POLL_INTERVAL_MS: number = 1500;
 
 @Component
 export struct SettingsDetailPage {
+  @StorageProp('theme.isDark') isDark: boolean = false; // see Theme.IS_DARK_KEY
   @StorageLink('route.param') section: string = '';
 
   @StorageProp('np.playback_speed') speed: number = 1.0;
@@ -215,7 +216,7 @@ export struct SettingsDetailPage {
       },
       secondaryButton: {
         value: '退出',
-        fontColor: Theme.danger(Theme.isDark()),
+        fontColor: Theme.danger(this.isDark),
         action: () => {
           NeteaseCookieRepository.clear();
           this.neteaseLogged = false;
@@ -297,7 +298,7 @@ export struct SettingsDetailPage {
       },
       secondaryButton: {
         value: '退出',
-        fontColor: Theme.danger(Theme.isDark()),
+        fontColor: Theme.danger(this.isDark),
         action: () => {
           BiliCookieRepository.clear();
           this.biliLogged = false;
@@ -475,7 +476,7 @@ export struct SettingsDetailPage {
       },
       secondaryButton: {
         value: '清除',
-        fontColor: Theme.danger(Theme.isDark()),
+        fontColor: Theme.danger(this.isDark),
         action: (): void => {
           GitHubConfigRepository.clear().then(() => {
             this.githubTokenSaved = false;
@@ -660,7 +661,7 @@ export struct SettingsDetailPage {
       },
       secondaryButton: {
         value: '清除',
-        fontColor: Theme.danger(Theme.isDark()),
+        fontColor: Theme.danger(this.isDark),
         action: (): void => {
           WebDavConfigRepository.clear().then(() => {
             this.webdavCredentialsSaved = false;
@@ -691,13 +692,13 @@ export struct SettingsDetailPage {
         .accessibilityText('返回')
         .type(ButtonType.Circle)
         .backgroundColor(Color.Transparent)
-        .fontColor(Theme.textPrimary(Theme.isDark()))
+        .fontColor(Theme.textPrimary(this.isDark))
         .fontSize(20)
         .onClick(() => Router.pop())
       Text(this.title())
         .fontSize(20)
         .fontWeight(FontWeight.Bold)
-        .fontColor(Theme.textPrimary(Theme.isDark()))
+        .fontColor(Theme.textPrimary(this.isDark))
     }
     .width('100%')
     .padding({ left: 8, right: 12, top: 8, bottom: 8 })
@@ -717,7 +718,7 @@ export struct SettingsDetailPage {
           if (this.section === SETTING_PLAYBACK) {
             Text('播放速度')
               .fontSize(13)
-              .fontColor(Theme.textSecondary(Theme.isDark()))
+              .fontColor(Theme.textSecondary(this.isDark))
               .width('100%')
               .margin({ left: 6, top: 10, bottom: 6 })
             Row({ space: 8 }) {
@@ -730,20 +731,20 @@ export struct SettingsDetailPage {
                   // is wider than a layoutWeight(1) sixth of the row, which
                   // ellipsized every label except "2x" to "...".
                   .padding({ left: 4, right: 4 })
-                  .fontColor(this.speed === speedValue ? Theme.onPrimary(Theme.isDark()) : Theme.textSecondary(Theme.isDark()))
-                  .backgroundColor(this.speed === speedValue ? Theme.primary(Theme.isDark()) : Theme.surface(Theme.isDark()))
+                  .fontColor(this.speed === speedValue ? Theme.onPrimary(this.isDark) : Theme.textSecondary(this.isDark))
+                  .backgroundColor(this.speed === speedValue ? Theme.primary(this.isDark) : Theme.surface(this.isDark))
                   .borderRadius(17)
                   .onClick(() => this.setSpeed(speedValue))
               }, (speedValue: number) => `${speedValue}`)
             }
             .width('100%')
             .padding(10)
-            .backgroundColor(Theme.surface(Theme.isDark()))
+            .backgroundColor(Theme.surface(this.isDark))
             .borderRadius(Theme.cardRadius())
 
             Text('默认音质')
               .fontSize(13)
-              .fontColor(Theme.textSecondary(Theme.isDark()))
+              .fontColor(Theme.textSecondary(this.isDark))
               .width('100%')
               .margin({ left: 6, top: 14, bottom: 6 })
             Column({ space: 1 }) {
@@ -757,7 +758,7 @@ export struct SettingsDetailPage {
               }, (qualityValue: string) => qualityValue)
             }
             .width('100%')
-            .backgroundColor(Theme.surface(Theme.isDark()))
+            .backgroundColor(Theme.surface(this.isDark))
             .borderRadius(Theme.cardRadius())
             .clip(true)
 
@@ -771,7 +772,7 @@ export struct SettingsDetailPage {
           } else if (this.section === SETTING_DOWNLOAD) {
             Text('下载并发数')
               .fontSize(13)
-              .fontColor(Theme.textSecondary(Theme.isDark()))
+              .fontColor(Theme.textSecondary(this.isDark))
               .width('100%')
               .margin({ left: 6, top: 10, bottom: 6 })
             Row({ space: 8 }) {
@@ -780,15 +781,15 @@ export struct SettingsDetailPage {
                   .height(40)
                   .fontSize(13)
                   .layoutWeight(1)
-                  .fontColor(this.downloadConcurrency === concurrency ? Theme.onPrimary(Theme.isDark()) : Theme.textSecondary(Theme.isDark()))
-                  .backgroundColor(this.downloadConcurrency === concurrency ? Theme.primary(Theme.isDark()) : Theme.surface(Theme.isDark()))
+                  .fontColor(this.downloadConcurrency === concurrency ? Theme.onPrimary(this.isDark) : Theme.textSecondary(this.isDark))
+                  .backgroundColor(this.downloadConcurrency === concurrency ? Theme.primary(this.isDark) : Theme.surface(this.isDark))
                   .borderRadius(17)
                   .onClick(() => SettingsRepository.setNumber(SettingsRepository.KEY_DOWNLOAD_CONCURRENCY, concurrency))
               }, (concurrency: number) => `${concurrency}`)
             }
             .width('100%')
             .padding(10)
-            .backgroundColor(Theme.surface(Theme.isDark()))
+            .backgroundColor(Theme.surface(this.isDark))
             .borderRadius(Theme.cardRadius())
 
             SettingRow({
@@ -826,27 +827,27 @@ export struct SettingsDetailPage {
                 .layoutWeight(1)
                 .height(40)
                 .fontSize(13)
-                .backgroundColor(Theme.surface(Theme.isDark()))
-                .fontColor(Theme.textPrimary(Theme.isDark()))
+                .backgroundColor(Theme.surface(this.isDark))
+                .fontColor(Theme.textPrimary(this.isDark))
                 .onClick(() => this.adjustLyricOffset(-250))
               Button('+250ms')
                 .layoutWeight(1)
                 .height(40)
                 .fontSize(13)
-                .backgroundColor(Theme.surface(Theme.isDark()))
-                .fontColor(Theme.textPrimary(Theme.isDark()))
+                .backgroundColor(Theme.surface(this.isDark))
+                .fontColor(Theme.textPrimary(this.isDark))
                 .onClick(() => this.adjustLyricOffset(250))
               Button('重置')
                 .layoutWeight(1)
                 .height(40)
                 .fontSize(13)
-                .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
-                .fontColor(Theme.textPrimary(Theme.isDark()))
+                .backgroundColor(Theme.surfaceVariant(this.isDark))
+                .fontColor(Theme.textPrimary(this.isDark))
                 .onClick(() => SettingsRepository.setNumber(SettingsRepository.KEY_LYRIC_OFFSET_MS, 0))
             }
             .width('100%')
             .padding(10)
-            .backgroundColor(Theme.surface(Theme.isDark()))
+            .backgroundColor(Theme.surface(this.isDark))
             .borderRadius(Theme.cardRadius())
 
             SettingRow({
@@ -1026,7 +1027,7 @@ export struct SettingsDetailPage {
           } else if (this.section === SETTING_SYNC) {
             Text('GitHub 备份')
               .fontSize(13)
-              .fontColor(Theme.textSecondary(Theme.isDark()))
+              .fontColor(Theme.textSecondary(this.isDark))
               .width('100%')
               .margin({ left: 6, top: 10, bottom: 6 })
             Column({ space: 1 }) {
@@ -1067,13 +1068,13 @@ export struct SettingsDetailPage {
               })
             }
             .width('100%')
-            .backgroundColor(Theme.surface(Theme.isDark()))
+            .backgroundColor(Theme.surface(this.isDark))
             .borderRadius(Theme.cardRadius())
             .clip(true)
 
             Text('数据格式')
               .fontSize(13)
-              .fontColor(Theme.textSecondary(Theme.isDark()))
+              .fontColor(Theme.textSecondary(this.isDark))
               .width('100%')
               .margin({ left: 6, top: 14, bottom: 6 })
             Column({ space: 1 }) {
@@ -1095,13 +1096,13 @@ export struct SettingsDetailPage {
               })
             }
             .width('100%')
-            .backgroundColor(Theme.surface(Theme.isDark()))
+            .backgroundColor(Theme.surface(this.isDark))
             .borderRadius(Theme.cardRadius())
             .clip(true)
 
             Text('WebDAV 备份')
               .fontSize(13)
-              .fontColor(Theme.textSecondary(Theme.isDark()))
+              .fontColor(Theme.textSecondary(this.isDark))
               .width('100%')
               .margin({ left: 6, top: 14, bottom: 6 })
             Column({ space: 1 }) {
@@ -1143,13 +1144,13 @@ export struct SettingsDetailPage {
               })
             }
             .width('100%')
-            .backgroundColor(Theme.surface(Theme.isDark()))
+            .backgroundColor(Theme.surface(this.isDark))
             .borderRadius(Theme.cardRadius())
             .clip(true)
 
             Text('其他同步方式')
               .fontSize(13)
-              .fontColor(Theme.textSecondary(Theme.isDark()))
+              .fontColor(Theme.textSecondary(this.isDark))
               .width('100%')
               .margin({ left: 6, top: 14, bottom: 6 })
             SettingRow({
@@ -1177,22 +1178,22 @@ export struct SettingsDetailPage {
               Text('NeriPlayer')
                 .fontSize(30)
                 .fontWeight(FontWeight.Bold)
-                .fontColor(Theme.textPrimary(Theme.isDark()))
+                .fontColor(Theme.textPrimary(this.isDark))
                 .margin({ top: 20 })
               Text('欢迎回来！')
                 .fontSize(15)
-                .fontColor(Theme.textSecondary(Theme.isDark()))
+                .fontColor(Theme.textSecondary(this.isDark))
               Text('版本 1.0.0 (HarmonyOS 6.1.1 / API 24)')
                 .fontSize(13)
-                .fontColor(Theme.textDisabled(Theme.isDark()))
+                .fontColor(Theme.textDisabled(this.isDark))
               Text('多源在线播放：网易云 / Bilibili / YouTube Music；本地音乐、歌词、歌单与统计。\n本项目仅供学习与研究使用，请勿用于任何非法用途。')
                 .fontSize(13)
-                .fontColor(Theme.textSecondary(Theme.isDark()))
+                .fontColor(Theme.textSecondary(this.isDark))
                 .textAlign(TextAlign.Center)
                 .margin({ top: 10 })
               Text('GPL-3.0 · github.com/cwuom/NeriPlayer')
                 .fontSize(12)
-                .fontColor(Theme.primary(Theme.isDark()))
+                .fontColor(Theme.primary(this.isDark))
                 .margin({ top: 6 })
             }
             .width('100%')
@@ -1209,7 +1210,7 @@ export struct SettingsDetailPage {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor(Theme.background(Theme.isDark()))
+    .backgroundColor(Theme.background(this.isDark))
   }
 }
 
@@ -1231,6 +1232,7 @@ function qualityLabel(quality: string): string {
 
 @CustomDialog
 struct PasteCookieDialog {
+  @StorageProp('theme.isDark') isDark: boolean = false; // see Theme.IS_DARK_KEY
   controller?: CustomDialogController;
   @State cookieText: string = '';
   title: string = '粘贴 Cookie';
@@ -1244,10 +1246,10 @@ struct PasteCookieDialog {
       Text(this.title)
         .fontSize(17)
         .fontWeight(FontWeight.Bold)
-        .fontColor(Theme.textPrimary(Theme.isDark()))
+        .fontColor(Theme.textPrimary(this.isDark))
       Text(this.hint)
         .fontSize(12)
-        .fontColor(Theme.textSecondary(Theme.isDark()))
+        .fontColor(Theme.textSecondary(this.isDark))
       TextArea({ placeholder: this.placeholder, text: this.cookieText })
         .height(110)
         .fontSize(13)
@@ -1259,8 +1261,8 @@ struct PasteCookieDialog {
           .layoutWeight(1)
           .height(40)
           .fontSize(14)
-          .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
-          .fontColor(Theme.textPrimary(Theme.isDark()))
+          .backgroundColor(Theme.surfaceVariant(this.isDark))
+          .fontColor(Theme.textPrimary(this.isDark))
           .onClick(() => {
             this.controller?.close();
           })
@@ -1268,8 +1270,8 @@ struct PasteCookieDialog {
           .layoutWeight(1)
           .height(40)
           .fontSize(14)
-          .backgroundColor(Theme.primary(Theme.isDark()))
-          .fontColor(Theme.onPrimary(Theme.isDark()))
+          .backgroundColor(Theme.primary(this.isDark))
+          .fontColor(Theme.onPrimary(this.isDark))
           .onClick(() => {
             this.onConfirm(this.cookieText);
             this.controller?.close();
@@ -1298,6 +1300,7 @@ class WebDavActionContext {
 
 @CustomDialog
 struct GitHubConfigDialog {
+  @StorageProp('theme.isDark') isDark: boolean = false; // see Theme.IS_DARK_KEY
   controller?: CustomDialogController;
   @State tokenText: string = '';
   @State ownerText: string = '';
@@ -1340,10 +1343,10 @@ struct GitHubConfigDialog {
       Text('GitHub 同步配置')
         .fontSize(17)
         .fontWeight(FontWeight.Bold)
-        .fontColor(Theme.textPrimary(Theme.isDark()))
+        .fontColor(Theme.textPrimary(this.isDark))
       Text('令牌需包含 repo 权限（用于私有备份仓库读写）。仅保存在本机安全存储，不会出现在日志中。')
         .fontSize(12)
-        .fontColor(Theme.textSecondary(Theme.isDark()))
+        .fontColor(Theme.textSecondary(this.isDark))
       TextArea({ placeholder: 'ghp_… / github_pat_…', text: this.tokenText })
         .height(84)
         .fontSize(13)
@@ -1367,8 +1370,8 @@ struct GitHubConfigDialog {
           .layoutWeight(1)
           .height(40)
           .fontSize(14)
-          .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
-          .fontColor(Theme.textPrimary(Theme.isDark()))
+          .backgroundColor(Theme.surfaceVariant(this.isDark))
+          .fontColor(Theme.textPrimary(this.isDark))
           .onClick(() => {
             this.controller?.close();
           })
@@ -1376,8 +1379,8 @@ struct GitHubConfigDialog {
           .layoutWeight(1)
           .height(40)
           .fontSize(14)
-          .backgroundColor(Theme.primary(Theme.isDark()))
-          .fontColor(Theme.onPrimary(Theme.isDark()))
+          .backgroundColor(Theme.primary(this.isDark))
+          .fontColor(Theme.onPrimary(this.isDark))
           .onClick(() => {
             this.save();
           })
@@ -1391,6 +1394,7 @@ struct GitHubConfigDialog {
 
 @CustomDialog
 struct WebDavConfigDialog {
+  @StorageProp('theme.isDark') isDark: boolean = false; // see Theme.IS_DARK_KEY
   controller?: CustomDialogController;
   @State serverUrlText: string = '';
   @State basePathText: string = '';
@@ -1448,10 +1452,10 @@ struct WebDavConfigDialog {
       Text('WebDAV 同步配置')
         .fontSize(17)
         .fontWeight(FontWeight.Bold)
-        .fontColor(Theme.textPrimary(Theme.isDark()))
+        .fontColor(Theme.textPrimary(this.isDark))
       Text('目标目录必须已存在。备份文件固定为 neriplayer-sync.json；用户名和密码仅保存在本机安全存储。')
         .fontSize(12)
-        .fontColor(Theme.textSecondary(Theme.isDark()))
+        .fontColor(Theme.textSecondary(this.isDark))
       TextInput({ placeholder: 'https://dav.example.com/remote.php/dav/files/user',
         text: this.serverUrlText })
         .height(40)
@@ -1483,8 +1487,8 @@ struct WebDavConfigDialog {
           .layoutWeight(1)
           .height(40)
           .fontSize(14)
-          .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
-          .fontColor(Theme.textPrimary(Theme.isDark()))
+          .backgroundColor(Theme.surfaceVariant(this.isDark))
+          .fontColor(Theme.textPrimary(this.isDark))
           .onClick(() => {
             this.controller?.close();
           })
@@ -1493,8 +1497,8 @@ struct WebDavConfigDialog {
           .height(40)
           .fontSize(14)
           .enabled(!this.saving)
-          .backgroundColor(Theme.primary(Theme.isDark()))
-          .fontColor(Theme.onPrimary(Theme.isDark()))
+          .backgroundColor(Theme.primary(this.isDark))
+          .fontColor(Theme.onPrimary(this.isDark))
           .onClick(() => {
             this.save();
           })
@@ -1522,6 +1526,7 @@ struct WebDavConfigDialog {
  */
 @CustomDialog
 struct ListenTogetherServerDialog {
+  @StorageProp('theme.isDark') isDark: boolean = false; // see Theme.IS_DARK_KEY
   controller?: CustomDialogController;
   @State inputText: string = '';
   @State testMessage: string = '';
@@ -1595,11 +1600,11 @@ struct ListenTogetherServerDialog {
       Text('一起听服务器')
         .fontSize(17)
         .fontWeight(FontWeight.Bold)
-        .fontColor(Theme.textPrimary(Theme.isDark()))
+        .fontColor(Theme.textPrimary(this.isDark))
       Text(this.isUsingDefault() ? '留空即可使用内置默认服务器' :
         '当前使用自定义一起听服务器，分享邀请时会附带服务器地址')
         .fontSize(12)
-        .fontColor(Theme.textSecondary(Theme.isDark()))
+        .fontColor(Theme.textSecondary(this.isDark))
       TextInput({ placeholder: '示例：https://example.com，留空使用内置默认服务器', text: this.inputText })
         .height(40)
         .fontSize(13)
@@ -1622,13 +1627,13 @@ struct ListenTogetherServerDialog {
             .height(18)
           Text('正在测试服务器可用性')
             .fontSize(12)
-            .fontColor(Theme.textSecondary(Theme.isDark()))
+            .fontColor(Theme.textSecondary(this.isDark))
         }
         .width('100%')
       } else if (this.testMessage.length > 0) {
         Text(this.testMessage)
           .fontSize(12)
-          .fontColor(Theme.textSecondary(Theme.isDark()))
+          .fontColor(Theme.textSecondary(this.isDark))
           .width('100%')
       }
       Row({ space: 10 }) {
@@ -1637,8 +1642,8 @@ struct ListenTogetherServerDialog {
           .height(40)
           .fontSize(14)
           .enabled(!this.testing)
-          .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
-          .fontColor(Theme.textPrimary(Theme.isDark()))
+          .backgroundColor(Theme.surfaceVariant(this.isDark))
+          .fontColor(Theme.textPrimary(this.isDark))
           .onClick(() => {
             this.runTest();
           })
@@ -1647,8 +1652,8 @@ struct ListenTogetherServerDialog {
           .height(40)
           .fontSize(14)
           .enabled(!this.testing)
-          .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
-          .fontColor(Theme.textPrimary(Theme.isDark()))
+          .backgroundColor(Theme.surfaceVariant(this.isDark))
+          .fontColor(Theme.textPrimary(this.isDark))
           .onClick(() => {
             // Upstream only clears the field; nothing is stored until 应用.
             this.inputText = '';
@@ -1662,8 +1667,8 @@ struct ListenTogetherServerDialog {
           .height(40)
           .fontSize(14)
           .enabled(!this.testing)
-          .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
-          .fontColor(Theme.textPrimary(Theme.isDark()))
+          .backgroundColor(Theme.surfaceVariant(this.isDark))
+          .fontColor(Theme.textPrimary(this.isDark))
           .onClick(() => {
             this.controller?.close();
           })
@@ -1672,8 +1677,8 @@ struct ListenTogetherServerDialog {
           .height(40)
           .fontSize(14)
           .enabled(!this.testing)
-          .backgroundColor(Theme.primary(Theme.isDark()))
-          .fontColor(Theme.onPrimary(Theme.isDark()))
+          .backgroundColor(Theme.primary(this.isDark))
+          .fontColor(Theme.onPrimary(this.isDark))
           .onClick(() => {
             this.apply();
           })

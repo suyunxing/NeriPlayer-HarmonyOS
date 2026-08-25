@@ -19,6 +19,7 @@ const IMPORT_CAP: number = 500;
  */
 @Component
 export struct BiliFavPage {
+  @StorageProp('theme.isDark') isDark: boolean = false; // see Theme.IS_DARK_KEY
   @StorageLink('route.param') favParam: string = '';
   @State info: BiliFavFolderSummary | null = null;
   @State songs: SongItem[] = [];
@@ -160,7 +161,7 @@ export struct BiliFavPage {
           .height(size)
           .borderRadius(size > 60 ? 14 : 8)
           .objectFit(ImageFit.Cover)
-          .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+          .backgroundColor(Theme.surfaceVariant(this.isDark))
       } else {
         Column() {
           Image($r('app.media.ic_bilibili'))
@@ -170,7 +171,7 @@ export struct BiliFavPage {
         .width(size)
         .height(size)
         .justifyContent(FlexAlign.Center)
-        .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+        .backgroundColor(Theme.surfaceVariant(this.isDark))
         .borderRadius(size > 60 ? 14 : 8)
       }
     }
@@ -187,13 +188,13 @@ export struct BiliFavPage {
             .accessibilityText('返回')
             .type(ButtonType.Circle)
             .backgroundColor(Color.Transparent)
-            .fontColor(Theme.textPrimary(Theme.isDark()))
+            .fontColor(Theme.textPrimary(this.isDark))
             .fontSize(20)
             .onClick(() => Router.pop())
           Text(this.info !== null && this.info.title.length > 0 ? this.info.title : 'B 站收藏夹')
             .fontSize(20)
             .fontWeight(FontWeight.Bold)
-            .fontColor(Theme.textPrimary(Theme.isDark()))
+            .fontColor(Theme.textPrimary(this.isDark))
             .layoutWeight(1)
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -213,7 +214,7 @@ export struct BiliFavPage {
             Button('重试')
               .height(40)
               .fontSize(13)
-              .backgroundColor(Theme.primary(Theme.isDark()))
+              .backgroundColor(Theme.primary(this.isDark))
               .onClick(() => this.reload())
           }
           .layoutWeight(1)
@@ -226,33 +227,33 @@ export struct BiliFavPage {
                 Text(this.info !== null && this.info.title.length > 0 ? this.info.title : 'B 站收藏夹')
                   .fontSize(20)
                   .fontWeight(FontWeight.Bold)
-                  .fontColor(Theme.textPrimary(Theme.isDark()))
+                  .fontColor(Theme.textPrimary(this.isDark))
                   .maxLines(2)
                 Text(this.totalCount > 0
                   ? `Bilibili · ${this.totalCount} 条`
                   : `Bilibili · ${this.songs.length} 条`)
                   .fontSize(13)
-                  .fontColor(Theme.textSecondary(Theme.isDark()))
+                  .fontColor(Theme.textSecondary(this.isDark))
                 Row({ space: 8 }) {
                   Button('全部播放')
                     .height(40)
                     .fontSize(12)
-                    .fontColor(Theme.onPrimary(Theme.isDark()))
-                    .backgroundColor(Theme.primary(Theme.isDark()))
+                    .fontColor(Theme.onPrimary(this.isDark))
+                    .backgroundColor(Theme.primary(this.isDark))
                     .borderRadius(16)
                     .onClick(() => this.playAll(false))
                   Button('随机播放')
                     .height(40)
                     .fontSize(12)
-                    .fontColor(Theme.textPrimary(Theme.isDark()))
-                    .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+                    .fontColor(Theme.textPrimary(this.isDark))
+                    .backgroundColor(Theme.surfaceVariant(this.isDark))
                     .borderRadius(16)
                     .onClick(() => this.playAll(true))
                   Button('导入')
                     .height(40)
                     .fontSize(12)
-                    .fontColor(Theme.primary(Theme.isDark()))
-                    .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+                    .fontColor(Theme.primary(this.isDark))
+                    .backgroundColor(Theme.surfaceVariant(this.isDark))
                     .borderRadius(16)
                     .onClick(() => this.openImportDialog())
                 }
@@ -262,7 +263,7 @@ export struct BiliFavPage {
             }
             .width('100%')
             .padding(14)
-            .backgroundColor(Theme.surface(Theme.isDark()))
+            .backgroundColor(Theme.surface(this.isDark))
             .borderRadius(Theme.cardRadius())
 
             if (this.songs.length === 0) {
@@ -290,8 +291,8 @@ export struct BiliFavPage {
                         Button('加载更多')
                           .height(40)
                           .fontSize(13)
-                          .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
-                          .fontColor(Theme.textPrimary(Theme.isDark()))
+                          .backgroundColor(Theme.surfaceVariant(this.isDark))
+                          .fontColor(Theme.textPrimary(this.isDark))
                           .onClick(() => this.loadMore())
                       }
                     }
@@ -321,10 +322,10 @@ export struct BiliFavPage {
             Text('导入到本地歌单')
               .fontSize(17)
               .fontWeight(FontWeight.Bold)
-              .fontColor(Theme.textPrimary(Theme.isDark()))
+              .fontColor(Theme.textPrimary(this.isDark))
             Text(`将全量拉取收藏夹内容并复制到新建的本地歌单（上限 ${IMPORT_CAP} 条）`)
               .fontSize(12)
-              .fontColor(Theme.textSecondary(Theme.isDark()))
+              .fontColor(Theme.textSecondary(this.isDark))
             TextInput({ placeholder: '输入歌单名称', text: this.importName })
               .onChange((value: string) => {
                 this.importName = value;
@@ -332,27 +333,27 @@ export struct BiliFavPage {
             Row({ space: 12 }) {
               Button('取消')
                 .layoutWeight(1)
-                .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
-                .fontColor(Theme.textPrimary(Theme.isDark()))
+                .backgroundColor(Theme.surfaceVariant(this.isDark))
+                .fontColor(Theme.textPrimary(this.isDark))
                 .onClick(() => {
                   this.showImportDialog = false;
                 })
               Button(this.importing ? '导入中…' : '导入')
                 .layoutWeight(1)
-                .backgroundColor(Theme.primary(Theme.isDark()))
+                .backgroundColor(Theme.primary(this.isDark))
                 .onClick(() => this.confirmImport())
             }
             .width('100%')
           }
           .width('86%')
           .padding(20)
-          .backgroundColor(Theme.surface(Theme.isDark()))
+          .backgroundColor(Theme.surface(this.isDark))
           .borderRadius(18)
         }
         .width('100%')
         .height('100%')
         .justifyContent(FlexAlign.Center)
-        .backgroundColor(Theme.scrim(Theme.isDark()))
+        .backgroundColor(Theme.scrim(this.isDark))
         .onClick(() => {
           this.showImportDialog = false;
         })
@@ -360,6 +361,6 @@ export struct BiliFavPage {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor(Theme.background(Theme.isDark()))
+    .backgroundColor(Theme.background(this.isDark))
   }
 }

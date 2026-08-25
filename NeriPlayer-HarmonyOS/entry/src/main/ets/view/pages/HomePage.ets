@@ -15,6 +15,7 @@ const BRAND_TITLES: string[] = ['NeriPlayer', '欢迎回来', 'NeriPlayer', '继
 
 @Component
 export struct HomePage {
+  @StorageProp('theme.isDark') isDark: boolean = false; // see Theme.IS_DARK_KEY
   @State usage: UsageEntry[] = [];
   @State localPlaylists: Playlist[] = [];
   @State recentSongs: SongItem[] = [];
@@ -84,18 +85,18 @@ export struct HomePage {
         Text(BRAND_TITLES[this.titleIndex])
           .fontSize(28)
           .fontWeight(FontWeight.Bold)
-          .fontColor(Theme.textPrimary(Theme.isDark()))
+          .fontColor(Theme.textPrimary(this.isDark))
           .layoutWeight(1)
         Button() {
           Image($r('app.media.outline_refresh_24'))
             .width(22)
             .height(22)
-            .fillColor(Theme.textPrimary(Theme.isDark()))
+            .fillColor(Theme.textPrimary(this.isDark))
         }
         .width(40)
         .height(40)
         .type(ButtonType.Circle)
-        .backgroundColor(Theme.surface(Theme.isDark()))
+        .backgroundColor(Theme.surface(this.isDark))
         .accessibilityText('刷新推荐')
         .onClick(() => this.refresh())
       }
@@ -126,27 +127,27 @@ export struct HomePage {
                             .height(132)
                             .borderRadius(16)
                             .objectFit(ImageFit.Cover)
-                            .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+                            .backgroundColor(Theme.surfaceVariant(this.isDark))
                         } else {
                           Image($r('app.media.ic_music_note_24'))
                             .width(40)
                             .height(40)
-                            .fillColor(Theme.primary(Theme.isDark()))
+                            .fillColor(Theme.primary(this.isDark))
                             .margin({ left: 46, right: 46, top: 46, bottom: 46 })
-                            .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+                            .backgroundColor(Theme.surfaceVariant(this.isDark))
                             .borderRadius(16)
                         }
                       }
                       Text(entry.name)
                         .fontSize(13)
                         .fontWeight(FontWeight.Medium)
-                        .fontColor(Theme.textPrimary(Theme.isDark()))
+                        .fontColor(Theme.textPrimary(this.isDark))
                         .maxLines(1)
                         .textOverflow({ overflow: TextOverflow.Ellipsis })
                         .width(132)
                       Text(entry.trackCount > 0 ? `${entry.trackCount} 首` : '播放历史')
                         .fontSize(11)
-                        .fontColor(Theme.textSecondary(Theme.isDark()))
+                        .fontColor(Theme.textSecondary(this.isDark))
                         .width(132)
                     }
                     .onClick(() => this.openEntry(entry))
@@ -175,9 +176,9 @@ export struct HomePage {
                         Image($r('app.media.ic_music_note_24'))
                           .width(22)
                           .height(22)
-                          .fillColor(Theme.primary(Theme.isDark()))
+                          .fillColor(Theme.primary(this.isDark))
                           .margin({ left: 12, right: 12, top: 12, bottom: 12 })
-                          .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+                          .backgroundColor(Theme.surfaceVariant(this.isDark))
                           .borderRadius(8)
                       }
                     }
@@ -185,12 +186,12 @@ export struct HomePage {
                       Text(song.displayName)
                         .fontSize(14)
                         .fontWeight(FontWeight.Medium)
-                        .fontColor(Theme.textPrimary(Theme.isDark()))
+                        .fontColor(Theme.textPrimary(this.isDark))
                         .maxLines(1)
                         .textOverflow({ overflow: TextOverflow.Ellipsis })
                       Text(song.displayArtist)
                         .fontSize(12)
-                        .fontColor(Theme.textSecondary(Theme.isDark()))
+                        .fontColor(Theme.textSecondary(this.isDark))
                         .maxLines(1)
                         .textOverflow({ overflow: TextOverflow.Ellipsis })
                     }
@@ -198,7 +199,7 @@ export struct HomePage {
                     .alignItems(HorizontalAlign.Start)
                     Text('›')
                       .fontSize(18)
-                      .fontColor(Theme.textDisabled(Theme.isDark()))
+                      .fontColor(Theme.textDisabled(this.isDark))
                   }
                   .width('100%')
                   .padding(8)
@@ -207,7 +208,7 @@ export struct HomePage {
               }
               .width('100%')
               .padding(4)
-              .backgroundColor(Theme.surface(Theme.isDark()))
+              .backgroundColor(Theme.surface(this.isDark))
               .borderRadius(Theme.cardRadius())
             }
 
@@ -223,26 +224,26 @@ export struct HomePage {
                           .height(132)
                           .borderRadius(16)
                           .objectFit(ImageFit.Cover)
-                          .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+                          .backgroundColor(Theme.surfaceVariant(this.isDark))
                       } else {
                         Image($r('app.media.ic_music_note_24'))
                           .width(40)
                           .height(40)
-                          .fillColor(Theme.primary(Theme.isDark()))
+                          .fillColor(Theme.primary(this.isDark))
                           .margin({ left: 46, right: 46, top: 46, bottom: 46 })
-                          .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+                          .backgroundColor(Theme.surfaceVariant(this.isDark))
                           .borderRadius(16)
                       }
                       Text(item.name)
                         .fontSize(13)
                         .fontWeight(FontWeight.Medium)
-                        .fontColor(Theme.textPrimary(Theme.isDark()))
+                        .fontColor(Theme.textPrimary(this.isDark))
                         .maxLines(1)
                         .textOverflow({ overflow: TextOverflow.Ellipsis })
                         .width(132)
                       Text(item.trackCount > 0 ? `${item.trackCount} 首` : '网易云歌单')
                         .fontSize(11)
-                        .fontColor(Theme.textSecondary(Theme.isDark()))
+                        .fontColor(Theme.textSecondary(this.isDark))
                         .width(132)
                     }
                     .onClick(() => Router.push(Router.NETEASE_PLAYLIST, `${item.id}`))
@@ -295,6 +296,6 @@ export struct HomePage {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor(Theme.background(Theme.isDark()))
+    .backgroundColor(Theme.background(this.isDark))
   }
 }

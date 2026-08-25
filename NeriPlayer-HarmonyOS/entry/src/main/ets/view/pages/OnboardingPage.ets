@@ -2,6 +2,7 @@ import { Theme } from '../Theme';
 
 @Component
 export struct OnboardingPage {
+  @StorageProp('theme.isDark') isDark: boolean = false; // see Theme.IS_DARK_KEY
   onDone: () => void = () => {};
   @State pageIndex: number = 0;
 
@@ -25,11 +26,11 @@ export struct OnboardingPage {
             Text(page[0])
               .fontSize(24)
               .fontWeight(FontWeight.Bold)
-              .fontColor(Theme.textPrimary(Theme.isDark()))
+              .fontColor(Theme.textPrimary(this.isDark))
               .textAlign(TextAlign.Center)
             Text(page[1])
               .fontSize(15)
-              .fontColor(Theme.textSecondary(Theme.isDark()))
+              .fontColor(Theme.textSecondary(this.isDark))
               .textAlign(TextAlign.Center)
               .lineHeight(22)
               .padding({ left: 34, right: 34 })
@@ -51,8 +52,8 @@ export struct OnboardingPage {
         .width('78%')
         .height(48)
         .fontSize(16)
-        .fontColor(Theme.onPrimary(Theme.isDark()))
-        .backgroundColor(Theme.primary(Theme.isDark()))
+        .fontColor(Theme.onPrimary(this.isDark))
+        .backgroundColor(Theme.primary(this.isDark))
         .borderRadius(24)
         .margin({ bottom: 42 })
         .onClick(() => {
@@ -65,6 +66,6 @@ export struct OnboardingPage {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor(Theme.background(Theme.isDark()))
+    .backgroundColor(Theme.background(this.isDark))
   }
 }
