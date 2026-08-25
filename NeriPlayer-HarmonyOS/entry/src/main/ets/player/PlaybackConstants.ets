@@ -11,6 +11,7 @@ export class PlaybackConstants {
   static readonly KEY_SHUFFLE: string = 'player.shuffle';
   static readonly KEY_SPEED: string = 'player.speed';
   static readonly KEY_QUEUE_JSON: string = 'player.queueJson';
+  static readonly KEY_FAVORITE: string = 'player.favorite';
   static readonly KEY_SLEEP_ACTIVE: string = 'player.sleepActive';
   static readonly KEY_SLEEP_REMAINING_MIN: string = 'player.sleepRemainingMin';
 }

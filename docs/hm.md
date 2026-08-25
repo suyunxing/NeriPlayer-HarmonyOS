@@ -128,7 +128,7 @@ HarmonyOS 工程当前是单 `entry` HAP、Stage 模型、ArkTS 严格模式。
 | 一起听 | 设置页入口 | WebSocket 协议、重连和校时未移植 |
 | USB 独占 | 调试页提示 | 没有 NAPI C++ 模块 |
 | 动态取色/高级模糊 | 设置入口和基础主题 | 渲染引擎未完成 |
-| 测试 | 已有 LRC 解析 ArkTS 单元测试，3/3 通过 | 已建立最小基线；仍需补 SongIdentity、队列、设置迁移、下载和 UI/Instrument 测试 |
+| 测试 | ArkTS 本地单元测试 809/809 通过（2026-08-24 M10.1 复核；最初仅 3 个 LRC 用例，随各里程碑累积） | 已建立并持续扩充；仍需补 UI/Instrument 测试 |
 
 ### 3.3 当前配置审查
 
@@ -477,7 +477,7 @@ $hdc = 'D:\HarmonyOS\Tools\command-line-tools\sdk\default\openharmony\toolchains
 
 ### 8.1 纯逻辑测试
 
-当前最小基线位于 `entry/src/test/`，通过 `@ohos/hypium` 和 Hvigor 本地单元测试任务执行 3 个 LRC 用例。测试不访问设备和第三方网络。该结果不替代需要安装测试包并通过 `aa test` 执行的设备侧 JsUnit/Instrument 测试。
+当前基线位于 `entry/src/test/`，通过 `@ohos/hypium` 和 Hvigor 本地单元测试任务执行 **809 个用例**（2026-08-24 M10.1 复核，`Tests run: 809, Failure: 0, Error: 0, Pass: 809, Ignore: 0`；最初仅 3 个 LRC 用例，随各里程碑累积至今）。测试不访问设备和第三方网络。该结果不替代需要安装测试包并通过 `aa test` 执行的设备侧 JsUnit/Instrument 测试。
 
 优先为以下模块补 JsUnit：
 
@@ -527,6 +527,8 @@ $hdc = 'D:\HarmonyOS\Tools\command-line-tools\sdk\default\openharmony\toolchains
 ## 10. 官方资料索引
 
 以下链接均来自华为开发者联盟文档中心；页面会持续更新，使用前再次确认适用 API 和更新时间。
+
+> 补充（2026-08-24）：面向**鸿蒙独有特性与官方设计规范**的资料索引已单独整理于 `docs/HARMONYOS_NATIVE_FEATURES.md` §13，含服务卡片、AVSession 播控自检表、音乐低功耗、一多与折叠屏悬停态、投播、实况窗、分层图标、意图框架共 30 余个官方文档 ID（均已在本机 `devecocli docs` 验证可读），以及各能力在本机 API 24 SDK 中的 `.d.ts` 声明位置。本节（§10）保留移植期使用的通用资料。另：该文 §6 就本文 §6.2 已提出的 `Navigation` 迁移建议给出了取舍结论——**维持建议但不单独立项**，理由是纯迁移不产生用户可见新功能，且会作废 M9.3 已完成的 17 页 × 3 档字号 × 2 形态布局回归，宜与 tablet/2in1 适配、折叠屏悬停态、触控目标 48vp 合并为一个里程碑以共享一次回归成本（`NavigationMode.Auto` 自带 ≥600vp 分栏，正是分栏适配所需）。
 
 ### 版本和兼容性
 
@@ -634,7 +636,7 @@ $hdc = 'D:\HarmonyOS\Tools\command-line-tools\sdk\default\openharmony\toolchains
   - `SyncDataJsonCodec.escapeJsonString()` 返回**带引号的完整 JSON 字符串字面量**（`'"'+escaped+'"'`），不是纯转义文本——拼接请求体时外层不要再手写引号（双重引号产出坏 JSON，GitHub 必 400；M5.3 单测拦截的真 bug）。
 - 未自动化（待复核）：带真 PAT 的写路径端到端（真实 blob→tree→commit→PATCH ref 提交、设置页测试连接/创建仓库/远端检查 UI 流）需用户提供 PAT 人工验证；「立即同步」完整三路合并闭环属 M5.5。
 - 产物为 unsigned HAP：CI 无签名材料，签名仍在本地走 7.3 的 `sign-local.ps1`（符合"证书与口令不入库"约定）。
-- 未纳入 CI：codelinter（存量 17 warn+1 suggestion 基线，需过滤规则后才可门禁）、ohosTest（需模拟器+签名）、Release 自动发布。后续可选：tag 触发上传 unsigned HAP 到 GitHub Release。
+- 未纳入 CI：codelinter（存量基线 **24 warn + 2 suggestion**，2026-08-24 M10.1 复核值；2026-08-18 CI 落地时为 17 warn+1 suggestion，差额来自此后新增模块的存量告警，0 error 始终未变——需过滤规则后才可门禁）、ohosTest（需模拟器+签名）、Release 自动发布。后续可选：tag 触发上传 unsigned HAP 到 GitHub Release。
 - 2026-08-18 协作配置补齐：新增 `.github/PULL_REQUEST_TEMPLATE.md`、HarmonyOS Bug/Feature/分支整合 Issue Forms、`.github/dependabot.yml`、根目录 `CONTRIBUTING.md` 与 `docs/GITHUB_COLLABORATION.md`；workflow 增加 `contents: read`、关闭 checkout 持久凭据、按 lockfile 失效依赖缓存，并使用 PR 号/分支维度并发组。目标模型为 `main` 稳定、`dev` 集成、个人/feature 分支 PR 协作；`su` 在迁移期只保留 PR 检查，不响应直接 push。未修改 Android 参照工程与业务源码。
 
 
