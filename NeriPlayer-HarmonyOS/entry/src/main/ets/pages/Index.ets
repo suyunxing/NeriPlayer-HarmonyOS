@@ -31,7 +31,9 @@ struct Index {
   @State loadingDone: boolean = false;
 
   async aboutToAppear(): Promise<void> {
-    AppStorage.setOrCreate('systemDark', false);
+    // 'systemDark' is seeded by EntryAbility.onCreate from the launch
+    // configuration; overwriting it with false here reintroduced the light
+    // flash on a dark-mode cold start (static audit 2026-08-25).
     await SettingsRepository.initialize();
     this.phase = this.resolvePhase();
     this.loadingDone = true;

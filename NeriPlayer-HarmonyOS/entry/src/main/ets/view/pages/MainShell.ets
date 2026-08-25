@@ -1,5 +1,6 @@
 import { Router } from '../Router';
 import { Theme } from '../Theme';
+import { SettingsRepository } from '../../data/SettingsRepository';
 import { MiniPlayer } from '../components/MiniPlayer';
 import { FloatingLyricBar } from '../components/FloatingLyricBar';
 import { HomePage } from './HomePage';
@@ -23,12 +24,25 @@ export struct MainShell {
   @StorageLink('route.param') routeParam: string = '';
   @StorageLink('player.currentSong') currentSongJson: string = '';
   @State currentTab: number = 0;
+  // Theme reactivity: Theme.isDark() reads AppStorage, and ArkUI's
+  // minimal-update tracking cannot see through method calls (M7.4 pitfall), so
+  // the shell subscribes to both inputs and mirrors the resolved value into
+  // @State. Without this, switching dark mode only repainted the settings page
+  // (the one page holding an @StorageProp on np.dark_mode).
+  @StorageProp('np.dark_mode') @Watch('onThemeChanged') darkModePref: string = 'auto';
+  @StorageProp('systemDark') @Watch('onThemeChanged') systemDark: boolean = false;
+  @State isDark: boolean = false;
 
   aboutToAppear(): void {
-    const stored = AppStorage.get<number>('np.default_start_tab');
+    this.isDark = Theme.isDark();
+    const stored = AppStorage.get<number>(SettingsRepository.KEY_DEFAULT_START_TAB);
     if (stored !== undefined && stored !== null) {
       this.currentTab = stored;
     }
+  }
+
+  private onThemeChanged(): void {
+    this.isDark = Theme.isDark();
   }
 
   @Builder
@@ -37,10 +51,10 @@ export struct MainShell {
       Image(icon)
         .width(22)
         .height(22)
-        .fillColor(this.currentTab === index ? Theme.primary(Theme.isDark()) : Theme.textSecondary(Theme.isDark()))
+        .fillColor(this.currentTab === index ? Theme.primary(this.isDark) : Theme.textSecondary(this.isDark))
       Text(label)
         .fontSize(10)
-        .fontColor(this.currentTab === index ? Theme.primary(Theme.isDark()) : Theme.textSecondary(Theme.isDark()))
+        .fontColor(this.currentTab === index ? Theme.primary(this.isDark) : Theme.textSecondary(this.isDark))
         .fontWeight(this.currentTab === index ? FontWeight.Bold : FontWeight.Normal)
     }
     .layoutWeight(1)
@@ -118,6 +132,9 @@ export struct MainShell {
 
   private selectTab(index: number): void {
     this.currentTab = index;
-    AppStorage.setOrCreate('np.default_start_tab', index);
+    // Goes through SettingsRepository so the choice reaches AppPreferences:
+    // the previous AppStorage.setOrCreate wrote the settings key without
+    // persisting it, so the default start tab reset on every process restart.
+    SettingsRepository.setNumber(SettingsRepository.KEY_DEFAULT_START_TAB, index);
   }
 }
