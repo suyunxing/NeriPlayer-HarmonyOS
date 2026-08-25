@@ -27,7 +27,12 @@ export default class EntryAbility extends UIAbility {
     // events. Index @Watch-es the flag so a late arm still switches.
     CrashEventWatcher.init(this.context);
     AppStorage.setOrCreate('abilityContext', this.context);
-    AppStorage.setOrCreate('systemDark', false);
+    // Seed the system dark flag from the launch configuration rather than a
+    // hardcoded false: only onConfigurationUpdate used to write the real value,
+    // so launching while the system was in dark mode rendered the whole app
+    // light until the user toggled the system theme (static audit 2026-08-25).
+    AppStorage.setOrCreate('systemDark',
+      this.context.config.colorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK);
     PlayerManager.initialize(this.context);
     ListenTogetherSessionManager.getInstance().start();
     DownloadEngine.init(this.context);
