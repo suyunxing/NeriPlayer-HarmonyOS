@@ -1,7 +1,0 @@
-{
-  "navigationBarTitleText": "曲库",
-  "usingComponents": {
-    "mini-player": "/components/mini-player/mini-player",
-    "empty": "/components/empty/empty"
-  }
-}

@@ -1,8 +1,0 @@
-{
-  "navigationBarTitleText": "探索",
-  "usingComponents": {
-    "mini-player": "/components/mini-player/mini-player",
-    "song-row": "/components/song-row/song-row",
-    "empty": "/components/empty/empty"
-  }
-}

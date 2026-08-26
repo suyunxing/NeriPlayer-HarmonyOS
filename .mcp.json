@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "deveco-mcp": {
+      "type": "stdio",
+      "command": "devecocli",
+      "args": [
+        "serve",
+        "mcp"
+      ],
+      "env": {
+        "PROJECT_PATH": "E:/NeriPlayer-HArmonyOS/NeriPlayer-HarmonyOS-ch"
+      },
+      "enabled": true
+    }
+  }
+}
