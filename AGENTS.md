@@ -137,7 +137,7 @@ cd NeriPlayer-HarmonyOS
 
 sign-local.ps1 依赖：`DEVECO_SDK_HOME`（提供 hap-sign-tool 与 hdc）、`DEVECO_STUDIO_HOME`（提供 jbr 的 java）、`NERIPLAYER_SIGNING_PASSWORD`（本地调试 keystore 口令）与 `NERIPLAYER_DEVICE_IDS` 或 `-DeviceIds`（目标设备 UDID，用 `hdc shell bm get --udid` 获取）。签名与安装用 `hdc install -r`（替换安装，不 uninstall）。
 
-**签名口令是本机私有前置条件**：脚本第 93 行强制要求 keystore 口令 **≥32 字符**，SDK 自带的 `OpenHarmony.p12`（口令为公开默认值 `123456`，含 `openharmony application profile debug` 别名）会被该校验直接拒绝。2026-08-26 实测：`NERIPLAYER_SIGNING_PASSWORD` 未设置时签名链无法启动；且模拟器上已安装的包是用私有 keystore 签的，换用 SDK 默认 keystore 签出的 HAP 签名不一致，`install -r` 会失败，只能先 uninstall（**会丢失 `preferences/neri_player_data` 等应用数据**）。因此在没有该口令的会话里，**不要**为了跑设备验证去 uninstall 用户的应用，应如实记录设备验证未执行。
+**签名口令是本机私有前置条件**：脚本第 93 行强制要求 keystore 口令 **≥32 字符**，SDK 自带的 `OpenHarmony.p12`（口令为公开默认值 `123456`，含 `openharmony application profile debug` 别名）会被该校验直接拒绝。口令由使用者自定义并自行保管，不是机器上预置、可找回的资产——2026-08-27 复核：历史记载的用户级 `NERIPLAYER_SIGNING_PASSWORD` 已不存在，旧改密 keystore 的口令丢失；但同日实证旧库证书链与 SDK 原版完全一致，且以 SDK 原版直签 HAP 对模拟器执行 `hdc install -r` 成功、保留全部应用数据（即"换默认 keystore 必须 uninstall"的旧结论作废）。因此缺失口令时按 docs/hm.md §7.11《调试密钥重建流程》用新口令重造 keystore、放入工程 `signing/` 并设回环境变量即可无损接续；**不要**为跑设备验证去 uninstall 用户的应用（会丢 preferences 数据），禁止为绕过长度校验降低密钥要求或把 `123456` 当日常口令使用。
 
 设备侧 ohosTest（`entry/src/ohosTest/`，2026-08-14 已验证 1/1 通过）：先构建并签名 ohosTest HAP（用 hap-sign-tool 对 `entry-ohosTest-unsigned.hap` 执行与 sign-local.ps1 相同的 sign-app 命令），安装两个 HAP 后执行：
 

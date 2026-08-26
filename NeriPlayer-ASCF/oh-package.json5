@@ -1,9 +1,0 @@
-{
-  "modelVersion": "5.0.0",
-  "description": "NeriPlayer ASCF atomic service (HarmonyOS NEXT)",
-  "dependencies": {
-  },
-  "devDependencies": {
-    "@ohos/hypium": "1.0.19"
-  }
-}

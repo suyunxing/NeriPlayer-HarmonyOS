@@ -356,7 +356,7 @@ WebSocket 统一封装心跳、重连、序列号、超时和关闭原因。
 - ~~"26 Beta2 的 hvigor 不能构建 6.1.1(24)（00303031），构建必须用 command-line-tools 的 hvigorw"~~ —— 该结论随两者一并**作废**：现在只有 Studio 6.1.1.300 自带的 hvigor 6.24.4，与 API 24 SDK 版本自洽，**只能也应当**用它构建。
 - ~~"静态检查用 `codelinter`"~~ —— **命令行入口已不存在**，只剩 IDE 插件 `E:\DevEco Studio\plugins\codelinter`。历史上记录过两个互相矛盾的基线（"17 warn + 1 suggestion" 与 "24 warn + 2 suggestion"），**当前都无法从命令行复现**；命令行会话应如实记为"本轮未跑 lint"。
 - 模拟器：`tools\emulator\Emulator.exe`。2026-08-26 实测 `hdc list targets` 返回 `127.0.0.1:5555` 且存活（`param get` → `const.product.model`=`emulator`、`const.ohos.apiversion`=**24**、`const.ohos.fullname`=`OpenHarmony-6.1.1.125`）。⚠️ `tools\emulator\platforms\` 里只有 `qwindows.dll`，那是 **Qt 平台插件目录，不是系统镜像目录**，别据此判断"无镜像"；镜像 zip 实际暂存在 `%LOCALAPPDATA%\Huawei\Sdk\.temp\system-image,HarmonyOS-6.1.1,phone_all_x86\install\`（2.16 GB，2026-08-16，未解包进 SDK），`%LOCALAPPDATA%\Huawei\Emulator\deployed\phone_config.json` 为 `[]`（无 AVD 定义）。新建 AVD 仍需在 SDK Manager 内完成。
-- 本地调试签名：用户级环境变量 `NERIPLAYER_SIGNING_PASSWORD` 保存 33 位口令。**2026-08-26 实测该变量在当前会话未设置**，签名链无法启动（`sign-local.ps1` 强制要求口令 ≥32 字符，SDK 自带 `OpenHarmony.p12` 的公开默认口令 `123456` 会被直接拒绝）。
+- 本地调试签名：口令是使用者自定义产物（≥32 位），不是能从机器上"找回"的既有资产。2026-08-26 曾将 SDK stock 密钥对重加密为 33 位口令并据记载存入用户级 `NERIPLAYER_SIGNING_PASSWORD`；**2026-08-27 复核**：该变量在 User/Process 作用域均不存在，全盘唯一以其旧口令加密的库孤本位于 NeriPlayer-HarmonyOS-ch-local 副本的 `signing/`（对默认口令验证失败、确认已改密），旧记"原文件有备份"无实物，判定旧口令丢失。同日实证该孤本证书链与 SDK 原版完全一致、设备替换安装零数据损失（见 §7.11 与 §7.3 修订），按**《调试密钥重建流程》**（§7.11）用自定新口令一次性重造即可恢复日常签名。脚本硬校验 ≥32 字符不变；SDK 原版公开口令 `123456` 不能直接喂给 `sign-local.ps1`，只用于灾备与兼容性实证场景。
 
 项目 `local.properties` **当前不存在，且实测构建不需要它**（`DEVECO_SDK_HOME` 已足够）。若某工具坚持要求，按新路径重建：
 
@@ -411,7 +411,9 @@ cd NeriPlayer-HarmonyOS
 
 依赖的环境变量：`DEVECO_SDK_HOME`（= `E:\DevEco Studio\sdk`，提供 hap-sign-tool 与 hdc）、`DEVECO_STUDIO_HOME`（= `E:\DevEco Studio`，提供 jbr java）、`NERIPLAYER_SIGNING_PASSWORD`（33 位调试口令）。口令要求至少 32 位；SDK 附带的 `OpenHarmony.p12`（公开默认口令 `123456`，含 `openharmony application profile debug` 别名）会被该校验直接拒绝，**不要为了绕过校验降低密钥要求**。
 
-**2026-08-26 实测的两条约束**：① `NERIPLAYER_SIGNING_PASSWORD` 未设置时签名链无法启动；② 模拟器上已安装的包是用私有 keystore 签的，换用 SDK 默认 keystore 签出的 HAP 签名不一致，`hdc install -r` 会失败，只能先 uninstall——而 uninstall **会丢掉 `preferences/neri_player_data` 等应用数据**。因此在没有该口令的会话里不要为了跑设备验证去 uninstall 用户的应用，应如实记录设备验证未执行。
+**实测约束（2026-08-26 提出，2026-08-27 修订）**：
+① `NERIPLAYER_SIGNING_PASSWORD` 未设置时 `sign-local.ps1` 签名链无法启动——脚本对 ≥32 字符的硬校验不随环境变化。
+② ~~模拟器上已安装的包是用私有 keystore 签的，换用 SDK 默认 keystore 签出的 HAP 签名不一致，`hdc install -r` 会失败，只能先 uninstall~~ —— **2026-08-27 实证作废**：以 SDK 原版 `OpenHarmony.p12` 直签当天 unsigned HAP 后 `hdc install -r` 成功替换安装、应用数据保留。根因是当时的"私有 keystore"本就是 stock 密钥对的改密版，证书链从未变过——keystore 文件不同 ≠ 证书身份不同。卫生原则保留：没有可用口令时不要为跑设备验证去 uninstall 用户的应用，按 §7.11 重建流程可无损恢复。
 正式发布必须在 AppGallery Connect 创建应用，使用正式证书和 Profile 完成签名，并保护密钥和密码。
 
 建议 smoke test 至少覆盖：安装、启动、进入主界面、加载本地 fixture、播放/暂停/seek、系统媒体控制、退出和再次启动。
@@ -469,7 +471,7 @@ $hdc = 'E:\DevEco Studio\sdk\default\openharmony\toolchains\hdc.exe'
 | 应用冷启动 smoke | `aa start` 成功；进程存活；无新增 faultlog；截图确认首页正常渲染（标题栏/推荐歌单空态/四 Tab 导航） |
 | 设备 ohosTest（`aa test`，OpenHarmonyTestRunner） | `Tests run: 1, Failure: 0, Error: 0, Pass: 1` |
 
-本轮发现并已解决的阻塞：① 用户级 PATH 与 `DEVECO_SDK_HOME` 等三个环境变量残留迁移前旧路径（已修）；② DevEco 26 Beta2 的 hvigor 不能构建 6.1.1(24) 工程（构建固定走 CLT hvigorw，26 Studio 仅提供 jbr java）；③ `sign-local.ps1` 加入中文注释后因 PowerShell 5.1 按 GBK 解析无 BOM UTF-8 而静默失效（仓库 `.ps1` 必须纯 ASCII，已写入 AGENTS.md）；④ 调试密钥旧口令未知（已用 SDK stock 密钥对重加密为新 33 位口令，存用户级 `NERIPLAYER_SIGNING_PASSWORD`，原文件有备份）。
+本轮发现并已解决的阻塞：① 用户级 PATH 与 `DEVECO_SDK_HOME` 等三个环境变量残留迁移前旧路径（已修）；② DevEco 26 Beta2 的 hvigor 不能构建 6.1.1(24) 工程（构建固定走 CLT hvigorw，26 Studio 仅提供 jbr java）；③ `sign-local.ps1` 加入中文注释后因 PowerShell 5.1 按 GBK 解析无 BOM UTF-8 而静默失效（仓库 `.ps1` 必须纯 ASCII，已写入 AGENTS.md）；④ 调试密钥旧口令未知（已用 SDK stock 密钥对重加密为新 33 位口令，存用户级 `NERIPLAYER_SIGNING_PASSWORD`，原文件有备份）。**〔2026-08-27 补记〕**后续复核确认该口令连同用户级变量一并失效、且无备份实物；因该库实为 stock 密钥对的改密版（证书链未变），照 §7.11《调试密钥重建流程》用新口令重生成即可无损接续，孤本可归档处理。
 仍未就绪：API 26 模拟器镜像未下载（鸿蒙 7.0 设备侧验证需先在 SDK Manager 补齐）；真机测试未执行。
 
 ### 7.8 2026-08-17 M4.1/M4.2 平台登录与凭据验证记录（Pura 90 模拟器，API 24）
@@ -656,6 +658,37 @@ $hdc = 'E:\DevEco Studio\sdk\default\openharmony\toolchains\hdc.exe'
 - 未纳入 CI：codelinter（存量基线 **24 warn + 2 suggestion**，2026-08-24 M10.1 复核值；2026-08-18 CI 落地时为 17 warn+1 suggestion，差额来自此后新增模块的存量告警，0 error 始终未变——需过滤规则后才可门禁）、ohosTest（需模拟器+签名）、Release 自动发布。后续可选：tag 触发上传 unsigned HAP 到 GitHub Release。
 - 2026-08-18 协作配置补齐：新增 `.github/PULL_REQUEST_TEMPLATE.md`、HarmonyOS Bug/Feature/分支整合 Issue Forms、`.github/dependabot.yml`、根目录 `CONTRIBUTING.md` 与 `docs/GITHUB_COLLABORATION.md`；workflow 增加 `contents: read`、关闭 checkout 持久凭据、按 lockfile 失效依赖缓存，并使用 PR 号/分支维度并发组。目标模型为 `main` 稳定、`dev` 集成、个人/feature 分支 PR 协作；`su` 在迁移期只保留 PR 检查，不响应直接 push。未修改 Android 参照工程与业务源码。
 
+
+### 7.11 2026-08-27 调试签名密钥灾备与重建流程验证记录（Pura 90 模拟器，API 24）
+
+背景：2026-08-26 重加密调试 keystore 的 33 位口令丢失（用户级 `NERIPLAYER_SIGNING_PASSWORD` 在 User/Process 作用域均不存在、"原文件备份"无实物），同时存在"换默认 keystore 必须 uninstall 丢数据"的错误先验。本轮灾备处置推翻先验并固化重建方法。
+
+关键实证一（证书链一致性）：ch-local 孤本旁的 `app-root-ca.cer` / `app-ca.cer` / `profile-debug-leaf.pem` 与 SDK `OpenHarmonyProfileDebug.pem` 对应三证 SHA256 指纹逐一相同（Root CA `9A:ED:2A:79…`、Application CA `EE:B0:0E:63…`、Profile Debug 叶子 `8F:6E:AB:DB…`）；孤本 `OpenHarmony.p12` 对默认口令 MAC 验证失败，即"改了口令但没换钥匙"。孤本目录里另有一张自签自颁的 CN=OpenHarmony Application Release 实验证书（`B2:24:27:08…`），与上述三条链无关。
+
+关键实证二（替换安装零数据损失）：用 `prepare-debug-profile.ps1` 绑定现场 UDID 生成 profile，经 hap-sign-tool `sign-profile`/`sign-app`（SHA256withECDSA、compatibleVersion 24）直签当天 unsigned HAP 后 `hdc install -r` 返回 install bundle successfully；`bm dump` 的 updateTime 由 2026-08-26 刷新至 2026-08-27，preferences 用户数据保留。
+
+工程教训（决定重建实现方式）：① JDK21 keytool 对 PKCS12 不支持单独改 key 密码（`-keypasswd` 直接抛 UnsupportedOperationException，store 改完内部 key 还是旧口令）；② openssl 整库导出再导回不可行——原库实际含 7 把私钥，混合导出的 p12 被 hap-sign-tool 拒载（报 Incorrect keystore password / created by a newer JDK version）；③ 可行做法 = 用叶子证书公钥指纹在全库私钥块中匹配唯一目标钥匙，仅以「叶+CA+根」三证书重组导出新 p12，并对产物当场做 sign-profile 冒烟验证。
+
+《调试密钥重建流程》（在 Git Bash 执行；产物位置受根 `.gitignore` 的 `**/signing/` 规则保护）：
+
+```bash
+read -rsp 'New keystore password (>=32 chars): ' PW && echo   # 不回显、不进 shell 历史
+LIB='/e/DevEco Studio/sdk/default/openharmony/toolchains/lib'
+PROJECT='/e/NeriPlayer-HArmonyOS/<你的工作副本>/NeriPlayer-HarmonyOS'   # 按实际副本调整
+W=$(mktemp -d); cd "$W"
+openssl pkcs12 -in "$LIB/OpenHarmony.p12" -passin pass:123456 -nodes -nocerts -out keys.pem
+awk '/BEGIN/{n++;f=sprintf("k%02d.pem",n)}{print>f}' keys.pem
+awk '/BEGIN CERT/{n++;f=sprintf("c%d.pem",n)}{print>f}' "$LIB/OpenHarmonyProfileDebug.pem"   # c1=root c2=ca c3=debug 叶
+REF=$(openssl x509 -in c3.pem -pubkey -noout | openssl pkey -pubin -outform DER | sha256sum | cut -d' ' -f1)
+FOUND=""; for k in k*.pem; do H=$(openssl pkey -in "$k" -pubout -outform DER | sha256sum | cut -d' ' -f1); [ "$H" = "$REF" ] && FOUND="$k" && break; done
+[ -n "$FOUND" ] || { echo 'target key not found'; exit 1; }
+cat c3.pem c2.pem c1.pem > chain_in.pem
+openssl pkcs12 -export -in chain_in.pem -inkey "$FOUND" -name 'openharmony application profile debug' -out OpenHarmony.p12 -passout "pass:$PW"
+mkdir -p "$PROJECT/signing"; cp OpenHarmony.p12 "$PROJECT/signing/"
+cd /; rm -rf "$W"; unset PW
+```
+
+之后把同一口令以 SecureString 方式写入用户级 `NERIPLAYER_SIGNING_PASSWORD`（避免明文进终端历史），即可正常执行 `sign-local.ps1` 全链路。验证期间产生的临时 keystore 与签名 HAP 已全部删除；设备 UDID 按惯例现场获取、不入档。
 
 每次 SDK 或上游 Android 更新，都更新本文件的核验日期、版本矩阵、源码状态和测试结果。
 新增能力必须附官方页面 URL、适用 API、代码位置、验证设备、失败日志和降级方案。

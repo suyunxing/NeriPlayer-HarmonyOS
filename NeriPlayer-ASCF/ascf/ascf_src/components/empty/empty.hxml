@@ -1,3 +1,0 @@
-<view class="empty">
-  <text class="empty-text">{{text}}</text>
-</view>
