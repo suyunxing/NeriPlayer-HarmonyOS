@@ -10,6 +10,8 @@ import { BiliCookieRepository } from '../data/auth/BiliCookieRepository';
 import { GitHubConfigRepository } from '../sync/github/GitHubConfigRepository';
 import { WebDavConfigRepository } from '../sync/webdav/WebDavConfigRepository';
 import { SystemBars } from '../util/SystemBars';
+import { AppColorMode } from '../util/AppColorMode';
+import { WindowMetrics } from '../util/WindowMetrics';
 import { ListenTogetherSessionManager } from '../listentogether/ListenTogetherSessionManager';
 import { CrashEventWatcher } from '../app/diagnostics/CrashEventWatcher';
 
@@ -27,7 +29,16 @@ export default class EntryAbility extends UIAbility {
     // events. Index @Watch-es the flag so a late arm still switches.
     CrashEventWatcher.init(this.context);
     AppStorage.setOrCreate('abilityContext', this.context);
-    AppStorage.setOrCreate('systemDark', false);
+    // Seed the system dark flag from the ability configuration. Hardcoding
+    // false made a cold start under system dark mode paint the light palette:
+    // onConfigurationUpdate only fires when the system theme actually changes,
+    // so the wrong value survived the whole session.
+    AppStorage.setOrCreate('systemDark',
+      this.context.config.colorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK);
+    // 冷启动即把已保存的深色模式选择交给系统，让首帧、系统弹窗与 sys.color.*
+    // 资源都落在同一档配色上（'auto' 对应 COLOR_MODE_NOT_SET，即交还系统）。
+    AppColorMode.apply(this.context,
+      SettingsRepository.getString(SettingsRepository.KEY_DARK_MODE, 'auto'));
     PlayerManager.initialize(this.context);
     ListenTogetherSessionManager.getInstance().start();
     DownloadEngine.init(this.context);
@@ -49,8 +60,12 @@ export default class EntryAbility extends UIAbility {
 
   onWindowStageCreate(windowStage: window.WindowStage): void {
     hilog.info(DOMAIN, TAG, 'Ability onWindowStageCreate');
-    this.applyEdgeToEdge(windowStage);
-    SystemBars.apply(this.context, this.isDark());
+    const dark = this.isDark();
+    this.applyEdgeToEdge(windowStage, dark);
+    SystemBars.apply(this.context, dark);
+    // 必须在 loadContent 之前：首帧就要拿到断点与真实避让区，否则大屏设备会先
+    // 按窄屏画一帧底部 Tab 栏再跳成侧边栏，而跨断点重建会白丢一次页面状态。
+    WindowMetrics.start(windowStage);
     windowStage.loadContent('pages/Index', (error) => {
       if (error.code) {
         hilog.error(DOMAIN, TAG, 'Failed to load content: %{public}s', JSON.stringify(error));
@@ -61,6 +76,7 @@ export default class EntryAbility extends UIAbility {
   }
 
   onWindowStageDestroy(): void {
+    WindowMetrics.stop();
     PlayerManager.flushPlaybackStatsAsync();
   }
 
@@ -87,18 +103,25 @@ export default class EntryAbility extends UIAbility {
     return systemDark === true;
   }
 
-  private applyEdgeToEdge(windowStage: window.WindowStage): void {
+  private applyEdgeToEdge(windowStage: window.WindowStage, dark: boolean): void {
     try {
       const mainWindow = windowStage.getMainWindowSync();
-      // Keep the app inside the system safe area. The previous immersive layout
-      // placed page headers under the status bar on API 24 phone emulators.
+      // Non-fullscreen on purpose: ArkUI then keeps every page's content inside
+      // the safe area by itself. A previous immersive attempt with
+      // setWindowLayoutFullScreen(true) placed page headers under the status
+      // bar on API 24 phone emulators. Immersion instead comes from transparent
+      // system bars plus expandSafeArea background layers (Index/MainShell), so
+      // the bars show the app background rather than a separate colour block.
       mainWindow.setWindowLayoutFullScreen(false);
       mainWindow.setWindowSystemBarEnable(['status', 'navigation']);
       mainWindow.setWindowSystemBarProperties({
         statusBarColor: '#00000000',
-        statusBarContentColor: '#FFFFFF',
+        // Follow the resolved theme from the very first frame. The hardcoded
+        // white this replaces left status bar text near-invisible on the light
+        // palette until SystemBars.apply resolved its async window handle.
+        statusBarContentColor: dark ? '#FFFFFF' : '#000000',
         navigationBarColor: '#00000000',
-        navigationBarContentColor: '#FFFFFF'
+        navigationBarContentColor: dark ? '#FFFFFF' : '#000000'
       });
     } catch (error) {
       const e = error as Error;

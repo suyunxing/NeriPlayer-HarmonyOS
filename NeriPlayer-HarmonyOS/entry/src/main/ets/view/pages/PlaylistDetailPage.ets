@@ -12,7 +12,8 @@ import { Router } from '../Router';
 
 @Component
 export struct PlaylistDetailPage {
-  @StorageLink('route.param') playlistId: string = '';
+  /** 由 MainShell 的 navDestination builder 从路由参数传入。 */
+  @Prop playlistId: string = '';
   @State playlist: Playlist | null = null;
   @State history: SongItem[] = [];
   @State showAddDialog: boolean = false;

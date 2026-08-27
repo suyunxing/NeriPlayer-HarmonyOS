@@ -8,8 +8,12 @@ import { SearchHistoryRepository } from '../../data/SearchHistoryRepository';
 import { UsageRepository } from '../../data/UsageRepository';
 import { PlayerManager } from '../../player/PlayerManager';
 import { Theme } from '../Theme';
+import { BAND_LIST_VP, BP_LG, BP_MD } from '../../util/Breakpoint';
 import { SongRow } from '../components/SongRow';
 import { EmptyState, LoadingState } from '../components/Ui';
+
+/** 本页在 MainShell 的 Tabs 里的下标，用于过滤刷新信号。 */
+const TAB_INDEX: number = 1;
 
 @Component
 export struct ExplorePage {
@@ -20,9 +24,28 @@ export struct ExplorePage {
   @State error: string = '';
   @State history: string[] = [];
   @State searched: boolean = false;
+  /** 由 util/WindowMetrics.ets 发布，这里只用来决定空态是否竖向居中。 */
+  @StorageProp('ui.breakpoint') breakpoint: string = 'sm';
+  /** 常驻 Tab 页的显式刷新钩子，详见 HomePage 同名成员。 */
+  @StorageProp('np.default_start_tab') activeTab: number = 0;
+  @StorageProp('ui.refreshTick') @Watch('onRefreshTick') refreshTick: number = 0;
 
   async aboutToAppear(): Promise<void> {
+    await this.reload();
+  }
+
+  private async reload(): Promise<void> {
     this.history = await SearchHistoryRepository.load();
+  }
+
+  private onRefreshTick(): void {
+    if (this.activeTab === TAB_INDEX) {
+      this.reload();
+    }
+  }
+
+  private wideLayout(): boolean {
+    return this.breakpoint === BP_MD || this.breakpoint === BP_LG;
   }
 
   private async search(): Promise<void> {
@@ -105,6 +128,10 @@ export struct ExplorePage {
   }
 
   build() {
+    // 栏宽约束手写在这里而不套 ContentBand：结果列表靠 layoutWeight(1) 撑满剩余
+    // 高度，需要 height('100%') 一路传到被约束的那一层，而 ContentBand 是按内容
+    // 自适应高度的。Row 只负责把这条内容带在宽屏上居中。
+    Row() {
     Column({ space: 10 }) {
       Text('探索')
         .fontSize(26)
@@ -247,11 +274,20 @@ export struct ExplorePage {
           .borderRadius(Theme.cardRadius())
         }
         .width('100%')
+        // md/lg 下这两张引导卡只占顶部一小条，下面整块都是空白。撑满剩余高度
+        // 并竖向居中；窄屏保持原来的顶部对齐，视觉不变。
+        .layoutWeight(1)
+        .justifyContent(this.wideLayout() ? FlexAlign.Center : FlexAlign.Start)
       }
     }
-    .padding({ left: 16, right: 16 })
     .width('100%')
     .height('100%')
+    .constraintSize({ maxWidth: BAND_LIST_VP })
+    .padding({ left: 16, right: 16 })
+    }
+    .width('100%')
+    .height('100%')
+    .justifyContent(FlexAlign.Center)
     .backgroundColor(Theme.background(Theme.isDark()))
   }
 }

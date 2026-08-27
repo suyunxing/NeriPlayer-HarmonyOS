@@ -19,7 +19,8 @@ const IMPORT_CAP: number = 500;
  */
 @Component
 export struct NeteasePlaylistPage {
-  @StorageLink('route.param') playlistParam: string = '';
+  /** 由 MainShell 的 navDestination builder 从路由参数传入。 */
+  @Prop playlistParam: string = '';
   @State overview: NeteasePlaylistOverview | null = null;
   @State loading: boolean = true;
   @State loadError: string = '';
