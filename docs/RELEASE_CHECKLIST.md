@@ -9,6 +9,8 @@
 > **2026-08-26 第二次修订（ArkUI 标准组件改造轮）**：把手搓的顶层导航、硬编码避让量、写死列数的网格、自研路由分别换成 `Tabs`/`TabContent`（大屏 `.vertical(true)` 侧边栏）、`TYPE_NAVIGATION_INDICATOR` 动态避让、`GridRow`/`GridCol`、`Navigation`/`NavDestination` + `NavPathStack`，§8.2 登记的 11 条大屏密度问题全部整改。受影响章节：§1（tablet 行改后复测通过；phone 与 2in1 的**改后**回归转为未验证，断点切换结论待 2in1）、§5.5（「大屏三档响应式布局为未完成的强制项」→ 已完成）、新增 §7.3（本轮构建/静态/单测/设备数字，含首次实测到的本地单测基线 819 pass 与设备侧 49 中 29 pass）。逐条记录见 `UX_COMPLIANCE_AUDIT.md` §10.2、§11.5。
 >
 > **2026-08-27 修订（phone 复测轮）**：phone（唯一 API 24 形态）改后复测完成，`Tabs` 底部栏分支首次上设备即发现并修复两处底部导航条区渲染缺陷（指示器条带接缝与 NavDestination 深色白边，均为 `MainShell.ets` 行级改动），其余验收项全过；静态与单测基线复跑持平（codelinter 26 warn / 2 suggestion / 0 error，本地单测 819/819）。受影响章节：§1（phone 行改后复测通过）、§7.3（补 phone 轮数字）。**仍待 2in1 一档**（S2 动态避让核心验收 + 跨断点换栏）。记录见 `UX_COMPLIANCE_AUDIT.md` §11.6。
+>
+> **2026-08-27 第二次修订（2in1 复测轮，ArkUI 改造收官）**：2in1 改后复测完成——S2 核心验收点「自由窗口避让区 0 → 抬升 0、死区消失」通过（TabBar 底边距窗口底 0.0vp）；侧边栏 96.3vp 固定；**跨断点 809↔1101vp 双向换栏**及数据保留实测通过；四类缺陷全 0。**三形态复测证据齐备，大屏三档响应式布局这条强制项正式收口**。本轮另发现环境问题：bundleName 已改（`moe.ouom.neriplayer` → `moe.ouom.neriplayer.hmos`，08-27 上午的未提交变更），模拟器上旧名残留包与新版并存曾导致误测旧应用（排查记录见 `UX_COMPLIANCE_AUDIT.md` §11.7），**所有含 `-b moe.ouom.neriplayer` 的命令（含本文档与 hm.md 中的 `aa test`）需随 bundleName 定稿一并更新**。记录见 §11.7。
 
 ## 1. 设备矩阵与布局回归
 
@@ -20,10 +22,10 @@
 | foldable（展开内屏） | Mate X7 模拟器（2210×2416，3.125 px/vp，API 24） | **707 vp（LG 断点）** | 已回归（2026-08-24） | 17 页 `dumpLayout` 度量，非滚动区溢出 0 / 裁剪 0 / 文本重叠 0（§2） |
 | foldable（折叠外屏） | 同实例第二显示（1080×2444） | 346 vp | **未验证** | 折叠态由 Posture/Hall 传感器驱动（DMS 已订阅），仅模拟器 GUI 可切换；`hidumper -s DisplayManagerService` 无折叠开关参数，hdc 无法注入 → 无法在本自动化链路内走查 |
 | tablet | MatePad Pro 13 模拟器（2880×1920，density 320 → 2.0 px/vp，**API 26 / OpenHarmony-7.0.0.32 Beta**） | 1440 vp | 已回归（2026-08-26）；**ArkUI 改造后已复测** | 6 页 `dumpLayout` 度量，非滚动区溢出 0 / 裁剪 0 / 文本重叠 0；深色模式通过；**挖孔避让实测通过**（本机唯一带挖孔形态）。改造后 7 页复测四类缺陷仍全 0，侧边导航栏固定 96 vp、列表栏宽 840 vp、正文栏宽 600 vp、底部抬升 28 vp。逐项见 `UX_COMPLIANCE_AUDIT.md` §8.2、§11.2、§11.5 |
-| 2in1（PC 平板形态） | MateBook Pro 模拟器（3120×2080，1.9 px/vp，**API 26 / HarmonyOS 7.0.0-B1 Beta**） | 自由窗口 1100 vp，最大化 1642 vp | 已回归（2026-08-25）；**ArkUI 改造后未复测** | 5 组 `dumpLayout` 度量（含最大化态），四类缺陷全 0；深色模式通过（系统 `DecorBar` 跟随）。改造后**S2 的核心验收点（自由窗口避让区 0 → 抬升量 0，死区消失）与 1100 vp ↔ 1642 vp 断点切换均未实测**。逐项见 `UX_COMPLIANCE_AUDIT.md` §8.2 |
+| 2in1（PC 平板形态） | MateBook Pro 模拟器（3120×2080，1.9 px/vp，**API 26 / HarmonyOS 7.0.0-B1 Beta**） | 自由窗口 1100 vp，最大化 1642 vp，可拖至 840 vp 以下 | 已回归（2026-08-25）；**ArkUI 改造后已复测（2026-08-27）** | 5 组 `dumpLayout` 度量（含最大化态），四类缺陷全 0；深色模式通过（系统 `DecorBar` 跟随）。改后复测：**S2 核心验收点通过**——自由窗口避让区 0 → 抬升 0，TabBar 底边距窗口底 0.0vp（整改前 27.9vp 纯死区）；侧边导航栏 96.3vp 固定（整改前底部栏 275vp/格）；**跨断点 809↔1101vp 双向换栏**、两次重建后页面状态与数据保留；设置行文本 716.8vp、法务 568.4vp、每日推荐 6 卡/行。逐项见 `UX_COMPLIANCE_AUDIT.md` §8.2、§11.7 |
 | 真机（物理手机/平板） | 无设备 | — | 未验证 | 全部设备证据来自 x86 模拟器；上架前必须真机回归（尤其签名/性能/蓝牙 AVRCP） |
 
-**断点切换（2026-08-26 ArkUI 改造引入的新回归项）**：改造后布局按 `ui.breakpoint`（`sm`/`md`/`lg`，阈值 600/840 vp，与 `GridRow` 默认断点 `['320vp','600vp','840vp']` 同源）分三档，且 `lg` 与 `sm/md` 走 `Tabs` 的**两个不同分支**（侧边栏 / 底部栏），跨断点会重建子树、四个 Tab 页的 `@State` 丢一次（靠 `ui.refreshTick` 重载）。当前证据只覆盖**静态落在某一档**的情形：tablet 恒为 `lg`（1440 vp）、phone 恒为 `sm`（391 vp，两个分支各有一档实测）。**动态跨档切换未验证** —— 唯一能在运行时改窗口宽度的形态是 2in1（自由窗口 1100 vp ↔ 最大化 1642 vp，两侧都在 `lg`，需手动缩窗到 840 vp 以下才能触发换栏），该形态改造后尚未启动复测。
+**断点切换（2026-08-26 ArkUI 改造引入的新回归项）**——**已于 2026-08-27 在 2in1 上实测通过**：自由窗口拖缘从 1101vp 缩到 809vp（<840）时 `Tabs` 自动由侧边栏切底部栏（栏高 62+0），拖回 1101vp 切回侧边栏；两次跨档重建后当前页内容与滚动位置保留（`ui.refreshTick` 重载生效），未出现白屏或状态错乱。静态档位证据：tablet 恒 `lg`（侧边栏）、phone 恒 `sm`（底部栏）、2in1 覆盖 lg↔md 两档与两分支。仍属未验证的只剩：拖动过程中的**连续中间态**（逐像素跟随窗口宽度渐变）未逐帧检查，实测为松手后的稳定态断言。
 
 > **2026-08-26 更正**：上面 tablet / 2in1 两行原记为「阻塞：镜像不在盘」，该说法**已被证伪**——镜像现已在盘并通过签名校验（`Tools/Sdk/system-image/HarmonyOS-7.0.0-B1/pc_all_x86`、`HarmonyOS-7.0.0-B2/tablet_x86`）。同时须明确一个口径差异：**这两个形态跑的是 API 26 / HarmonyOS 7.0.0 Beta（`os.isPublic=false`），不是项目目标的 6.1.1(24)**。本机**没有任何 6.1.1 的 tablet / pc 镜像**，`AppData/Local/Huawei/Emulator/deployed/` 下那两个 6.1.1 实例指向的镜像路径不存在。因此只有 phone 一档是在目标 API 上验证的，tablet/2in1 的结论属**向上兼容运行**，不能替代目标 API 回归——该缺口已登记在 `UX_COMPLIANCE_AUDIT.md` §11.4。
 >
@@ -162,7 +164,7 @@ AppScope/resources/base/profile/configuration.json
 - IAP Kit：无付费点、无数字商品、无购买页，不适用。
 - 年龄分级：音乐播放类，无用户生成内容上传（分享卡片仅本地生成图片）。
 - 一起听默认服务器：外部依赖（D7），客户端直连；发布文案需说明「需要自建或已知服务器」。
-- **设计与交互规范自查**：少数派《鸿蒙上架指南》第一章 22 条逐条自查与整改记录见 `UX_COMPLIANCE_AUDIT.md`（分层图标、启动页背板、沉浸式三项、触控目标、深色模式、转场动效、折叠屏/大屏、隐私与权限）。其中**大屏三档响应式布局已于 2026-08-26 完成**（`Tabs` 侧边栏 + `GridRow` 分列 + `ContentBand` 栏宽 + 动态避让，§8.2 的 11 条密度问题全部整改），因此 `deviceTypes` 可保留 `tablet`/`2in1`，无需收窄为 `["phone"]`。**回归证据已覆盖 tablet 与 phone 两档**（08-26/08-27）；仍缺 2in1：其上「自由窗口避让区 0 → 抬升量 0」核心验收点与跨断点换栏仍无实测（见 §1 与 §7.3）。
+- **设计与交互规范自查**：少数派《鸿蒙上架指南》第一章 22 条逐条自查与整改记录见 `UX_COMPLIANCE_AUDIT.md`（分层图标、启动页背板、沉浸式三项、触控目标、深色模式、转场动效、折叠屏/大屏、隐私与权限）。其中**大屏三档响应式布局已于 2026-08-26/27 完成，三形态复测证据齐备**（`Tabs` 侧边栏 + `GridRow` 分列 + `ContentBand` 栏宽 + 动态避让，§8.2 的 11 条密度问题全部整改；tablet/phone/2in1 逐项数字见 audit §11.5–§11.7），因此 `deviceTypes` 可保留 `tablet`/`2in1`，无需收窄为 `["phone"]`。残留缺口仅两条：目标 API 24 上无 tablet/2in1 镜像（现有两档为 API 26 Beta 向上兼容），以及 2in1 空态竖向空白未专项度量（§11.7）。
 
 ## 6. 已知能力限制（发布文案应如实描述）
 
@@ -224,10 +226,11 @@ AppScope/resources/base/profile/configuration.json
 | 设备侧单测（`entry/src/ohosTest/`，module `entry_test`） | **Tests run: 49, Failure: 10, Error: 10, Pass: 29**（`ResultCode 0`） | tablet 上 `assembleHap --mode module -p module=entry@ohosTest` → 手动签名 → 安装 → `aa test`。20 个失败**全部**是实网请求超时（网易云/B 站/YTM 的搜索、歌单、音频直链等），与本轮改动无关；但也因此**不能用它证明「无回归」** |
 | **819 与 798 的关系** | **不是增量** | 两套 suite 完全不同：`entry/src/test/`（本地，819 例）与 `entry/src/ohosTest/`（设备侧，49 例）。§7.1/§7.2 引用的 798 是历史文档中的说法，**本机从未测量过该数字**，因此 819 不可读作「798 + 21」。本轮对 suite 的实际改动是：`RouteStack.test.ets` **删 2 条**（`serialize/parse` 往返与依赖数组语义的部分——被测行为随 `route.stack` AppStorage 镜像一起删除，不是为了让测试通过而删）、新增 `Breakpoint.test.ets` **5 条** |
 | UI 表现（tablet 复测） | **已实测，四类缺陷全 0** | 7 页 `dumpLayout`：首页 / 探索 / 资料库 / 设置 / 隐私政策 / 免责声明 / 引导页。侧边导航栏固定 **96 vp**（192 px，四个标签中心 cx 均为 96 px）、列表与设置栏宽 **840.0 vp**（行内文本块 716~740 vp）、法务正文 **568.0 vp**（原 1408 vp）、按钮 **360.0×48.0 vp**、竖向空白探索页 280.5 vp（原 555.5）/ 首页 142 vp（原 405.5）、`GridRow` lg 12 列 span 2 → 每行 6 张卡（单卡 208.5 vp，原 700 vp）。逐条数字见 `UX_COMPLIANCE_AUDIT.md` §8.2 |
-| 动态抬升量（S2 核心） | **tablet 与 phone 已验证；2in1 未验证** | tablet：`SCBGestureNavBar18 [0,1864,2880,56]` → 避让区 28 vp，滚动区底边落在 y=1864 px（932 vp）与避让区上沿重合 → 动态抬升 28 vp 与硬编码值一致。phone（API 24）：`SCBGestureNavBar16 [0,2754,1320,94]` → 避让区 27.85 vp，TabBar 高 90.1 vp = 62+28、底边与指示器上沿精确重合。**2in1 自由窗口「避让区 0 → 抬升 0，死区消失」这一条是本阶段真正的验收点，尚未实测** |
+| 动态抬升量（S2 核心） | **三形态全部实测通过（08-27 收口）** | tablet：`SCBGestureNavBar18 [0,1864,2880,56]` → 避让区 28 vp，滚动区底边与避让区上沿重合。phone（API 24）：`SCBGestureNavBar16 [0,2754,1320,94]` → 避让区 27.85 vp，TabBar 底边与指示器上沿精确重合。**2in1：自由窗口避让区 0 → 抬升 0，TabBar 底边距窗口内容底边 0.0vp（整改前 27.9vp 死区）；缩窗切底部栏后栏高 62+0**（audit §11.7） |
+| 跨断点换栏（S4 风险点） | **已实测（08-27，2in1）** | 1101vp（侧边栏）→ 拖缘缩到 809vp 自动切底部栏 → 拖回切回侧边栏；两次跨档重建后页面内容与滚动位置保留。未逐帧检查拖动中的连续中间态（断言的是松手后的稳定态） |
 | 返回栈（S4 的双弹风险） | **已验证，未双弹** | 从全屏法务页发一次 `uitest uiInput keyEvent Back`，恰好回退一层到 Tab 骨架 → `Index.onBackPress` 与 `Navigation` 没有同时消费返回键，该 override 保留 |
 | 播放进度条缺陷（实测发现→已修复，**计划外**） | **已修复并像素复测** | `MiniPlayer` 的 `Progress` 原来喂 0..1 比例且不给 `total`（`progress.d.ts` 只声明 `total?: number` 且无文档化默认值），进度条从未正确显示：播到 11% 与 20% 时像素采样整条都是轨道色。改为 `value: positionMs, total: durationMs`（与 `DownloadsPage.ets:172` 同一写法） |
-| phone / 2in1 改后复测 | **phone 已复测（2026-08-27，全过）；2in1 未验证** | phone（唯一 API 24 形态）：四 Tab + 隐私/用户协议/播放设置/调试/播放页 + 清数据重走的免责声明/引导，四类缺陷全 0；Tab 单格 97.8 vp 与改造前逐像素一致；深/浅/auto 三档底部采样无缝；字号 1.45× 与等效 1.8125× 三处已修缺陷无回归；返回栈单次单层无一次双弹。**复测发现并修复两处缺陷**：① 底部 28 vp 指示器条带与 Tab 栏色差接缝——`Tabs` 容器自身延伸到窗口底边，补 `.backgroundColor(bandColor())` 即连续（原内层色带在 `NavBarContent` 里 `expandSafeArea` 不延伸，已删）；② `NavDestination` 默认白背景在深色模式露白边——显式置 `Color.Transparent` 回落 Index 沉浸层。证据前缀 `tools/.m9/pa*`，逐项见 `UX_COMPLIANCE_AUDIT.md` §11.6。2in1 需用户在 DevEco 设备管理器启动实例后串行复测 |
+| phone / 2in1 改后复测 | **均已复测通过（2026-08-27）** | phone（唯一 API 24 形态）：四 Tab + 隐私/用户协议/播放设置/调试/播放页 + 清数据重走的免责声明/引导，四类缺陷全 0；Tab 单格 97.8 vp 与改造前逐像素一致；深/浅/auto 三档底部采样无缝；字号 1.45× 与等效 1.8125× 三处已修缺陷无回归；返回栈单次单层无一次双弹。**复测发现并修复两处缺陷**：① 底部 28 vp 指示器条带与 Tab 栏色差接缝（`Tabs` 容器自身延伸到窗口底边，补 `.backgroundColor(bandColor())`；原内层色带在 `NavBarContent` 里 `expandSafeArea` 不延伸，已删）；② `NavDestination` 默认白背景在深色模式露白边（显式置 `Color.Transparent` 回落 Index 沉浸层）。2in1：S2 核心验收 + 跨断点换栏 + 密度收口全过（见上两行与 §11.7）。证据前缀 `tools/.m9/pa*`、`wb*` |
 | `mcp__deveco-mcp__check` 静态诊断 | **未运行** | 该 MCP 对本工程不可用（沿用前轮结论），计划里的静态验证第 3 步声明为未执行 |
 | 内存 | **phone 复测已取得（08-27）** | 冷启 220 MB → 首轮全页导航 256 MB → 6 轮平台期 **257–264 MB，无单调增长**。较 08-24 phone 基线 127–151 MB 高约 110 MB——「Tab 页常驻推高内存」的方向得到确认，但两次测量数据量不同（本轮含网易云实网数据与封面缓存），**不可作严格对比**；无泄漏趋势与旧结论一致。tablet 侧 378 MB（窗口与位图更大，另行记录） |
 
