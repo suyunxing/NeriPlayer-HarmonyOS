@@ -4,7 +4,7 @@
     "vendor": "moe.ouom",
     "versionCode": 1000000,
     "versionName": "1.0.0",
-    "icon": "$media:app_icon",
+    "icon": "$media:app_layered_image",
     "label": "$string:app_name",
     // Fonts do not follow the system size unless this profile opts in
     // (HarmonyOS defaults to nonFollowSystem). Capped at 1.75x, the largest

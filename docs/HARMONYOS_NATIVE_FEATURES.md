@@ -2,6 +2,8 @@
 
 > 成文日期：2026年08月24日
 > 工程基线：HarmonyOS 6.1.1 Release / **API 24**（`build-profile.json5` 的 `compatibleSdkVersion` 与 `targetSdkVersion` 均为 `6.1.1(24)`）
+>
+> **2026年08月26日修订**：本文最初编制时的四项 P1 现状描述已过时，按实际落地情况回填。受影响章节：§1 摘要表（`Navigation` 迁移、分层图标、多语言资源三行）、§6（`Navigation` 迁移已落地，并记录「`NavigationMode.Auto` 分栏被主动放弃」与「M9.3 回归作废」两条与原预期不符的实际结果）、§7.2（tablet/2in1 已回归 + 11 条大屏密度问题已整改）、§8.1（分层图标已落地）、§8.2（多语言部分落地）、§11 决策表、§12 M10.4/M10.5 里程碑。原文内容以「迁移前的现状（保留以备复查）」形式保留，不删除。改造与验证的一手数字见 `UX_COMPLIANCE_AUDIT.md` §10.2/§11.5 与 `RELEASE_CHECKLIST.md` §7.3。
 
 ## 0. 本文定位
 
@@ -42,12 +44,12 @@ P0 的定义是：**基线内可用 + 零审批 + 属官方明文要求或修正
 | **P0** | 系统级桌面歌词（`enableDesktopLyric` 全套） | ✅ @since 23 | 否 | 零命中，且被 D4 误判为「无平台对应」 | §3 |
 | **P0** | 音频低功耗加固（显式 `usage` + 静音 `EFFECT_NONE`） | ✅ @since 12 | 否 | 只设了 `audioInterruptMode` | §4 |
 | **P1** | 服务卡片（音乐播控卡片） | ✅ @since 9 | 否 | 无 `extensionAbilities` | §5 |
-| **P1** | `Navigation` 迁移（官方已将 `router` 标为不推荐） | ✅ | 否 | 自研 Router + 单页 | §6 |
+| **P1** | `Navigation` 迁移（官方已将 `router` 标为不推荐） | ✅ | 否 | **已落地（2026-08-26）**，原为「自研 Router + 单页」 | §6 |
 | **P1** | 折叠屏悬停态（官方点名「听歌」场景） | ✅ | 否 | 未适配 | §7.1 |
-| **P1** | 分层图标 | ✅ | 否 | 只有 `app_icon.png` | §8.1 |
+| **P1** | 分层图标 | ✅ | 否 | **已落地（2026-08-25）**，原为「只有 `app_icon.png`」 | §8.1 |
 | **P1** | 触控目标 40vp → 48vp | ✅ | 否 | 实测 40vp 下限 | §7.3 |
 | **P2** | 投播（AVCastPicker / Cast+ / DLNA） | ✅ | 否 | 零命中 | §9 |
-| **P2** | 多语言资源限定词目录 | ✅ | 否 | 只有 `base` + `dark` | §8.2 |
+| **P2** | 多语言资源限定词目录 | ✅ | 否 | **部分落地（2026-08-25）**：已加 `zh_CN`（4 条系统元数据），UI 文案仍未外化 | §8.2 |
 | **P2** | `setLoudnessGain` 响度增益 | ✅ @since 21 | 否 | 零命中 | §4.3 |
 | **P3** | 实况窗（Live View Kit） | ✅ | **是**（AGC 评审 7 工作日） | 零命中 | §10.1 |
 | **P3** | 播控推荐服务 | ✅ | **是**（受限开放，仅中国大陆） | 零命中 | §10.2 |
@@ -476,39 +478,34 @@ AudioRendererProbe setLoudnessGain(0.0)=hung(>10000ms)
 
 ---
 
-## 6. P1 `Navigation` 迁移
+## 6. P1 `Navigation` 迁移 —— **已于 2026-08-26 落地**
 
 **文档确认**：官方推荐 `Navigation` + `NavDestination` + `NavPathStack`，并已将 `router` 标为**不推荐**。响应式规则：<600vp 单栏、≥600vp 分栏、`NavigationMode.Auto`。
 
-### 6.1 工程现状
+### 6.1 工程现状（2026-08-26 更新）
 
-**已静态确认**：
+**已迁移**。`MainShell.ets` 外层是 `Navigation(this.pageStack).hideTitleBar(true).mode(NavigationMode.Stack).navDestination(this.pageMap)`，11 个 `if/else` 全屏路由分支收成一个 `@Builder pageMap`，每个分支是一个 `NavDestination`。`view/Router.ets` 保留为**门面**：公开 API（`push`/`pop`/`canPop`/`depth`/`reset` + 11 个路由名常量）签名与语义不变，内部持有 `NavPathStack`，因此 38 个调用点零改动；`route.name`/`route.param`/`route.stack` 三个 `AppStorage` 镜像已删除，读 param 的 4 个页面由 `@StorageLink` 改 `@Prop`。`view/RouteStack.ets` 收敛为「push 决策」纯算法（栈顶同名替换 / pushing MAIN 清栈 / 深度上限）。改造与验证记录见 `UX_COMPLIANCE_AUDIT.md` §10.2、§11.5 与 `RELEASE_CHECKLIST.md` §7.3。
 
-- `entry/src/main/resources/base/profile/main_pages.json` 内容为 `{"src": ["pages/Index"]}` —— **单页应用**
+迁移前的现状（保留以备复查）：
+
+- `entry/src/main/resources/base/profile/main_pages.json` 内容为 `{"src": ["pages/Index"]}` —— **单页应用**（这一条未变，`Navigation` 不需要多页声明）
 - 路由是自研的：`view/Router.ets` + `view/RouteStack.ets`，基于 `AppStorage` 的 `route.stack` / `route.name` / `route.param`，11 个路由常量
 - `Navigation(` grep 零命中
 
-工程自研路由目前是**可用且已验证**的：`FEATURE_MATRIX.md` 第 13 行记录 M9.3 完成「17 页逐页 `keyEvent Back` 退出且下一页身份正确」的设备验证，第 13 行另记录返回栈遗留缺陷已修并验证。`Router.ets` 注释还记录了一个设备实测结论：
+`Router.ets` 注释里那条设备实测结论**依然成立且已复验**：
 
 > Index.onBackPress consumes the system back key while canPop() is true. Without that, back on any detail page backgrounded the whole ability (device-observed 2026-08-24)
 
-### 6.2 建议：列 P1 但不急于动
+迁移时最担心的「`Index.onBackPress` 与 `Navigation` 双重消费返回键 → 一次按键弹两层」**已在 tablet 上实测排除**：从全屏法务页发一次 `keyEvent Back`，恰好回退一层。因此该 override 保留。
 
-`hm.md` §6.2 早已建议迁 `Navigation`（未落地）。本文维持该建议，但要如实说明**收益与风险的对比**：
+### 6.2 迁移的实际取舍（原「列 P1 但不急于动」的建议已被执行取代）
 
-**收益**：
+原建议是「等下一次需要动布局的里程碑顺带迁移，让分栏收益抵掉迁移成本」。实际执行时**收益兑现的方式和预期不同**，如实记录：
 
-- 官方推荐路径，`router` 已标不推荐，长期看有维护风险
-- `NavigationMode.Auto` 自带 ≥600vp 分栏 —— 这对 §7.2 的 tablet / 2in1 适配是**直接收益**，自研路由要自己实现分栏
-- 系统级转场动画与手势返回，体验更「鸿蒙」
-
-**风险**：
-
-- 自研路由已通过 17 页 × 3 档字号 × 2 形态的设备回归（M9.3），迁移意味着**这批验证全部作废并需重做**
-- `Index.onBackPress` 那条设备实测结论说明返回键交互存在过真实踩坑，`Navigation` 的返回语义不同，可能引入新的同类问题
-- 迁移不产生任何**用户可见的新功能**
-
-**结论**：建议在**下一次需要动布局的里程碑**（例如 M9.3a 解封做 tablet/2in1 适配时）**顺带迁移**，让分栏收益抵掉迁移成本；不建议单独立项做纯迁移。这也与 §7.2 天然合并。
+- **`NavigationMode.Auto` 的分栏收益没有拿到**，而是**主动放弃**的。Split 会把 navBar 压进默认 240vp 的侧栏，而本项目的 navBar 内容是**整个 Tab 骨架（完整页面）**，结构不匹配 → 显式写 `.mode(NavigationMode.Stack)`。大屏分栏的收益改由 `Tabs.vertical(true)` 侧边导航栏提供（同一轮落地）。
+- **「17 页 × 3 档字号 × 2 形态的回归全部作废」这个风险是真的**。改后只在 tablet 一档做了 7 页复测（四类缺陷全 0），phone 与 2in1 的改后回归、以及字号三档的改后复测都**未重跑** → 见 `RELEASE_CHECKLIST.md` §1 与 §7.3 的未验证项。
+- **新引入的行为变更**：`Navigation` 的 Stack 模式下 navBar 不销毁，四个 Tab 页由「销毁重建」改为「常驻」，原先靠子树重建拿到的隐式数据刷新消失 → 补 `NavDestination.onWillDisappear` → `Router.notifyReturned()` → `ui.refreshTick` 显式钩子。这一条在迁移前的风险评估里**没有预见到**。
+- 系统级转场动画到手（删掉了自定义 `ROUTE_TRANSITION`）；侧滑返回手势在本机模拟器上被系统 Dock 吃掉，未能验证。
 
 ---
 
@@ -543,21 +540,24 @@ AudioRendererProbe setLoudnessGain(0.0)=hung(>10000ms)
 
 补充：`devecocli emulator fold <state>` 支持 `foldable` 的 `open|half-open|close`（其中 `half-open` 即半开/悬停），**这可能是一条绕过真机限制的路径**，但本轮未验证该命令对 Posture 传感器的注入是否能被应用侧的折叠态监听真正感知到。列为待验证项。
 
-### 7.2 断点与响应式：tablet / 2in1 仍未验证
+### 7.2 断点与响应式 —— **已于 2026-08-26 落地，回归覆盖 tablet 一档**
 
 **已静态确认**：`module.json5` 的 `deviceTypes` 为 `["phone", "tablet", "2in1"]` —— 已声明支持三种形态。
 
-**但 `FEATURE_MATRIX.md` 第 13 行明确记录未验证**：
+**已落地**（`UX_COMPLIANCE_AUDIT.md` §8.2、§10.2、§11.5；`RELEASE_CHECKLIST.md` §1、§7.3）：
 
-> **未验证**：tablet 2880×1920 与 2in1 3120×2080（镜像未下载，见执行计划 M9.3a）、折叠外屏 346vp、横屏（`module.json5` 未锁方向但未走查）、真机
+- 三形态设备回归已完成（tablet MatePad Pro 13 1440vp / 2in1 MateBook Pro 自由窗口 1100vp 与最大化 1642vp / phone Pura 90 377vp），四类布局缺陷全 0；
+- 实测暴露的 **11 条大屏信息密度问题已全部整改**：顶层导航 `Row` 手搓 → `Tabs`/`TabContent`（lg 走 `.vertical(true).barWidth(96)` 侧边栏，单格宽度由「随窗口线性膨胀到 360vp」变为固定 96vp）、固定 2 列网格 → `GridRow`/`GridCol`（xs/sm 4 列、md 8 列、lg 12 列，span 2 → 每行 2/4/6 卡）、新增 `ContentBand` 栏宽约束（正文 600vp、列表与设置 840vp、按钮 360vp）；
+- 硬编码的 `BOTTOM_BAR_LIFT_VP = 28` 改由 `TYPE_NAVIGATION_INDICATOR` 避让区动态求值（新增 `util/WindowMetrics.ets`，一次订阅同时发布 `ui.widthVp`/`ui.breakpoint`/`ui.bottomLiftVp`）；
+- 断点常量收在 `util/Breakpoint.ets`（`BP_MD=600`/`BP_LG=840`，与 `GridRow` 默认断点 `['320vp','600vp','840vp']` 同源），配 5 条单测。
 
-这里存在一个**上架风险**：`deviceTypes` 声明了 tablet 与 2in1，意味着这两种设备的用户能装到应用，但布局从未验证过。要么补验证，要么在验证前收窄 `deviceTypes`。**声明支持而未验证，比不声明更糟。**
+**残余缺口（如实标注）**：改后的复测只覆盖 **tablet 一档 7 页**；phone 与 2in1 的改后回归未跑，2in1 上「自由窗口避让区 0 → 抬升量 0，死区消失」这一核心验收点仍无实测；**动态跨断点切换未验证**；这两个形态跑的是 **API 26 Beta 而非目标 6.1.1(24)**（本机无 6.1.1 的 tablet/pc 镜像）。
 
-`PORTING_EXECUTION_PLAN.md` M9.3a 的阻塞原因已查明：本机只有 `phone_all_x86` 镜像，需 GUI 下载 `tablet_x86` 与 `pc_all_x86`，而 `Emulator.bat -imageList/-install` 在无 GUI 会话下退出码 0、零输出、无副作用。
+迁移前的记录（保留以备复查）：`FEATURE_MATRIX.md` 第 13 行曾记 tablet / 2in1「镜像未下载，见执行计划 M9.3a」，并指出「`deviceTypes` 声明支持而未验证，比不声明更糟」。该阻塞已于 2026-08-25/26 通过在 DevEco GUI 下载 Beta 镜像解除（`Emulator.bat -imageList/-install` 在无 GUI 会话下退出码 0、零输出、无副作用，这是工具链行为而非镜像不存在）。
 
-**建议**：M9.3a 解封时，把 §6（Navigation 迁移，`NavigationMode.Auto` 自带分栏）与 §7.1（悬停态）**合并为一个「一多适配」里程碑**，一次性完成布局改动 + 回归。分三次做会导致布局回归重复三遍。
+**原建议已被执行取代**：原文建议「M9.3a 解封时把 §6（Navigation 迁移）与 §7.1（悬停态）合并为一个一多适配里程碑，一次性完成布局改动 + 回归」。实际执行了 §6 + §7.2，**§7.1 悬停态与 §7.3 触控目标 48vp 未做**，因此「一次布局回归覆盖四项」的省事目标只部分实现——后两项落地时仍需再跑一遍回归。另需注意 `NavigationMode.Auto` 的分栏收益是**主动放弃**的（结构不匹配，见 §6.2），大屏分栏改由 `Tabs.vertical(true)` 提供。
 
-另需注意官方基础要求中的**横竖屏**与**多窗**：`module.json5` 未锁方向且未走查横屏，2in1 形态下多窗（自由窗口缩放）也未验证。这两项与 tablet/2in1 镜像是同一批工作。
+官方基础要求中的**横竖屏**与**多窗**仍未走查：`module.json5` 未锁方向且未测横屏；2in1 的自由窗口缩放虽已在 1100vp/1642vp 两个静态尺寸取证，但**拖动过程中的断点切换**未验证。
 
 ### 7.3 触控目标 40vp → 48vp
 
@@ -565,7 +565,7 @@ AudioRendererProbe setLoudnessGain(0.0)=hung(>10000ms)
 
 这是官方基础要求中明文的推荐值。改动本身机械（调整组件最小尺寸），但会**影响既有布局**——`FEATURE_MATRIX.md` 第 13 行记录 M9.3 修过 3 处字号缺陷，其中「SongRow 序号角标与时长真重叠」的根因是「百分比 `.position()` 按父容器实测宽度解析、字号放大即失稳」。把触控目标从 40vp 提到 48vp 会再次改变行高与间距，**需重跑布局树度量回归**。
 
-因此这项虽然简单，也应并入 §7.2 的「一多适配」里程碑统一回归，而不是单独改。
+因此这项虽然简单，也应与 §7.1 悬停态一起在**下一轮布局改动**里做，而不是单独改——§7.2 的那一轮已经跑完，这项没赶上，所以它自己会再触发一遍完整的布局树度量回归（见 §12 M10.4）。
 
 ### 7.4 无障碍现状
 
@@ -577,25 +577,25 @@ AudioRendererProbe setLoudnessGain(0.0)=hung(>10000ms)
 
 ## 8. P1 应用外观规范
 
-### 8.1 分层图标
+### 8.1 分层图标 —— **已于 2026-08-25 落地**
 
 **文档确认**（文档 ID `开发指南/开发基础知识/典型场景的开发指导/配置应用图标和名称/layered-image`、`最佳实践/程序包结构/应用图标配置与开发/bpta-app-icon-configuration`、`开发指南/UI_Design_Kit_UI设计套件/图标处理/推荐_分层图标处理/ui-design-layered-process`）。
 
 分层图标（前景层 + 背景层）是 HarmonyOS 桌面图标的标准形态，支持系统的图标动效、主题化与形状裁切。UI Design Kit 提供 `hdsDrawable` 辅助处理。
 
-**已静态确认**：`AppScope/resources/base/media/` 下只有 `app_icon.png`，**无分层图标配置**。
+**已落地**：`AppScope/resources/base/media/` 现有 `app_layered_image.json` + `app_layered_foreground.png` + `app_layered_background.png`，`AppScope/app.json5` 的 `"icon"` 指向 `$media:app_layered_image`（原 `$media:app_icon`，该文件保留）。桌面图标已在 phone / tablet / 2in1 三形态设备实测确认渲染为分层形态，见 `UX_COMPLIANCE_AUDIT.md` §11.2 与 `RELEASE_CHECKLIST.md` §7.2。
 
-后果：桌面图标无法参与系统图标动效与主题化，视觉上与原生应用有差异。这是**上架前的外观规范项**，改动量小（补前景/背景资源 + `app.json5` 配置），无代码风险，建议尽早做。
+迁移前的现状（保留以备复查）：`AppScope/resources/base/media/` 下只有 `app_icon.png`，无分层图标配置 → 桌面图标无法参与系统图标动效与主题化。
 
-### 8.2 多语言资源
+### 8.2 多语言资源 —— **部分落地（2026-08-25）**
 
-**已静态确认**：`entry/src/main/resources/` 下只有 `base` 和 `dark` 两个目录，**无任何多语言限定词目录**（无 `en_US` / `zh_CN`）。
+**已落地的部分**：`entry/src/main/resources/zh_CN/element/string.json` 已存在，覆盖 **4 条**（`module_desc`、`EntryAbility_desc`、`EntryAbility_label`、`keep_background_running_reason`）—— 即**只做了系统可见的元数据**（应用名、Ability 描述、后台运行申请理由）。这是上架必需项：AGC 与系统设置页会按语言限定词读这些字段。
+
+**仍未做的部分**：`base/element/string.json` 共 9 条，其余 5 条未加限定词版本；**应用内 UI 文案没有任何外化**（全部硬编码在 `.ets` 里），因此设置页的语言切换仍是占位（`SettingsDetailPage.ets:897`/`:899`「简体中文（更多语言待移植）」）。
 
 **文档确认**：`最佳实践/多设备资源文件/bpta-multi-device-resource`。
 
-现状与既有记录一致：`RELEASE_CHECKLIST.md` §6 已登记设置页三处占位，其中 `SettingsDetailPage.ets:897` / `:899` 正是**语言切换占位**。即工程已有语言切换入口但无实际资源。
-
-**建议**：列 P2 而非 P1。理由是「加语言」是范围可无限扩张的工作（全部 UI 文案外化 + 翻译 + 各语言下重跑布局回归，而 §7.2 记录布局对字号/宽度已经很敏感），而当前工程的核心矛盾不在国际化。但**设置页的语言切换占位应当明确标注为未实现**，不能让用户看到一个点了没反应的开关——这条已在 `RELEASE_CHECKLIST.md` §6 登记，维持。
+**维持 P2 判断**：「加语言」是范围可无限扩张的工作（全部 UI 文案外化 + 翻译 + 各语言下重跑布局回归，而 §7.2 记录布局对字号/宽度已经很敏感），当前工程的核心矛盾不在国际化。设置页的语言切换占位须明确标注为未实现——已在 `RELEASE_CHECKLIST.md` §6 登记，维持。
 
 ---
 
@@ -711,7 +711,7 @@ AudioRendererProbe setLoudnessGain(0.0)=hung(>10000ms)
 | 播控推荐服务 | 受限开放 + 仅中国大陆 + 依赖上架分类与 30 天使用量，与项目阶段不匹配。见 §10.2 |
 | 主动接入实况窗 | 8 小时生命周期上限与音乐长会话冲突；Push Kit 更新需服务端而本项目无自建服务端；且 AVSession 可能已自动带来部分能力。见 §10.1 |
 | `AVMusicTemplate` | 仅 Car 工程，本工程无此形态。见 §10.5 |
-| 单独立项做 `Navigation` 纯迁移 | 迁移不产生用户可见新功能，且会作废 M9.3 已完成的 17 页 × 3 档字号 × 2 形态回归。应与一多适配合并。见 §6.2 |
+| 单独立项做 `Navigation` 纯迁移 | 迁移不产生用户可见新功能，且会作废 M9.3 已完成的 17 页 × 3 档字号 × 2 形态回归。应与一多适配合并。见 §6.2。**2026-08-26：已按此结论与大屏适配合并执行完毕**，并如实记录「回归作废」这一风险确实兑现（改后只复测了 tablet 一档） |
 | 自由流转 / 跨端接续 | 官方要求「功能和数据在两端兼容，接续内容完整，位置状态一致」。工程的三平台取流依赖本机 Cookie 与登录态（`data/auth/*` 的 Asset Store 凭据），跨端接续会牵出凭据跨设备同步问题，而这与 `RELEASE_CHECKLIST.md` §5.3 的取流剥离结论方向相反。**暂不评估**，待取流方案定案后重议 |
 
 ---
@@ -773,23 +773,21 @@ AudioRendererProbe setLoudnessGain(0.0)=hung(>10000ms)
 
 全套把关复跑全绿：本地单测 **816/816**（809 基线 + 7 新增，0 failure 0 error）、CodeLinter **0 error / 24 warn / 2 suggestion**（与基线逐字一致，命中 `PlayerManager.ets` 的 2 条为存量）、`entry@default` 与 `entry@ohosTest` 均 BUILD SUCCESSFUL、设备侧 `ActsAudioRendererProbeTest` **2/2 Pass**（41s）。
 
-### M10.4 一多适配（合并里程碑，依赖 M9.3a 解封）
+### M10.4 一多适配（合并里程碑）—— **第 1、2 项已于 2026-08-26 完成**
 
-**前置阻塞**：需 GUI 下载 `tablet_x86` 与 `pc_all_x86` 镜像（`PORTING_EXECUTION_PLAN.md` M9.3a）；悬停态需真机。
+**原前置阻塞已解除**：`tablet_x86` 与 `pc_all_x86` 镜像已在 DevEco GUI 下载完成（下到的是 HarmonyOS 7.0.0 Beta / API 26，不是目标 6.1.1(24)）；悬停态仍需真机。
 
-合并以下四项，共享一次布局回归：
+合并以下五项，共享一次布局回归：
 
-1. `Navigation` 迁移，用 `NavigationMode.Auto` 拿 ≥600vp 分栏（§6）
-2. tablet 2880×1920 / 2in1 3120×2080 布局回归（§7.2）
-3. 折叠屏悬停态适配，`FoldSplitContainer` + 16vp/40vp 避让（§7.1）
-4. 触控目标 40vp → 48vp（§7.3）
-5. 横屏走查与 2in1 多窗验证（§7.2 末）
+1. ✅ **已完成** `Navigation` 迁移（§6）—— 但**没有用 `NavigationMode.Auto` 的分栏**：navBar 内容是整个 Tab 骨架，与 Split 的结构不匹配，改为显式 `NavigationMode.Stack`，大屏分栏由 `Tabs.vertical(true)` 侧边导航栏提供
+2. ✅ **已完成** tablet 2880×1920 / 2in1 3120×2080 布局回归 + 11 条大屏密度问题整改（§7.2）—— 改后复测只覆盖 tablet 一档，phone/2in1 待补
+3. ⬜ 折叠屏悬停态适配，`FoldSplitContainer` + 16vp/40vp 避让（§7.1）
+4. ⬜ 触控目标 40vp → 48vp（§7.3）
+5. ⬜ 横屏走查与 2in1 多窗（拖动过程中的断点切换）验证（§7.2 末）
 
-合并的理由：这四项**每一项都会改变布局**，而 M9.3 建立的布局树度量回归（`uitest dumpLayout` 的 `bounds` vs `origBounds` 四类判据）需要在改动后重跑。分四次做要跑四遍。
+合并的理由：这五项**每一项都会改变布局**，而 M9.3 建立的布局树度量回归（`uitest dumpLayout` 的 `bounds` vs `origBounds` 四类判据）需要在改动后重跑。**实际只合并了前两项**，因此第 3、4 项落地时仍要再跑一遍完整回归——原本想省的那一遍没省下来。
 
-### M10.5 分层图标（可随时插入）
-
-零依赖、零代码风险、改动最小（§8.1）。可在任意里程碑间隙完成。
+### M10.5 分层图标 —— **已于 2026-08-25 完成**（§8.1）
 
 ### M10.6 意图框架 `PlayMusicList`（视 M10.1–M10.3 结果决定）
 

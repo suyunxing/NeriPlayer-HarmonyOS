@@ -41,8 +41,12 @@ export struct MiniPlayer {
 
   build() {
     Column() {
+      // Progress 的 total 不给就是 100，原来喂进去的是 0..1 的比例，播到一半也只
+      // 有 0.5% 的填充（tablet 上像素采样实测：播放 11% 时整条都是轨道色）。改成
+      // 直接把毫秒喂给 value/total，单位自洽（同 DownloadsPage 的 value+total 写法）。
       Progress({
-        value: this.durationMs > 0 ? this.positionMs / this.durationMs : 0,
+        value: this.positionMs,
+        total: this.durationMs > 0 ? this.durationMs : 1,
         type: ProgressType.Linear
       })
         .width('100%')

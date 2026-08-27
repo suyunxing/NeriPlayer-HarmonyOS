@@ -1,5 +1,6 @@
 import { SettingsRepository } from '../data/SettingsRepository';
 import { Router } from '../view/Router';
+import { Theme } from '../view/Theme';
 import { LoadingPage } from '../view/pages/LoadingPage';
 import { DisclaimerPage } from '../view/pages/DisclaimerPage';
 import { OnboardingPage } from '../view/pages/OnboardingPage';
@@ -27,11 +28,17 @@ struct Index {
   // history pull on startup); watch it so a late flag still switches a
   // already-rendered main UI into Safe Mode.
   @StorageProp('np.last_crash_detected') @Watch('onCrashFlagChanged') lastCrashDetected: boolean = false;
+  // The immersive background layer below lives for the whole session and is
+  // never rebuilt by a parent, so it has to subscribe to both dark-mode inputs
+  // itself. Reading them through resolveDark() during build() is tracked (they
+  // are decorated members); Theme.isDark() would not be, because it reaches
+  // into AppStorage directly.
+  @StorageProp('systemDark') systemDark: boolean = false;
+  @StorageProp('np.dark_mode') darkMode: string = 'auto';
   @State phase: StartupPhase = StartupPhase.LOADING;
   @State loadingDone: boolean = false;
 
   async aboutToAppear(): Promise<void> {
-    AppStorage.setOrCreate('systemDark', false);
     await SettingsRepository.initialize();
     this.phase = this.resolvePhase();
     this.loadingDone = true;
@@ -90,8 +97,42 @@ struct Index {
     return false;
   }
 
+  /** Same rule as Theme.isDark(), but read from tracked members so build() reacts. */
+  private resolveDark(): boolean {
+    if (this.darkMode === 'dark') {
+      return true;
+    }
+    if (this.darkMode === 'light') {
+      return false;
+    }
+    return this.systemDark;
+  }
+
+  /**
+   * Colour painted behind the transparent system bars. Until the first frame
+   * resolves it is the splash backplate — the same resource startWindowBackground
+   * uses — so the launch page hands over without a colour flash; afterwards it
+   * follows the theme so the bars stay merged with the page background.
+   */
+  private immersiveBackground(): ResourceColor {
+    if (!this.loadingDone) {
+      return $r('app.color.start_window_background');
+    }
+    return Theme.background(this.resolveDark());
+  }
+
   build() {
     Stack() {
+      // 沉浸背景层：应用底色铺进状态栏、导航条与挖孔区，系统栏因此显示应用
+      // 背景而不是独立色块。内容层不做延伸，仍由 ArkUI 的安全区自动避让保护，
+      // 文字与控件不会落到系统栏或挖孔下面。
+      Column()
+        .width('100%')
+        .height('100%')
+        .backgroundColor(this.immersiveBackground())
+        .expandSafeArea([SafeAreaType.SYSTEM, SafeAreaType.CUTOUT],
+          [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
+
       if (!this.loadingDone) {
         LoadingPage()
       } else if (this.phase === StartupPhase.DISCLAIMER) {

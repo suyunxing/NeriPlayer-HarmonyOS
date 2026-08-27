@@ -23,6 +23,10 @@ const SLEEP_OPTIONS: [string, number][] = [
   ['播完列表', -2]
 ];
 
+/** 背景层的沉浸延伸参数，见 build() 顶部的说明。 */
+const IMMERSIVE_TYPES: SafeAreaType[] = [SafeAreaType.SYSTEM, SafeAreaType.CUTOUT];
+const IMMERSIVE_EDGES: SafeAreaEdge[] = [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM];
+
 @Component
 export struct NowPlayingPage {
   @StorageLink('player.currentSong') @Watch('onSongJsonChanged') currentSongJson: string = '';
@@ -45,6 +49,8 @@ export struct NowPlayingPage {
   @State sleepLabel: string = '关闭';
   @StorageLink('player.sleepActive') sleepActive: boolean = false;
   @StorageLink('player.sleepRemainingMin') sleepRemainingMin: number = 0;
+  /** 底部控件行的上抬量，由 util/WindowMetrics.ets 按真实避让区发布。 */
+  @StorageProp('ui.bottomLiftVp') bottomLift: number = Theme.bottomBarLift();
   @State previewMs: number = -1;
   // Cover-seed backdrop (Android NowPlayingAccentBackdrop). The raw seed is
   // mirrored into a @State accent computed via @Watch because minimal-update
@@ -201,6 +207,11 @@ export struct NowPlayingPage {
 
   build() {
     Stack() {
+      // 背景层全部用 expandSafeArea 铺进状态栏、导航条与挖孔区：这些是纯展示
+      // 元素，延伸后系统栏显示的就是封面与遮罩本身，不会在页面底部和导航条之间
+      // 留下色块切割（浅色模式下尤其明显：页面是深色遮罩，导航条却是浅色底）。
+      // 下面的内容层不延伸，仍由 ArkUI 的安全区自动避让保护。
+      //
       // Seed-accent backdrop under the blurred cover: prevents black flashes
       // while a cover loads and tints artwork-less songs (Android keeps the
       // same accent layer under its blurred artwork).
@@ -209,6 +220,7 @@ export struct NowPlayingPage {
           .width('100%')
           .height('100%')
           .backgroundColor(this.accentHex)
+          .expandSafeArea(IMMERSIVE_TYPES, IMMERSIVE_EDGES)
       }
       // Blurred cover backdrop; np.nowplaying_blur_strength is Android's
       // 0..500 scale mapped onto blur vp (0 disables blur entirely).
@@ -219,6 +231,7 @@ export struct NowPlayingPage {
           .objectFit(ImageFit.Cover)
           .blur(this.blurStrength * 80 / 500)
           .scale({ x: 1.4, y: 1.4 })
+          .expandSafeArea(IMMERSIVE_TYPES, IMMERSIVE_EDGES)
       }
       if (this.bgOverUrl.length > 0) {
         Image(this.bgOverUrl)
@@ -228,17 +241,20 @@ export struct NowPlayingPage {
           .blur(this.blurStrength * 80 / 500)
           .scale({ x: 1.4, y: 1.4 })
           .opacity(this.bgOverOpacity)
+          .expandSafeArea(IMMERSIVE_TYPES, IMMERSIVE_EDGES)
       }
       if (this.bgUnderUrl.length === 0 && this.bgOverUrl.length === 0) {
         Column()
           .width('100%')
           .height('100%')
           .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+          .expandSafeArea(IMMERSIVE_TYPES, IMMERSIVE_EDGES)
       }
       Column()
         .width('100%')
         .height('100%')
         .backgroundColor(Theme.scrim(Theme.isDark()))
+        .expandSafeArea(IMMERSIVE_TYPES, IMMERSIVE_EDGES)
 
       Column() {
         Row() {
@@ -486,7 +502,9 @@ export struct NowPlayingPage {
           }
           .width('100%')
           .justifyContent(FlexAlign.Center)
-          .padding({ top: 12, bottom: 18 })
+          // 页面最底部的固定控件行：相对系统导航指示器上抬，抬升量取自真实
+          // 避让区（见 util/WindowMetrics.ets），无指示器的形态为 0。
+          .padding({ top: 12, bottom: this.bottomLift })
         }
         .width('100%')
         .padding({ left: 20, right: 20 })

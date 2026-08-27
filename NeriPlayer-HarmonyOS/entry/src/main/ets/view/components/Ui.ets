@@ -230,6 +230,45 @@ export struct SettingRow {
   }
 }
 
+/**
+ * 大屏栏宽约束容器。
+ *
+ * 上一轮设备实测（审计 §8.2）暴露的一整类问题是「内容按窗口宽度线性拉伸」：
+ * tablet 1440vp 下设置行文本被拉到 1300vp 以上、法务正文一行装七八十个字，
+ * 阅读时眼睛要横扫整块屏。官方大屏适配指南对这类内容的处理是限制正文栏宽并
+ * 居中，而不是继续铺满。
+ *
+ * 用 Row + justifyContent(Center) 而不是 margin：约束只在窗口比 maxWidth 宽时
+ * 生效，窄屏（sm）下 constraintSize 不裁剪，布局与改造前逐像素一致。
+ *
+ * 档位约定：正文类 600vp（法务 / 免责声明 / 引导），列表与设置类 840vp，
+ * 卡片网格不套此容器 —— 那类内容由 GridRow 分列消化宽度。
+ *
+ * 适用边界：本容器高度按内容自适应，所以只能包「Scroll 里的那坨内容」。若被包
+ * 住的子树里有 layoutWeight(1) 要撑满窗口剩余高度（如探索页的结果列表、法务页的
+ * 正文区），必须在页面里手写 Row + constraintSize 并逐层传 height('100%')，
+ * 否则那一层会塌成内容高度。
+ */
+@Component
+export struct ContentBand {
+  @Prop maxWidth: number = 600;
+  @BuilderParam content: () => void;
+
+  build() {
+    Row() {
+      Column() {
+        this.content()
+      }
+      // width 先给满、再由 constraintSize 收口：Column 默认按内容自适应宽度，
+      // 而子节点普遍写 width('100%')，两边互相等对方定宽会拿到不确定结果。
+      .width('100%')
+      .constraintSize({ maxWidth: this.maxWidth })
+    }
+    .width('100%')
+    .justifyContent(FlexAlign.Center)
+  }
+}
+
 @Component
 export struct SongCountChip {
   @Prop count: number;

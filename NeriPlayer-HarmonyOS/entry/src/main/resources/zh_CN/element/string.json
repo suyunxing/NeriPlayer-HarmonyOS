@@ -1,0 +1,20 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "NeriPlayer 主模块"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "NeriPlayer 音乐播放器"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "NeriPlayer"
+    },
+    {
+      "name": "keep_background_running_reason",
+      "value": "用于在你切换到其他应用或息屏后继续播放当前歌曲，并在通知栏与锁屏保留播放控制。"
+    }
+  ]
+}

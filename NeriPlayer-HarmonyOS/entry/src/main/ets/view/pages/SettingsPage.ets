@@ -1,10 +1,13 @@
 import { promptAction } from '@kit.ArkUI';
 import { common } from '@kit.AbilityKit';
 import { SettingsRepository } from '../../data/SettingsRepository';
+import { AppColorMode } from '../../util/AppColorMode';
 import { SystemBars } from '../../util/SystemBars';
 import { Router } from '../Router';
 import { Theme } from '../Theme';
-import { SettingRow } from '../components/Ui';
+import { ContentBand, SettingRow } from '../components/Ui';
+import { BAND_LIST_VP } from '../../util/Breakpoint';
+import { LEGAL_AGREEMENT, LEGAL_PRIVACY } from './LegalDocPage';
 
 export const SETTING_PLAYBACK: string = 'playback';
 export const SETTING_DOWNLOAD: string = 'download';
@@ -38,12 +41,19 @@ export struct SettingsPage {
     SettingsRepository.setString(SettingsRepository.KEY_DARK_MODE, next);
     const context = AppStorage.get<common.UIAbilityContext>('abilityContext');
     if (context !== undefined) {
+      // setColorMode 触发配置变更、重建整棵组件树，否则本页与 MainShell 的
+      // 颜色表达式不引用可观察状态，切换后不会重绘（见 AppColorMode 注释）。
+      AppColorMode.apply(context, next);
+      // 系统栏内容色仍显式跟一次：setColorMode 抛错时这里是兜底。
       SystemBars.apply(context, Theme.isDark());
     }
   }
 
   build() {
     Scroll() {
+      // 840vp 列表栏宽：tablet 1440vp 下设置行的图标贴左边缘、箭头贴右边缘，中间
+      // 是一大片空白，一屏只读到七八个标题（审计 §8.2 第 2 条）。
+      ContentBand({ maxWidth: BAND_LIST_VP }) {
       Column() {
         Text('设置')
           .fontSize(26)
@@ -163,6 +173,28 @@ export struct SettingsPage {
         .borderRadius(Theme.cardRadius())
         .clip(true)
 
+        // 指南要求隐私政策与用户协议在应用内随时可达、可完整打开，不只出现在
+        // 首启弹窗里。
+        this.sectionTitle('隐私与协议')
+        Column({ space: 1 }) {
+          SettingRow({
+            title: '隐私政策',
+            subtitle: '收集范围、权限用途与你的控制权',
+            icon: '🔒',
+            onTap: () => Router.push(Router.LEGAL_DOC, LEGAL_PRIVACY)
+          })
+          SettingRow({
+            title: '用户协议',
+            subtitle: '使用限制、账号与免责声明',
+            icon: '📄',
+            onTap: () => Router.push(Router.LEGAL_DOC, LEGAL_AGREEMENT)
+          })
+        }
+        .width('100%')
+        .backgroundColor(Theme.surface(Theme.isDark()))
+        .borderRadius(Theme.cardRadius())
+        .clip(true)
+
         this.sectionTitle('其他')
         Column({ space: 1 }) {
           SettingRow({
@@ -193,9 +225,14 @@ export struct SettingsPage {
       }
       .width('100%')
       .padding({ left: 14, right: 14, bottom: 24 })
+      }
     }
     .layoutWeight(1)
     .scrollBar(BarState.Off)
+    // Scroll 的 align 默认是 Alignment.Center：内容短于视口时（大屏、或字号最小
+    // 档）整份设置项会被甩到屏幕竖向正中，标题留在顶上，读起来是断开的两块。
+    // 设置类页面必须自上而下读，这里显式钉到顶部。
+    .align(Alignment.Top)
     .width('100%')
     .height('100%')
     .backgroundColor(Theme.background(Theme.isDark()))
