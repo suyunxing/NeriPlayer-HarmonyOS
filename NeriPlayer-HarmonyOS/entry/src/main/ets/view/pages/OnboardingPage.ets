@@ -1,9 +1,16 @@
 import { Theme } from '../Theme';
+import { BAND_BUTTON_VP, BAND_TEXT_VP, BP_LG, BP_MD } from '../../util/Breakpoint';
 
 @Component
 export struct OnboardingPage {
   onDone: () => void = () => {};
   @State pageIndex: number = 0;
+  /** 由 util/WindowMetrics.ets 发布，决定引导内容是否竖向居中。 */
+  @StorageProp('ui.breakpoint') breakpoint: string = 'sm';
+
+  private wideLayout(): boolean {
+    return this.breakpoint === BP_MD || this.breakpoint === BP_LG;
+  }
 
   private pages(): string[][] {
     return [
@@ -14,6 +21,9 @@ export struct OnboardingPage {
   }
 
   build() {
+    // 600vp 正文栏宽 + 居中。Swiper 靠 layoutWeight(1) 撑满剩余高度，所以约束
+    // 手写在这里而不套 ContentBand（后者高度按内容自适应，会把 Swiper 压塌）。
+    Row() {
     Column() {
       Swiper() {
         ForEach(this.pages(), (page: string[]) => {
@@ -21,7 +31,9 @@ export struct OnboardingPage {
             Image($r('app.media.ic_neriplayer'))
               .width(88)
               .height(88)
-              .margin({ top: 80 })
+              // 窄屏保持原来的 80vp 顶部留白；宽屏改为整块竖向居中，固定留白
+              // 会把内容顶到上半屏。
+              .margin({ top: this.wideLayout() ? 0 : 80 })
             Text(page[0])
               .fontSize(24)
               .fontWeight(FontWeight.Bold)
@@ -37,6 +49,7 @@ export struct OnboardingPage {
           .width('100%')
           .height('100%')
           .alignItems(HorizontalAlign.Center)
+          .justifyContent(this.wideLayout() ? FlexAlign.Center : FlexAlign.Start)
         }, (page: string[]) => page[0])
       }
       .width('100%')
@@ -49,6 +62,7 @@ export struct OnboardingPage {
 
       Button(this.pageIndex >= 2 ? '开始使用' : '下一步')
         .width('78%')
+        .constraintSize({ maxWidth: BAND_BUTTON_VP })
         .height(48)
         .fontSize(16)
         .fontColor(Theme.onPrimary(Theme.isDark()))
@@ -65,6 +79,11 @@ export struct OnboardingPage {
     }
     .width('100%')
     .height('100%')
+    .constraintSize({ maxWidth: BAND_TEXT_VP })
+    }
+    .width('100%')
+    .height('100%')
+    .justifyContent(FlexAlign.Center)
     .backgroundColor(Theme.background(Theme.isDark()))
   }
 }

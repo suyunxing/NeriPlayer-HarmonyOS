@@ -19,7 +19,8 @@ const IMPORT_CAP: number = 500;
  */
 @Component
 export struct BiliFavPage {
-  @StorageLink('route.param') favParam: string = '';
+  /** 由 MainShell 的 navDestination builder 从路由参数传入。 */
+  @Prop favParam: string = '';
   @State info: BiliFavFolderSummary | null = null;
   @State songs: SongItem[] = [];
   @State totalCount: number = 0;

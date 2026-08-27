@@ -29,6 +29,7 @@ import {
   QrPollOutcomeCode
 } from '../components/QrLoginPanel';
 import { Theme } from '../Theme';
+import { BAND_LIST_VP } from '../../util/Breakpoint';
 import { SettingRow } from '../components/Ui';
 import { SETTING_PLAYBACK, SETTING_DOWNLOAD, SETTING_LYRICS, SETTING_APPEARANCE,
   SETTING_TRAFFIC, SETTING_STORAGE, SETTING_ACCOUNTS, SETTING_SYNC, SETTING_DEBUG,
@@ -69,7 +70,8 @@ const BILI_QR_POLL_INTERVAL_MS: number = 1500;
 
 @Component
 export struct SettingsDetailPage {
-  @StorageLink('route.param') section: string = '';
+  /** 由 MainShell 的 navDestination builder 从路由参数传入。 */
+  @Prop section: string = '';
 
   @StorageProp('np.playback_speed') speed: number = 1.0;
   @StorageProp('np.audio_quality') quality: string = 'standard';
@@ -709,6 +711,10 @@ export struct SettingsDetailPage {
   }
 
   build() {
+    // 840vp 列表栏宽 + 居中。标题栏与内容区一起被约束，两者左边缘才对得上（同
+    // LegalDocPage）；约束手写在这里而不套 ContentBand，因为内容区靠
+    // layoutWeight(1) 撑满剩余高度，需要 height('100%') 一路传到被约束的那一层。
+    Row() {
     Column() {
       this.header()
 
@@ -1205,10 +1211,18 @@ export struct SettingsDetailPage {
       }
       .layoutWeight(1)
       .scrollBar(BarState.Off)
+      // 同 SettingsPage：Scroll 的 align 默认 Alignment.Center，tablet 实测「外观
+      // 与动效」只有 3 行时整块内容悬在屏幕正中、与顶部标题之间空出 347vp。
+      .align(Alignment.Top)
       .width('100%')
     }
     .width('100%')
     .height('100%')
+    .constraintSize({ maxWidth: BAND_LIST_VP })
+    }
+    .width('100%')
+    .height('100%')
+    .justifyContent(FlexAlign.Center)
     .backgroundColor(Theme.background(Theme.isDark()))
   }
 }

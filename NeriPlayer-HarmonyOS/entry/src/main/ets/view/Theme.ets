@@ -1,4 +1,5 @@
 import { SettingsRepository } from '../data/SettingsRepository';
+import { GUIDELINE_BOTTOM_LIFT_VP } from '../util/Breakpoint';
 import { DynamicTheme, TonePalette } from './theme/DynamicTheme';
 
 /**
@@ -162,6 +163,20 @@ export class Theme {
 
   static cardRadius(): number {
     return 16;
+  }
+
+  /**
+   * 应用内底部固定控件（Tab 栏、底部操作栏、底部悬浮按钮）相对系统导航条需要
+   * 上抬的距离，指南给的硬性值是 28vp。窗口是非全屏布局（见 EntryAbility
+   * applyEdgeToEdge），窗口底边就落在导航条上沿，所以这个值直接作为内容底边的
+   * 间距使用，不需要再叠加导航条自身高度。
+   *
+   * 页面实际用的抬升量由 util/WindowMetrics.ets 按 TYPE_NAVIGATION_INDICATOR
+   * 避让区动态发布到 `ui.bottomLiftVp`（没有指示器的形态归零，例如 2in1 自由
+   * 窗口）。这里保留为指南常量的门面与冷启动兜底值。
+   */
+  static bottomBarLift(): number {
+    return GUIDELINE_BOTTOM_LIFT_VP;
   }
 
   static shadow(dark: boolean): ShadowOptions {
