@@ -284,10 +284,11 @@ API 26 Beta2 只作为独立预览适配矩阵，不能替代 Release 回归。
 ### 6.2 Navigation 和多设备布局
 
 官方当前推荐 `Navigation` + `NavDestination` + `NavPathStack`，`router` 页面路由标为不推荐。
-现有 `view/Router.ets` 可以作为过渡层，但新页面不应继续扩大旧 Router 依赖。
+**2026-08-26 已落地**：`MainShell` 外层改为 `Navigation(pageStack).mode(NavigationMode.Stack).navDestination(pageMap)`，11 个全屏路由 `if/else` 分支收成一个 `@Builder`；`view/Router.ets` 保留为 `NavPathStack` 的门面（公开 API 签名与语义不变，38 个调用点零改动），三个 `AppStorage` 路由镜像已删除。原「作为过渡层，新页面不应继续扩大旧 Router 依赖」的约束因此可以放宽：继续调 `Router.push` 是正确做法，它已经就是 `NavPathStack`。
 
 Navigation 宽度小于 600vp 时建议单栏，大于等于 600vp 时建议分栏；使用 `NavigationMode.Auto` 可让系统按容器宽度切换。
 这对 tablet 和 2in1 尤其重要。
+**本工程有意不用 Auto**：Split 会把 navBar 压进默认 240vp 的侧栏，而这里的 navBar 内容是**整个 Tab 骨架（完整页面）**，结构不匹配。大屏分栏改由 `Tabs.vertical(true).barWidth(96)` 侧边导航栏提供（tablet 1440vp 实测：侧栏固定 96vp，内容区 `GridRow` lg 12 列 span 2 → 每行 6 张卡）。断点常量在 `util/Breakpoint.ets`（600/840vp，与 `GridRow` 默认断点同源），窗口宽度与底部避让量由 `util/WindowMetrics.ets` 单一订阅源发布到 `AppStorage`。
 
 **系统字号跟随必须显式开启（2026-08-24 M9.3 设备实证，此前的推断是错的）。** HarmonyOS 应用默认 `nonFollowSystem`，即**不跟随系统字体大小**；"UI 全用 fp 所以自动跟随"是错的——fp 只保证换算单位，不代表订阅了系统档位。开启方式是新增 `AppScope/resources/base/profile/configuration.json`：
 
@@ -351,7 +352,7 @@ WebSocket 统一封装心跳、重连、序列号、超时和关闭原因。
 - 命令行工具 6.1.1.300（`command-line-tools\`）：`bin\ohpm.bat`（ohpm 6.1.2.285）、`bin\hvigorw.bat`（Hvigor 6.24.4，包装器自动定位 SDK 与 Node）、`codelinter`、`Emulator`，Node.js 18.20.1 在 `tool\node\`。
 - HarmonyOS SDK 6.1.1.125 / API 24 Release（`command-line-tools\sdk\default`，本机唯一完整的 API 24 SDK）；`hdc.exe` 在其 `openharmony\toolchains\` 下。
 - DevEco Studio 26.0.0.621 Beta2（`devecostudio-windows-26.0.0.621\DevEco Studio\`）：完整 IDE（jbr、tools\hvigor、tools\ohpm），自带 API 26 Beta2 SDK，当前主力 IDE。**其 hvigor（6.26.x）不能构建 6.1.1(24) 工程（错误 00303031），构建必须用 command-line-tools 的 hvigorw；其 jbr 的 java 可用于运行 hap-sign-tool。**
-- 模拟器系统镜像：仅 HarmonyOS-6.1.1（API 24，phone_all_x86）；已部署 4 个 AVD（Pura 90、Mate X7、MateBook Pro、MatePad Pro 13）。API 26 镜像未下载，鸿蒙 7.0 模拟器验证前需在 SDK Manager 补齐。
+- 模拟器系统镜像：HarmonyOS-6.1.1（API 24，**只有 `phone_all_x86`**）+ **HarmonyOS-7.0.0-B1（`pc_all_x86`）** + **HarmonyOS-7.0.0-B2（`tablet_x86`）**（后两份于 2026-08-25/26 在 DevEco GUI 内下载，命令行 `Emulator.bat -imageList/-install` 在无 GUI 会话下退出码 0、零输出、无副作用）。已部署 4 个 AVD（Pura 90、Mate X7、MateBook Pro、MatePad Pro 13）。**注意口径**：tablet 与 2in1 实例跑的是 API 26 / HarmonyOS 7.0.0 Beta（`os.isPublic=false`），**本机没有任何 6.1.1 的 tablet/pc 镜像**，这两档的验证结论属向上兼容运行，不能替代目标 6.1.1(24) 回归。另有启动门禁：CLT 的 `Emulator.bat -start` 起得来但检测不到 `EmitGuestOSBootComplete`（不建 hdc 端口转发）；DevEco 自带的 `Emulator.exe` 要求华为账号处于登录态 → 可行路径只有「在 DevEco 登录账号 → 从设备管理器启动实例」。
 - 本地调试签名：用户级环境变量 `NERIPLAYER_SIGNING_PASSWORD` 保存 33 位口令（`signing/OpenHarmony.p12` 为 SDK stock 调试密钥对的重加密副本，旧口令未知已于 2026-08-14 重置；原文件备份为 `signing/OpenHarmony.p12.bak-20260814`）。
 
 项目 `local.properties` 应指向 SDK 根目录：
@@ -453,7 +454,7 @@ $hdc = 'D:\HarmonyOS\Tools\command-line-tools\sdk\default\openharmony\toolchains
 | 设备 ohosTest（`aa test`，OpenHarmonyTestRunner） | `Tests run: 1, Failure: 0, Error: 0, Pass: 1` |
 
 本轮发现并已解决的阻塞：① 用户级 PATH 与 `DEVECO_SDK_HOME` 等三个环境变量残留迁移前旧路径（已修）；② DevEco 26 Beta2 的 hvigor 不能构建 6.1.1(24) 工程（构建固定走 CLT hvigorw，26 Studio 仅提供 jbr java）；③ `sign-local.ps1` 加入中文注释后因 PowerShell 5.1 按 GBK 解析无 BOM UTF-8 而静默失效（仓库 `.ps1` 必须纯 ASCII，已写入 AGENTS.md）；④ 调试密钥旧口令未知（已用 SDK stock 密钥对重加密为新 33 位口令，存用户级 `NERIPLAYER_SIGNING_PASSWORD`，原文件有备份）。
-仍未就绪：API 26 模拟器镜像未下载（鸿蒙 7.0 设备侧验证需先在 SDK Manager 补齐）；真机测试未执行。
+仍未就绪：API 26 模拟器镜像未下载（鸿蒙 7.0 设备侧验证需先在 SDK Manager 补齐）；真机测试未执行。**2026-08-26 更新**：`tablet_x86`（7.0.0-B2）与 `pc_all_x86`（7.0.0-B1）两份 Beta 镜像已在 DevEco GUI 内下载并完成设备回归（见 §7.1 环境准备的镜像清单与 `RELEASE_CHECKLIST.md` §1）；**API 26 SDK 仍未装**（`compileSdkVersion` 保持 24 不动），真机测试仍未执行。
 
 ### 7.8 2026-08-17 M4.1/M4.2 平台登录与凭据验证记录（Pura 90 模拟器，API 24）
 
@@ -513,7 +514,7 @@ $hdc = 'D:\HarmonyOS\Tools\command-line-tools\sdk\default\openharmony\toolchains
 - [x] 三个 SDK 版本显式配置且满足大小关系（compileSdkVersion/targetSdkVersion/compatibleSdkVersion = 6.1.1(24)）。
 - [ ] API 24 Release 完整功能回归通过；当前只完成构建、单测和设置页 smoke test，Beta API 未混入生产路径。
 - [ ] Stage、UIAbility、AbilityStage 的职责和生命周期清晰。
-- [ ] 新页面使用 Navigation/NavPathStack，或记录 Router 过渡原因。
+- [x] 新页面使用 Navigation/NavPathStack，或记录 Router 过渡原因。2026-08-26：全部 11 个全屏路由已迁到 `Navigation`/`NavDestination` + `NavPathStack`，`Router` 保留为门面（见 6.2）。
 - [ ] AVPlayer 状态监听、错误恢复、资源释放和本地 fd 生命周期经过测试。
 - [ ] AVSession 元数据、播控、后台播放和音频焦点经过真机测试。
 - [ ] 权限按最小化原则声明，运行时拒绝有可用降级路径。
@@ -522,13 +523,16 @@ $hdc = 'D:\HarmonyOS\Tools\command-line-tools\sdk\default\openharmony\toolchains
 - [x] 账号登录以及下载、同步、一起听、USB、YouTube 取流等未完成项已显式标注，不得伪装为已支持。
 - [ ] 正式证书、Profile、私钥和密码不在仓库或日志中。
 - [ ] 完成无障碍、平板/2in1、性能、功耗、隐私和上架预检。
-  - 2026-08-24 M9.3 部分闭合，逐项实况见 `docs/RELEASE_CHECKLIST.md`：**已完成**——字号缩放（开启 followSystem 并在 1.45×/1.75× 两档度量，修掉 3 处真实缺陷）、触控目标（度量确认 40vp 下限，**并修正旧结论：实际未达 ≥48vp 推荐值，约 30 控件落在 40–48vp**）、内存冒烟（127–151 MB 无单调增长）、隐私与市场合规清单（权限四项全 normal、无第三方统计/崩溃 SDK、诊断仅本地+导出前脱敏、凭据走 asset）、phone 377vp 与 foldable 展开内屏 707vp 两形态布局回归。**仍未完成**——tablet 2880×1920 与 2in1 3120×2080（镜像未下载，执行计划 M9.3a）、折叠外屏 346vp（传感器 hdc 无法注入）、横屏、真机全部指标、屏幕朗读实际听读效果（已补 21 处 `.accessibilityText`/13 文件，但 `uitest dumpLayout -e accessibilityText` 被工具拒绝、本链路无法导出无障碍属性验证）、熄屏 30 分钟功耗（CPU 0.017%/0.74% 只是代理指标，模拟器无电量计）。故本项**不得整体勾选**。
+  - 2026-08-24 M9.3 部分闭合，逐项实况见 `docs/RELEASE_CHECKLIST.md`：**已完成**——字号缩放（开启 followSystem 并在 1.45×/1.75× 两档度量，修掉 3 处真实缺陷）、触控目标（度量确认 40vp 下限，**并修正旧结论：实际未达 ≥48vp 推荐值，约 30 控件落在 40–48vp**）、内存冒烟（127–151 MB 无单调增长）、隐私与市场合规清单（权限清单、无第三方统计/崩溃 SDK、诊断仅本地+导出前脱敏、凭据走 asset）、phone 377vp 与 foldable 展开内屏 707vp 两形态布局回归。**仍未完成**——tablet 2880×1920 与 2in1 3120×2080（镜像未下载，执行计划 M9.3a）、折叠外屏 346vp（传感器 hdc 无法注入）、横屏、真机全部指标、屏幕朗读实际听读效果（已补 21 处 `.accessibilityText`/13 文件，但 `uitest dumpLayout -e accessibilityText` 被工具拒绝、本链路无法导出无障碍属性验证）、熄屏 30 分钟功耗（CPU 0.017%/0.74% 只是代理指标，模拟器无电量计）。故本项**不得整体勾选**。
+  - 2026-08-25 按少数派《鸿蒙上架指南》第一章补做设计/交互/生态规范自查，逐条记录见 `docs/UX_COMPLIANCE_AUDIT.md`。**已整改**——分层图标（原 216×216 单层且 22.3% 透明 → 前后景各 1024×1024，背景层写成无 alpha 通道的纯色 PNG）、启动页背板与图标背板统一为 `#1E293A`、全量沉浸式（系统栏透明 + 背景层 `expandSafeArea`，底部固定控件上抬 28vp 并修掉 Tab 栏 56→50vp 挤压）、深色模式冷启动（`systemDark` 原硬编码 false 导致系统深色下整会话渲染浅色）、状态栏首帧对比度、路由转场动效（10 个全屏路由原为单帧硬切）、权限最小化（删除从未申请的 user_grant `READ_AUDIO`，`reason` 按场景+动作+目的重写并补 zh_CN）、**上架红线：首启弹窗补「不同意」+ 二次确认后礼貌退出，新增应用内可离线打开的隐私政策与用户协议**。**仍未完成**——大屏三档响应式布局（`GridRow`/断点系统零命中，本轮按决定仅登记不改码；只要 `deviceTypes` 保留 tablet/2in1 即为强制项）、法务文案定稿并同步 AGC（当前为 `v1.0.0-draft` 草案）、重大政策变更重新征同意（文案已承诺、代码未实现）、键鼠支持。**验证边界**：本轮无可用设备（`hdc list targets` 恒 `[Empty]`），仅 `assembleHap` BUILD SUCCESSFUL 与 codelinter `25 warn / 2 suggestion / 0 error` 为实测；单测未运行，M9.3 的 798 pass 对**当前源码**降级为「有历史证据 / 待复核」；全部 UI 表现与权限删除的设备冒烟均**未验证**。
+  - 2026-08-26 tablet / 2in1 镜像阻塞解除后完成两形态回归（**跑的是 API 26 Beta 而非目标 6.1.1(24)**），四类布局缺陷全 0，但暴露 11 条大屏信息密度问题；根因是全项目未使用 ArkUI 标准响应式组件（`GridRow`/`Navigation`/`Tabs`/断点 grep 零命中），已同日整改：`Tabs`/`TabContent`（大屏 `.vertical(true).barWidth(96)` 侧边栏）、`Navigation`/`NavDestination` + `NavPathStack`、`GridRow`/`GridCol` 按断点分列、`ContentBand` 栏宽（正文 600vp / 列表 840vp / 按钮 360vp）、硬编码 28vp → `TYPE_NAVIGATION_INDICATOR` 动态避让，共 24 文件（新增 3）。**已完成**——tablet 一档 7 页改后复测四类缺陷全 0、11 条密度问题逐条填回实测数字、返回栈未双弹、本地单测 819/819、codelinter 0 error。**仍未完成**——phone 与 2in1 的改后复测、2in1 上「自由窗口避让区 0 → 抬升量 0」这一动态避让核心验收点、动态跨断点切换、字号三档改后复测、目标 API 24 上的 tablet/2in1、折叠屏悬停态、触控目标 48vp、横屏、真机、朗读听读、熄屏功耗。逐项见 `docs/UX_COMPLIANCE_AUDIT.md` §8.2/§10.2/§11.5 与 `docs/RELEASE_CHECKLIST.md` §1/§7.3。
+  - 2026-08-27 phone（Pura 90，**唯一 API 24 形态**）改后复测完成，`Tabs` 底部栏分支首次上设备：Tab 单格 97.8vp 与改造前逐像素一致、避让区 27.85vp 且 Tab 底边与指示器上沿重合（S2 判定规则在目标 API 上成立）、首启与全页四类缺陷 0、深/浅/auto 三档无缝、字号 1.45×/1.8125× 三处旧缺陷无回归、返回栈无一次双弹、内存 6 轮平台期 257–264MB 无泄漏；静态与单测复跑持平（codelinter 26/2/0、819/819）。**复测发现并修复两处真实缺陷**（tablet 轮漏检，因 tablet 色带与页面同色不可见）：① 指示器条带与 Tab 栏 28vp 色差接缝——NavBar 内容区内层 `expandSafeArea` 不延伸，改由 `Tabs` 容器自身背景铺底（`Tabs` bounds 天然到窗口物理底边）；② `NavDestination` 默认白背景在深色模式内容区以下露白边，显式置透明回落 Index 沉浸层。均改在 `MainShell.ets`。一个未复现的观察项（后台改显示密度后恢复时一次 Back 直接退出）已登记 audit §11.6。**改后复测只剩 2in1 一档**（动态避让核心验收 + 跨断点换栏，需用户在 DevEco 设备管理器启动实例）。证据前缀 `tools/.m9/pa*`。
 
 ## 10. 官方资料索引
 
 以下链接均来自华为开发者联盟文档中心；页面会持续更新，使用前再次确认适用 API 和更新时间。
 
-> 补充（2026-08-24）：面向**鸿蒙独有特性与官方设计规范**的资料索引已单独整理于 `docs/HARMONYOS_NATIVE_FEATURES.md` §13，含服务卡片、AVSession 播控自检表、音乐低功耗、一多与折叠屏悬停态、投播、实况窗、分层图标、意图框架共 30 余个官方文档 ID（均已在本机 `devecocli docs` 验证可读），以及各能力在本机 API 24 SDK 中的 `.d.ts` 声明位置。本节（§10）保留移植期使用的通用资料。另：该文 §6 就本文 §6.2 已提出的 `Navigation` 迁移建议给出了取舍结论——**维持建议但不单独立项**，理由是纯迁移不产生用户可见新功能，且会作废 M9.3 已完成的 17 页 × 3 档字号 × 2 形态布局回归，宜与 tablet/2in1 适配、折叠屏悬停态、触控目标 48vp 合并为一个里程碑以共享一次回归成本（`NavigationMode.Auto` 自带 ≥600vp 分栏，正是分栏适配所需）。
+> 补充（2026-08-24）：面向**鸿蒙独有特性与官方设计规范**的资料索引已单独整理于 `docs/HARMONYOS_NATIVE_FEATURES.md` §13，含服务卡片、AVSession 播控自检表、音乐低功耗、一多与折叠屏悬停态、投播、实况窗、分层图标、意图框架共 30 余个官方文档 ID（均已在本机 `devecocli docs` 验证可读），以及各能力在本机 API 24 SDK 中的 `.d.ts` 声明位置。本节（§10）保留移植期使用的通用资料。另：该文 §6 就本文 §6.2 已提出的 `Navigation` 迁移建议给出了取舍结论——**维持建议但不单独立项**，理由是纯迁移不产生用户可见新功能，且会作废 M9.3 已完成的 17 页 × 3 档字号 × 2 形态布局回归，宜与 tablet/2in1 适配、折叠屏悬停态、触控目标 48vp 合并为一个里程碑以共享一次回归成本（`NavigationMode.Auto` 自带 ≥600vp 分栏，正是分栏适配所需）。**2026-08-26 更新**：该结论已按「与 tablet/2in1 适配合并」执行完毕（`Navigation`/`NavDestination` + `NavPathStack` 已落地），但两处与当时预期不同：① **`NavigationMode.Auto` 的分栏收益被主动放弃**——Split 会把 navBar 压进默认 240vp 侧栏，而本工程的 navBar 是整个 Tab 骨架，结构不匹配，故显式 `NavigationMode.Stack`，大屏分栏改由 `Tabs.vertical(true)` 提供；② **「作废既有回归」这个风险确实兑现**——改后只复测了 tablet 一档，phone/2in1 与字号三档都未重跑。折叠屏悬停态与触控目标 48vp 没赶上这一轮，仍会各自触发一遍回归。详见 `HARMONYOS_NATIVE_FEATURES.md` §6.2、§12 M10.4。
 
 ### 版本和兼容性
 

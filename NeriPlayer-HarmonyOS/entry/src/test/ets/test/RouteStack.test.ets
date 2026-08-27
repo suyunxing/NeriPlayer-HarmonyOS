@@ -2,94 +2,59 @@ import { describe, it, expect } from '@ohos/hypium';
 import {
   ROUTE_MAIN,
   ROUTE_MAX_DEPTH,
-  RouteEntry,
-  parseRouteStack,
-  popRoute,
-  pushRoute,
-  routeTop,
-  serializeRouteStack
+  RoutePushAction,
+  routePushAction
 } from '../../../main/ets/view/RouteStack';
 
+/**
+ * 路由改用 ArkUI 的 Navigation / NavPathStack 之后，栈本身由框架持有，
+ * RouteStack.ets 只剩「一次 push 该落成哪种动作」这条纯规则，用例随之改为断言
+ * 动作枚举，而不再自己维护 RouteEntry[]。
+ *
+ * 原 6 条用例中删掉 2 条：`serialize/parse round trips…`（AppStorage 里的
+ * `route.stack` 序列化随镜像一起删除）与 `pushRoute never mutates its input`
+ * （不再有输入数组可谈不可变性）。删的是「被测行为已经不存在」的用例，不是为了
+ * 让测试变绿。
+ */
 export default function routeStackTest(): void {
   describe('RouteStack', (): void => {
-    it('pushRoute stacks levels and popRoute unwinds them one at a time', 0, (): void => {
-      // The exact chain the device walk-through exercised: 设置 → 设置详情 →
-      // 调试页. Back must land on 设置详情, not jump straight to the root.
-      let stack: RouteEntry[] = [];
-      stack = pushRoute(stack, 'settings_detail', 'playback');
-      stack = pushRoute(stack, 'debug', '');
-      expect(stack.length).assertEqual(2);
-      expect((routeTop(stack) as RouteEntry).name).assertEqual('debug');
-
-      stack = popRoute(stack);
-      expect(stack.length).assertEqual(1);
-      const top = routeTop(stack) as RouteEntry;
-      expect(top.name).assertEqual('settings_detail');
-      expect(top.param).assertEqual('playback');
-
-      stack = popRoute(stack);
-      expect(stack.length).assertEqual(0);
-      expect(routeTop(stack)).assertNull();
-    });
-
-    it('pushRoute never mutates its input', 0, (): void => {
-      const base = pushRoute([], 'now_playing', '');
-      const grown = pushRoute(base, 'listen_together', '');
-      expect(base.length).assertEqual(1);
-      expect(grown.length).assertEqual(2);
-      expect(popRoute(grown).length).assertEqual(1);
-      expect(grown.length).assertEqual(2);
+    it('stacks each level of the settings chain as a regular push', 0, (): void => {
+      // 设备走查用的正是这条链：设置 → 设置详情 → 调试页。每一层都必须是常规
+      // 入栈，返回才会落在设置详情而不是直接回根。
+      expect(routePushAction('', 0, 'settings_detail')).assertEqual(RoutePushAction.PUSH);
+      expect(routePushAction('settings_detail', 1, 'debug')).assertEqual(RoutePushAction.PUSH);
+      expect(routePushAction('debug', 2, 'now_playing')).assertEqual(RoutePushAction.PUSH);
     });
 
     it('re-pushing the visible route replaces the top instead of stacking', 0, (): void => {
-      // A double tap on the MiniPlayer, or a playlist row re-entered with a
-      // different id, must still take one back press to leave.
-      let stack = pushRoute([], 'playlist_detail', 'local_1');
-      stack = pushRoute(stack, 'playlist_detail', 'local_2');
-      expect(stack.length).assertEqual(1);
-      expect((routeTop(stack) as RouteEntry).param).assertEqual('local_2');
+      // MiniPlayer 双击、或换一个 id 再进同一个歌单详情，离开时都只应按一次返回。
+      expect(routePushAction('playlist_detail', 1, 'playlist_detail'))
+        .assertEqual(RoutePushAction.REPLACE_TOP);
+      // 深度 0 时栈顶为空串，同名判据不能误命中：此时只有常规入栈。
+      expect(routePushAction('', 0, 'playlist_detail')).assertEqual(RoutePushAction.PUSH);
     });
 
-    it('pushing MAIN clears the stack and popping at the root is a no-op', 0, (): void => {
-      let stack = pushRoute([], 'stats', '');
-      stack = pushRoute(stack, 'downloads', '');
-      expect(pushRoute(stack, ROUTE_MAIN, '').length).assertEqual(0);
-      expect(popRoute([]).length).assertEqual(0);
-      // An empty name cannot create a route that nothing renders.
-      expect(pushRoute(stack, '', 'x').length).assertEqual(2);
+    it('pushing MAIN clears the stack and an empty name is ignored', 0, (): void => {
+      expect(routePushAction('debug', 2, ROUTE_MAIN)).assertEqual(RoutePushAction.CLEAR);
+      // 已经在 Tab 骨架上再推 MAIN 也走清栈，清空栈是幂等的。
+      expect(routePushAction('', 0, ROUTE_MAIN)).assertEqual(RoutePushAction.CLEAR);
+      // 空路由名没有对应的 NavDestination，推进去就是一层空白覆盖层。
+      expect(routePushAction('stats', 1, '')).assertEqual(RoutePushAction.IGNORE);
+      expect(routePushAction('', 0, '')).assertEqual(RoutePushAction.IGNORE);
     });
 
     it('depth is capped by dropping the oldest level', 0, (): void => {
-      let stack: RouteEntry[] = [];
-      for (let i = 0; i < ROUTE_MAX_DEPTH + 5; i++) {
-        stack = pushRoute(stack, `route_${i}`, `${i}`);
-      }
-      expect(stack.length).assertEqual(ROUTE_MAX_DEPTH);
-      expect(stack[0].name).assertEqual('route_5');
-      expect((routeTop(stack) as RouteEntry).name).assertEqual(`route_${ROUTE_MAX_DEPTH + 4}`);
-    });
-
-    it('serialize/parse round trips and rejects unusable rows', 0, (): void => {
-      let stack = pushRoute([], 'netease_playlist', '12345');
-      stack = pushRoute(stack, 'now_playing', '');
-      const restored = parseRouteStack(serializeRouteStack(stack));
-      expect(restored.length).assertEqual(2);
-      expect(restored[0].name).assertEqual('netease_playlist');
-      expect(restored[0].param).assertEqual('12345');
-      expect(restored[1].name).assertEqual('now_playing');
-
-      // First launch (nothing persisted yet) and corrupt payloads both degrade
-      // to the root rather than throwing during build().
-      expect(parseRouteStack('').length).assertEqual(0);
-      expect(parseRouteStack('not json').length).assertEqual(0);
-      expect(parseRouteStack('{"n":"debug"}').length).assertEqual(0);
-      // Rows with no usable name, and a persisted MAIN row from an older
-      // build, are dropped instead of rendering an empty overlay.
-      expect(parseRouteStack('[{"p":"x"},{"n":""},{"n":"main"},{"n":"debug"}]').length).assertEqual(1);
-      // A non-string param degrades to empty, it does not drop the level.
-      const coerced = parseRouteStack('[{"n":"bili_fav","p":42}]');
-      expect(coerced.length).assertEqual(1);
-      expect(coerced[0].param).assertEqual('');
+      // 自己重入自己的页面（数据变化触发再次 push）不能把栈撑到无限深，
+      // 到上限就丢最旧一层，返回链始终有限。
+      expect(routePushAction('route_a', ROUTE_MAX_DEPTH - 1, 'route_b'))
+        .assertEqual(RoutePushAction.PUSH);
+      expect(routePushAction('route_a', ROUTE_MAX_DEPTH, 'route_b'))
+        .assertEqual(RoutePushAction.EVICT_THEN_PUSH);
+      expect(routePushAction('route_a', ROUTE_MAX_DEPTH + 5, 'route_b'))
+        .assertEqual(RoutePushAction.EVICT_THEN_PUSH);
+      // 满栈时同名再推仍然是替换：替换不增深，没必要驱逐。
+      expect(routePushAction('route_a', ROUTE_MAX_DEPTH, 'route_a'))
+        .assertEqual(RoutePushAction.REPLACE_TOP);
     });
   });
 }

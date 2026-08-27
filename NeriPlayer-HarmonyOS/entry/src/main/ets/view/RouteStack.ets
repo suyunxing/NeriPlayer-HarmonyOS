@@ -1,102 +1,55 @@
 /**
- * Pure route-stack algebra behind Router — no AppStorage, no ArkUI, so the
- * back-navigation rules are unit-testable.
+ * Pure push-decision rules behind Router — no AppStorage, no ArkUI, so the
+ * navigation rules stay unit-testable while the stack itself lives in ArkUI's
+ * NavPathStack (Navigation/NavDestination).
  *
- * The stack used to be a single slot (one route name + one param), which made
- * pop() always jump to the root: 设置 → 调试页 or 播放页 → 一起听 lost the
- * intermediate page on the way back, and the system back key had nothing to
- * pop against at all (device-observed 2026-08-24, M9.3 返回栈 regression).
+ * 历史：这里原先自己维护一个 RouteEntry[] 并序列化进 AppStorage
+ * (`route.stack`)，栈顶再镜像到 `route.name`/`route.param`。改用
+ * Navigation 之后栈由框架持有，序列化与镜像一起删除 —— 在 Stack 模式下
+ * 下层 destination 仍然存活，共享一个 `route.param` 会污染它们。
+ * 保留下来的只有三条与容器无关的决策规则。
  */
 export const ROUTE_MAIN: string = 'main';
 
 /**
  * Depth cap. A route pushed in a loop (a page that re-enters itself on a data
- * change) would otherwise grow the persisted stack without bound; the oldest
- * entry is dropped instead, so back always stays finite.
+ * change) would otherwise grow the stack without bound; the oldest entry is
+ * dropped instead, so back always stays finite.
  */
 export const ROUTE_MAX_DEPTH: number = 16;
 
-export class RouteEntry {
-  readonly name: string;
-  readonly param: string;
-
-  constructor(name: string, param: string) {
-    this.name = name;
-    this.param = param;
-  }
-
-  toJson(): Record<string, Object> {
-    const json: Record<string, Object> = {};
-    json['n'] = this.name;
-    json['p'] = this.param;
-    return json;
-  }
-
-  static fromJson(obj: Record<string, Object>): RouteEntry | null {
-    const name = obj['n'];
-    if (typeof name !== 'string' || name.length === 0 || name === ROUTE_MAIN) {
-      return null;
-    }
-    const param = obj['p'];
-    return new RouteEntry(name, typeof param === 'string' ? param : '');
-  }
-}
-
-/** Reads the persisted stack; anything unparsable degrades to the root. */
-export function parseRouteStack(json: string): RouteEntry[] {
-  if (json.length === 0) {
-    return [];
-  }
-  try {
-    const arr: Object[] = JSON.parse(json) as Object[];
-    if (!Array.isArray(arr)) {
-      return [];
-    }
-    const out: RouteEntry[] = [];
-    for (const item of arr) {
-      const entry = RouteEntry.fromJson(item as Record<string, Object>);
-      if (entry !== null) {
-        out.push(entry);
-      }
-    }
-    return out;
-  } catch (error) {
-    return [];
-  }
-}
-
-export function serializeRouteStack(entries: RouteEntry[]): string {
-  return JSON.stringify(entries.map((entry: RouteEntry): Record<string, Object> => entry.toJson()));
-}
-
-/** Top of the stack, or null at the root (the tab shell is showing). */
-export function routeTop(entries: RouteEntry[]): RouteEntry | null {
-  return entries.length > 0 ? entries[entries.length - 1] : null;
+export enum RoutePushAction {
+  /** 空路由名：非法调用，什么都不做。 */
+  IGNORE = 0,
+  /** 推入 MAIN 等价于回到 Tab 骨架 —— 清空整栈。 */
+  CLEAR = 1,
+  /**
+   * 栈顶已是同名路由：替换而不是叠一层，这样连点两次不需要按两次返回。
+   * 参数可能不同（同一个歌单详情页换一个 id），所以是 replace 而非忽略。
+   */
+  REPLACE_TOP = 2,
+  /** 常规入栈。 */
+  PUSH = 3,
+  /** 已达深度上限：先丢最旧一层再入栈，返回链始终有限。 */
+  EVICT_THEN_PUSH = 4
 }
 
 /**
- * Pushes one level and returns the new stack (the input is never mutated).
- * Re-pushing the route already on top replaces it instead of stacking a
- * duplicate, so a double tap does not need two back presses to undo.
+ * 决定一次 Router.push 该怎么落到 NavPathStack 上。
+ *
+ * @param topName 当前栈顶路由名，空栈传 ''
+ * @param depth 当前栈深（0 = 正显示 Tab 骨架）
+ * @param name 要推入的路由名
  */
-export function pushRoute(entries: RouteEntry[], name: string, param: string): RouteEntry[] {
+export function routePushAction(topName: string, depth: number, name: string): RoutePushAction {
   if (name.length === 0) {
-    return entries.slice();
+    return RoutePushAction.IGNORE;
   }
   if (name === ROUTE_MAIN) {
-    return [];
+    return RoutePushAction.CLEAR;
   }
-  const next = entries.slice();
-  const top = routeTop(next);
-  if (top !== null && top.name === name) {
-    next[next.length - 1] = new RouteEntry(name, param);
-    return next;
+  if (depth > 0 && topName === name) {
+    return RoutePushAction.REPLACE_TOP;
   }
-  next.push(new RouteEntry(name, param));
-  return next.length > ROUTE_MAX_DEPTH ? next.slice(next.length - ROUTE_MAX_DEPTH) : next;
-}
-
-/** Pops one level; already at the root is a no-op, never an error. */
-export function popRoute(entries: RouteEntry[]): RouteEntry[] {
-  return entries.length === 0 ? [] : entries.slice(0, entries.length - 1);
+  return depth >= ROUTE_MAX_DEPTH ? RoutePushAction.EVICT_THEN_PUSH : RoutePushAction.PUSH;
 }

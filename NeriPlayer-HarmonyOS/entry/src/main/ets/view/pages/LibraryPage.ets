@@ -16,9 +16,13 @@ import { BiliFavFolderSummary } from '../../network/BiliFavParser';
 import { BiliCookieRepository } from '../../data/auth/BiliCookieRepository';
 import { Router } from '../Router';
 import { Theme } from '../Theme';
+import { BAND_LIST_VP } from '../../util/Breakpoint';
 import { iconForLegacy } from '../../util/IconCatalog';
-import { SettingRow, EmptyState, SongCountChip } from '../components/Ui';
+import { SettingRow, EmptyState, SongCountChip, ContentBand } from '../components/Ui';
 import { SETTING_ACCOUNTS } from './SettingsPage';
+
+/** 本页在 MainShell 的 Tabs 里的下标，用于过滤刷新信号。 */
+const TAB_INDEX: number = 2;
 
 @Component
 export struct LibraryPage {
@@ -39,6 +43,18 @@ export struct LibraryPage {
   @State biliFolders: BiliFavFolderSummary[] = [];
   @State biliLoading: boolean = false;
   @State biliError: string = '';
+  /**
+   * 常驻 Tab 页的显式刷新钩子：改用 Navigation 之后返回不再重建 Tab 骨架，
+   * 歌单改名/删除、下载完成后返回资料库原本会看到旧数据。详见 HomePage 同名成员。
+   */
+  @StorageProp('np.default_start_tab') activeTab: number = 0;
+  @StorageProp('ui.refreshTick') @Watch('onRefreshTick') refreshTick: number = 0;
+
+  private onRefreshTick(): void {
+    if (this.activeTab === TAB_INDEX) {
+      this.reload();
+    }
+  }
 
   async aboutToAppear(): Promise<void> {
     await this.reload();
@@ -145,6 +161,9 @@ export struct LibraryPage {
   build() {
     Stack() {
       Scroll() {
+        // 840vp 栏宽约束：tablet 1440vp 下这些设置行的文本原本被拉到 1300vp 以上，
+        // 一行要横扫整块屏。窄屏不触发约束，布局与改造前逐像素一致。
+        ContentBand({ maxWidth: BAND_LIST_VP }) {
         Column({ space: 12 }) {
         Text('资料库')
           .fontSize(26)
@@ -522,11 +541,12 @@ export struct LibraryPage {
           .width('100%')
           .padding({ left: 14, right: 14, bottom: 24 })
         }
-        .layoutWeight(1)
-        .scrollBar(BarState.Off)
-        .width('100%')
-        .height('100%')
-        .backgroundColor(Theme.background(Theme.isDark()))
+      }
+      .layoutWeight(1)
+      .scrollBar(BarState.Off)
+      .width('100%')
+      .height('100%')
+      .backgroundColor(Theme.background(Theme.isDark()))
 
       if (this.showCreateDialog) {
         Column() {
