@@ -1,5 +1,7 @@
 import { SettingsRepository } from '../data/SettingsRepository';
 import { DynamicTheme, TonePalette } from './theme/DynamicTheme';
+import { MotionSpec } from './theme/MotionSpec';
+import { MotionCurves } from './theme/MotionCurves';
 
 /**
  * Material3-inspired palette for the HarmonyOS port. Since M8.1 the static
@@ -61,6 +63,32 @@ export class Theme {
   static refreshIsDark(): boolean {
     const dark = Theme.isDark();
     AppStorage.setOrCreate(Theme.IS_DARK_KEY, dark);
+    return dark;
+  }
+
+  /**
+   * Animated variant of refreshIsDark for *runtime* theme switches (system
+   * colorMode flip in onConfigurationUpdate, the settings-page cycle button).
+   * Wrapping the AppStorage publish in animateTo turns the recolor of every
+   * @StorageProp('theme.isDark') subscriber into a 420ms transition — the
+   * counterpart of NeriTheme.kt's animateColorScheme (420ms
+   * FastOutSlowInEasing over the whole ColorScheme). Boot-time publishes
+   * (onCreate, Index.aboutToAppear) must keep the plain variant: animating
+   * before the first frame has no value and may flash.
+   *
+   * Device-probe caveat (UI_ANIMATION_PLAN.md §7 R1): whether AppStorage
+   * writes made inside an animateTo closure animate the subscriber repaints
+   * could not be proven statically; if the probe fails, the fallback is a
+   * scoped .animation() on the top-level surfaces.
+   */
+  static refreshIsDarkAnimated(): boolean {
+    const dark = Theme.isDark();
+    animateTo({
+      duration: MotionSpec.THEME_COLOR_TRANSITION_MS,
+      curve: MotionCurves.fastOutSlowIn()
+    }, () => {
+      AppStorage.setOrCreate(Theme.IS_DARK_KEY, dark);
+    });
     return dark;
   }
 

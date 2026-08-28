@@ -39,8 +39,9 @@ export struct SettingsPage {
     SettingsRepository.setString(SettingsRepository.KEY_DARK_MODE, next);
     // Republish the resolved flag so every subscribing component repaints.
     // Use the return value, not the local mirror — @StorageProp has not
-    // necessarily propagated yet inside this same synchronous call.
-    const dark = Theme.refreshIsDark();
+    // necessarily propagated yet inside this same synchronous call. The
+    // animated variant wraps the publish in a 420ms animateTo (M11.6a).
+    const dark = Theme.refreshIsDarkAnimated();
     const context = AppStorage.get<common.UIAbilityContext>('abilityContext');
     if (context !== undefined) {
       SystemBars.apply(context, dark);

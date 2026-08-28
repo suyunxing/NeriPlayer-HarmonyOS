@@ -64,6 +64,7 @@ import lyricIndexResolverTest from './ets/test/LyricIndexResolver.test';
 import diagnosticsTest from './ets/test/Diagnostics.test';
 import routeStackTest from './ets/test/RouteStack.test';
 import playbackSpeedMapTest from './ets/test/PlaybackSpeedMap.test';
+import motionSpecTest from './ets/test/MotionSpec.test';
 
 export default function testsuite(): void {
   lrcParserTest();
@@ -132,4 +133,5 @@ export default function testsuite(): void {
   diagnosticsTest();
   routeStackTest();
   playbackSpeedMapTest();
+  motionSpecTest();
 }
