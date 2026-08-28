@@ -11,6 +11,8 @@ import { image } from '@kit.ImageKit';
 import { Logger } from '../../app/Logger';
 import { Palette } from './Palette';
 import { CoverColorCacheCore } from './CoverColorCacheCore';
+import { MotionSpec } from './MotionSpec';
+import { MotionCurves } from './MotionCurves';
 
 // Android decodes at sizePx=96; that already is the low-end downsample
 // strategy (9216 pixels), so no extra device-tier branching is needed.
@@ -42,7 +44,23 @@ export class CoverArtColorCache {
       if (generation !== CoverArtColorCache.generation) {
         return;
       }
-      AppStorage.setOrCreate('player.coverSeedHex', hex ?? '');
+      const value = hex ?? '';
+      // The seed drives accent colors in MiniPlayer/NowPlaying through
+      // @Watch mirrors, so wrapping the publish in animateTo recolors them
+      // as a 420ms transition on track switch — the counterpart of
+      // NeriTheme.kt's animateColorScheme (UI_ANIMATION_PLAN.md §4 M11.6a).
+      // animateTo is best-effort: a cold-start publish racing window
+      // creation must not swallow the seed, so fall back to a plain write.
+      try {
+        animateTo({
+          duration: MotionSpec.THEME_COLOR_TRANSITION_MS,
+          curve: MotionCurves.fastOutSlowIn()
+        }, () => {
+          AppStorage.setOrCreate('player.coverSeedHex', value);
+        });
+      } catch (error) {
+        AppStorage.setOrCreate('player.coverSeedHex', value);
+      }
     };
     if (coverUrl.trim().length === 0) {
       publish(null);

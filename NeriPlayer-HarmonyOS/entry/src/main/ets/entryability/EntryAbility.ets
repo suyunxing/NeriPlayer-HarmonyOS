@@ -85,8 +85,10 @@ export default class EntryAbility extends UIAbility {
       newConfig.colorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK);
     // System bars follow the *resolved* theme, not the raw system colorMode:
     // with np.dark_mode pinned to light/dark, a system switch must not flip the
-    // bars out of step with the app surfaces.
-    SystemBars.apply(this.context, Theme.refreshIsDark());
+    // bars out of step with the app surfaces. The animated variant runs the
+    // recolor as a 420ms transition (NeriTheme.kt counterpart); the bars
+    // themselves are a window API call and switch immediately regardless.
+    SystemBars.apply(this.context, Theme.refreshIsDarkAnimated());
   }
 
   private applyEdgeToEdge(windowStage: window.WindowStage): void {
