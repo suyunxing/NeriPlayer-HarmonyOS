@@ -67,6 +67,7 @@ import playbackSpeedMapTest from './ets/test/PlaybackSpeedMap.test';
 import lyricScrollMathTest from './ets/test/LyricScrollMath.test';
 import shareLinksTest from './ets/test/ShareLinks.test';
 import albumSongsTest from './ets/test/AlbumSongs.test';
+import qqMusicLyricCodecTest from './ets/test/QQMusicLyricCodec.test';
 
 export default function testsuite(): void {
   lrcParserTest();
@@ -138,4 +139,5 @@ export default function testsuite(): void {
   lyricScrollMathTest();
   shareLinksTest();
   albumSongsTest();
+  qqMusicLyricCodecTest();
 }
