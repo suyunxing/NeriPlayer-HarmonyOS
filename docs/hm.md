@@ -688,7 +688,7 @@ mkdir -p "$PROJECT/signing"; cp OpenHarmony.p12 "$PROJECT/signing/"
 cd /; rm -rf "$W"; unset PW
 ```
 
-之后把同一口令以 SecureString 方式写入用户级 `NERIPLAYER_SIGNING_PASSWORD`（避免明文进终端历史），即可正常执行 `sign-local.ps1` 全链路。验证期间产生的临时 keystore 与签名 HAP 已全部删除；设备 UDID 按惯例现场获取、不入档。
+之后把同一口令以 SecureString 方式写入用户级 `NERIPLAYER_SIGNING_PASSWORD`（避免明文进终端历史），即可正常执行 `sign-local.ps1` 全链路。⚠️ 注意：用户级（注册表）环境变量只对**新开的终端会话**生效，从已运行的 shell 树派生的子进程不会自动看到——这类会话需在启动脚本前先桥接：`\$env:NERIPLAYER_SIGNING_PASSWORD=[Environment]::GetEnvironmentVariable('NERIPLAYER_SIGNING_PASSWORD','User')`（DeviceIds 同理）。验证期间产生的临时 keystore 与签名 HAP 已全部删除；设备 UDID 按惯例现场获取、不入档。
 
 每次 SDK 或上游 Android 更新，都更新本文件的核验日期、版本矩阵、源码状态和测试结果。
 新增能力必须附官方页面 URL、适用 API、代码位置、验证设备、失败日志和降级方案。
