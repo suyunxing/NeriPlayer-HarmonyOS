@@ -351,7 +351,8 @@ export struct ToggleRow {
 /**
  * Multi-choice setting row (UX rule: non-binary options expose a secondary
  * menu). Shows the current value as the subtitle and opens a checked
- * single-choice Menu anchored at the row.
+ * single-choice Menu anchored at the trailing chevron (not the row), which
+ * also rotates 90° while the menu is open so the open state stays visible.
  */
 @Component
 export struct OptionRow {
@@ -363,6 +364,7 @@ export struct OptionRow {
   @Prop options: OptionEntry[] = [];
   @Prop current: string = '';
   onPick: (value: string) => void = () => {};
+  @State menuShow: boolean = false;
 
   private currentLabel(): string {
     // Hoisted out of the loop: repeated state-var reads in loops are flagged
@@ -419,15 +421,35 @@ export struct OptionRow {
       .layoutWeight(1)
       .alignItems(HorizontalAlign.Start)
 
-      Image($r('app.media.ic_chevron_right_24'))
-        .width(20)
-        .height(20)
-        .fillColor(Theme.textDisabled(Theme.isDark()))
+      // 40vp anchor/hot zone around the chevron: the menu always opens from
+      // the arrow (placement BottomRight), tapping the row body opens it too.
+      // The icon stays right-aligned so its visual position is unchanged; the
+      // extra 20vp of hot zone extend to the left only.
+      Row() {
+        Image($r('app.media.ic_chevron_right_24'))
+          .width(20)
+          .height(20)
+          .fillColor(Theme.textDisabled(Theme.isDark()))
+          .rotate({ angle: this.menuShow ? 90 : 0 })
+          .animation({ duration: 180, curve: Curve.EaseInOut })
+      }
+      .width(40)
+      .height(40)
+      .justifyContent(FlexAlign.End)
+      .accessibilityText(`${this.title}，当前${this.currentLabel()}，点击选择`)
+      .bindMenu(this.menuShow!!, this.optionMenuBuilder, {
+        placement: Placement.BottomRight,
+        onDisappear: () => {
+          this.menuShow = false;
+        }
+      })
     }
     .width('100%')
     .padding({ left: 16, right: 16, top: 12, bottom: 12 })
     .backgroundColor(Theme.surface(Theme.isDark()))
-    .bindMenu(this.optionMenuBuilder)
+    .onClick(() => {
+      this.menuShow = true;
+    })
   }
 }
 

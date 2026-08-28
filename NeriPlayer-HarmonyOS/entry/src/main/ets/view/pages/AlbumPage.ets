@@ -53,6 +53,7 @@ export struct AlbumPage {
 
   private playFrom(index: number): void {
     PlayerManager.playPlaylist(this.songs, index);
+    Router.push(Router.NOW_PLAYING);
   }
 
   build() {

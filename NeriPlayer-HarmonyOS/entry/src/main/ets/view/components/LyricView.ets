@@ -159,8 +159,7 @@ export struct LyricView {
   /** Jump (no animation) to the playing line once heights are known. */
   private initialFollow(): void {
     this.pendingInitial = false;
-    const index = Math.max(0, this.currentIndex());
-    this.scroller.scrollTo({ xOffset: 0, yOffset: LyricScrollMath.targetScroll(index, this.layout(), this.viewportHeight) });
+    this.followCurrent(false);
     this.lastFollowedIndex = this.currentIndex();
   }
 
@@ -200,11 +199,19 @@ export struct LyricView {
     const index = Math.max(0, this.currentIndex());
     this.lastFollowedIndex = this.currentIndex();
     const target = LyricScrollMath.targetScroll(index, this.layout(), this.viewportHeight);
+    // Zero-displacement scrolls never raise onDidScroll/onScrollStop, so the
+    // programmatic flag must not be armed (it would wedge scrub mode).
+    if (this.scroller.currentOffset().yOffset === target) {
+      return;
+    }
+    // Both branches arm the flag: our own scrolls (animated or not) must be
+    // indistinguishable from user drags in onDidScroll, or followCurrent's
+    // jump would itself arm scrub mode. handleTouch(Down) disarms it.
+    this.programmaticScroll = true;
     if (!animated) {
       this.scroller.scrollTo({ xOffset: 0, yOffset: target });
       return;
     }
-    this.programmaticScroll = true;
     this.scroller.scrollTo({ xOffset: 0, yOffset: target, animation: { curve: FOLLOW_SPRING } });
   }
 
@@ -214,11 +221,13 @@ export struct LyricView {
     if (event.type === TouchType.Down) {
       this.cancelRevert();
       this.userTouching = true;
-      this.userHold = true;
       this.stoppedWhileHolding = false;
       // A touch during our own spring interrupts it and takes over.
       this.programmaticScroll = false;
-      this.updateScrubFromOffset();
+      // userHold is NOT set here: a Down also arrives for horizontal swipes
+      // that the pager (Swiper) will claim, which must not pause the auto
+      // follow. Scrub mode is armed on the first real (non-programmatic)
+      // scroll in handleScroll instead.
     } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
       this.userTouching = false;
       if (this.stoppedWhileHolding) {
@@ -229,8 +238,11 @@ export struct LyricView {
   }
 
   private handleScroll(): void {
-    if (!this.userHold || this.programmaticScroll) {
+    if (this.programmaticScroll) {
       return;
+    }
+    if (!this.userHold) {
+      this.userHold = true;
     }
     this.updateScrubFromOffset();
   }
