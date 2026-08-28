@@ -9,6 +9,7 @@ import { PlayerManager } from '../../player/PlayerManager';
 import { PlaybackStatus, RepeatMode } from '../../player/PlaybackConstants';
 import { Theme } from '../Theme';
 import { DynamicTheme } from '../theme/DynamicTheme';
+import { MotionSpec } from '../theme/MotionSpec';
 import { LyricView } from '../components/LyricView';
 import { WaveformSlider } from '../components/WaveformSlider';
 import { LyricShareSheet } from '../components/LyricShareSheet';
@@ -71,6 +72,17 @@ export struct NowPlayingPage {
   @State bgOverUrl: string = '';
   @State bgOverOpacity: number = 0;
   private crossfadeToken: number = 0;
+  // Armed after the first build so the cover<->lyrics fade plays on toggle
+  // only, never on this page's own entry — ArkUI transition effects fire on
+  // initial mount too, while Android's AnimatedContent animates on state
+  // change only (NowPlayingScreen.kt:1756-1771).
+  @State contentTransitionArmed: boolean = false;
+
+  private contentTransition(): TransitionEffect {
+    return this.contentTransitionArmed
+      ? TransitionEffect.OPACITY.animation({ duration: MotionSpec.PAGE_FADE_MS, curve: Curve.Linear })
+      : TransitionEffect.IDENTITY;
+  }
 
   private song(): SongItem {
     return this.currentSongJson.length > 0 ? SongItem.fromJson(this.currentSongJson) : new SongItem();
@@ -86,6 +98,9 @@ export struct NowPlayingPage {
     this.bgOverUrl = '';
     this.bgOverOpacity = 0;
     await this.reloadSongData();
+    setTimeout(() => {
+      this.contentTransitionArmed = true;
+    }, 0);
   }
 
   private onSongJsonChanged(): void {
@@ -299,10 +314,18 @@ export struct NowPlayingPage {
         // must not depend on lyrics being available (Bilibili/LOCAL songs
         // often have no remote lyric source, Android shows an empty state).
         if (this.showLyrics) {
-          LyricView({
-            lyrics: this.lyrics,
-            onSeek: (timeMs: number) => PlayerManager.seekTo(timeMs)
-          })
+          // Wrapper Column: custom components cannot carry .transition
+          // directly. 300ms linear fade both ways, matching the Android
+          // cover<->lyrics AnimatedContent (tween 300 LinearEasing).
+          Column() {
+            LyricView({
+              lyrics: this.lyrics,
+              onSeek: (timeMs: number) => PlayerManager.seekTo(timeMs)
+            })
+          }
+          .width('100%')
+          .layoutWeight(1)
+          .transition(this.contentTransition())
         } else {
           Column() {
             Stack() {
@@ -368,6 +391,7 @@ export struct NowPlayingPage {
           }
           .layoutWeight(1)
           .width('100%')
+          .transition(this.contentTransition())
         }
 
         Column() {

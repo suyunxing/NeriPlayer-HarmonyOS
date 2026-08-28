@@ -86,6 +86,8 @@ export default function motionSpecTest(): void {
       assertNear(MotionSpec.lyricBlurMultiplierForDistance(4), 2.5);
       assertNear(MotionSpec.lyricBlurMultiplierForDistance(5), 4.0);
       assertNear(MotionSpec.lyricBlurMultiplierForDistance(12), 4.0);
+      // Base amount: Android lyricBlurAmount settings default.
+      assertNear(MotionSpec.LYRIC_BLUR_BASE_VP, 1.5);
     });
   });
 }

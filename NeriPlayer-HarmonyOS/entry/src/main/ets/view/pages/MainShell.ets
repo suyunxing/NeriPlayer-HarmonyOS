@@ -1,5 +1,7 @@
 import { Router } from '../Router';
 import { Theme } from '../Theme';
+import { MotionSpec } from '../theme/MotionSpec';
+import { MotionCurves } from '../theme/MotionCurves';
 import { SettingsRepository } from '../../data/SettingsRepository';
 import { MiniPlayer } from '../components/MiniPlayer';
 import { FloatingLyricBar } from '../components/FloatingLyricBar';
@@ -30,12 +32,40 @@ export struct MainShell {
   // makes the shell actually repaint: an AppStorage read hidden inside a
   // method call is invisible to ArkUI's minimal-update tracking (M7.4).
   @StorageProp('theme.isDark') isDark: boolean = false;
+  // Armed after the first build so the mini player slides in when playback
+  // *starts*, but not on a cold start that restores a song: ArkUI transition
+  // effects fire on initial mount too, while Android's AnimatedVisibility
+  // only animates on state change (NeriApp.kt:3641-3656).
+  @State miniplayerTransitionArmed: boolean = false;
+
+  // Slide distance for the mini player appear/disappear: half the ~70vp
+  // player, matching Android's slideInVertically { it / 2 }.
+  private static readonly MINIPLAYER_SLIDE_VP: number = 35;
 
   aboutToAppear(): void {
     const stored = AppStorage.get<number>(SettingsRepository.KEY_DEFAULT_START_TAB);
     if (stored !== undefined && stored !== null) {
       this.currentTab = stored;
     }
+    setTimeout(() => {
+      this.miniplayerTransitionArmed = true;
+    }, 0);
+  }
+
+  private miniplayerTransition(): TransitionEffect {
+    if (!this.miniplayerTransitionArmed) {
+      return TransitionEffect.IDENTITY;
+    }
+    return TransitionEffect.asymmetric(
+      TransitionEffect.translate({ y: MainShell.MINIPLAYER_SLIDE_VP })
+        .animation({ duration: MotionSpec.MINIPLAYER_ENTER_SLIDE_MS, curve: MotionCurves.fastOutSlowIn() })
+        .combine(TransitionEffect.opacity(0)
+          .animation({ duration: MotionSpec.MINIPLAYER_ENTER_FADE_MS, curve: MotionCurves.fastOutSlowIn() })),
+      TransitionEffect.translate({ y: MainShell.MINIPLAYER_SLIDE_VP })
+        .animation({ duration: MotionSpec.MINIPLAYER_EXIT_SLIDE_MS, curve: MotionCurves.fastOutSlowIn() })
+        .combine(TransitionEffect.opacity(0)
+          .animation({ duration: MotionSpec.MINIPLAYER_EXIT_FADE_MS, curve: MotionCurves.fastOutSlowIn() }))
+    );
   }
 
   @Builder
@@ -83,7 +113,12 @@ export struct MainShell {
       Stack({ alignContent: Alignment.Top }) {
         Column() {
           if (this.currentSongJson.length > 0) {
-            MiniPlayer()
+            // Wrapper Column: custom components cannot carry .transition
+            // directly.
+            Column() {
+              MiniPlayer()
+            }
+            .transition(this.miniplayerTransition())
           }
           Stack() {
             if (this.currentTab === 0) {
