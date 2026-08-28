@@ -1,6 +1,7 @@
 import {
   ROUTE_MAIN,
   RouteEntry,
+  directionForRouteChange,
   parseRouteStack,
   popRoute,
   pushRoute,
@@ -24,6 +25,8 @@ export class Router {
   static readonly KEY_NAME: string = 'route.name';
   static readonly KEY_PARAM: string = 'route.param';
   static readonly KEY_STACK: string = 'route.stack';
+  /** Direction of the last change ('push'|'pop'|'none'), read by MainShell's route transition. */
+  static readonly KEY_DIRECTION: string = 'route.lastDirection';
 
   static readonly MAIN: string = ROUTE_MAIN;
   static readonly NOW_PLAYING: string = 'now_playing';
@@ -66,10 +69,13 @@ export class Router {
   }
 
   private static publish(entries: RouteEntry[]): void {
+    const previous = Router.stack();
     const top = routeTop(entries);
+    // Order matters twice: the direction — like the param — must be in place
+    // before the name flips, because the transition effect attached during
+    // the name-triggered rebuild reads it to pick push vs pop motion.
+    AppStorage.setOrCreate(Router.KEY_DIRECTION, directionForRouteChange(previous, entries));
     AppStorage.setOrCreate(Router.KEY_STACK, serializeRouteStack(entries));
-    // Order matters: the param must be in place before the name flips, or a
-    // page rebuilt by the name change reads the previous entry's param.
     AppStorage.setOrCreate(Router.KEY_PARAM, top === null ? '' : top.param);
     AppStorage.setOrCreate(Router.KEY_NAME, top === null ? Router.MAIN : top.name);
   }

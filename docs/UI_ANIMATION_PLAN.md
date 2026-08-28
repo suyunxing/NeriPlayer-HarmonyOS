@@ -211,6 +211,14 @@
 
 ### M11.6d 全屏路由转场（轻量子集，先于 Navigation 落地）
 
+> **状态：已实施（2026-08-28）。构建+单测（833/833）已过；观感未上设备，17 页返回栈回归待复跑。**
+> 实施与原计划的两点差异：①**出场侧固定 fade 而非方向感知滑动**——ArkUI 移除 if/else 分支时不重新
+> 求值其 transition 属性（读到挂载时方向的旧值），方向感知 disappear 会以过期方向运动；fade 在进出
+> 节点任意层叠顺序下都成立（与 Android 的 deck 退出隐喻有偏差，待设备评估）。②方向信号落在
+> RouteStack 纯函数 `directionForRouteChange`（深度差 + 等长时的顶部身份判定，处理深度上限等长换顶），
+> `Router.KEY_DIRECTION` 在 name 翻转前写入；路由 if/else 链整体包进主题背景 Stack 防转场期间闪
+> 无主题底色，`routeTransitionArmed` 首帧布防（AVSession 冷启动直达路由不播动画）。
+
 **目标**：`MainShell` 的路由 if/else 分支切换获得方向感知的垂直滑动转场；Navigation 整体迁移
 （M10.4，镜像阻塞）不做，但其时长/曲线参数提前固化进 MotionSpec，届时只换挂接机制不换参数。
 
