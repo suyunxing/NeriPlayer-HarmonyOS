@@ -278,6 +278,7 @@ export struct BiliFavPage {
                       showPlatform: false,
                       onPlay: () => {
                         PlayerManager.playPlaylist(this.songs, index);
+                        Router.push(Router.NOW_PLAYING);
                       }
                     })
                   }

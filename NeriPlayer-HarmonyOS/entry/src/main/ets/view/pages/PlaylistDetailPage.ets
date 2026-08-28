@@ -201,6 +201,7 @@ export struct PlaylistDetailPage {
                         onPlay: () => {
                           if (this.playlist !== null) {
                             PlayerManager.playPlaylist(this.playlist.songs, index);
+                            Router.push(Router.NOW_PLAYING);
                           }
                         }
                       })

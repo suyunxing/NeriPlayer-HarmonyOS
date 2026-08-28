@@ -22,6 +22,13 @@ import { stableKeyOf } from '../model/SongIdentity';
  */
 export class LyricDispatcher {
   static async loadLyrics(song: SongItem): Promise<LyricLine[]> {
+    // An explicit「匹配歌曲信息」result wins over every automatic source:
+    // it is the user's chosen lyric (and possibly translation) for this song.
+    if (song.matchedLyric.trim().length > 0) {
+      let parsed = LrcParser.parse(song.matchedLyric);
+      parsed = LrcParser.mergeTranslation(parsed, song.matchedTranslatedLyric);
+      return parsed;
+    }
     const name = song.displayName;
     const artist = song.displayArtist;
     if (song.platform === MusicPlatform.NETEASE && song.audioId.length > 0) {
