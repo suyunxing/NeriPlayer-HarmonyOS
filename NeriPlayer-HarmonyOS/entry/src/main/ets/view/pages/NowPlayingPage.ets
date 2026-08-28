@@ -1,3 +1,4 @@
+import { SymbolGlyphModifier } from '@kit.ArkUI';
 import { SongItem } from '../../model/SongItem';
 import { LyricLine } from '../../model/LyricLine';
 import { QueueState } from '../../model/QueueState';
@@ -10,6 +11,13 @@ import { DynamicTheme } from '../theme/DynamicTheme';
 import { LyricView } from '../components/LyricView';
 import { WaveformSlider } from '../components/WaveformSlider';
 import { LyricShareSheet } from '../components/LyricShareSheet';
+import { SongInfoSheet } from '../components/SongInfoSheet';
+import { EditSongInfoSheet } from '../components/EditSongInfoSheet';
+import { LyricOffsetSheet, LyricFontSizeSheet } from '../components/LyricTweakSheets';
+import { SongShareSheet } from '../components/SongShareSheet';
+import { DownloadEngine } from '../../download/DownloadEngine';
+import { DownloadStorage } from '../../download/DownloadStorage';
+import { AlbumSongs } from '../../util/AlbumSongs';
 import { Router } from '../Router';
 import { formatDuration, platformName } from '../components/Ui';
 
@@ -46,6 +54,12 @@ export struct NowPlayingPage {
   @State showQueue: boolean = false;
   @State showSleep: boolean = false;
   @State showShare: boolean = false;
+  // ⋯ menu action sheets (the queue keeps its dedicated bottom-right button).
+  @State showSongInfo: boolean = false;
+  @State showEditInfo: boolean = false;
+  @State showLyricOffset: boolean = false;
+  @State showLyricFontSize: boolean = false;
+  @State showSongShare: boolean = false;
   @State sleepLabel: string = '关闭';
   @StorageLink('player.sleepActive') sleepActive: boolean = false;
   @StorageLink('player.sleepRemainingMin') sleepRemainingMin: number = 0;
@@ -161,17 +175,21 @@ export struct NowPlayingPage {
     await PlayerManager.toggleFavoriteForCurrentSong();
   }
 
-  private cycleSpeed(): void {
-    let nextIndex = SPEED_STEPS.indexOf(this.speed) + 1;
-    if (nextIndex >= SPEED_STEPS.length) {
-      nextIndex = 0;
-    }
-    const next = SPEED_STEPS[nextIndex];
-    PlayerManager.setSpeed(next);
-  }
-
   private cycleRepeat(): void {
     PlayerManager.cycleRepeatMode();
+  }
+
+  /** 倍速是六档单选：锚定菜单替代原来的循环点击（UX 规范）。 */
+  @Builder
+  speedMenuBuilder() {
+    Menu() {
+      ForEach(SPEED_STEPS, (speedValue: number) => {
+        MenuItem({ content: speedValue === 1.0 ? '1.0x' : `${speedValue}x` })
+          .selected(this.speed === speedValue)
+          .selectIcon(true)
+          .onClick(() => PlayerManager.setSpeed(speedValue))
+      }, (speedValue: number) => `${speedValue}`)
+    }
   }
 
   /** Announces the current repeat mode; the icon alone carries no label. */
@@ -202,6 +220,74 @@ export struct NowPlayingPage {
       PlayerManager.setSleepFinishPlaylist();
     } else {
       PlayerManager.cancelSleepTimer();
+    }
+  }
+
+  private async downloadCurrentSong(): Promise<void> {
+    const song = this.song();
+    const entry = await DownloadStorage.findCatalogEntry(song);
+    if (entry !== null) {
+      this.getUIContext().getPromptAction().showToast({ message: '已下载到本地', duration: 2000 });
+      return;
+    }
+    DownloadEngine.enqueue([song]);
+    this.getUIContext().getPromptAction().showToast({ message: '已加入下载队列', duration: 2000 });
+  }
+
+  private openAlbum(): void {
+    const song = this.song();
+    if (song.albumId > 0 || AlbumSongs.hasAlbumData(song)) {
+      Router.push(Router.ALBUM, JSON.stringify({ album: song.album, albumId: song.albumId }));
+      return;
+    }
+    this.getUIContext().getPromptAction().showToast({ message: '暂无专辑信息', duration: 2000 });
+  }
+
+  @Builder
+  songMenuBuilder() {
+    Menu() {
+      MenuItem({
+        symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.info_circle')).fontSize(22),
+        content: '获取歌曲信息'
+      }).onClick(() => {
+        this.showSongInfo = true;
+      })
+      MenuItem({
+        symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.square_and_pencil')).fontSize(22),
+        content: '编辑歌曲信息'
+      }).onClick(() => {
+        this.showEditInfo = true;
+      })
+      MenuItem({
+        symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.download')).fontSize(22),
+        content: '下载到本地'
+      }).onClick(() => {
+        this.downloadCurrentSong();
+      })
+      MenuItem({
+        symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.timer')).fontSize(22),
+        content: '调整歌词偏移'
+      }).onClick(() => {
+        this.showLyricOffset = true;
+      })
+      MenuItem({
+        symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.textformat_size_square')).fontSize(22),
+        content: '歌词字体大小'
+      }).onClick(() => {
+        this.showLyricFontSize = true;
+      })
+      MenuItem({
+        symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.opticaldisc')).fontSize(22),
+        content: '查看专辑'
+      }).onClick(() => {
+        this.openAlbum();
+      })
+      MenuItem({
+        symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.share')).fontSize(22),
+        content: '分享'
+      }).onClick(() => {
+        this.showSongShare = true;
+      })
     }
   }
 
@@ -296,8 +382,8 @@ export struct NowPlayingPage {
             .fontColor('#FFFFFF')
             .fontSize(18)
             // '⋯' on its own is read out as punctuation, or skipped entirely.
-            .accessibilityText('播放列表')
-            .onClick(() => this.showQueue = true)
+            .accessibilityText('更多操作')
+            .bindMenu(this.songMenuBuilder)
         }
         .width('100%')
         .padding({ left: 10, right: 10, top: 8 })
@@ -308,7 +394,13 @@ export struct NowPlayingPage {
         if (this.showLyrics) {
           LyricView({
             lyrics: this.lyrics,
-            onSeek: (timeMs: number) => PlayerManager.seekTo(timeMs)
+            onSeek: (timeMs: number) => PlayerManager.seekTo(timeMs),
+            // Lyric scrubbing previews the centered line's time in the shared
+            // label channel (same previewMs the waveform drag uses); playback
+            // itself is untouched until a line is tapped.
+            onScrubLine: (timeMs: number) => {
+              this.previewMs = timeMs;
+            }
           })
         } else {
           Column() {
@@ -446,8 +538,8 @@ export struct NowPlayingPage {
               .fontColor('#FFFFFF')
               .backgroundColor('#33FFFFFF')
               .borderRadius(16)
-              .accessibilityText(`播放速度 ${this.speed} 倍，点击切换`)
-              .onClick(() => this.cycleSpeed())
+              .accessibilityText(`播放速度 ${this.speed} 倍，点击选择`)
+              .bindMenu(this.speedMenuBuilder)
             Button() {
               Row({ space: 6 }) {
                 Image($r('app.media.ic_bedtime_24'))
@@ -535,6 +627,52 @@ export struct NowPlayingPage {
           initialSelection: this.currentLyricIndex(),
           onClose: () => {
             this.showShare = false;
+          }
+        })
+      }
+
+      if (this.showSongInfo) {
+        SongInfoSheet({
+          songJson: this.currentSongJson,
+          onClose: () => {
+            this.showSongInfo = false;
+          }
+        })
+      }
+
+      if (this.showEditInfo) {
+        EditSongInfoSheet({
+          songJson: this.currentSongJson,
+          onClose: () => {
+            this.showEditInfo = false;
+          }
+        })
+      }
+
+      if (this.showLyricOffset) {
+        LyricOffsetSheet({
+          onClose: () => {
+            this.showLyricOffset = false;
+          }
+        })
+      }
+
+      if (this.showLyricFontSize) {
+        LyricFontSizeSheet({
+          onClose: () => {
+            this.showLyricFontSize = false;
+          }
+        })
+      }
+
+      if (this.showSongShare) {
+        SongShareSheet({
+          songJson: this.currentSongJson,
+          onClose: () => {
+            this.showSongShare = false;
+          },
+          onOpenLyricCard: () => {
+            this.showShare = true;
           }
         })
       }

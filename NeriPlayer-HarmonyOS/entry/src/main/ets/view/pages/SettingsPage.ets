@@ -5,7 +5,7 @@ import { AppColorMode } from '../../util/AppColorMode';
 import { SystemBars } from '../../util/SystemBars';
 import { Router } from '../Router';
 import { Theme } from '../Theme';
-import { ContentBand, SettingRow } from '../components/Ui';
+import { ContentBand, OptionEntry, OptionRow, SettingRow, ToggleRow } from '../components/Ui';
 import { BAND_LIST_VP } from '../../util/Breakpoint';
 import { LEGAL_AGREEMENT, LEGAL_PRIVACY } from './LegalDocPage';
 
@@ -36,14 +36,25 @@ export struct SettingsPage {
       .margin({ left: 6, top: 14, bottom: 4 })
   }
 
-  private cycleDarkMode(): void {
-    const next = this.darkMode === 'auto' ? 'light' : (this.darkMode === 'light' ? 'dark' : 'auto');
-    SettingsRepository.setString(SettingsRepository.KEY_DARK_MODE, next);
+  private darkModeOptions(): OptionEntry[] {
+    const options: OptionEntry[] = [
+      { value: 'auto', label: '跟随系统' },
+      { value: 'light', label: '浅色' },
+      { value: 'dark', label: '深色' }
+    ];
+    return options;
+  }
+
+  private applyDarkMode(mode: string): void {
+    if (mode === this.darkMode) {
+      return;
+    }
+    SettingsRepository.setString(SettingsRepository.KEY_DARK_MODE, mode);
     const context = AppStorage.get<common.UIAbilityContext>('abilityContext');
     if (context !== undefined) {
       // setColorMode 触发配置变更、重建整棵组件树，否则本页与 MainShell 的
       // 颜色表达式不引用可观察状态，切换后不会重绘（见 AppColorMode 注释）。
-      AppColorMode.apply(context, next);
+      AppColorMode.apply(context, mode);
       // 系统栏内容色仍显式跟一次：setColorMode 抛错时这里是兜底。
       SystemBars.apply(context, Theme.isDark());
     }
@@ -90,22 +101,24 @@ export struct SettingsPage {
 
         this.sectionTitle('外观')
         Column({ space: 1 }) {
-          SettingRow({
+          OptionRow({
             title: '深色模式',
-            subtitle: this.darkMode === 'auto' ? '跟随系统' : (this.darkMode === 'dark' ? '深色' : '浅色'),
             icon: '◐',
-            onTap: () => this.cycleDarkMode()
+            options: this.darkModeOptions(),
+            current: this.darkMode,
+            onPick: (mode: string) => this.applyDarkMode(mode)
           })
-          SettingRow({
+          ToggleRow({
             title: '动态取色',
-            subtitle: this.dynamicColor ? '已开启（跟随封面取色）' : '已关闭',
+            subtitle: '主题色跟随当前歌曲封面',
             icon: '🎨',
-            onTap: () => {
-              SettingsRepository.setBoolean(SettingsRepository.KEY_DYNAMIC_COLOR, !this.dynamicColor);
+            value: this.dynamicColor,
+            onChange: (on: boolean) => {
+              SettingsRepository.setBoolean(SettingsRepository.KEY_DYNAMIC_COLOR, on);
               promptAction.openToast({
-                message: this.dynamicColor
-                  ? '已关闭：主题与播放页使用默认配色'
-                  : '已开启：主题色跟随当前歌曲封面'
+                message: on
+                  ? '已开启：主题色跟随当前歌曲封面'
+                  : '已关闭：主题与播放页使用默认配色'
               });
             }
           })
@@ -149,11 +162,12 @@ export struct SettingsPage {
             icon: '👤',
             onTap: () => Router.push(Router.SETTINGS_DETAIL, SETTING_ACCOUNTS)
           })
-          SettingRow({
+          ToggleRow({
             title: '启用 YouTube',
-            subtitle: this.youtubeEnabled ? '已启用' : '已停用',
             icon: '▶',
-            onTap: () => SettingsRepository.setBoolean(SettingsRepository.KEY_YOUTUBE_ENABLED, !this.youtubeEnabled)
+            value: this.youtubeEnabled,
+            onChange: (on: boolean) =>
+              SettingsRepository.setBoolean(SettingsRepository.KEY_YOUTUBE_ENABLED, on)
           })
           SettingRow({
             title: '同步',
@@ -197,11 +211,12 @@ export struct SettingsPage {
 
         this.sectionTitle('其他')
         Column({ space: 1 }) {
-          SettingRow({
+          ToggleRow({
             title: '开发者模式',
-            subtitle: this.devMode ? '已开启' : '已关闭',
             icon: '⚙',
-            onTap: () => SettingsRepository.setBoolean(SettingsRepository.KEY_DEV_MODE, !this.devMode)
+            value: this.devMode,
+            onChange: (on: boolean) =>
+              SettingsRepository.setBoolean(SettingsRepository.KEY_DEV_MODE, on)
           })
           if (this.devMode) {
             SettingRow({
