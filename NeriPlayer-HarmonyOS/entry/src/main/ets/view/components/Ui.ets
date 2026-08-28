@@ -283,6 +283,154 @@ export struct SongCountChip {
   }
 }
 
+/** Single-choice entry shown in an OptionRow's dropdown menu. */
+export interface OptionEntry {
+  /** Stable id compared against OptionRow.current. */
+  value: string;
+  /** Displayed text. */
+  label: string;
+}
+
+/**
+ * Binary setting row with a real switch (UX rule: every on/off option must
+ * carry a Toggle). Tapping the switch — not the row — flips the value, so the
+ * interaction point and the visual state stay on the same control.
+ */
+@Component
+export struct ToggleRow {
+  @Prop title: string;
+  @Prop subtitle: string = '';
+  @Prop icon: string = '';
+  @Prop iconResource: Resource = $r('app.media.ic_info_24');
+  @Prop showIcon: boolean = false;
+  @Prop value: boolean = false;
+  onChange: (value: boolean) => void = () => {};
+
+  build() {
+    Row({ space: 12 }) {
+      if (this.showIcon) {
+        Image(this.iconResource)
+          .width(20)
+          .height(20)
+          .fillColor(Theme.primary(Theme.isDark()))
+      } else if (this.icon.length > 0) {
+        Image(iconForLegacy(this.icon, this.iconResource))
+          .width(20)
+          .height(20)
+          .fillColor(Theme.primary(Theme.isDark()))
+      }
+      Column({ space: 2 }) {
+        Text(this.title)
+          .fontSize(15)
+          .fontColor(Theme.textPrimary(Theme.isDark()))
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .width('100%')
+        if (this.subtitle.length > 0) {
+          Text(this.subtitle)
+            .fontSize(12)
+            .fontColor(Theme.textSecondary(Theme.isDark()))
+            .maxLines(2)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .width('100%')
+        }
+      }
+      .layoutWeight(1)
+      .alignItems(HorizontalAlign.Start)
+
+      Toggle({ type: ToggleType.Switch, isOn: this.value })
+        .selectedColor(Theme.primary(Theme.isDark()))
+        .onChange((isOn: boolean) => this.onChange(isOn))
+    }
+    .width('100%')
+    .padding({ left: 16, right: 16, top: 12, bottom: 12 })
+    .backgroundColor(Theme.surface(Theme.isDark()))
+  }
+}
+
+/**
+ * Multi-choice setting row (UX rule: non-binary options expose a secondary
+ * menu). Shows the current value as the subtitle and opens a checked
+ * single-choice Menu anchored at the row.
+ */
+@Component
+export struct OptionRow {
+  @Prop title: string;
+  @Prop subtitle: string = '';
+  @Prop icon: string = '';
+  @Prop iconResource: Resource = $r('app.media.ic_info_24');
+  @Prop showIcon: boolean = false;
+  @Prop options: OptionEntry[] = [];
+  @Prop current: string = '';
+  onPick: (value: string) => void = () => {};
+
+  private currentLabel(): string {
+    // Hoisted out of the loop: repeated state-var reads in loops are flagged
+    // by hp-arkui-no-state-var-access-in-loop.
+    const options = this.options;
+    const current = this.current;
+    for (const option of options) {
+      if (option.value === current) {
+        return option.label;
+      }
+    }
+    return '';
+  }
+
+  @Builder
+  optionMenuBuilder() {
+    Menu() {
+      ForEach(this.options, (option: OptionEntry) => {
+        MenuItem({ content: option.label })
+          .selected(option.value === this.current)
+          .selectIcon(true)
+          .onClick(() => this.onPick(option.value))
+      }, (option: OptionEntry) => option.value)
+    }
+  }
+
+  build() {
+    Row({ space: 12 }) {
+      if (this.showIcon) {
+        Image(this.iconResource)
+          .width(20)
+          .height(20)
+          .fillColor(Theme.primary(Theme.isDark()))
+      } else if (this.icon.length > 0) {
+        Image(iconForLegacy(this.icon, this.iconResource))
+          .width(20)
+          .height(20)
+          .fillColor(Theme.primary(Theme.isDark()))
+      }
+      Column({ space: 2 }) {
+        Text(this.title)
+          .fontSize(15)
+          .fontColor(Theme.textPrimary(Theme.isDark()))
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .width('100%')
+        Text(this.currentLabel().length > 0 ? this.currentLabel() : this.subtitle)
+          .fontSize(12)
+          .fontColor(Theme.textSecondary(Theme.isDark()))
+          .maxLines(2)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .width('100%')
+      }
+      .layoutWeight(1)
+      .alignItems(HorizontalAlign.Start)
+
+      Image($r('app.media.ic_chevron_right_24'))
+        .width(20)
+        .height(20)
+        .fillColor(Theme.textDisabled(Theme.isDark()))
+    }
+    .width('100%')
+    .padding({ left: 16, right: 16, top: 12, bottom: 12 })
+    .backgroundColor(Theme.surface(Theme.isDark()))
+    .bindMenu(this.optionMenuBuilder)
+  }
+}
+
 export function platformName(platform: MusicPlatform): string {
   if (platform === MusicPlatform.BILIBILI) {
     return 'Bilibili';

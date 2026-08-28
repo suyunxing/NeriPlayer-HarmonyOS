@@ -421,6 +421,32 @@ export class PlayerManager {
     return PlayerManager.queue;
   }
 
+  /**
+   * Applies user-edited metadata (custom name/artist/cover) to the queue
+   * entries with the same stable key and republishes the current song, so
+   * every surface reflects the edit immediately. Playback state is untouched.
+   */
+  static applySongMetadataUpdate(song: SongItem): void {
+    const key = stableKeyOf(song);
+    for (let index = 0; index < PlayerManager.queue.length; index++) {
+      if (stableKeyOf(PlayerManager.queue[index]) === key) {
+        PlayerManager.queue[index] = song;
+      }
+    }
+    PlayerManager.publishQueue();
+    const current = PlayerManager.getCurrentSong();
+    if (current !== null && stableKeyOf(current) === key) {
+      PlayerManager.publishCurrentSong(song);
+      PlayerManager.refreshSessionMetadata(song);
+    }
+  }
+
+  private static refreshSessionMetadata(song: SongItem): void {
+    AVSessionManager.updateMetadata(song, PlayerManager.durationMs).catch((error: Error) => {
+      Logger.warn(`refreshSessionMetadata failed: ${error.message}`);
+    });
+  }
+
   static getStatus(): PlaybackStatus {
     return PlayerManager.status;
   }

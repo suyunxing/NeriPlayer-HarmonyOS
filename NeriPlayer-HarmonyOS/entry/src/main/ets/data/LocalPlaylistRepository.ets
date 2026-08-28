@@ -80,12 +80,15 @@ export class LocalPlaylistRepository {
     await AppPreferences.putString(LocalPlaylistRepository.DELETED_KEY, JSON.stringify(tombstones));
   }
 
-  private static async saveAll(playlists: Playlist[], changedId: string = ''): Promise<void> {
+  private static async saveAll(playlists: Playlist[], changedIds: string[] = []): Promise<void> {
     const json = JSON.stringify(playlists.map((item: Playlist) => Playlist.fromJson(item.toJson())));
     await SchemaStore.save(LocalPlaylistRepository.KEY, json, (value: string) => value);
-    if (changedId.length > 0) {
-      const ids = await LocalPlaylistRepository.getSyncPendingIds();
-      await AppPreferences.putString(SyncPendingState.KEY, SyncPendingState.toJson(SyncPendingState.markPending(ids, changedId)));
+    if (changedIds.length > 0) {
+      let ids = await LocalPlaylistRepository.getSyncPendingIds();
+      for (const changedId of changedIds) {
+        ids = SyncPendingState.markPending(ids, changedId);
+      }
+      await AppPreferences.putString(SyncPendingState.KEY, SyncPendingState.toJson(ids));
     }
   }
 
@@ -103,7 +106,7 @@ export class LocalPlaylistRepository {
     }
     const favorites = new Playlist(LocalPlaylistRepository.FAVORITES_ID, 'Favorites', MusicPlatform.LOCAL);
     playlists.unshift(favorites);
-    await LocalPlaylistRepository.saveAll(playlists, LocalPlaylistRepository.FAVORITES_ID);
+    await LocalPlaylistRepository.saveAll(playlists, [LocalPlaylistRepository.FAVORITES_ID]);
     return favorites;
   }
 
@@ -111,7 +114,7 @@ export class LocalPlaylistRepository {
     const playlists = await LocalPlaylistRepository.loadAll();
     const playlist = new Playlist(`local_${Date.now()}`, name, MusicPlatform.LOCAL);
     playlists.unshift(playlist);
-    await LocalPlaylistRepository.saveAll(playlists, playlist.id);
+    await LocalPlaylistRepository.saveAll(playlists, [playlist.id]);
     return playlist;
   }
 
@@ -131,7 +134,7 @@ export class LocalPlaylistRepository {
     playlist.songKeys = merge.keys;
     playlist.songs = merge.songs;
     playlists.unshift(playlist);
-    await LocalPlaylistRepository.saveAll(playlists, playlist.id);
+    await LocalPlaylistRepository.saveAll(playlists, [playlist.id]);
     return playlist;
   }
 
@@ -148,7 +151,7 @@ export class LocalPlaylistRepository {
     playlist.songKeys = merge.keys;
     playlist.songs = merge.songs;
     playlist.updatedAt = Date.now();
-    await LocalPlaylistRepository.saveAll(playlists, playlistId);
+    await LocalPlaylistRepository.saveAll(playlists, [playlistId]);
     return merge.addedCount;
   }
 
@@ -167,7 +170,7 @@ export class LocalPlaylistRepository {
     playlist.songKeys.unshift(stableKeyOf(stamped));
     playlist.songs.unshift(stamped);
     playlist.updatedAt = Date.now();
-    await LocalPlaylistRepository.saveAll(playlists, playlistId);
+    await LocalPlaylistRepository.saveAll(playlists, [playlistId]);
     const syncSong = syncSongFromSongItem(stamped);
     if (syncSong !== null) {
       await SyncDeletionStore.clearPlaylistSongDeletion(
@@ -190,7 +193,7 @@ export class LocalPlaylistRepository {
     playlist.songKeys.splice(index, 1);
     playlist.songs.splice(index, 1);
     playlist.updatedAt = Date.now();
-    await LocalPlaylistRepository.saveAll(playlists, playlistId);
+    await LocalPlaylistRepository.saveAll(playlists, [playlistId]);
     const syncSong = syncSongFromSongItem(removedSong);
     if (syncSong !== null) {
       const deviceId = await SyncDeletionStore.getOrCreateDeviceId(
@@ -229,7 +232,7 @@ export class LocalPlaylistRepository {
     }
     playlist.name = name;
     playlist.updatedAt = Date.now();
-    await LocalPlaylistRepository.saveAll(playlists, playlistId);
+    await LocalPlaylistRepository.saveAll(playlists, [playlistId]);
   }
 
   static async removePlaylist(playlistId: string): Promise<void> {
@@ -240,12 +243,50 @@ export class LocalPlaylistRepository {
     const playlists = await LocalPlaylistRepository.loadAll();
     const filtered = playlists.filter((item: Playlist): boolean =>
       playlistIdToSync(item.id) !== targetKey);
-    await LocalPlaylistRepository.saveAll(filtered, playlistId);
+    await LocalPlaylistRepository.saveAll(filtered, [playlistId]);
     const tombstones = await LocalPlaylistRepository.getDeletedTombstones();
     const next = tombstones.filter((item: LocalPlaylistTombstone): boolean =>
       playlistIdToSync(item.id) !== targetKey);
     next.push(new LocalPlaylistTombstone(playlistId, Date.now()));
     await LocalPlaylistRepository.replaceDeletedTombstones(next);
+  }
+
+  /**
+   * Applies user-edited metadata (customName/customArtist/customCoverUrl) to
+   * every stored copy of the song, matched by stable key across all playlists
+   * (favorites included). Membership bookkeeping (addedAt, causal tokens)
+   * stays on the stored copy. Returns how many playlist entries were touched.
+   */
+  static async updateSongMetadata(song: SongItem): Promise<number> {
+    const key = stableKeyOf(song);
+    const playlists = await LocalPlaylistRepository.loadAll();
+    const changedIds: string[] = [];
+    let replaced = 0;
+    for (const playlist of playlists) {
+      let changed = false;
+      for (let i = 0; i < playlist.songs.length; i++) {
+        if (playlist.songKeys[i] !== key) {
+          continue;
+        }
+        const stored = playlist.songs[i];
+        if (stored.customName !== song.customName || stored.customArtist !== song.customArtist
+          || stored.customCoverUrl !== song.customCoverUrl) {
+          stored.customName = song.customName;
+          stored.customArtist = song.customArtist;
+          stored.customCoverUrl = song.customCoverUrl;
+          changed = true;
+        }
+        replaced++;
+      }
+      if (changed) {
+        playlist.updatedAt = Date.now();
+        changedIds.push(playlist.id);
+      }
+    }
+    if (changedIds.length > 0) {
+      await LocalPlaylistRepository.saveAll(playlists, changedIds);
+    }
+    return replaced;
   }
 
   private static latestAddedAt(playlist: Playlist): number {

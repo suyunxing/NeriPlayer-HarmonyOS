@@ -64,6 +64,9 @@ import diagnosticsTest from './ets/test/Diagnostics.test';
 import routeStackTest from './ets/test/RouteStack.test';
 import breakpointTest from './ets/test/Breakpoint.test';
 import playbackSpeedMapTest from './ets/test/PlaybackSpeedMap.test';
+import lyricScrollMathTest from './ets/test/LyricScrollMath.test';
+import shareLinksTest from './ets/test/ShareLinks.test';
+import albumSongsTest from './ets/test/AlbumSongs.test';
 
 export default function testsuite(): void {
   lrcParserTest();
@@ -132,4 +135,7 @@ export default function testsuite(): void {
   routeStackTest();
   breakpointTest();
   playbackSpeedMapTest();
+  lyricScrollMathTest();
+  shareLinksTest();
+  albumSongsTest();
 }
