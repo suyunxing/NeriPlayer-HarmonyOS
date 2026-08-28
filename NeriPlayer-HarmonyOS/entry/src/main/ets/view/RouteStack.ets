@@ -100,3 +100,32 @@ export function pushRoute(entries: RouteEntry[], name: string, param: string): R
 export function popRoute(entries: RouteEntry[]): RouteEntry[] {
   return entries.length === 0 ? [] : entries.slice(0, entries.length - 1);
 }
+
+/**
+ * Direction of the last route change, consumed by the route transition to
+ * pick push (slide up from the bottom edge) vs pop (slide back down) motion.
+ */
+export type RouteDirection = 'push' | 'pop' | 'none';
+
+/**
+ * Classifies a stack transition by comparing the stacks before and after:
+ * shallower (including a drop to the root) = pop, deeper = push. At equal
+ * depth only a *different* top route remounts (a same-route re-push replaces
+ * the top in place, and the depth cap swaps the top at constant depth while
+ * still bringing new content) — that reads as push; identical tops are none.
+ * Pure so the classification is unit-testable.
+ */
+export function directionForRouteChange(previous: RouteEntry[], next: RouteEntry[]): RouteDirection {
+  if (next.length < previous.length) {
+    return 'pop';
+  }
+  if (next.length > previous.length) {
+    return 'push';
+  }
+  const previousTop = routeTop(previous);
+  const nextTop = routeTop(next);
+  if (previousTop === null || nextTop === null) {
+    return 'none';
+  }
+  return previousTop.name === nextTop.name ? 'none' : 'push';
+}

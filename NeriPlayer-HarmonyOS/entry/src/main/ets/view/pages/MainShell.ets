@@ -37,6 +37,10 @@ export struct MainShell {
   // effects fire on initial mount too, while Android's AnimatedVisibility
   // only animates on state change (NeriApp.kt:3641-3656).
   @State miniplayerTransitionArmed: boolean = false;
+  // Same arming for route transitions: a cold start that lands directly on a
+  // route (e.g. the AVSession card launch) must not animate its first mount
+  // — Android's AnimatedVisibility/AnimatedContent only animate on change.
+  @State routeTransitionArmed: boolean = false;
 
   // Slide distance for the mini player appear/disappear: half the ~70vp
   // player, matching Android's slideInVertically { it / 2 }.
@@ -49,7 +53,50 @@ export struct MainShell {
     }
     setTimeout(() => {
       this.miniplayerTransitionArmed = true;
+      this.routeTransitionArmed = true;
     }, 0);
+  }
+
+  private routeDirection(): string {
+    const value = AppStorage.get<string>(Router.KEY_DIRECTION);
+    return value === 'push' || value === 'pop' ? value : 'none';
+  }
+
+  /**
+   * Route pages move as a vertical deck (the NeriApp.kt:462-653 metaphor):
+   * a push slides the new page up from the bottom edge, a pop slides the
+   * returned-to page down from the top edge. Timings port
+   * NeriApp.kt:304-305 (220ms open / 240ms close, FastOutSlowIn); the
+   * NowPlaying layer keeps its own 300/250ms plus a 150ms fade
+   * (NeriApp.kt:3679-3689). 'y: 100%' resolves against the page's own
+   * height, so the slide is full-screen without vp constants.
+   *
+   * The disappearing side always fades rather than sliding: ArkUI reads a
+   * removed branch's transition attribute from its last render (the branch
+   * is not re-evaluated before removal), so a direction-aware disappear
+   * would act on a stale direction. A fade reads correctly under either
+   * stacking order of the entering/exiting nodes.
+   */
+  private routeTransition(isNowPlaying: boolean): TransitionEffect {
+    if (!this.routeTransitionArmed) {
+      return TransitionEffect.IDENTITY;
+    }
+    const popping = this.routeDirection() === 'pop';
+    const curve = MotionCurves.fastOutSlowIn();
+    const enterFrom: string = popping ? '-100%' : '100%';
+    const slideMs = isNowPlaying
+      ? (popping ? MotionSpec.NOWPLAYING_EXIT_SLIDE_MS : MotionSpec.NOWPLAYING_ENTER_SLIDE_MS)
+      : (popping ? MotionSpec.DETAIL_CLOSE_MS : MotionSpec.DETAIL_OPEN_MS);
+    const exitFadeMs = isNowPlaying ? MotionSpec.NOWPLAYING_EXIT_SLIDE_MS : MotionSpec.DETAIL_CLOSE_MS;
+    let appear: TransitionEffect = TransitionEffect.translate({ y: enterFrom })
+      .animation({ duration: slideMs, curve: curve });
+    if (isNowPlaying) {
+      appear = appear.combine(TransitionEffect.opacity(0)
+        .animation({ duration: MotionSpec.NOWPLAYING_FADE_MS, curve: curve }));
+    }
+    const disappear: TransitionEffect = TransitionEffect.opacity(0)
+      .animation({ duration: exitFadeMs, curve: curve });
+    return TransitionEffect.asymmetric(appear, disappear);
   }
 
   private miniplayerTransition(): TransitionEffect {
@@ -89,73 +136,133 @@ export struct MainShell {
   }
 
   build() {
-    if (this.routeName === Router.NOW_PLAYING) {
-      NowPlayingPage()
-    } else if (this.routeName === Router.PLAYLIST_DETAIL) {
-      PlaylistDetailPage()
-    } else if (this.routeName === Router.NETEASE_PLAYLIST) {
-      NeteasePlaylistPage()
-    } else if (this.routeName === Router.BILI_FAV) {
-      BiliFavPage()
-    } else if (this.routeName === Router.RECENT) {
-      RecentPage()
-    } else if (this.routeName === Router.STATS) {
-      StatsPage()
-    } else if (this.routeName === Router.SETTINGS_DETAIL) {
-      SettingsDetailPage()
-    } else if (this.routeName === Router.DEBUG) {
-      DebugPage()
-    } else if (this.routeName === Router.DOWNLOADS) {
-      DownloadsPage()
-    } else if (this.routeName === Router.LISTEN_TOGETHER) {
-      ListenTogetherPage()
-    } else {
-      Stack({ alignContent: Alignment.Top }) {
+    // Themed backdrop for the route transitions: while a page slides in
+    // from an edge, the uncovered strip shows this background instead of an
+    // unthemed flash. Wrapper Columns carry the transitions because custom
+    // components cannot chain .transition directly.
+    Stack() {
+      if (this.routeName === Router.NOW_PLAYING) {
         Column() {
-          if (this.currentSongJson.length > 0) {
-            // Wrapper Column: custom components cannot carry .transition
-            // directly.
-            Column() {
-              MiniPlayer()
-            }
-            .transition(this.miniplayerTransition())
-          }
-          Stack() {
-            if (this.currentTab === 0) {
-              HomePage()
-            } else if (this.currentTab === 1) {
-              ExplorePage()
-            } else if (this.currentTab === 2) {
-              LibraryPage()
-            } else {
-              SettingsPage()
-            }
-          }
-          .layoutWeight(1)
-          .width('100%')
-
-          Row() {
-            this.tabItem(0, '首页', $r('app.media.ic_tab_home_24'))
-            this.tabItem(1, '探索', $r('app.media.ic_tab_search_24'))
-            this.tabItem(2, '资料库', $r('app.media.ic_tab_library_24'))
-            this.tabItem(3, '设置', $r('app.media.ic_tab_settings_24'))
-          }
-          .width('100%')
-          .height(88)
-          .padding({ top: 6, bottom: 32 })
-          .backgroundColor(Theme.surface(this.isDark))
+          NowPlayingPage()
         }
         .width('100%')
         .height('100%')
-        .backgroundColor(Theme.background(this.isDark))
+        .transition(this.routeTransition(true))
+      } else if (this.routeName === Router.PLAYLIST_DETAIL) {
+        Column() {
+          PlaylistDetailPage()
+        }
+        .width('100%')
+        .height('100%')
+        .transition(this.routeTransition(false))
+      } else if (this.routeName === Router.NETEASE_PLAYLIST) {
+        Column() {
+          NeteasePlaylistPage()
+        }
+        .width('100%')
+        .height('100%')
+        .transition(this.routeTransition(false))
+      } else if (this.routeName === Router.BILI_FAV) {
+        Column() {
+          BiliFavPage()
+        }
+        .width('100%')
+        .height('100%')
+        .transition(this.routeTransition(false))
+      } else if (this.routeName === Router.RECENT) {
+        Column() {
+          RecentPage()
+        }
+        .width('100%')
+        .height('100%')
+        .transition(this.routeTransition(false))
+      } else if (this.routeName === Router.STATS) {
+        Column() {
+          StatsPage()
+        }
+        .width('100%')
+        .height('100%')
+        .transition(this.routeTransition(false))
+      } else if (this.routeName === Router.SETTINGS_DETAIL) {
+        Column() {
+          SettingsDetailPage()
+        }
+        .width('100%')
+        .height('100%')
+        .transition(this.routeTransition(false))
+      } else if (this.routeName === Router.DEBUG) {
+        Column() {
+          DebugPage()
+        }
+        .width('100%')
+        .height('100%')
+        .transition(this.routeTransition(false))
+      } else if (this.routeName === Router.DOWNLOADS) {
+        Column() {
+          DownloadsPage()
+        }
+        .width('100%')
+        .height('100%')
+        .transition(this.routeTransition(false))
+      } else if (this.routeName === Router.LISTEN_TOGETHER) {
+        Column() {
+          ListenTogetherPage()
+        }
+        .width('100%')
+        .height('100%')
+        .transition(this.routeTransition(false))
+      } else {
+        Stack({ alignContent: Alignment.Top }) {
+          Column() {
+            if (this.currentSongJson.length > 0) {
+              // Wrapper Column: custom components cannot carry .transition
+              // directly.
+              Column() {
+                MiniPlayer()
+              }
+              .transition(this.miniplayerTransition())
+            }
+            Stack() {
+              if (this.currentTab === 0) {
+                HomePage()
+              } else if (this.currentTab === 1) {
+                ExplorePage()
+              } else if (this.currentTab === 2) {
+                LibraryPage()
+              } else {
+                SettingsPage()
+              }
+            }
+            .layoutWeight(1)
+            .width('100%')
 
-        // In-app floating lyric overlay (D4 fallback), floats above content.
-        FloatingLyricBar()
-          .margin({ top: 46 })
+            Row() {
+              this.tabItem(0, '首页', $r('app.media.ic_tab_home_24'))
+              this.tabItem(1, '探索', $r('app.media.ic_tab_search_24'))
+              this.tabItem(2, '资料库', $r('app.media.ic_tab_library_24'))
+              this.tabItem(3, '设置', $r('app.media.ic_tab_settings_24'))
+            }
+            .width('100%')
+            .height(88)
+            .padding({ top: 6, bottom: 32 })
+            .backgroundColor(Theme.surface(this.isDark))
+          }
+          .width('100%')
+          .height('100%')
+          .backgroundColor(Theme.background(this.isDark))
+
+          // In-app floating lyric overlay (D4 fallback), floats above content.
+          FloatingLyricBar()
+            .margin({ top: 46 })
+        }
+        .width('100%')
+        .height('100%')
+        .transition(this.routeTransition(false))
       }
-      .width('100%')
-      .height('100%')
     }
+    .width('100%')
+    .height('100%')
+    .backgroundColor(Theme.background(this.isDark))
   }
 
   private selectTab(index: number): void {
