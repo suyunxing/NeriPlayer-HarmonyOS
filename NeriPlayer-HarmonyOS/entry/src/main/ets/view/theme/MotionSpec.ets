@@ -60,6 +60,13 @@ export class MotionSpec {
   static readonly LYRIC_ALPHA_FAR_PLAIN: number = 0.35;
   static readonly LYRIC_ALPHA_FALLOFF_PER_STEP: number = 0.08;
   static readonly LYRIC_ALPHA_MIN: number = 0.16;
+  /**
+   * Base blur amount the distance multipliers scale (Android lyricBlurAmount
+   * settings default, AutoSettingsSchema.kt:813-822; the composable's own
+   * 10f default is never reached because SettingsMotionSection always feeds
+   * the persisted value).
+   */
+  static readonly LYRIC_BLUR_BASE_VP: number = 1.5;
 
   /**
    * Row scale by distance from the active row, a 1:1 port of

@@ -156,6 +156,10 @@
 
 ### M11.6b 播放页↔歌词页转场（签名级动画）
 
+> **状态：已实施（2026-08-28）。构建+单测已过；观感未上设备。**
+> 实施补充：ArkUI transition 在首次挂载也会播放，而 Android AnimatedContent 只在状态变化时动画——
+> 故加 `contentTransitionArmed` 首帧布防（进播放页不闪淡入，点「歌词」按钮才播）。
+
 **目标**：`NowPlayingPage` 的 `if (this.showLyrics)` 分支切换获得 300ms 线性 fade（对齐 Android
 `NowPlayingScreen.kt:1756-1771`）。
 
@@ -171,6 +175,14 @@
 **验收**：构建 + 单测基线；转场帧表现待设备验证（若 M11.6a 探针确认 fade 类 transition 可用，此处风险同步消除——两者同为属性动画管线，可共用一条设备验证结论）。
 
 ### M11.6c 歌词行动画（构建于 M11.2 的 LyricView 之上）
+
+> **状态：已实施（2026-08-28，除第 4 条边缘渐隐）。构建+单测已过；观感/性能未上设备。**
+> 实施补充：①ArkUI ForEach item builder 体内只允许 UI 组件语法（局部 const 编译报
+> `Only UI component syntax can be written here`），距离计算内联进属性表达式；MotionSpec 距离函数
+> 为纯参数函数，`this.activeIndex` 读取在表达式实参处，依赖追踪可见（与 M7.4 盲区不冲突）。
+> ②**边缘渐隐（第 4 条）延后**：ArkUI 无渐变 mask，需 `linearGradient` 多停靠点 + `blendMode(DST_IN)`
+> 离屏合成，无设备验证盲改的失败形态是整块渐变色盖住歌词，登记待签名恢复后设备调参。
+> ③模糊映射落地为 `min(4, 1.5 × 倍率)`（保留 M11.2 的 4vp 性能顶棚）。
 
 **目标**：歌词行随活跃行迁移产生缩放/透明度过渡，视口边缘渐隐，模糊映射对齐 Android。
 
@@ -225,10 +237,16 @@ M9.3 的 `keyEvent Back` 逐页退出法）。
 
 ### M11.6e 组件级动画收尾（MiniPlayer 优先，WaveformSlider 与 M11.3 合并执行）
 
+> **状态：MiniPlayer 两项已实施（2026-08-28，构建+单测已过，手感未上设备）；WaveformSlider 三项仍归 M11.3。**
+> 实施补充：①显隐同样带首帧布防——冷启动恢复歌曲时不播入场动画（Android AnimatedVisibility
+> 初始为 true 不动画，ArkUI transition 首次挂载会播）。②两段式切歌时序为「两段动画全部完成后」
+> （对齐 `NeriMiniPlayer.kt:115-128` 的 coroutine 末尾 onComplete，本计划原文「第一段后」有误已更正）；
+> `releaseGeneration` 代际守卫防中断动画的 onFinish 串扰。③原文「未达阈值取消回弹 160ms」保持。
+
 1. **MiniPlayer 显隐**：`MainShell.ets:85-87` 的 `if` 分支挂 `.transition`——enter 滑入 220ms +
    fade 180ms，exit 滑出 180ms + fade 120ms（对齐 `NeriApp.kt:3641-3656`）。
 2. **MiniPlayer 滑动释放两段式对齐**：现状是达阈值立即切歌 + 单段 180ms 回弹；改为 Android 语义——
-   达阈值后先 120ms 冲向 ±52vp，动画结束回调切歌，再 180ms 回 0；未达阈值取消回弹 160ms
+   达阈值后先 120ms 冲向 ±52vp，再 180ms 回 0，**两段动画全部完成后**切歌；未达阈值取消回弹 160ms
    （`NeriMiniPlayer.kt:115-128,151-159`）。`animateTo` 的 `onFinish` 回调即可编排，无需 keyframe。
 3. **WaveformSlider**：振幅播放/暂停 500ms 线性渐变 + `displaySync` 替代 50ms `setInterval` +
    播放态门控。门控项已在 M11.3 看板登记，为避免双登记，**建议把 WaveformSlider 三项整体挪入 M11.3

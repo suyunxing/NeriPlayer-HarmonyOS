@@ -1,6 +1,8 @@
 import { LyricLine, LyricWord } from '../../model/LyricLine';
 import { LyricIndexResolver } from '../../lyrics/LyricIndexResolver';
 import { Theme } from '../Theme';
+import { MotionSpec } from '../theme/MotionSpec';
+import { MotionCurves } from '../theme/MotionCurves';
 
 const LYRIC_OFFSET_STORAGE_KEY = 'np.lyric_offset_ms';
 const LYRIC_TRANSLATION_STORAGE_KEY = 'np.lyric_translation';
@@ -16,7 +18,7 @@ const LYRIC_BLUR_STORAGE_KEY = 'np.lyric_blur';
 const ACTIVE_LINE_VIEWPORT_FRACTION: number = 0.30;
 /** Auto-scroll steps aside for this long after the user last touched the list. */
 const USER_SCROLL_GRACE_MS: number = 2500;
-/** Ceiling for the distance-based blur of inactive lines, in vp. */
+/** Ceiling for the distance-based blur of inactive lines, in vp (M11.2 perf ceiling, kept on top of the Android multiplier curve). */
 const MAX_INACTIVE_BLUR_VP: number = 4;
 const SCROLL_ANIMATION_MS: number = 420;
 /** lineTops entry meaning "not measured yet". */
@@ -81,7 +83,14 @@ export struct LyricView {
     if (next === this.activeIndex) {
       return;
     }
-    this.activeIndex = next;
+    // The spring carries every per-row attribute derived from activeIndex
+    // (fontSize/fontColor/scale/opacity/blur) as one motion — the counterpart
+    // of SyncedLyricsView.kt's animateFloatWhenEnabled spring(ζ=0.85). The
+    // initial resolution in onLyricsChanged stays unanimated: animating a
+    // load-time -1 -> N jump would sweep every row through the transition.
+    animateTo({ curve: MotionCurves.lyricRowSpring() }, () => {
+      this.activeIndex = next;
+    });
     this.scrollToActive(next);
   }
 
@@ -194,6 +203,15 @@ export struct LyricView {
             .margin({ top: 40 })
         } else {
           ForEach(this.lyrics, (line: LyricLine, index: number) => {
+            // Builder bodies allow UI syntax only, so the distance math is
+            // inlined into the attribute expressions. The MotionSpec helpers
+            // are pure functions of their arguments — the tracked state reads
+            // (this.activeIndex / this.lyricBlur) happen in the expressions
+            // themselves, so they stay visible to minimal-update tracking
+            // (unlike a helper method that reads state internally, M7.4).
+            // scale/opacity/blur by distance port SyncedLyricsView's
+            // distance curves; values are Android-locked in MotionSpec and
+            // asserted by MotionSpec.test.ets.
             Column({ space: 4 }) {
               if (index === this.activeIndex && line.words.length > 0) {
                 this.activeWordLine(line)
@@ -223,11 +241,17 @@ export struct LyricView {
               }
             }
             .width('100%')
-            // lyricBlur/activeIndex are read here rather than in a blurFor()
-            // helper: a helper would be invisible to minimal-update tracking
-            // and the blur would never re-evaluate as the active line moves.
+            // Transform-only attributes: scale/opacity/blur do not affect
+            // layout, so the cached lineTops stay valid while they animate.
+            .scale({
+              x: MotionSpec.lyricScaleForDistance(index - this.activeIndex),
+              y: MotionSpec.lyricScaleForDistance(index - this.activeIndex)
+            })
+            .opacity(MotionSpec.lyricAlphaForDistance(index - this.activeIndex, this.lyricBlur))
             .blur(this.lyricBlur && this.activeIndex >= 0 && index !== this.activeIndex
-              ? Math.min(MAX_INACTIVE_BLUR_VP, Math.abs(index - this.activeIndex))
+              ? Math.min(MAX_INACTIVE_BLUR_VP,
+                MotionSpec.LYRIC_BLUR_BASE_VP
+                  * MotionSpec.lyricBlurMultiplierForDistance(Math.abs(index - this.activeIndex)))
               : 0)
             .onAreaChange((_oldArea: Area, newArea: Area) => {
               this.recordLineTop(index, newArea);
