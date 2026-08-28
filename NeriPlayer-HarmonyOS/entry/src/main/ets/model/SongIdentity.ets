@@ -36,7 +36,7 @@ export function hashStableId(seed: string): number {
   return hash >>> 0;
 }
 
-function extractYouTubeMusicVideoId(mediaUri: string): string {
+export function extractYouTubeMusicVideoId(mediaUri: string): string {
   if (mediaUri.startsWith(Constants.YOUTUBE_MUSIC_MEDIA_PREFIX)) {
     const videoId = mediaUri.substring(Constants.YOUTUBE_MUSIC_MEDIA_PREFIX.length);
     return videoId.length > 0 ? videoId : '';

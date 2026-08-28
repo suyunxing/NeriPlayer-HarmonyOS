@@ -30,7 +30,7 @@ import {
 } from '../components/QrLoginPanel';
 import { Theme } from '../Theme';
 import { BAND_LIST_VP } from '../../util/Breakpoint';
-import { SettingRow } from '../components/Ui';
+import { OptionEntry, OptionRow, SettingRow, ToggleRow } from '../components/Ui';
 import { SETTING_PLAYBACK, SETTING_DOWNLOAD, SETTING_LYRICS, SETTING_APPEARANCE,
   SETTING_TRAFFIC, SETTING_STORAGE, SETTING_ACCOUNTS, SETTING_SYNC, SETTING_DEBUG,
   SETTING_ABOUT } from './SettingsPage';
@@ -93,6 +93,7 @@ export struct SettingsDetailPage {
   @StorageProp('np.always_record_logs') alwaysRecordLogs: boolean = false;
   @StorageLink('np.netease_logged') neteaseLogged: boolean = false;
   @StorageLink('np.bilibili_logged') biliLogged: boolean = false;
+  @StorageLink('player.shuffle') shuffle: boolean = false;
 
   @StorageProp('np.github_owner') githubOwner: string = '';
   @StorageProp('np.github_repo') githubRepo: string = '';
@@ -678,9 +679,77 @@ export struct SettingsDetailPage {
     PlayerManager.setSpeed(value);
   }
 
-  private adjustLyricOffset(deltaMs: number): void {
-    const next = this.lyricOffsetMs + deltaMs;
-    SettingsRepository.setNumber(SettingsRepository.KEY_LYRIC_OFFSET_MS, next);
+  // ---- OptionRow option sets (UX rule: non-binary choices get a menu) ----
+
+  private speedOptions(): OptionEntry[] {
+    const options: OptionEntry[] = [];
+    for (const speedValue of SPEEDS) {
+      options.push({ value: `${speedValue}`, label: speedValue === 1.0 ? '1.0x' : `${speedValue}x` });
+    }
+    return options;
+  }
+
+  private qualityOptions(): OptionEntry[] {
+    const options: OptionEntry[] = [];
+    for (const qualityValue of QUALITIES) {
+      options.push({ value: qualityValue, label: qualityLabel(qualityValue) });
+    }
+    return options;
+  }
+
+  private concurrencyOptions(): OptionEntry[] {
+    const options: OptionEntry[] = [];
+    for (const concurrency of [1, 2, 4, 6, 8]) {
+      options.push({ value: `${concurrency}`, label: `${concurrency} 个并发` });
+    }
+    return options;
+  }
+
+  private fontSizeOptions(): OptionEntry[] {
+    const options: OptionEntry[] = [];
+    for (let size = 14; size <= 24; size += 2) {
+      options.push({ value: `${size}`, label: `${size} sp` });
+    }
+    return options;
+  }
+
+  private lyricOffsetOptions(): OptionEntry[] {
+    const options: OptionEntry[] = [
+      { value: '0', label: '无偏移' },
+      { value: '250', label: '提前 0.25s' },
+      { value: '500', label: '提前 0.5s' },
+      { value: '1000', label: '提前 1s' },
+      { value: '-250', label: '延后 0.25s' },
+      { value: '-500', label: '延后 0.5s' },
+      { value: '-1000', label: '延后 1s' }
+    ];
+    return options;
+  }
+
+  private lyricOffsetSubtitle(): string {
+    if (this.lyricOffsetMs === 0) {
+      return '无偏移';
+    }
+    return this.lyricOffsetMs > 0 ? `提前 ${this.lyricOffsetMs} ms` : `延后 ${-this.lyricOffsetMs} ms`;
+  }
+
+  private blurStrengthOptions(): OptionEntry[] {
+    const options: OptionEntry[] = [
+      { value: '0', label: '关闭' },
+      { value: '100', label: '较弱' },
+      { value: '300', label: '适中' },
+      { value: '500', label: '较强' }
+    ];
+    return options;
+  }
+
+  private coverPolicyOptions(): OptionEntry[] {
+    const options: OptionEntry[] = [
+      { value: 'always', label: '始终加载' },
+      { value: 'wifi', label: '仅 Wi-Fi' },
+      { value: 'off', label: '不加载' }
+    ];
+    return options;
   }
 
   @Builder
@@ -721,88 +790,45 @@ export struct SettingsDetailPage {
       Scroll() {
         Column({ space: 1 }) {
           if (this.section === SETTING_PLAYBACK) {
-            Text('播放速度')
-              .fontSize(13)
-              .fontColor(Theme.textSecondary(Theme.isDark()))
-              .width('100%')
-              .margin({ left: 6, top: 10, bottom: 6 })
-            Row({ space: 8 }) {
-              ForEach(SPEEDS, (speedValue: number) => {
-                Button(speedValue === 1.0 ? '1.0x' : `${speedValue}x`)
-                  .height(40)
-                  .fontSize(13)
-                  .layoutWeight(1)
-                  // Button's default horizontal padding (~16vp each side)
-                  // is wider than a layoutWeight(1) sixth of the row, which
-                  // ellipsized every label except "2x" to "...".
-                  .padding({ left: 4, right: 4 })
-                  .fontColor(this.speed === speedValue ? Theme.onPrimary(Theme.isDark()) : Theme.textSecondary(Theme.isDark()))
-                  .backgroundColor(this.speed === speedValue ? Theme.primary(Theme.isDark()) : Theme.surface(Theme.isDark()))
-                  .borderRadius(17)
-                  .onClick(() => this.setSpeed(speedValue))
-              }, (speedValue: number) => `${speedValue}`)
-            }
-            .width('100%')
-            .padding(10)
-            .backgroundColor(Theme.surface(Theme.isDark()))
-            .borderRadius(Theme.cardRadius())
+            OptionRow({
+              title: '播放速度',
+              icon: '▶',
+              options: this.speedOptions(),
+              current: `${this.speed}`,
+              onPick: (value: string) => this.setSpeed(Number(value))
+            })
 
-            Text('默认音质')
-              .fontSize(13)
-              .fontColor(Theme.textSecondary(Theme.isDark()))
-              .width('100%')
-              .margin({ left: 6, top: 14, bottom: 6 })
-            Column({ space: 1 }) {
-              ForEach(QUALITIES, (qualityValue: string) => {
-                SettingRow({
-                  title: qualityLabel(qualityValue),
-                  subtitle: this.quality === qualityValue ? '当前选择' : '',
-                  showArrow: false,
-                  onTap: () => SettingsRepository.setString(SettingsRepository.KEY_AUDIO_QUALITY, qualityValue)
-                })
-              }, (qualityValue: string) => qualityValue)
-            }
-            .width('100%')
-            .backgroundColor(Theme.surface(Theme.isDark()))
-            .borderRadius(Theme.cardRadius())
-            .clip(true)
+            OptionRow({
+              title: '默认音质',
+              icon: '🎵',
+              options: this.qualityOptions(),
+              current: this.quality,
+              onPick: (value: string) => SettingsRepository.setString(SettingsRepository.KEY_AUDIO_QUALITY, value)
+            })
 
-            SettingRow({
+            ToggleRow({
               title: '随机播放',
               subtitle: '在播放页切换，此处仅显示状态',
               icon: '🔀',
-              showArrow: false,
-              onTap: () => PlayerManager.setShuffle(!AppStorage.get<boolean>('player.shuffle'))
+              value: this.shuffle,
+              onChange: (on: boolean) => PlayerManager.setShuffle(on)
             })
           } else if (this.section === SETTING_DOWNLOAD) {
-            Text('下载并发数')
-              .fontSize(13)
-              .fontColor(Theme.textSecondary(Theme.isDark()))
-              .width('100%')
-              .margin({ left: 6, top: 10, bottom: 6 })
-            Row({ space: 8 }) {
-              ForEach([1, 2, 4, 6, 8], (concurrency: number) => {
-                Button(`${concurrency}`)
-                  .height(40)
-                  .fontSize(13)
-                  .layoutWeight(1)
-                  .fontColor(this.downloadConcurrency === concurrency ? Theme.onPrimary(Theme.isDark()) : Theme.textSecondary(Theme.isDark()))
-                  .backgroundColor(this.downloadConcurrency === concurrency ? Theme.primary(Theme.isDark()) : Theme.surface(Theme.isDark()))
-                  .borderRadius(17)
-                  .onClick(() => SettingsRepository.setNumber(SettingsRepository.KEY_DOWNLOAD_CONCURRENCY, concurrency))
-              }, (concurrency: number) => `${concurrency}`)
-            }
-            .width('100%')
-            .padding(10)
-            .backgroundColor(Theme.surface(Theme.isDark()))
-            .borderRadius(Theme.cardRadius())
+            OptionRow({
+              title: '下载并发数',
+              icon: '⤓',
+              options: this.concurrencyOptions(),
+              current: `${this.downloadConcurrency}`,
+              onPick: (value: string) =>
+                SettingsRepository.setNumber(SettingsRepository.KEY_DOWNLOAD_CONCURRENCY, Number(value))
+            })
 
-            SettingRow({
+            ToggleRow({
               title: '下载完成后匹配歌词',
-              subtitle: this.downloadMatchLyrics ? '已开启' : '已关闭',
               icon: '♪',
-              showArrow: false,
-              onTap: () => SettingsRepository.setBoolean(SettingsRepository.KEY_DOWNLOAD_MATCH_LYRICS, !this.downloadMatchLyrics)
+              value: this.downloadMatchLyrics,
+              onChange: (on: boolean) =>
+                SettingsRepository.setBoolean(SettingsRepository.KEY_DOWNLOAD_MATCH_LYRICS, on)
             })
             SettingRow({
               title: '下载目录',
@@ -811,141 +837,107 @@ export struct SettingsDetailPage {
               onTap: () => promptAction.openToast({ message: '目录选择待移植' })
             })
           } else if (this.section === SETTING_LYRICS) {
-            SettingRow({
+            OptionRow({
               title: '歌词字号',
-              subtitle: `${this.lyricFontSize} sp`,
               icon: '🔠',
-              onTap: () => {
-                const next = this.lyricFontSize >= 24 ? 14 : this.lyricFontSize + 2;
-                SettingsRepository.setNumber(SettingsRepository.KEY_LYRIC_FONT_SIZE, next);
-              }
+              options: this.fontSizeOptions(),
+              current: `${this.lyricFontSize}`,
+              onPick: (value: string) =>
+                SettingsRepository.setNumber(SettingsRepository.KEY_LYRIC_FONT_SIZE, Number(value))
             })
-            SettingRow({
+            OptionRow({
               title: '歌词偏移',
-              subtitle: this.lyricOffsetMs > 0 ? `提前 ${this.lyricOffsetMs} ms` :
-                (this.lyricOffsetMs < 0 ? `延后 ${-this.lyricOffsetMs} ms` : '无偏移'),
               icon: '⏱',
-              onTap: () => this.adjustLyricOffset(250)
+              subtitle: this.lyricOffsetSubtitle(),
+              options: this.lyricOffsetOptions(),
+              current: `${this.lyricOffsetMs}`,
+              onPick: (value: string) =>
+                SettingsRepository.setNumber(SettingsRepository.KEY_LYRIC_OFFSET_MS, Number(value))
             })
-            Row({ space: 10 }) {
-              Button('-250ms')
-                .layoutWeight(1)
-                .height(40)
-                .fontSize(13)
-                .backgroundColor(Theme.surface(Theme.isDark()))
-                .fontColor(Theme.textPrimary(Theme.isDark()))
-                .onClick(() => this.adjustLyricOffset(-250))
-              Button('+250ms')
-                .layoutWeight(1)
-                .height(40)
-                .fontSize(13)
-                .backgroundColor(Theme.surface(Theme.isDark()))
-                .fontColor(Theme.textPrimary(Theme.isDark()))
-                .onClick(() => this.adjustLyricOffset(250))
-              Button('重置')
-                .layoutWeight(1)
-                .height(40)
-                .fontSize(13)
-                .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
-                .fontColor(Theme.textPrimary(Theme.isDark()))
-                .onClick(() => SettingsRepository.setNumber(SettingsRepository.KEY_LYRIC_OFFSET_MS, 0))
-            }
-            .width('100%')
-            .padding(10)
-            .backgroundColor(Theme.surface(Theme.isDark()))
-            .borderRadius(Theme.cardRadius())
 
-            SettingRow({
+            ToggleRow({
               title: 'AMLL 逐字歌词',
-              subtitle: this.amllLyrics ? '已开启（优先逐字 TTML 词库）' : '已关闭',
+              subtitle: '优先逐字 TTML 词库',
               icon: '✍',
-              showArrow: false,
-              onTap: () => SettingsRepository.setBoolean(SettingsRepository.KEY_AMLL_LYRICS, !this.amllLyrics)
+              value: this.amllLyrics,
+              onChange: (on: boolean) => SettingsRepository.setBoolean(SettingsRepository.KEY_AMLL_LYRICS, on)
             })
-            SettingRow({
+            ToggleRow({
               title: '显示翻译',
-              subtitle: this.lyricTranslation ? '已开启' : '已关闭',
               icon: '🌐',
-              showArrow: false,
-              onTap: () => SettingsRepository.setBoolean(SettingsRepository.KEY_LYRIC_TRANSLATION, !this.lyricTranslation)
+              value: this.lyricTranslation,
+              onChange: (on: boolean) => SettingsRepository.setBoolean(SettingsRepository.KEY_LYRIC_TRANSLATION, on)
             })
-            SettingRow({
+            ToggleRow({
               title: '音译显示',
-              subtitle: this.lyricPhonetic ? '已开启' : '已关闭',
               icon: '🗣',
-              showArrow: false,
-              onTap: () => SettingsRepository.setBoolean(SettingsRepository.KEY_LYRIC_PHONETIC, !this.lyricPhonetic)
+              value: this.lyricPhonetic,
+              onChange: (on: boolean) => SettingsRepository.setBoolean(SettingsRepository.KEY_LYRIC_PHONETIC, on)
             })
-            SettingRow({
+            ToggleRow({
               title: '歌词模糊效果',
-              subtitle: this.lyricBlur ? '已开启' : '已关闭',
               icon: '🌫',
-              showArrow: false,
-              onTap: () => SettingsRepository.setBoolean(SettingsRepository.KEY_LYRIC_BLUR, !this.lyricBlur)
+              value: this.lyricBlur,
+              onChange: (on: boolean) => SettingsRepository.setBoolean(SettingsRepository.KEY_LYRIC_BLUR, on)
             })
-            SettingRow({
+            ToggleRow({
               title: '应用内悬浮歌词',
-              subtitle: this.floatingLyric ? '已开启（页面顶部悬浮一行，系统级悬浮不受支持）' : '已关闭',
+              subtitle: '页面顶部悬浮一行，系统级悬浮不受支持',
               icon: '👓',
-              showArrow: false,
-              onTap: () => SettingsRepository.setBoolean(SettingsRepository.KEY_FLOATING_LYRIC, !this.floatingLyric)
+              value: this.floatingLyric,
+              onChange: (on: boolean) => SettingsRepository.setBoolean(SettingsRepository.KEY_FLOATING_LYRIC, on)
             })
-            SettingRow({
+            ToggleRow({
               title: '通知栏/蓝牙歌词',
-              subtitle: this.btLyric ? '已开启（播放时通知栏与蓝牙设备显示当前歌词行）' : '已关闭',
+              subtitle: '播放时通知栏与蓝牙设备显示当前歌词行',
               icon: '📡',
-              showArrow: false,
-              onTap: () => SettingsRepository.setBoolean(SettingsRepository.KEY_BT_LYRIC, !this.btLyric)
+              value: this.btLyric,
+              onChange: (on: boolean) => SettingsRepository.setBoolean(SettingsRepository.KEY_BT_LYRIC, on)
             })
           } else if (this.section === SETTING_APPEARANCE) {
-            SettingRow({
+            OptionRow({
               title: '语言',
-              subtitle: '简体中文（更多语言待移植）',
               icon: '🌐',
-              onTap: () => promptAction.openToast({ message: '语言切换待移植' })
+              options: [{ value: 'zh', label: '简体中文' }],
+              current: 'zh',
+              onPick: (_value: string) => promptAction.openToast({ message: '更多语言待移植' })
             })
-            SettingRow({
+            ToggleRow({
               title: '毛玻璃面板',
-              subtitle: this.glassEffect ? '已开启（迷你播放条/播放列表面板）' : '已关闭',
+              subtitle: '迷你播放条/播放列表面板',
               icon: '✨',
-              showArrow: false,
-              onTap: () => SettingsRepository.setBoolean(SettingsRepository.KEY_GLASS_EFFECT, !this.glassEffect)
+              value: this.glassEffect,
+              onChange: (on: boolean) => SettingsRepository.setBoolean(SettingsRepository.KEY_GLASS_EFFECT, on)
             })
-            SettingRow({
+            OptionRow({
               title: '播放页背景模糊',
-              subtitle: this.nowplayingBlurStrength <= 0 ? '关闭' : `强度 ${this.nowplayingBlurStrength} / 500`,
               icon: '🌫',
-              onTap: () => {
-                const steps: number[] = [0, 100, 300, 500];
-                const index = steps.indexOf(this.nowplayingBlurStrength);
-                const next = steps[index < 0 || index === steps.length - 1 ? 0 : index + 1];
-                SettingsRepository.setNumber(SettingsRepository.KEY_NOWPLAYING_BLUR_STRENGTH, next);
-              }
+              options: this.blurStrengthOptions(),
+              current: `${this.nowplayingBlurStrength}`,
+              onPick: (value: string) =>
+                SettingsRepository.setNumber(SettingsRepository.KEY_NOWPLAYING_BLUR_STRENGTH, Number(value))
             })
           } else if (this.section === SETTING_TRAFFIC) {
-            SettingRow({
+            ToggleRow({
               title: '网易失效自动换源',
-              subtitle: this.neteaseAutoFallback ? '已开启：网易取流失败时自动匹配 B 站音源' : '已关闭',
+              subtitle: '网易取流失败时自动匹配 B 站音源',
               icon: '🔄',
-              showArrow: false,
-              onTap: () => SettingsRepository.setBoolean(SettingsRepository.KEY_NETEASE_AUTO_FALLBACK, !this.neteaseAutoFallback)
+              value: this.neteaseAutoFallback,
+              onChange: (on: boolean) =>
+                SettingsRepository.setBoolean(SettingsRepository.KEY_NETEASE_AUTO_FALLBACK, on)
             })
-            SettingRow({
+            ToggleRow({
               title: '省流量模式',
-              subtitle: this.saveTraffic ? '已开启' : '已关闭',
               icon: '📶',
-              showArrow: false,
-              onTap: () => SettingsRepository.setBoolean(SettingsRepository.KEY_SAVE_TRAFFIC, !this.saveTraffic)
+              value: this.saveTraffic,
+              onChange: (on: boolean) => SettingsRepository.setBoolean(SettingsRepository.KEY_SAVE_TRAFFIC, on)
             })
-            SettingRow({
+            OptionRow({
               title: '封面加载策略',
-              subtitle: this.coverPolicy === 'always' ? '始终加载' :
-                (this.coverPolicy === 'wifi' ? '仅 Wi-Fi' : '不加载'),
               icon: '🖼',
-              onTap: () => {
-                const next = this.coverPolicy === 'always' ? 'wifi' : (this.coverPolicy === 'wifi' ? 'off' : 'always');
-                SettingsRepository.setString(SettingsRepository.KEY_COVER_POLICY, next);
-              }
+              options: this.coverPolicyOptions(),
+              current: this.coverPolicy,
+              onPick: (value: string) => SettingsRepository.setString(SettingsRepository.KEY_COVER_POLICY, value)
             })
           } else if (this.section === SETTING_STORAGE) {
             SettingRow({
@@ -1083,14 +1075,13 @@ export struct SettingsDetailPage {
               .width('100%')
               .margin({ left: 6, top: 14, bottom: 6 })
             Column({ space: 1 }) {
-              SettingRow({
+              ToggleRow({
                 title: '省流格式',
-                subtitle: this.githubDataSaver ? '已开启（读取兼容全部格式；上传仍为 JSON）' :
-                  '已关闭（备份为 JSON 文本，读取兼容全部历史格式）',
+                subtitle: '读取兼容全部格式；上传仍为 JSON',
                 icon: '📉',
-                showArrow: false,
-                onTap: () => SettingsRepository.setBoolean(SettingsRepository.KEY_GITHUB_DATA_SAVER,
-                  !this.githubDataSaver)
+                value: this.githubDataSaver,
+                onChange: (on: boolean) =>
+                  SettingsRepository.setBoolean(SettingsRepository.KEY_GITHUB_DATA_SAVER, on)
               })
               SettingRow({
                 title: '清除 GitHub 配置',
@@ -1165,12 +1156,12 @@ export struct SettingsDetailPage {
               onTap: () => this.openListenTogetherServerDialog()
             })
           } else if (this.section === SETTING_DEBUG) {
-            SettingRow({
+            ToggleRow({
               title: '始终记录日志',
-              subtitle: this.alwaysRecordLogs ? '已开启' : '已关闭',
               icon: '📝',
-              showArrow: false,
-              onTap: () => SettingsRepository.setBoolean(SettingsRepository.KEY_ALWAYS_RECORD_LOGS, !this.alwaysRecordLogs)
+              value: this.alwaysRecordLogs,
+              onChange: (on: boolean) =>
+                SettingsRepository.setBoolean(SettingsRepository.KEY_ALWAYS_RECORD_LOGS, on)
             })
             SettingRow({
               title: '打开调试工具',
