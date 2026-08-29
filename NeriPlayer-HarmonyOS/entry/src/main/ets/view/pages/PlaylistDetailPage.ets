@@ -115,27 +115,29 @@ export struct PlaylistDetailPage {
 
         if (this.playlist !== null) {
           Column({ space: 10 }) {
-            Row({ space: 14 }) {
+            // S5: 参考图歌单头几何——120vp 大封面(radius 20)、两行 24fp 粗标题、
+            // 透明底(列表直接坐在背景上，不再套白卡)。
+            Row({ space: 16 }) {
               Column() {
                 Image($r('app.media.ic_music_note_24'))
-                  .width(34)
-                  .height(34)
+                  .width(40)
+                  .height(40)
                   .fillColor(Theme.primary(Theme.isDark()))
               }
-              .width(92)
-              .height(92)
+              .width(120)
+              .height(120)
               .justifyContent(FlexAlign.Center)
               .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
-              .borderRadius(14)
+              .borderRadius(20)
 
-              Column({ space: 4 }) {
+              Column({ space: 6 }) {
                 Text(this.playlist.name)
-                  .fontSize(20)
+                  .fontSize(24)
                   .fontWeight(FontWeight.Bold)
                   .fontColor(Theme.textPrimary(Theme.isDark()))
                   .maxLines(2)
                 Text(`${this.playlist.songKeys.length} 首`)
-                  .fontSize(13)
+                  .fontSize(14)
                   .fontColor(Theme.textSecondary(Theme.isDark()))
                 // Same X-to-Y trade as the NetEase header: the button pair sits
                 // in a layoutWeight(1) column beside a 92vp cover, so at large
@@ -162,9 +164,7 @@ export struct PlaylistDetailPage {
               .alignItems(HorizontalAlign.Start)
             }
             .width('100%')
-            .padding(14)
-            .backgroundColor(Theme.surface(Theme.isDark()))
-            .borderRadius(Theme.cardRadius())
+            .padding({ top: 6, bottom: 6, left: 4, right: 4 })
 
             Row() {
               Text('歌曲')

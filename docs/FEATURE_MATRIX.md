@@ -50,3 +50,4 @@
 6. 重启应用后恢复设置、队列和播放位置。
 7. ArkTS 单元测试与设备 smoke test 同时通过。
 
+| UI-HDS 光感 | Android 无（鸿蒙特性） | **部分** | S0-S4 已落地：effectKit 封面取色→色卡吸附重点色（ΔE00）→全量配色（Theme/WithTheme）；HdsVisualComponent 光感场景接入播放页背景；HdsTabs 悬浮栏+MiniBar 上线；播放列表原生 bindSheet。证据：874/874 单测；模拟器截图（悬浮壳/队列面板/一镜到底中途帧）。已知边界：模拟器 getSystemMaterialTypes()=[]（材质走降级）、HdsNavigation/HdsNavDestination 内容子树不挂载已回退标准组件（docs/HDS_IMMERSIVE_SPIKE.md），真机复核待办 | 2026-08-29 |
