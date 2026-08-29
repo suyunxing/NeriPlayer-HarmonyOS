@@ -1,8 +1,10 @@
 import { Router } from '../Router';
 import { Theme } from '../Theme';
+import { MotionSpec } from '../theme/MotionSpec';
 import { BP_LG } from '../../util/Breakpoint';
 import { MiniPlayer } from '../components/MiniPlayer';
 import { FloatingLyricBar } from '../components/FloatingLyricBar';
+import { RouteShell } from '../components/RouteShell';
 import { HomePage } from './HomePage';
 import { ExplorePage } from './ExplorePage';
 import { LibraryPage } from './LibraryPage';
@@ -165,12 +167,17 @@ export struct MainShell {
   }
 
   /**
-   * 全屏路由。11 个 if/else 分支从 build() 搬到这里，由 Navigation 按栈顶
-   * 路由名调用；转场交给系统标准动效，不再自己拼 TransitionEffect。
+   * 全屏路由。12 个 if/else 分支从 build() 搬到这里，由 Navigation 按栈顶
+   * 路由名调用。每条路由包一层 RouteShell（独立 NavDestination 实例），
+   * 由它统一挂接 hideTitleBar/透明背景/onWillDisappear 与自定义转场
+   * （push 底部滑入 / pop 顶部滑入 + 出场 fade，时长见 RouteShell）。
    */
   @Builder
   pageMap(name: string, param: Object) {
-    NavDestination() {
+    RouteShell({
+      enterMs: name === Router.NOW_PLAYING ? MotionSpec.NOWPLAYING_ENTER_SLIDE_MS : MotionSpec.DETAIL_OPEN_MS,
+      exitMs: name === Router.NOW_PLAYING ? MotionSpec.NOWPLAYING_EXIT_SLIDE_MS : MotionSpec.DETAIL_CLOSE_MS
+    }) {
       if (name === Router.NOW_PLAYING) {
         NowPlayingPage()
       } else if (name === Router.PLAYLIST_DETAIL) {
@@ -201,17 +208,6 @@ export struct MainShell {
         Column().width('100%').height('100%')
       }
     }
-    .hideTitleBar(true)
-    // NavDestination 默认背景是不透明白：深色模式下内容区以下的系统
-    // 导航条区会露出一截白边。显式置透明，条带回落到 Index 的沉浸背景
-    // 层（应用底色），与改造前全屏路由的行为一致；页面正文各自的
-    // 背景是动态取色，无法用单一 NavDestination 背景逐路由对齐。
-    .backgroundColor(Color.Transparent)
-    // destination 被销毁时通知常驻的 Tab 页刷新。一处覆盖四条返回路径：
-    // Router.pop()、系统返回键、侧滑返回手势、Router.reset() 的 clear()。
-    .onWillDisappear(() => {
-      Router.notifyReturned();
-    })
   }
 
   build() {
