@@ -1,6 +1,8 @@
 import { SettingsRepository } from '../data/SettingsRepository';
 import { Router } from '../view/Router';
 import { Theme } from '../view/Theme';
+import { AccentScheme } from '../view/theme/AccentScheme';
+import { SchemeCustomTheme } from '../view/theme/SchemeCustomTheme';
 import { LoadingPage } from '../view/pages/LoadingPage';
 import { DisclaimerPage } from '../view/pages/DisclaimerPage';
 import { OnboardingPage } from '../view/pages/OnboardingPage';
@@ -35,13 +37,26 @@ struct Index {
   // into AppStorage directly.
   @StorageProp('systemDark') systemDark: boolean = false;
   @StorageProp('np.dark_mode') darkMode: string = 'auto';
+  // 封面配色方案：CoverArtColorCache 每次换歌发布新实例，WithTheme 用它构建
+  // 官方 51 槽 CustomTheme，让系统内建控件跟随封面变色。
+  @StorageProp('player.coverScheme') @Watch('onSchemeChanged') coverScheme: AccentScheme = AccentScheme.neutralFallback();
+  @State appTheme: CustomTheme = SchemeCustomTheme.build(null);
   @State phase: StartupPhase = StartupPhase.LOADING;
   @State loadingDone: boolean = false;
 
   async aboutToAppear(): Promise<void> {
     await SettingsRepository.initialize();
+    this.rebuildTheme();
     this.phase = this.resolvePhase();
     this.loadingDone = true;
+  }
+
+  private onSchemeChanged(): void {
+    this.rebuildTheme();
+  }
+
+  private rebuildTheme(): void {
+    this.appTheme = SchemeCustomTheme.build(this.coverScheme);
   }
 
   private onCrashFlagChanged(): void {
@@ -122,36 +137,49 @@ struct Index {
   }
 
   build() {
-    Stack() {
-      // 沉浸背景层：应用底色铺进状态栏、导航条与挖孔区，系统栏因此显示应用
-      // 背景而不是独立色块。内容层不做延伸，仍由 ArkUI 的安全区自动避让保护，
-      // 文字与控件不会落到系统栏或挖孔下面。
-      Column()
-        .width('100%')
-        .height('100%')
-        .backgroundColor(this.immersiveBackground())
-        .expandSafeArea([SafeAreaType.SYSTEM, SafeAreaType.CUTOUT],
-          [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
+    WithTheme({ theme: this.appTheme, colorMode: this.themeColorMode() }) {
+      Stack() {
+        // 沉浸背景层：应用底色铺进状态栏、导航条与挖孔区，系统栏因此显示应用
+        // 背景而不是独立色块。内容层不做延伸，仍由 ArkUI 的安全区自动避让保护，
+        // 文字与控件不会落到系统栏或挖孔下面。
+        Column()
+          .width('100%')
+          .height('100%')
+          .backgroundColor(this.immersiveBackground())
+          .expandSafeArea([SafeAreaType.SYSTEM, SafeAreaType.CUTOUT],
+            [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
 
-      if (!this.loadingDone) {
-        LoadingPage()
-      } else if (this.phase === StartupPhase.DISCLAIMER) {
-        DisclaimerPage({
-          onAgree: () => this.onDisclaimerAgree()
-        })
-      } else if (this.phase === StartupPhase.ONBOARDING) {
-        OnboardingPage({
-          onDone: () => this.onOnboardingDone()
-        })
-      } else if (this.phase === StartupPhase.SAFE_MODE) {
-        SafeModePage({
-          onRestoreNormal: () => this.onRestoreNormal()
-        })
-      } else {
-        MainShell()
+        if (!this.loadingDone) {
+          LoadingPage()
+        } else if (this.phase === StartupPhase.DISCLAIMER) {
+          DisclaimerPage({
+            onAgree: () => this.onDisclaimerAgree()
+          })
+        } else if (this.phase === StartupPhase.ONBOARDING) {
+          OnboardingPage({
+            onDone: () => this.onOnboardingDone()
+          })
+        } else if (this.phase === StartupPhase.SAFE_MODE) {
+          SafeModePage({
+            onRestoreNormal: () => this.onRestoreNormal()
+          })
+        } else {
+          MainShell()
+        }
       }
+      .width('100%')
+      .height('100%')
     }
-    .width('100%')
-    .height('100%')
+  }
+
+  /** np.dark_mode → WithTheme colorMode（系统跟随由 AppColorMode 负责）。 */
+  private themeColorMode(): ThemeColorMode {
+    if (this.darkMode === 'dark') {
+      return ThemeColorMode.DARK;
+    }
+    if (this.darkMode === 'light') {
+      return ThemeColorMode.LIGHT;
+    }
+    return ThemeColorMode.SYSTEM;
   }
 }

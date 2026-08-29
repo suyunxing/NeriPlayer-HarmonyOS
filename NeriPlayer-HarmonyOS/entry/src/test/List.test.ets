@@ -57,6 +57,9 @@ import listenTogetherConfigSnapshotTest from './ets/test/ListenTogetherConfigSna
 import listenTogetherStateApplierTest from './ets/test/ListenTogetherStateApplier.test';
 import paletteTest from './ets/test/Palette.test';
 import dynamicThemeTest from './ets/test/DynamicTheme.test';
+import colorScienceTest from './ets/test/ColorScience.test';
+import swatchCardTest from './ets/test/SwatchCard.test';
+import accentSchemeTest from './ets/test/AccentScheme.test';
 import ttmlParserTest from './ets/test/TtmlParser.test';
 import amllLyricsResolverTest from './ets/test/AmllLyricsResolver.test';
 import lyricLineTrackerTest from './ets/test/LyricLineTracker.test';
@@ -129,6 +132,9 @@ export default function testsuite(): void {
   listenTogetherStateApplierTest();
   paletteTest();
   dynamicThemeTest();
+  colorScienceTest();
+  swatchCardTest();
+  accentSchemeTest();
   ttmlParserTest();
   amllLyricsResolverTest();
   lyricLineTrackerTest();
