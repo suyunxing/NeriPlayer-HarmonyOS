@@ -1,4 +1,4 @@
-import { curves, SymbolGlyphModifier } from '@kit.ArkUI';
+import { curves, SymbolGlyphModifier, LengthMetrics } from '@kit.ArkUI';
 import { SongItem } from '../../model/SongItem';
 import { LyricLine } from '../../model/LyricLine';
 import { QueueState } from '../../model/QueueState';
@@ -87,6 +87,7 @@ export struct NowPlayingPage {
   // its fade finishes it collapses into layer A without animation. S2 起
   // 封面层只作为光感场景上的 0.3 淡材质颗粒，不再整屏铺满。
   @StorageProp('np.nowplaying_blur_strength') blurStrength: number = 300;
+  @StorageProp('np.glass_effect') glassEffect: boolean = true;
   @State bgUnderUrl: string = '';
   @State bgOverUrl: string = '';
   @State bgOverOpacity: number = 0;
@@ -717,18 +718,6 @@ export struct NowPlayingPage {
       .width('100%')
       .height('100%')
 
-      if (this.showQueue) {
-        QueueSheet({
-          queueJson: this.queueJson,
-          currentOrderIndex: PlayerManager.getCurrentQueueIndex(),
-          onClose: () => {
-            this.showQueue = false;
-          },
-          onPlay: (orderIndex: number) => {
-            PlayerManager.playAt(orderIndex);
-          }
-        })
-      }
 
       if (this.showShare) {
         LyricShareSheet({
@@ -829,6 +818,25 @@ export struct NowPlayingPage {
     .width('100%')
     .height('100%')
     .backgroundColor(Theme.background(Theme.isDark()))
+    // S4: 播放列表走原生半模态（官方手势关闭与档位吸附），替代手工覆盖层。
+    .bindSheet($$this.showQueue, this.queueSheetBuilder(), {
+      detents: [SheetSize.MEDIUM, SheetSize.LARGE],
+      dragBar: true,
+      onDisappear: () => {
+        this.showQueue = false;
+      }
+    })
+  }
+
+  @Builder
+  queueSheetBuilder() {
+    QueueSheetContent({
+      queueJson: this.queueJson,
+      currentOrderIndex: PlayerManager.getCurrentQueueIndex(),
+      onPlay: (orderIndex: number) => {
+        PlayerManager.playAt(orderIndex);
+      }
+    })
   }
 }
 
@@ -867,13 +875,16 @@ struct PlayerControlButton {
   }
 }
 
+/**
+ * S4: 播放列表内容（宿主用原生 bindSheet 承载：detents 双档位 + dragBar +
+ * 下滑关闭，替代旧的手工 scrim+position('38%') 覆盖层——百分比 .position
+ * 是布局守则明令禁止的写法，且旧实现没有进出场动画与手势关闭）。
+ */
 @Component
-struct QueueSheet {
-  queueJson: string = '';
+struct QueueSheetContent {
+  @Prop queueJson: string = '';
   currentOrderIndex: number = 0;
-  onClose: () => void = () => {};
   onPlay: (orderIndex: number) => void = () => {};
-  @StorageProp('np.glass_effect') glassEffect: boolean = true;
 
   private queue(): QueueState {
     return this.queueJson.length > 0 ? QueueState.fromJson(this.queueJson) : new QueueState();
@@ -881,68 +892,63 @@ struct QueueSheet {
 
   build() {
     Column() {
-      Column() {
-        Row() {
-          Text('播放列表')
-            .fontSize(17)
-            .fontWeight(FontWeight.Bold)
-            .fontColor(Theme.textPrimary(Theme.isDark()))
-            .layoutWeight(1)
-          Text('关闭')
-            .fontSize(14)
-            .fontColor(Theme.primary(Theme.isDark()))
-            .onClick(() => this.onClose())
-        }
-        .width('100%')
-        .padding({ bottom: 10 })
-
-        List() {
-          ForEach(this.queue().songs, (song: SongItem, index: number) => {
-            ListItem() {
-              Row({ space: 10 }) {
-                Text(`${index + 1}`)
-                  .fontSize(13)
-                  .fontColor(index === this.currentOrderIndex ? Theme.primary(Theme.isDark()) : Theme.textDisabled(Theme.isDark()))
-                  .width(24)
-                Column({ space: 2 }) {
-                  Text(song.displayName)
-                    .fontSize(14)
-                    .fontColor(index === this.currentOrderIndex ? Theme.primary(Theme.isDark()) : Theme.textPrimary(Theme.isDark()))
-                    .maxLines(1)
-                    .textOverflow({ overflow: TextOverflow.Ellipsis })
-                  Text(song.displayArtist)
-                    .fontSize(11)
-                    .fontColor(Theme.textSecondary(Theme.isDark()))
-                    .maxLines(1)
-                    .textOverflow({ overflow: TextOverflow.Ellipsis })
-                }
-                .layoutWeight(1)
-                .alignItems(HorizontalAlign.Start)
-                Text(formatDuration(song.durationMs))
-                  .fontSize(11)
-                  .fontColor(Theme.textDisabled(Theme.isDark()))
-              }
-              .width('100%')
-              .padding(8)
-              .onClick(() => this.onPlay(index))
-            }
-          }, (song: SongItem) => `${song.platform}_${song.audioId}_${song.id}`)
-        }
-        .layoutWeight(1)
-        .scrollBar(BarState.Off)
-        .width('100%')
+      Row() {
+        Text('播放列表')
+          .fontSize(17)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(Theme.textPrimary(Theme.isDark()))
+          .layoutWeight(1)
+        Text(`${this.queue().songs.length} 首`)
+          .fontSize(13)
+          .fontColor(Theme.textSecondary(Theme.isDark()))
       }
       .width('100%')
-      .height('62%')
-      .padding(16)
-      .backgroundColor(this.glassEffect ? Theme.surfaceGlass(Theme.isDark()) : Theme.surface(Theme.isDark()))
-      .backgroundBlurStyle(this.glassEffect ? BlurStyle.COMPONENT_THICK : BlurStyle.NONE)
-      .borderRadius({ topLeft: 22, topRight: 22 })
-      .position({ x: 0, y: '38%' })
+      .padding({ bottom: 10 })
+
+      // bindSheet 的滚动内容要显式声明嵌套滚动方向，才能先滚内容再拉档位。
+      List() {
+        ForEach(this.queue().songs, (song: SongItem, index: number) => {
+          ListItem() {
+            Row({ space: 10 }) {
+              Text(`${index + 1}`)
+                .fontSize(13)
+                .fontColor(index === this.currentOrderIndex ? Theme.primary(Theme.isDark()) : Theme.textDisabled(Theme.isDark()))
+                .width(24)
+              Column({ space: 2 }) {
+                Text(song.displayName)
+                  .fontSize(14)
+                  .fontColor(index === this.currentOrderIndex ? Theme.primary(Theme.isDark()) : Theme.textPrimary(Theme.isDark()))
+                  .maxLines(1)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+                Text(song.displayArtist)
+                  .fontSize(11)
+                  .fontColor(Theme.textSecondary(Theme.isDark()))
+                  .maxLines(1)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+              }
+              .layoutWeight(1)
+              .alignItems(HorizontalAlign.Start)
+              Text(formatDuration(song.durationMs))
+                .fontSize(11)
+                .fontColor(Theme.textDisabled(Theme.isDark()))
+            }
+            .width('100%')
+            .padding(8)
+            .onClick(() => this.onPlay(index))
+          }
+        }, (song: SongItem) => `${song.platform}_${song.audioId}_${song.id}`)
+      }
+      .layoutWeight(1)
+      .scrollBar(BarState.Off)
+      .width('100%')
+      .nestedScroll({ scrollForward: NestedScrollMode.PARENT_FIRST, scrollBackward: NestedScrollMode.SELF_FIRST })
     }
     .width('100%')
     .height('100%')
-    .backgroundColor(Theme.scrim(Theme.isDark()))
-    .onClick(() => this.onClose())
+    .padding({ left: 16, right: 16, top: 8, bottom: this.safeBottom() })
+  }
+
+  private safeBottom(): number {
+    return 16;
   }
 }
