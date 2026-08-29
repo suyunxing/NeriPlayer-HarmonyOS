@@ -74,13 +74,13 @@ export struct MiniPlayer {
           .backgroundColor('#22000000')
       }
 
-      Row({ space: this.compact ? 10 : 12 }) {
+      Row({ space: this.compact ? 8 : 12 }) {
         Stack() {
           if (this.song().effectiveCoverUrl.length > 0) {
             Image(this.song().effectiveCoverUrl)
-              .width(this.compact ? 38 : 44)
-              .height(this.compact ? 38 : 44)
-              .borderRadius(this.compact ? 19 : 8)
+              .width(this.compact ? 32 : 44)
+              .height(this.compact ? 32 : 44)
+              .borderRadius(this.compact ? 16 : 8)
               .objectFit(ImageFit.Cover)
               // S6 一镜到底：与播放页封面共享元素（打断保护靠 .id()）。
               .geometryTransition('np.cover')
@@ -88,12 +88,14 @@ export struct MiniPlayer {
               .transition(TransitionEffect.OPACITY)
           } else {
             Image($r('app.media.ic_music_note_24'))
-              .width(22)
-              .height(22)
+              .width(this.compact ? 16 : 22)
+              .height(this.compact ? 16 : 22)
               .fillColor(Theme.primary(Theme.isDark()))
-              .margin({ left: 11, right: 11, top: 11, bottom: 11 })
+              .margin(this.compact
+                ? { left: 8, right: 8, top: 8, bottom: 8 }
+                : { left: 11, right: 11, top: 11, bottom: 11 })
               .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
-              .borderRadius(8)
+              .borderRadius(this.compact ? 16 : 8)
           }
         }
 
@@ -163,8 +165,8 @@ export struct MiniPlayer {
         })
       }
       .width('100%')
-      .height(this.compact ? 48 : 60)
-      .padding({ left: this.compact ? 8 : 12, right: this.compact ? 4 : 8 })
+      .height(this.compact ? 40 : 60)
+      .padding({ left: this.compact ? 6 : 12, right: this.compact ? 2 : 8 })
       .onClick(() => {
         // 一镜到底：push 放进 animateTo 闭包并关闭单次系统转场，
         // geometryTransition('np.cover') 接管封面过渡（官方共享元素范式）。
