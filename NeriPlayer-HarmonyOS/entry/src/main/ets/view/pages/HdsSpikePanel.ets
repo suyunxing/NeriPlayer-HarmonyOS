@@ -174,6 +174,12 @@ export struct HdsSpikePanel {
         .clip(true)
       }
 
+      if (STAGE7_HDS_NAVIGATION) {
+        Text('S7 HdsNavigation + HdsNavDestination：推入子页再返回').fontSize(12)
+          .fontColor(Theme.textSecondary(Theme.isDark())).width('100%')
+        HdsSpikeNav()
+      }
+
     }
     .width('100%')
     .padding(12)

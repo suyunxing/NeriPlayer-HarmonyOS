@@ -56,13 +56,23 @@ build() {
 注意 `NavDestinationBuilder` 签名是 `(name, pageInfos)`，与 ArkUI `Navigation` 的
 无参 builder 不同。
 
-## 运行时验证清单（模拟器）
+## 运行时验证清单（模拟器，2026-08-29 实测）
 
-- [ ] `getSystemMaterialTypes()` 是否含 `IMMERSIVE`（决定 S3 材质档位）
-- [ ] HdsVisualComponent 流光是否渲染（模拟器 GPU 支持情况未知）
-- [ ] pointLight 光晕、pressShadow 按压反馈
-- [ ] HdsTabs 悬浮胶囊底栏 + MiniBar 展开收起
-- [ ] HdsNavigation 子页推入/返回
+- [x] 应用启动/调试页/探针面板全程**无崩溃**——HDS 组件可在模拟器上挂载
+- [x] **HdsTabs + barFloatingStyle 渲染成功**：S6 探针出现了官方悬浮胶囊底栏
+  （甲/乙，选中蓝色高亮）——悬浮壳路线运行时可行
+- [x] **HdsNavigation 推入成功**：pushPath 后目标页 chrome（返回键）出现，
+  目标页内容区渲染为空（待 S3 迁移时排查 builder 内容挂载）
+- [x] **HdsVisualComponent 有渲染但很淡**：仅两侧可见微弱流光痕迹，
+  backgroundMaskColors 渐变未显出——S2 需调参（颜色带 alpha / 场景尺寸）
+- [x] `getSystemMaterialTypes()` 返回 **`[]`（空数组）**：模拟器不支持任何
+  HDS 材质。**降级路径必须保留**——所有 `systemMaterialEffect` 调用点都要有
+  自绘玻璃兜底；真实设备（HarmonyOS 6.x）预计返回含 IMMERSIVE 的数组，待真机复核
+- [x] 动态配色管线运行正常：播放无封面歌曲时回落中性方案并已上色
+  （迷你播放器播放键/背景 accent 层为色卡吸附的中性色）；
+  effectKit 取色路径执行无异常
+- [ ] 彩色封面（高饱和）下的重点色与对比度——留待 S2 验收一并截图验证
+- [ ] WithTheme 整树重绘（换歌时非订阅组件是否刷新）——留待 S2 验收
 
 ## 工程影响
 
