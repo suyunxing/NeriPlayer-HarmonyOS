@@ -126,6 +126,7 @@ export struct SongRow {
       .width('100%')
       .padding({ left: 10, right: 6, top: 7, bottom: 7 })
       .onClick(() => this.onPlay())
+      .clickEffect({ level: ClickEffectLevel.LIGHT })
 
       if (this.menuOpen) {
         Column({ space: 2 }) {
@@ -154,7 +155,7 @@ export struct SongRow {
         .padding(8)
         .backgroundColor(Theme.surfaceHigh(Theme.isDark()))
         .borderRadius(12)
-        .shadow(Theme.shadow(Theme.isDark()))
+    .shadow(Theme.shadow(Theme.isDark()))
         .margin({ bottom: 6 })
       }
     }

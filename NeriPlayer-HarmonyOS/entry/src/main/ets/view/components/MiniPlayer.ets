@@ -1,3 +1,5 @@
+// ReplaceSymbolEffect/EffectScope 是 symbolglyph.d.ts 的全局 ambient 类
+// （与 VisualEffect 同类），不从 kit 导入。
 import { curves } from '@kit.ArkUI';
 import { SongItem } from '../../model/SongItem';
 import { PlaybackStatus } from '../../player/PlaybackConstants';
@@ -9,7 +11,10 @@ import { platformName } from './Ui';
 @Component
 export struct MiniPlayer {
   @StorageLink('player.currentSong') currentSongJson: string = '';
-  @StorageLink('player.status') status: number = PlaybackStatus.IDLE;
+  @StorageLink('player.status') @Watch('onStatusChanged') status: number = PlaybackStatus.IDLE;
+  /** ReplaceSymbolEffect 触发计数：播放/暂停切换时 +1 驱动交叉淡入。 */
+  @State symbolTrigger: number = 0;
+  private replaceEffect: ReplaceSymbolEffect = new ReplaceSymbolEffect(EffectScope.WHOLE);
   @StorageLink('player.positionMs') positionMs: number = 0;
   @StorageLink('player.durationMs') durationMs: number = 0;
   // Mirror the cover seed into @State and read it directly in the accent
@@ -38,6 +43,10 @@ export struct MiniPlayer {
 
   private onCoverSeedChanged(): void {
     this.seedHex = this.coverSeedHex;
+  }
+
+  private onStatusChanged(): void {
+    this.symbolTrigger += 1;
   }
 
   build() {
@@ -108,12 +117,13 @@ export struct MiniPlayer {
         .alignItems(HorizontalAlign.Start)
 
         Button() {
-          Image(this.status === PlaybackStatus.PLAYING
-            ? $r('app.media.round_pause_24')
-            : $r('app.media.round_play_arrow_24'))
-            .width(22)
-            .height(22)
-            .fillColor('#FFFFFF')
+          // S6: 官方符号替换动效（CROSS_FADE），播放/暂停切换不再是硬切。
+          SymbolGlyph(this.status === PlaybackStatus.PLAYING
+            ? $r('sys.symbol.pause_fill')
+            : $r('sys.symbol.play_fill'))
+            .fontSize(22)
+            .fontColor(['#FFFFFF'])
+            .symbolEffect(this.replaceEffect, this.symbolTrigger)
         }
         .width(40)
         .height(40)
