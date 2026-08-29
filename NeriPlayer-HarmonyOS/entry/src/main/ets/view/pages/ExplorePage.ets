@@ -11,7 +11,7 @@ import { Router } from '../Router';
 import { Theme } from '../Theme';
 import { BAND_LIST_VP, BP_LG, BP_MD } from '../../util/Breakpoint';
 import { SongRow } from '../components/SongRow';
-import { EmptyState, LoadingState } from '../components/Ui';
+import { EmptyState, LoadingState, FLOAT_TAB_CLEARANCE } from '../components/Ui';
 
 /** 本页在 MainShell 的 Tabs 里的下标，用于过滤刷新信号。 */
 const TAB_INDEX: number = 1;
