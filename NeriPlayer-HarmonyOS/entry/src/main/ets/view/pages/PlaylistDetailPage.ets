@@ -8,6 +8,7 @@ import { PlayerManager } from '../../player/PlayerManager';
 import { Theme } from '../Theme';
 import { SongRow } from '../components/SongRow';
 import { EmptyState } from '../components/Ui';
+import { PlaylistHeader, HeaderPill } from '../components/PlaylistHeader';
 import { Router } from '../Router';
 
 @Component
@@ -115,56 +116,21 @@ export struct PlaylistDetailPage {
 
         if (this.playlist !== null) {
           Column({ space: 10 }) {
-            // S5: 参考图歌单头几何——120vp 大封面(radius 20)、两行 24fp 粗标题、
-            // 透明底(列表直接坐在背景上，不再套白卡)。
-            Row({ space: 16 }) {
-              Column() {
-                Image($r('app.media.ic_music_note_24'))
-                  .width(40)
-                  .height(40)
-                  .fillColor(Theme.primary(Theme.isDark()))
-              }
-              .width(120)
-              .height(120)
-              .justifyContent(FlexAlign.Center)
-              .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
-              .borderRadius(20)
-
-              Column({ space: 6 }) {
-                Text(this.playlist.name)
-                  .fontSize(24)
-                  .fontWeight(FontWeight.Bold)
-                  .fontColor(Theme.textPrimary(Theme.isDark()))
-                  .maxLines(2)
-                Text(`${this.playlist.songKeys.length} 首`)
-                  .fontSize(14)
-                  .fontColor(Theme.textSecondary(Theme.isDark()))
-                // Same X-to-Y trade as the NetEase header: the button pair sits
-                // in a layoutWeight(1) column beside a 92vp cover, so at large
-                // system fonts a plain Row runs off the right edge.
-                Flex({ wrap: FlexWrap.Wrap, space: { main: LengthMetrics.vp(8), cross: LengthMetrics.vp(8) } }) {
-                  Button('全部播放')
-                    .height(40)
-                    .fontSize(12)
-                    .fontColor(Theme.onPrimary(Theme.isDark()))
-                    .backgroundColor(Theme.primary(Theme.isDark()))
-                    .borderRadius(16)
-                    .onClick(() => this.playAll(false))
-                  Button('随机播放')
-                    .height(40)
-                    .fontSize(12)
-                    .fontColor(Theme.textPrimary(Theme.isDark()))
-                    .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
-                    .borderRadius(16)
-                    .onClick(() => this.playAll(true))
-                }
-                .width('100%')
-              }
-              .layoutWeight(1)
-              .alignItems(HorizontalAlign.Start)
+            PlaylistHeader({
+              coverUrl: '',
+              title: this.playlist.name,
+              subtitle: `${this.playlist.songKeys.length} 首`
+            }) {
+              HeaderPill({
+                label: '全部播放',
+                filled: true,
+                onTap: (): void => this.playAll(false)
+              })
+              HeaderPill({
+                label: '随机播放',
+                onTap: (): void => this.playAll(true)
+              })
             }
-            .width('100%')
-            .padding({ top: 6, bottom: 6, left: 4, right: 4 })
 
             Row() {
               Text('歌曲')
