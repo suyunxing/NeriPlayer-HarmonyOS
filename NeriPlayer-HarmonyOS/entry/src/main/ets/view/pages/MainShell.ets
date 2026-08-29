@@ -1,5 +1,7 @@
 import { Router } from '../Router';
 import { Theme } from '../Theme';
+import { HdsNavigation, HdsNavDestination, HdsTabs } from '@kit.UIDesignKit';
+import { HdsNavigationAttribute, HdsNavDestinationAttribute, HdsTabsAttribute } from '@kit.UIDesignKit';
 import { BP_LG } from '../../util/Breakpoint';
 import { MiniPlayer } from '../components/MiniPlayer';
 import { FloatingLyricBar } from '../components/FloatingLyricBar';
@@ -170,7 +172,7 @@ export struct MainShell {
    */
   @Builder
   pageMap(name: string, param: Object) {
-    NavDestination() {
+    HdsNavDestination() {
       if (name === Router.NOW_PLAYING) {
         NowPlayingPage()
       } else if (name === Router.PLAYLIST_DETAIL) {
@@ -215,7 +217,7 @@ export struct MainShell {
   }
 
   build() {
-    Navigation(this.pageStack) {
+    HdsNavigation(this.pageStack) {
       Stack({ alignContent: Alignment.Top }) {
         Column() {
           if (this.currentSongJson.length > 0) {
@@ -223,7 +225,7 @@ export struct MainShell {
           }
 
           if (this.wide()) {
-            Tabs({ barPosition: BarPosition.Start, index: this.currentTab }) {
+            HdsTabs({ barPosition: BarPosition.Start, index: this.currentTab }) {
               this.tabPages()
             }
             .vertical(true)
@@ -244,13 +246,16 @@ export struct MainShell {
               this.selectTab(index);
             })
           } else {
-            Tabs({ barPosition: BarPosition.End, index: this.currentTab }) {
+            // S3b: HdsTabs 先按原布局语义替换（保留系统材质的接入点
+            // barFloatingStyle，等悬浮态避让就绪后再开启，见 S3b-2）。
+            HdsTabs({ barPosition: BarPosition.End, index: this.currentTab }) {
               this.tabPages()
             }
             .vertical(false)
             .barHeight(TAB_BAR_CONTENT_VP + this.bottomLift)
             .barMode(BarMode.Fixed)
             .barBackgroundColor(Theme.surface(this.resolveDark()))
+            .barBackgroundBlurStyle(BlurStyle.COMPONENT_THICK)
             // 同上：容器延伸进系统导航条区域，背景色让条带与 Tab 栏连续。
             .backgroundColor(this.bandColor())
             .animationDuration(250)
@@ -280,7 +285,7 @@ export struct MainShell {
     // 而这里的 navBar 内容是整个 Tab 骨架（完整页面），结构不匹配。大屏适配
     // 由 Tabs.vertical(true) 与各页的 GridRow 承担。
     .mode(NavigationMode.Stack)
-    .navDestination(this.pageMap)
+    .navDestination((name: string, pageInfos: Object): void => this.pageMap(name, pageInfos))
     .width('100%')
     .height('100%')
   }
