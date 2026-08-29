@@ -1,6 +1,6 @@
 import { Router } from '../Router';
 import { Theme } from '../Theme';
-import { HdsTabs, HdsBarLayoutMode, hdsMaterial, SystemMaterialParams } from '@kit.UIDesignKit';
+import { HdsTabs, hdsMaterial, SystemMaterialParams } from '@kit.UIDesignKit';
 import { HdsTabsAttribute } from '@kit.UIDesignKit';
 import { HdsLight } from '../theme/HdsLight';
 import { AccentScheme } from '../theme/AccentScheme';
@@ -65,13 +65,6 @@ export struct MainShell {
     return params;
   }
 
-  /** S3b-2: 迷你播放器进入官方 HdsTabsMiniBar 槽位（无歌时留空）。 */
-  @Builder
-  miniBarBuilder() {
-    if (this.currentSongJson.length > 0) {
-      MiniPlayer({ compact: true })
-    }
-  }
 
   /**
    * 与 Theme.isDark() 同一规则，但读自被跟踪的成员，所以 build() 会响应切换。
@@ -253,7 +246,6 @@ export struct MainShell {
     Navigation(this.pageStack) {
       Stack({ alignContent: Alignment.Top }) {
         Column() {
-          // MiniPlayer 已迁入 HdsTabs 的 miniBar 槽位（S3b-2）。
           if (this.wide()) {
             HdsTabs({ barPosition: BarPosition.Start, index: this.currentTab }) {
               this.tabPages()
@@ -290,13 +282,6 @@ export struct MainShell {
               barBottomMargin: this.bottomLift + 8,
               lightColor: this.coverScheme.light.primary,
               gradientMask: { maskColor: Theme.withAlpha(Theme.background(this.resolveDark()), 0x99), maskHeight: 92 },
-              miniBar: {
-                miniBarBuilder: (): void => {
-                  this.miniBarBuilder()
-                },
-                enableMiniBarBackground: true,
-                barLayoutMode: HdsBarLayoutMode.VERTICAL
-              },
               systemMaterialEffect: this.systemMaterialEffect()
             })
             .backgroundColor(this.bandColor())
@@ -318,6 +303,21 @@ export struct MainShell {
         // In-app floating lyric overlay (D4 fallback), floats above content.
         FloatingLyricBar()
           .margin({ top: 46 })
+
+        // S5: 迷你播放器自绘悬浮层，锚在悬浮 Tab 栏上方。官方 HdsTabsMiniBar
+        // 槽位强制压缩内容高度(~31vp)且裁剪，40/48/52vp 三种形态都会裁掉
+        // 播放键，只能放弃槽位自绘；高度与样式由 MiniPlayer 自己负责。
+        if (this.currentSongJson.length > 0) {
+          Stack({ alignContent: Alignment.Bottom }) {
+            MiniPlayer()
+          }
+          .width('100%')
+          .height('100%')
+          .hitTestBehavior(HitTestMode.None)
+          // 盒内 padding 收缩（margin 在 100% 高度下语义不稳）：底边落在悬浮
+          // Tab 栏上沿之上 8vp（栏高约 56 + barBottomMargin(bottomLift+8)）。
+          .padding({ bottom: this.bottomLift + 72 })
+        }
       }
       .width('100%')
       .height('100%')
