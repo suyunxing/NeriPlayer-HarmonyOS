@@ -467,6 +467,14 @@ eport-m61-recheck.json）：IOS 直出窗口仍开——fbvvS8e1KgI playability 
   （detents 双档+dragBar+下滑关闭）。
 - S6-core 动效：✅ 迷你条→播放页封面一镜到底（geometryTransition+animateTo+
   systemTransition NONE）+ clickEffect + 废弃 animateTo 清理。
-- 待续：S5 余项（三页歌单头抽取、首页 Hero 卡、探索搜索胶囊）、S6 余项（列表行
-  共享元素、Symbol 动效、全量 clickEffect）、字号 1.75x 复测、真机 HDS 复核、
-  探针面板移除。每阶段 commit：14bee73c/1f4abc94/98a6642b/fcf2c439/ff765f78/03c5dd82。
+- S5（第二次会话续）：✅ 每日推荐 Hero 卡（标签 pill+21fp 标题+播放 FAB）、
+  探索页参考图搜索胶囊（symbol 放大镜+44vp 圆键）、三页歌单头抽取共用
+  PlaylistHeader（120vp 封面/24fp 标题/透明底，B 站页顺带修 Flex wrap 溢出隐患）、
+  SectionHeader 22fp、页标题 32fp。commit c0e384e/0c245fbf。
+- S6 余项：✅ SongRow/PlaylistCard/SettingRow/平台 chips/搜索键全量 clickEffect、
+  MiniPlayer 播放键 ReplaceSymbolEffect 交叉淡入（sys.symbol.play_fill/pause_fill，
+  模拟器验证切换正常）。列表行封面共享元素（需逐行 id 联动）留作可选。
+  commit bab2f0fa。
+- 待续：字号 1.75x 布局复测（新字阶更大，上架硬性项）、真机 HDS 复核
+  （材质能力/IMMERSIVE 档位/流光调参/WithTheme 整树重绘确认）、探针面板移除
+  （真机复核后再删）。
