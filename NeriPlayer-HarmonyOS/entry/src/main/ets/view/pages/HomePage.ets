@@ -105,11 +105,80 @@ export struct HomePage {
     PlayerManager.playPlaylist(this.recentSongs, index);
   }
 
+  /**
+   * S5: 参考图「每日推荐」Hero 卡——大封面 + 重点色标签 pill + 两行粗标题 +
+   * 播放 FAB，点卡进歌单、点 FAB 直接开播整个歌单（网易云歌单接口有 id，
+   * 开播走歌单页的同一条路由，FAB 这里只做视觉锚点，点击同 onOpen）。
+   */
+  @Builder
+  recommendHero(item: NeteasePlaylistSummary) {
+    Row({ space: 14 }) {
+      if (item.coverUrl.length > 0) {
+        Image(item.coverUrl)
+          .width(118)
+          .height(118)
+          .borderRadius(18)
+          .objectFit(ImageFit.Cover)
+          .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+      } else {
+        Image($r('app.media.ic_music_note_24'))
+          .width(40)
+          .height(40)
+          .fillColor(Theme.primary(Theme.isDark()))
+          .margin({ left: 39, right: 39, top: 39, bottom: 39 })
+          .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+          .borderRadius(18)
+      }
+      Column({ space: 8 }) {
+        Text('每日推荐')
+          .fontSize(12)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(Theme.tagText(Theme.isDark()))
+          .padding({ left: 10, right: 10, top: 4, bottom: 4 })
+          .backgroundColor(Theme.tagBg(Theme.isDark()))
+          .borderRadius(12)
+        Text(item.name)
+          .fontSize(21)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(Theme.textPrimary(Theme.isDark()))
+          .maxLines(2)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+        Text(item.trackCount > 0 ? `共 ${item.trackCount} 首` : '网易云歌单')
+          .fontSize(13)
+          .fontColor(Theme.textSecondary(Theme.isDark()))
+      }
+      .layoutWeight(1)
+      .alignItems(HorizontalAlign.Start)
+
+      Stack({ alignContent: Alignment.Center }) {
+        Circle()
+          .width(52)
+          .height(52)
+          .fill(Theme.primary(Theme.isDark()))
+          .shadow({ radius: 14, color: Theme.withAlpha(Theme.primary(Theme.isDark()), 0x55), offsetY: 4 })
+        Image($r('app.media.round_play_arrow_24'))
+          .width(26)
+          .height(26)
+          .fillColor(Theme.onPrimary(Theme.isDark()))
+      }
+      .width(52)
+      .height(52)
+    }
+    .width('100%')
+    .padding(14)
+    .backgroundColor(Theme.surface(Theme.isDark()))
+    .borderRadius(Theme.cardRadius())
+    .margin({ bottom: 14 })
+    .alignItems(VerticalAlign.Center)
+    .onClick(() => Router.push(Router.NETEASE_PLAYLIST, `${item.id}`))
+    .clickEffect({ level: ClickEffectLevel.LIGHT })
+  }
+
   build() {
     Column() {
       Row() {
         Text(BRAND_TITLES[this.titleIndex])
-          .fontSize(28)
+          .fontSize(32)
           .fontWeight(FontWeight.Bold)
           .fontColor(Theme.textPrimary(Theme.isDark()))
           .layoutWeight(1)
@@ -245,6 +314,7 @@ export struct HomePage {
 
             if (this.neteaseRecommend.length > 0) {
               SectionHeader({ title: '每日推荐', icon: '★' })
+              this.recommendHero(this.neteaseRecommend[0])
               if (this.wideGrid()) {
                 // md 每行 4 张、lg 每行 6 张（span 2 配 8/12 列）。列数断点与
                 // GridRow 默认的 320/600/840vp 同源，所以侧边导航栏出现的那一刻
@@ -253,7 +323,7 @@ export struct HomePage {
                   columns: { xs: 4, sm: 4, md: 8, lg: 12 },
                   gutter: { x: 12, y: 14 }
                 }) {
-                  ForEach(this.neteaseRecommend, (item: NeteasePlaylistSummary) => {
+                  ForEach(this.neteaseRecommend.slice(1), (item: NeteasePlaylistSummary) => {
                     GridCol({ span: 2 }) {
                       PlaylistCard({
                         name: item.name,
@@ -269,7 +339,7 @@ export struct HomePage {
               } else {
                 Scroll() {
                   Row({ space: 12 }) {
-                    ForEach(this.neteaseRecommend, (item: NeteasePlaylistSummary) => {
+                    ForEach(this.neteaseRecommend.slice(1), (item: NeteasePlaylistSummary) => {
                       Column({ space: 6 }) {
                         if (item.coverUrl.length > 0) {
                           Image(item.coverUrl)

@@ -121,6 +121,7 @@ export struct ExplorePage {
     .padding({ left: 14, right: 14 })
     .backgroundColor(this.platform === index ? Theme.primary(Theme.isDark()) : Theme.surface(Theme.isDark()))
     .borderRadius(17)
+    .clickEffect({ level: ClickEffectLevel.LIGHT })
     .onClick(() => {
       this.platform = index;
       this.results = [];
@@ -136,28 +137,49 @@ export struct ExplorePage {
     Row() {
     Column({ space: 10 }) {
       Text('探索')
-        .fontSize(26)
+        .fontSize(32)
         .fontWeight(FontWeight.Bold)
         .fontColor(Theme.textPrimary(Theme.isDark()))
         .width('100%')
         .margin({ top: 12 })
 
-      Row({ space: 8 }) {
-        TextInput({ placeholder: '搜索歌曲 / 歌手 / 歌单', text: this.query })
-          .layoutWeight(1)
-          .height(42)
-          .fontSize(14)
-          .onChange((value: string) => {
-            this.query = value;
-          })
-          .onSubmit(() => {
-            this.search();
-          })
-        Button('搜索')
-          .height(42)
-          .fontSize(14)
-          .backgroundColor(Theme.primary(Theme.isDark()))
-          .onClick(() => this.search())
+      // S5: 参考图搜索条——胶囊输入框 + 重点色圆形搜索键（触达 44vp）。
+      Row({ space: 10 }) {
+        Row({ space: 8 }) {
+          SymbolGlyph($r('sys.symbol.magnifyingglass'))
+            .fontSize(18)
+            .fontColor([Theme.textSecondary(Theme.isDark())])
+          TextInput({ placeholder: '搜索歌曲 / 歌手 / 歌单', text: this.query })
+            .layoutWeight(1)
+            .height(44)
+            .fontSize(14)
+            .backgroundColor(Color.Transparent)
+            .padding({ left: 0, right: 0 })
+            .onChange((value: string) => {
+              this.query = value;
+            })
+            .onSubmit(() => {
+              this.search();
+            })
+        }
+        .layoutWeight(1)
+        .height(44)
+        .padding({ left: 14, right: 8 })
+        .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+        .borderRadius(22)
+
+        Button() {
+          SymbolGlyph($r('sys.symbol.magnifyingglass'))
+            .fontSize(20)
+            .fontColor([Theme.onPrimary(Theme.isDark())])
+        }
+        .width(44)
+        .height(44)
+        .type(ButtonType.Circle)
+        .backgroundColor(Theme.primary(Theme.isDark()))
+        .accessibilityText('搜索')
+        .clickEffect({ level: ClickEffectLevel.LIGHT })
+        .onClick(() => this.search())
       }
       .width('100%')
 
