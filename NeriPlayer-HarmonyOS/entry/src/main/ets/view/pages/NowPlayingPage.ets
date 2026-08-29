@@ -8,6 +8,8 @@ import { PlayerManager } from '../../player/PlayerManager';
 import { PlaybackStatus, RepeatMode } from '../../player/PlaybackConstants';
 import { Theme } from '../Theme';
 import { DynamicTheme } from '../theme/DynamicTheme';
+import { AccentScheme, SchemeMode } from '../theme/AccentScheme';
+import { ImmersiveLightScene } from '../components/ImmersiveLightScene';
 import { LyricView } from '../components/LyricView';
 import { WaveformSlider } from '../components/WaveformSlider';
 import { LyricShareSheet } from '../components/LyricShareSheet';
@@ -77,9 +79,13 @@ export struct NowPlayingPage {
   @StorageProp('player.coverSeedHex') @Watch('onCoverSeedChanged') coverSeedHex: string = '';
   @StorageProp('np.dynamic_color') @Watch('onCoverSeedChanged') dynamicColor: boolean = true;
   @State accentHex: string = '';
+  // 封面全量配色（S1 引擎发布）：沉浸光感场景与文字令牌的唯一来源。
+  // 组件自己订阅（M7.4：表达式里直读被跟踪成员），换歌即整页重绘。
+  @StorageProp('player.coverScheme') @Watch('onCoverSchemeChanged') coverScheme: AccentScheme = AccentScheme.neutralFallback();
   // Blurred-cover backdrop with track-switch crossfade (Android keeps the old
   // artwork blurred while the new cover fades in). Layer B sits on top; once
-  // its fade finishes it collapses into layer A without animation.
+  // its fade finishes it collapses into layer A without animation. S2 起
+  // 封面层只作为光感场景上的 0.3 淡材质颗粒，不再整屏铺满。
   @StorageProp('np.nowplaying_blur_strength') blurStrength: number = 300;
   @State bgUnderUrl: string = '';
   @State bgOverUrl: string = '';
@@ -144,6 +150,14 @@ export struct NowPlayingPage {
 
   private onCoverSeedChanged(): void {
     this.recomputeAccent();
+  }
+
+  private onCoverSchemeChanged(): void {
+  }
+
+  /** 当前模式的沉浸令牌（深色模式取 dark ramp）。页面级，M7.4 直读成员。 */
+  private im(): SchemeMode {
+    return Theme.isDark() ? this.coverScheme.dark : this.coverScheme.light;
   }
 
   private currentLyricIndex(): number {
@@ -311,27 +325,13 @@ export struct NowPlayingPage {
       // 留下色块切割（浅色模式下尤其明显：页面是深色遮罩，导航条却是浅色底）。
       // 下面的内容层不延伸，仍由 ArkUI 的安全区自动避让保护。
       //
-      // Seed-accent backdrop under the blurred cover: prevents black flashes
-      // while a cover loads and tints artwork-less songs (Android keeps the
-      // same accent layer under its blurred artwork).
-      if (this.accentHex.length > 0) {
-        Column()
-          .width('100%')
-          .height('100%')
-          .backgroundColor(this.accentHex)
-          .expandSafeArea(IMMERSIVE_TYPES, IMMERSIVE_EDGES)
-      }
-      // Blurred cover backdrop; np.nowplaying_blur_strength is Android's
-      // 0..500 scale mapped onto blur vp (0 disables blur entirely).
-      if (this.bgUnderUrl.length > 0) {
-        Image(this.bgUnderUrl)
-          .width('100%')
-          .height('100%')
-          .objectFit(ImageFit.Cover)
-          .blur(this.blurStrength * 80 / 500)
-          .scale({ x: 1.4, y: 1.4 })
-          .expandSafeArea(IMMERSIVE_TYPES, IMMERSIVE_EDGES)
-      }
+      // S2 沉浸光感：官方 HdsVisualComponent 双边流光场景（封面 scheme 渐变）
+      // 打底，模糊封面降为 0.3 淡材质颗粒，不再整屏铺满。
+      ImmersiveLightScene({
+        dark: Theme.isDark(),
+        blurStrength: this.blurStrength,
+        coverUrl: this.bgUnderUrl
+      })
       if (this.bgOverUrl.length > 0) {
         Image(this.bgOverUrl)
           .width('100%')
@@ -339,14 +339,7 @@ export struct NowPlayingPage {
           .objectFit(ImageFit.Cover)
           .blur(this.blurStrength * 80 / 500)
           .scale({ x: 1.4, y: 1.4 })
-          .opacity(this.bgOverOpacity)
-          .expandSafeArea(IMMERSIVE_TYPES, IMMERSIVE_EDGES)
-      }
-      if (this.bgUnderUrl.length === 0 && this.bgOverUrl.length === 0) {
-        Column()
-          .width('100%')
-          .height('100%')
-          .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+          .opacity(this.bgOverOpacity * 0.3)
           .expandSafeArea(IMMERSIVE_TYPES, IMMERSIVE_EDGES)
       }
       Column()
@@ -361,18 +354,18 @@ export struct NowPlayingPage {
             if (this.lyricsMode) {
               SymbolGlyph($r('sys.symbol.chevron_down'))
                 .fontSize(22)
-                .fontColor(['#FFFFFF'])
+                .fontColor([this.im().textPrimary])
             } else {
               Image($r('app.media.ic_arrow_back_24'))
                 .width(22)
                 .height(22)
-                .fillColor('#FFFFFF')
+                .fillColor(this.im().textPrimary)
             }
           }
           .width(40)
           .height(40)
           .type(ButtonType.Circle)
-          .backgroundColor(Theme.onSurfaceOverlay(Theme.isDark()))
+          .backgroundColor(Theme.tagBg(Theme.isDark()))
           .accessibilityText(this.lyricsMode ? '收起歌词' : '返回')
           .onClick(() => {
             // 歌词页的返回先滑回封面页；系统返回键/侧滑才 pop 路由。
@@ -388,19 +381,19 @@ export struct NowPlayingPage {
             Text('正在播放')
               .fontSize(16)
               .fontWeight(FontWeight.Medium)
-              .fontColor('#FFFFFF')
+              .fontColor(this.im().textPrimary)
               .layoutWeight(1)
               .textAlign(TextAlign.Center)
             Button() {
               Image($r('app.media.ic_group_24'))
                 .width(20)
                 .height(20)
-                .fillColor('#FFFFFF')
+                .fillColor(this.im().textPrimary)
             }
             .width(40)
             .height(40)
             .type(ButtonType.Circle)
-            .backgroundColor(Theme.onSurfaceOverlay(Theme.isDark()))
+            .backgroundColor(Theme.tagBg(Theme.isDark()))
             .accessibilityText('一起听')
             .onClick(() => Router.push(Router.LISTEN_TOGETHER))
           }
@@ -408,8 +401,8 @@ export struct NowPlayingPage {
             .width(40)
             .height(40)
             .type(ButtonType.Circle)
-            .backgroundColor(Theme.onSurfaceOverlay(Theme.isDark()))
-            .fontColor('#FFFFFF')
+            .backgroundColor(Theme.tagBg(Theme.isDark()))
+            .fontColor(this.im().textPrimary)
             .fontSize(18)
             // '⋯' on its own is read out as punctuation, or skipped entirely.
             .accessibilityText('更多操作')
@@ -437,7 +430,7 @@ export struct NowPlayingPage {
                   .objectFit(ImageFit.Contain)
                   .padding({ left: 32, right: 32, top: 32, bottom: 32 })
                   .fillColor(Theme.primary(Theme.isDark()))
-                  .backgroundColor(Theme.onSurfaceOverlay(Theme.isDark()))
+                  .backgroundColor(Theme.tagBg(Theme.isDark()))
                   .borderRadius(22)
               }
             }
@@ -449,7 +442,7 @@ export struct NowPlayingPage {
                 Text(this.song().displayName)
                   .fontSize(22)
                   .fontWeight(FontWeight.Bold)
-                  .fontColor('#FFFFFF')
+                  .fontColor(this.im().textPrimary)
                   .maxLines(1)
                   .textOverflow({ overflow: TextOverflow.Ellipsis })
                   .layoutWeight(1)
@@ -458,7 +451,7 @@ export struct NowPlayingPage {
                   : $r('app.media.ic_outline_favorite_24'))
                   .width(24)
                   .height(24)
-                  .fillColor(this.favorite ? Theme.danger(false) : '#CCFFFFFF')
+                  .fillColor(this.favorite ? Theme.danger(false) : this.im().textSecondary)
                   .padding(6)
                   .onClick(() => this.toggleFavorite())
               }
@@ -467,15 +460,15 @@ export struct NowPlayingPage {
               Row({ space: 8 }) {
                 Text(this.song().displayArtist)
                   .fontSize(14)
-                  .fontColor('#B8FFFFFF')
+                  .fontColor(this.im().textSecondary)
                   .maxLines(1)
                   .textOverflow({ overflow: TextOverflow.Ellipsis })
                   .layoutWeight(1)
                 Text(platformName(this.song().platform))
                   .fontSize(10)
-                  .fontColor('#FFFFFF')
+                  .fontColor(this.im().textPrimary)
                   .padding({ left: 8, right: 8, top: 3, bottom: 3 })
-                  .backgroundColor('#33FFFFFF')
+                  .backgroundColor(this.im().tagBg)
                   .borderRadius(8)
               }
               .width('100%')
@@ -533,23 +526,27 @@ export struct NowPlayingPage {
               Row() {
                 Text(formatDuration(this.previewMs >= 0 ? this.previewMs : this.positionMs))
                   .fontSize(12)
-                  .fontColor('#B8FFFFFF')
+                  .fontColor(this.im().textSecondary)
                 Blank()
                 Text(formatDuration(this.durationMs))
                   .fontSize(12)
-                  .fontColor('#B8FFFFFF')
+                  .fontColor(this.im().textSecondary)
               }
               .width('100%')
 
               Row() {
                 PlayerControlButton({
                   icon: $r('app.media.ic_shuffle_24'),
+                  tintOn: this.im().textPrimary,
+                  tintOff: this.im().textSecondary,
                   active: this.shuffle,
                   label: this.shuffle ? '关闭随机播放' : '随机播放',
                   onTap: () => PlayerManager.setShuffle(!this.shuffle)
                 })
                 PlayerControlButton({
                   icon: $r('app.media.round_skip_previous_24'),
+                  tintOn: this.im().textPrimary,
+                  tintOff: this.im().textSecondary,
                   label: '上一首',
                   onTap: () => PlayerManager.previous()
                 })
@@ -557,6 +554,7 @@ export struct NowPlayingPage {
                   icon: this.status === PlaybackStatus.PLAYING
                     ? $r('app.media.round_pause_24')
                     : $r('app.media.round_play_arrow_24'),
+                  tintOn: this.im().onPrimary,
                   active: true,
                   buttonSize: 64,
                   label: this.status === PlaybackStatus.PLAYING ? '暂停' : '播放',
@@ -564,6 +562,8 @@ export struct NowPlayingPage {
                 })
                 PlayerControlButton({
                   icon: $r('app.media.round_skip_next_24'),
+                  tintOn: this.im().textPrimary,
+                  tintOff: this.im().textSecondary,
                   label: '下一首',
                   onTap: () => PlayerManager.next(false)
                 })
@@ -586,7 +586,7 @@ export struct NowPlayingPage {
                 Column() {
                   SymbolGlyph($r('sys.symbol.speed_multiple'))
                     .fontSize(24)
-                    .fontColor([this.speed !== 1.0 ? '#FFFFFF' : '#B8FFFFFF'])
+                    .fontColor([this.speed !== 1.0 ? this.im().textPrimary : this.im().textSecondary])
                 }
                 .width(44)
                 .height(44)
@@ -597,7 +597,7 @@ export struct NowPlayingPage {
                 Column() {
                   SymbolGlyph($r('sys.symbol.timer'))
                     .fontSize(24)
-                    .fontColor([this.sleepActive ? '#FFFFFF' : '#B8FFFFFF'])
+                    .fontColor([this.sleepActive ? this.im().textPrimary : this.im().textSecondary])
                 }
                 .width(44)
                 .height(44)
@@ -610,7 +610,7 @@ export struct NowPlayingPage {
                 Column() {
                   SymbolGlyph($r('sys.symbol.share'))
                     .fontSize(24)
-                    .fontColor(['#FFFFFF'])
+                    .fontColor([this.im().textPrimary])
                 }
                 .width(44)
                 .height(44)
@@ -623,7 +623,7 @@ export struct NowPlayingPage {
                 Column() {
                   SymbolGlyph($r('sys.symbol.music_note_list'))
                     .fontSize(24)
-                    .fontColor(['#FFFFFF'])
+                    .fontColor([this.im().textPrimary])
                 }
                 .width(44)
                 .height(44)
@@ -650,7 +650,7 @@ export struct NowPlayingPage {
                   : $r('app.media.ic_outline_favorite_24'))
                   .width(22)
                   .height(22)
-                  .fillColor(this.favorite ? Theme.danger(false) : '#FFFFFF')
+                  .fillColor(this.favorite ? Theme.danger(false) : this.im().textSecondary)
               }
               .width(44)
               .height(44)
@@ -661,6 +661,8 @@ export struct NowPlayingPage {
 
               PlayerControlButton({
                 icon: $r('app.media.round_skip_previous_24'),
+                tintOn: this.im().textPrimary,
+                tintOff: this.im().textSecondary,
                 label: '上一首',
                 onTap: () => PlayerManager.previous()
               })
@@ -668,6 +670,7 @@ export struct NowPlayingPage {
                 icon: this.status === PlaybackStatus.PLAYING
                   ? $r('app.media.round_pause_24')
                   : $r('app.media.round_play_arrow_24'),
+                tintOn: this.im().onPrimary,
                 active: true,
                 filled: true,
                 buttonSize: 52,
@@ -676,6 +679,8 @@ export struct NowPlayingPage {
               })
               PlayerControlButton({
                 icon: $r('app.media.round_skip_next_24'),
+                tintOn: this.im().textPrimary,
+                tintOff: this.im().textSecondary,
                 label: '下一首',
                 onTap: () => PlayerManager.next(false)
               })
@@ -684,7 +689,7 @@ export struct NowPlayingPage {
                 Image($r('app.media.ic_queue_music_24'))
                   .width(22)
                   .height(22)
-                  .fillColor('#FFFFFF')
+                  .fillColor(this.im().textPrimary)
               }
               .width(44)
               .height(44)
@@ -698,7 +703,7 @@ export struct NowPlayingPage {
             .width('100%')
             .padding({ top: 4, bottom: 4 })
             .justifyContent(FlexAlign.SpaceEvenly)
-            .backgroundColor('#33FFFFFF')
+            .backgroundColor(this.im().tagBg)
             .backgroundBlurStyle(BlurStyle.COMPONENT_THIN)
             .borderRadius(32)
             .margin({ left: 4, right: 4, bottom: 12 })
@@ -841,6 +846,9 @@ struct PlayerControlButton {
   // Transport buttons carry no text, so the label has to be supplied here or a
   // screen reader announces an anonymous button (device audit 2026-08-24).
   @Prop label: string = '';
+  // S2: icon tint comes from the immersive scheme (parent passes im() tokens).
+  @Prop tintOn: string = '#FFFFFF';
+  @Prop tintOff: string = '#B3FFFFFF';
   onTap: () => void = () => {};
 
   build() {
@@ -848,7 +856,7 @@ struct PlayerControlButton {
       Image(this.icon)
         .width(this.buttonSize >= 60 ? 34 : 24)
         .height(this.buttonSize >= 60 ? 34 : 24)
-        .fillColor(this.active ? '#FFFFFF' : '#B8FFFFFF')
+        .fillColor(this.active ? this.tintOn : this.tintOff)
     }
     .width(this.buttonSize)
     .height(this.buttonSize)
