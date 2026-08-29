@@ -2,12 +2,15 @@ import { SymbolGlyphModifier } from '@kit.ArkUI';
 import { SongItem } from '../../model/SongItem';
 import { LyricLine } from '../../model/LyricLine';
 import { QueueState } from '../../model/QueueState';
+import { SettingsRepository } from '../../data/SettingsRepository';
 import { LyricDispatcher } from '../../lyrics/LyricDispatcher';
+import { LyricIndexResolver } from '../../lyrics/LyricIndexResolver';
 import { LyricLineTracker } from '../../lyrics/LyricLineTracker';
 import { PlayerManager } from '../../player/PlayerManager';
 import { PlaybackStatus, RepeatMode } from '../../player/PlaybackConstants';
 import { Theme } from '../Theme';
 import { DynamicTheme } from '../theme/DynamicTheme';
+import { MotionSpec } from '../theme/MotionSpec';
 import { LyricView } from '../components/LyricView';
 import { WaveformSlider } from '../components/WaveformSlider';
 import { LyricShareSheet } from '../components/LyricShareSheet';
@@ -50,7 +53,13 @@ export struct NowPlayingPage {
   @StorageLink('player.favorite') favorite: boolean = false;
 
   @State lyrics: LyricLine[] = [];
-  @State showLyrics: boolean = true;
+  // Persisted, not local @State: np.show_lyrics is a user setting, and a local
+  // copy reset the view back to lyrics on every entry to this page while the
+  // stored preference was never read by anyone (static audit 2026-08-25).
+  @StorageProp('np.show_lyrics') showLyrics: boolean = true;
+  // Read for the share sheet's initial selection, which has to match the line
+  // LyricView is highlighting.
+  @StorageProp('np.lyric_offset_ms') lyricOffsetMs: number = 0;
   @State showQueue: boolean = false;
   @State showSleep: boolean = false;
   @State showShare: boolean = false;
@@ -80,6 +89,17 @@ export struct NowPlayingPage {
   @State bgOverUrl: string = '';
   @State bgOverOpacity: number = 0;
   private crossfadeToken: number = 0;
+  // Armed after the first build so the cover<->lyrics fade plays on toggle
+  // only, never on this page's own entry — ArkUI transition effects fire on
+  // initial mount too, while Android's AnimatedContent animates on state
+  // change only (NowPlayingScreen.kt:1756-1771).
+  @State contentTransitionArmed: boolean = false;
+
+  private contentTransition(): TransitionEffect {
+    return this.contentTransitionArmed
+      ? TransitionEffect.OPACITY.animation({ duration: MotionSpec.PAGE_FADE_MS, curve: Curve.Linear })
+      : TransitionEffect.IDENTITY;
+  }
 
   private song(): SongItem {
     return this.currentSongJson.length > 0 ? SongItem.fromJson(this.currentSongJson) : new SongItem();
@@ -95,6 +115,9 @@ export struct NowPlayingPage {
     this.bgOverUrl = '';
     this.bgOverOpacity = 0;
     await this.reloadSongData();
+    setTimeout(() => {
+      this.contentTransitionArmed = true;
+    }, 0);
   }
 
   private onSongJsonChanged(): void {
@@ -141,16 +164,14 @@ export struct NowPlayingPage {
     this.recomputeAccent();
   }
 
+  /**
+   * Line the share sheet should pre-select. Goes through the same resolver as
+   * LyricView and applies np.lyric_offset_ms: the previous hand-rolled scan
+   * ignored the offset, so with an offset configured the sheet opened on a
+   * different line than the one on screen.
+   */
   private currentLyricIndex(): number {
-    let index = -1;
-    for (let i = 0; i < this.lyrics.length; i++) {
-      if (this.lyrics[i].timeMs <= this.positionMs) {
-        index = i;
-      } else {
-        break;
-      }
-    }
-    return index;
+    return LyricIndexResolver.resolve(this.lyrics, this.positionMs + this.lyricOffsetMs, -1);
   }
 
   private async reloadSongData(): Promise<void> {
@@ -392,16 +413,24 @@ export struct NowPlayingPage {
         // must not depend on lyrics being available (Bilibili/LOCAL songs
         // often have no remote lyric source, Android shows an empty state).
         if (this.showLyrics) {
-          LyricView({
-            lyrics: this.lyrics,
-            onSeek: (timeMs: number) => PlayerManager.seekTo(timeMs),
-            // Lyric scrubbing previews the centered line's time in the shared
-            // label channel (same previewMs the waveform drag uses); playback
-            // itself is untouched until a line is tapped.
-            onScrubLine: (timeMs: number) => {
-              this.previewMs = timeMs;
-            }
-          })
+          // Wrapper Column: custom components cannot carry .transition
+          // directly. 300ms linear fade both ways, matching the Android
+          // cover<->lyrics AnimatedContent (tween 300 LinearEasing).
+          Column() {
+            LyricView({
+              lyrics: this.lyrics,
+              onSeek: (timeMs: number) => PlayerManager.seekTo(timeMs),
+              // Lyric scrubbing previews the centered line's time in the shared
+              // label channel (same previewMs the waveform drag uses); playback
+              // itself is untouched until a line is tapped.
+              onScrubLine: (timeMs: number) => {
+                this.previewMs = timeMs;
+              }
+            })
+          }
+          .width('100%')
+          .layoutWeight(1)
+          .transition(this.contentTransition())
         } else {
           Column() {
             Stack() {
@@ -467,6 +496,7 @@ export struct NowPlayingPage {
           }
           .layoutWeight(1)
           .width('100%')
+          .transition(this.contentTransition())
         }
 
         Column() {
@@ -564,8 +594,11 @@ export struct NowPlayingPage {
               .fontColor(this.showLyrics ? '#1A1A1A' : '#FFFFFF')
               .backgroundColor(this.showLyrics ? '#FFFFFF' : '#33FFFFFF')
               .borderRadius(16)
+              .accessibilityText(this.showLyrics ? '切换到封面' : '切换到歌词')
               .onClick(() => {
-                this.showLyrics = !this.showLyrics;
+                // Through the repository so the choice reaches AppPreferences;
+                // @StorageProp is read-only, the write has to go via the setter.
+                SettingsRepository.setBoolean(SettingsRepository.KEY_SHOW_LYRICS, !this.showLyrics);
               })
             Button('分享')
               .height(40)

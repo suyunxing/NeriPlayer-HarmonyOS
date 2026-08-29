@@ -3,6 +3,7 @@ import { LocalPlaylistRepository } from '../../data/LocalPlaylistRepository';
 import { DownloadEngine } from '../../download/DownloadEngine';
 import { Theme } from '../Theme';
 import { formatDuration, platformName } from './Ui';
+import { promptAction } from '@kit.ArkUI';
 
 @Component
 export struct SongRow {
@@ -134,9 +135,13 @@ export struct SongRow {
             onTap: () => this.toggleFavorite()
           })
           MenuItemRow({
-            label: '加入歌单',
+            label: '加入歌单（暂不可用）',
             onTap: () => {
               this.menuOpen = false;
+              // There is no playlist picker yet. Saying so beats closing the
+              // menu silently, which read as a broken button
+              // (registered in RELEASE_CHECKLIST.md §6).
+              promptAction.openToast({ message: '加入歌单待移植，当前可用「收藏」' });
             }
           })
           MenuItemRow({
@@ -144,9 +149,10 @@ export struct SongRow {
             onTap: () => this.download()
           })
           MenuItemRow({
-            label: '分享',
+            label: '分享（暂不可用）',
             onTap: () => {
               this.menuOpen = false;
+              promptAction.openToast({ message: '分享歌曲待移植，播放页「分享」可生成歌词卡片' });
             }
           })
         }

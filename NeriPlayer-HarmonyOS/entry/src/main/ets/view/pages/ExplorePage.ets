@@ -1,4 +1,4 @@
-import { LengthMetrics } from '@kit.ArkUI';
+import { LengthMetrics, promptAction } from '@kit.ArkUI';
 import { SongItem } from '../../model/SongItem';
 import { NeteaseApi } from '../../network/NeteaseApi';
 import { BiliApi } from '../../network/BiliApi';
@@ -29,6 +29,9 @@ export struct ExplorePage {
   /** 常驻 Tab 页的显式刷新钩子，详见 HomePage 同名成员。 */
   @StorageProp('np.default_start_tab') activeTab: number = 0;
   @StorageProp('ui.refreshTick') @Watch('onRefreshTick') refreshTick: number = 0;
+
+  // Target for focusControl.requestFocus when the "搜索歌曲" card is tapped.
+  private static readonly SEARCH_INPUT_ID: string = 'explore_search_input';
 
   async aboutToAppear(): Promise<void> {
     await this.reload();
@@ -145,6 +148,7 @@ export struct ExplorePage {
           .layoutWeight(1)
           .height(42)
           .fontSize(14)
+          .id(ExplorePage.SEARCH_INPUT_ID)
           .onChange((value: string) => {
             this.query = value;
           })
@@ -204,7 +208,15 @@ export struct ExplorePage {
       if (this.loading) {
         LoadingState()
       } else if (this.error.length > 0) {
-        EmptyState({ icon: '!', title: this.error })
+        // The bare EmptyState left a dead end on a failed/offline search.
+        Column({ space: 4 }) {
+          EmptyState({ icon: '!', title: this.error })
+          Button('重新搜索')
+            .height(40)
+            .fontSize(14)
+            .onClick(() => this.search())
+        }
+        .width('100%')
       } else if (this.searched && this.results.length > 0) {
         List() {
           ForEach(this.results, (item: SongItem, index: number) => {
@@ -247,6 +259,11 @@ export struct ExplorePage {
           .padding(14)
           .backgroundColor(Theme.surface(Theme.isDark()))
           .borderRadius(Theme.cardRadius())
+          // The card carried a › affordance but no handler, so it read as a
+          // broken button. It now does what its label says: focus the field.
+          .onClick(() => {
+            focusControl.requestFocus(ExplorePage.SEARCH_INPUT_ID);
+          })
 
           Row({ space: 12 }) {
             Image($r('app.media.ic_queue_music_24'))
@@ -258,7 +275,7 @@ export struct ExplorePage {
                 .fontSize(15)
                 .fontWeight(FontWeight.Medium)
                 .fontColor(Theme.textPrimary(Theme.isDark()))
-              Text('查找网易云歌单与 Bilibili 收藏夹')
+              Text('待移植；可在「资料库」打开已导入的歌单与收藏夹')
                 .fontSize(12)
                 .fontColor(Theme.textSecondary(Theme.isDark()))
             }
@@ -272,6 +289,12 @@ export struct ExplorePage {
           .padding(14)
           .backgroundColor(Theme.surface(Theme.isDark()))
           .borderRadius(Theme.cardRadius())
+          // No playlist-search API is wired up, and both playlist routes need a
+          // concrete id, so there is nothing honest to navigate to yet. Say so
+          // rather than stay silent (registered in RELEASE_CHECKLIST.md §6).
+          .onClick(() => {
+            promptAction.openToast({ message: '歌单搜索待移植，请在「资料库」打开已导入的歌单' });
+          })
         }
         .width('100%')
         // md/lg 下这两张引导卡只占顶部一小条，下面整块都是空白。撑满剩余高度

@@ -123,7 +123,10 @@ export struct DownloadsPage {
           ForEach(this.tasks, (task: DownloadTask) => {
             ListItem() {
               Row({ space: 12 }) {
-                Stack() {
+                // TopEnd + fixed margin rather than a percentage .position():
+                // percentages resolve against the Stack's measured width, which
+                // grows with the system font scale (M9.3 ruling).
+                Stack({ alignContent: Alignment.TopEnd }) {
                   if (task.song.effectiveCoverUrl.length > 0) {
                     Image(task.song.effectiveCoverUrl)
                       .width(50)
@@ -148,9 +151,11 @@ export struct DownloadsPage {
                       .textAlign(TextAlign.Center)
                       .backgroundColor(Theme.success(Theme.isDark()))
                       .borderRadius(10)
-                      .position({ x: '70%', y: '2%' })
+                      .margin({ top: 2, right: 2 })
                   }
                 }
+                .width(50)
+                .height(50)
 
                 Column({ space: 4 }) {
                   Text(task.song.displayName)
