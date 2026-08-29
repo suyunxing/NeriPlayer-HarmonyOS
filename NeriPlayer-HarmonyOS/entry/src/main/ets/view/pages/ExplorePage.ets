@@ -7,6 +7,7 @@ import { NetworkStatus } from '../../util/NetworkStatus';
 import { SearchHistoryRepository } from '../../data/SearchHistoryRepository';
 import { UsageRepository } from '../../data/UsageRepository';
 import { PlayerManager } from '../../player/PlayerManager';
+import { Router } from '../Router';
 import { Theme } from '../Theme';
 import { BAND_LIST_VP, BP_LG, BP_MD } from '../../util/Breakpoint';
 import { SongRow } from '../components/SongRow';
@@ -89,6 +90,7 @@ export struct ExplorePage {
   private async play(index: number): Promise<void> {
     const songs = this.results;
     await PlayerManager.playPlaylist(songs, index);
+    Router.push(Router.NOW_PLAYING);
     const song = songs[index];
     if (song !== undefined) {
       await UsageRepository.record({

@@ -230,6 +230,7 @@ export struct NeteasePlaylistPage {
                       onPlay: () => {
                         if (this.overview !== null) {
                           PlayerManager.playPlaylist(this.overview.songs, index);
+                          Router.push(Router.NOW_PLAYING);
                         }
                       }
                     })
