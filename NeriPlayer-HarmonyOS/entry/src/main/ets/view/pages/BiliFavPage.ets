@@ -6,6 +6,7 @@ import { BiliApi } from '../../network/BiliApi';
 import { BiliFavFolderSummary, biliFavMediaToSongItem } from '../../network/BiliFavParser';
 import { PlayerManager } from '../../player/PlayerManager';
 import { Theme } from '../Theme';
+import { AccentScheme } from '../theme/AccentScheme';
 import { SongRow } from '../components/SongRow';
 import { EmptyState, LoadingState } from '../components/Ui';
 import { Router } from '../Router';
@@ -20,6 +21,12 @@ const IMPORT_CAP: number = 500;
  */
 @Component
 export struct BiliFavPage {
+  /**
+   * S5: 订阅封面配色。Theme.*() 读 AppStorage 是无跟踪调用（M7.4），换歌后
+   * 坐在本页的组件不会重建；有了这个成员并在 build 里经 schemeBg() 直读，
+   * scheme 一发布本页就随新配色重染。
+   */
+  @StorageProp('player.coverScheme') coverScheme: AccentScheme = AccentScheme.neutralFallback();
   /** 由 MainShell 的 navDestination builder 从路由参数传入。 */
   @Prop favParam: string = '';
   @State info: BiliFavFolderSummary | null = null;
@@ -153,6 +160,13 @@ export struct BiliFavPage {
     this.importing = false;
   }
 
+
+
+  /** build 里直读被跟踪成员注册依赖；颜色本身仍由 Theme 统一决策。 */
+  private schemeBg(dark: boolean): string {
+    const hasScheme = this.coverScheme.light.background.length > 0;
+    return hasScheme ? Theme.background(dark) : Theme.background(dark);
+  }
 
   build() {
     Stack() {
@@ -316,6 +330,6 @@ export struct BiliFavPage {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor(Theme.background(Theme.isDark()))
+    .backgroundColor(this.schemeBg(Theme.isDark()))
   }
 }

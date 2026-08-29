@@ -9,6 +9,7 @@ import { NetworkStatus } from '../../util/NetworkStatus';
 import { PlayerManager } from '../../player/PlayerManager';
 import { Router } from '../Router';
 import { Theme } from '../Theme';
+import { AccentScheme } from '../theme/AccentScheme';
 import { BAND_LIST_VP, BP_LG, BP_MD } from '../../util/Breakpoint';
 import { SectionHeader, EmptyState, LoadingState, PlaylistCard, ContentBand , FLOAT_TAB_CLEARANCE } from '../components/Ui';
 
@@ -18,6 +19,12 @@ const TAB_INDEX: number = 0;
 
 @Component
 export struct HomePage {
+  /**
+   * S5: 订阅封面配色。Theme.*() 读 AppStorage 是无跟踪调用（M7.4），换歌后
+   * 坐在本页的组件不会重建；有了这个成员并在 build 里经 schemeBg() 直读，
+   * scheme 一发布本页就随新配色重染。
+   */
+  @StorageProp('player.coverScheme') coverScheme: AccentScheme = AccentScheme.neutralFallback();
   @State usage: UsageEntry[] = [];
   @State localPlaylists: Playlist[] = [];
   @State recentSongs: SongItem[] = [];
@@ -172,6 +179,13 @@ export struct HomePage {
     .alignItems(VerticalAlign.Center)
     .onClick(() => Router.push(Router.NETEASE_PLAYLIST, `${item.id}`))
     .clickEffect({ level: ClickEffectLevel.LIGHT })
+  }
+
+
+  /** build 里直读被跟踪成员注册依赖；颜色本身仍由 Theme 统一决策。 */
+  private schemeBg(dark: boolean): string {
+    const hasScheme = this.coverScheme.light.background.length > 0;
+    return hasScheme ? Theme.background(dark) : Theme.background(dark);
   }
 
   build() {
@@ -423,6 +437,6 @@ export struct HomePage {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor(Theme.background(Theme.isDark()))
+    .backgroundColor(this.schemeBg(Theme.isDark()))
   }
 }

@@ -10,6 +10,11 @@ import { platformName } from './Ui';
 
 @Component
 export struct MiniPlayer {
+  /**
+   * S5 修复：官方 HdsTabsMiniBar 槽位高度有限，嵌入时用紧凑形态
+   * （去进度条、48vp 行、去外边距），独立悬浮形态才用完整卡片。
+   */
+  @Prop compact: boolean = false;
   @StorageLink('player.currentSong') currentSongJson: string = '';
   @StorageLink('player.status') @Watch('onStatusChanged') status: number = PlaybackStatus.IDLE;
   /** ReplaceSymbolEffect 触发计数：播放/暂停切换时 +1 驱动交叉淡入。 */
@@ -51,28 +56,31 @@ export struct MiniPlayer {
 
   build() {
     Column() {
-      // Progress 的 total 不给就是 100，原来喂进去的是 0..1 的比例，播到一半也只
-      // 有 0.5% 的填充（tablet 上像素采样实测：播放 11% 时整条都是轨道色）。改成
-      // 直接把毫秒喂给 value/total，单位自洽（同 DownloadsPage 的 value+total 写法）。
-      Progress({
-        value: this.positionMs,
-        total: this.durationMs > 0 ? this.durationMs : 1,
-        type: ProgressType.Linear
-      })
-        .width('100%')
-        .height(2)
-        .color(this.seedHex.length > 0
-          ? Theme.primaryFor(this.seedHex, Theme.isDark())
-          : Theme.primary(Theme.isDark()))
-        .backgroundColor('#22000000')
+      if (!this.compact) {
+        // Progress 的 total 不给就是 100，原来喂进去的是 0..1 的比例，播到一半也只
+        // 有 0.5% 的填充（tablet 上像素采样实测：播放 11% 时整条都是轨道色）。改成
+        // 直接把毫秒喂给 value/total，单位自洽（同 DownloadsPage 的 value+total 写法）。
+        // 紧凑形态（HdsTabsMiniBar 槽位）没有这条高度，进度看播放页波形条。
+        Progress({
+          value: this.positionMs,
+          total: this.durationMs > 0 ? this.durationMs : 1,
+          type: ProgressType.Linear
+        })
+          .width('100%')
+          .height(2)
+          .color(this.seedHex.length > 0
+            ? Theme.primaryFor(this.seedHex, Theme.isDark())
+            : Theme.primary(Theme.isDark()))
+          .backgroundColor('#22000000')
+      }
 
-      Row({ space: 12 }) {
+      Row({ space: this.compact ? 10 : 12 }) {
         Stack() {
           if (this.song().effectiveCoverUrl.length > 0) {
             Image(this.song().effectiveCoverUrl)
-              .width(44)
-              .height(44)
-              .borderRadius(8)
+              .width(this.compact ? 38 : 44)
+              .height(this.compact ? 38 : 44)
+              .borderRadius(this.compact ? 19 : 8)
               .objectFit(ImageFit.Cover)
               // S6 一镜到底：与播放页封面共享元素（打断保护靠 .id()）。
               .geometryTransition('np.cover')
@@ -155,8 +163,8 @@ export struct MiniPlayer {
         })
       }
       .width('100%')
-      .height(60)
-      .padding({ left: 12, right: 8 })
+      .height(this.compact ? 48 : 60)
+      .padding({ left: this.compact ? 8 : 12, right: this.compact ? 4 : 8 })
       .onClick(() => {
         // 一镜到底：push 放进 animateTo 闭包并关闭单次系统转场，
         // geometryTransition('np.cover') 接管封面过渡（官方共享元素范式）。
@@ -199,9 +207,9 @@ export struct MiniPlayer {
     .width('100%')
     .backgroundColor(this.glassEffect ? Theme.surfaceGlass(Theme.isDark()) : Theme.surface(Theme.isDark()))
     .backgroundBlurStyle(this.glassEffect ? BlurStyle.COMPONENT_THICK : BlurStyle.NONE)
-    .borderRadius(16)
+    .borderRadius(this.compact ? 24 : 16)
     .clip(true)
-    .margin({ left: 10, right: 10, bottom: 8 })
-    .shadow({ radius: 12, color: '#22000000', offsetY: 2 })
+    .margin(this.compact ? { left: 0, right: 0, bottom: 0 } : { left: 10, right: 10, bottom: 8 })
+    .shadow(this.compact ? { radius: 0, color: '#00000000' } : { radius: 12, color: '#22000000', offsetY: 2 })
   }
 }

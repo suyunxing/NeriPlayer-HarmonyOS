@@ -5,6 +5,7 @@ import { AppColorMode } from '../../util/AppColorMode';
 import { SystemBars } from '../../util/SystemBars';
 import { Router } from '../Router';
 import { Theme } from '../Theme';
+import { AccentScheme } from '../theme/AccentScheme';
 import { ContentBand, OptionEntry, OptionRow, SettingRow, ToggleRow , FLOAT_TAB_CLEARANCE } from '../components/Ui';
 import { BAND_LIST_VP } from '../../util/Breakpoint';
 import { LEGAL_AGREEMENT, LEGAL_PRIVACY } from './LegalDocPage';
@@ -22,6 +23,12 @@ export const SETTING_ABOUT: string = 'about';
 
 @Component
 export struct SettingsPage {
+  /**
+   * S5: 订阅封面配色。Theme.*() 读 AppStorage 是无跟踪调用（M7.4），换歌后
+   * 坐在本页的组件不会重建；有了这个成员并在 build 里经 schemeBg() 直读，
+   * scheme 一发布本页就随新配色重染。
+   */
+  @StorageProp('player.coverScheme') coverScheme: AccentScheme = AccentScheme.neutralFallback();
   @StorageProp('np.dark_mode') darkMode: string = 'auto';
   @StorageProp('np.youtube_enabled') youtubeEnabled: boolean = true;
   @StorageProp('np.dev_mode') devMode: boolean = false;
@@ -58,6 +65,13 @@ export struct SettingsPage {
       // 系统栏内容色仍显式跟一次：setColorMode 抛错时这里是兜底。
       SystemBars.apply(context, Theme.isDark());
     }
+  }
+
+
+  /** build 里直读被跟踪成员注册依赖；颜色本身仍由 Theme 统一决策。 */
+  private schemeBg(dark: boolean): string {
+    const hasScheme = this.coverScheme.light.background.length > 0;
+    return hasScheme ? Theme.background(dark) : Theme.background(dark);
   }
 
   build() {
@@ -250,6 +264,6 @@ export struct SettingsPage {
     .align(Alignment.Top)
     .width('100%')
     .height('100%')
-    .backgroundColor(Theme.background(Theme.isDark()))
+    .backgroundColor(this.schemeBg(Theme.isDark()))
   }
 }

@@ -1,4 +1,6 @@
 import { Theme } from '../Theme';
+import { AccentScheme } from '../theme/AccentScheme';
+
 import { Playlist } from '../../model/Playlist';
 import { MusicPlatform } from '../../model/MusicPlatform';
 import { iconForLegacy } from '../../util/IconCatalog';
@@ -18,10 +20,21 @@ export const FLOAT_TAB_CLEARANCE: number = 136;
 
 @Component
 export struct SectionHeader {
+  /**
+   * S5: 订阅封面配色（M7.4：build 里读成员才追得上换歌重染色）。
+   */
+  @StorageProp('player.coverScheme') coverScheme: AccentScheme = AccentScheme.neutralFallback();
+
   @Prop title: string;
   @Prop icon: string = '';
   @Prop iconResource: Resource = $r('app.media.ic_music_note_24');
   @Prop showIcon: boolean = false;
+
+  /** build 里直读被跟踪成员注册依赖；颜色仍由 Theme 统一决策。 */
+  private schemePrimary(): string {
+    const hasScheme = this.coverScheme.light.background.length > 0;
+    return hasScheme ? Theme.primary(Theme.isDark()) : Theme.primary(Theme.isDark());
+  }
 
   build() {
     Row({ space: 8 }) {
@@ -34,7 +47,7 @@ export struct SectionHeader {
         Image(iconForLegacy(this.icon, this.iconResource))
           .width(20)
           .height(20)
-          .fillColor(Theme.primary(Theme.isDark()))
+          .fillColor(this.schemePrimary())
       }
       Text(this.title)
         .fontSize(22)
@@ -105,12 +118,22 @@ export struct LoadingState {
 
 @Component
 export struct PlaylistCard {
+  /**
+   * S5: 订阅封面配色（M7.4：build 里读成员才追得上换歌重染色）。
+   */
+  @StorageProp('player.coverScheme') coverScheme: AccentScheme = AccentScheme.neutralFallback();
+
   @Prop name: string;
   @Prop subtitle: string = '';
   @Prop coverUrl: string = '';
   @Prop trackCount: number = 0;
   @Prop isFavorite: boolean = false;
   onOpen: () => void = () => {};
+
+  private schemeSurface(): string {
+    const hasScheme = this.coverScheme.light.background.length > 0;
+    return hasScheme ? Theme.surface(Theme.isDark()) : Theme.surface(Theme.isDark());
+  }
 
   build() {
     Column({ space: 6 }) {
@@ -166,11 +189,17 @@ export struct PlaylistCard {
     }
     .onClick(() => this.onOpen())
     .clickEffect({ level: ClickEffectLevel.LIGHT })
+    .backgroundColor(this.schemeSurface())
   }
 }
 
 @Component
 export struct SettingRow {
+  /**
+   * S5: 订阅封面配色（M7.4：build 里读成员才追得上换歌重染色）。
+   */
+  @StorageProp('player.coverScheme') coverScheme: AccentScheme = AccentScheme.neutralFallback();
+
   @Prop title: string;
   @Prop subtitle: string = '';
   @Prop icon: string = '';
@@ -180,6 +209,11 @@ export struct SettingRow {
   @Prop danger: boolean = false;
   @Prop tintIcon: boolean = true;
   onTap: () => void = () => {};
+
+  private schemeSurface(): string {
+    const hasScheme = this.coverScheme.light.background.length > 0;
+    return hasScheme ? Theme.surface(Theme.isDark()) : Theme.surface(Theme.isDark());
+  }
 
   build() {
     Row({ space: 12 }) {
@@ -234,7 +268,7 @@ export struct SettingRow {
     }
     .width('100%')
     .padding({ left: 16, right: 16, top: 12, bottom: 12 })
-    .backgroundColor(Theme.surface(Theme.isDark()))
+    .backgroundColor(this.schemeSurface())
     .onClick(() => this.onTap())
     .clickEffect({ level: ClickEffectLevel.LIGHT })
   }
