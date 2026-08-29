@@ -37,14 +37,14 @@ export struct SectionHeader {
           .fillColor(Theme.primary(Theme.isDark()))
       }
       Text(this.title)
-        .fontSize(18)
+        .fontSize(22)
         .fontWeight(FontWeight.Bold)
         .fontColor(Theme.textPrimary(Theme.isDark()))
         .maxLines(1)
         .textOverflow({ overflow: TextOverflow.Ellipsis })
     }
     .width('100%')
-    .padding({ top: 6, bottom: 6 })
+    .padding({ top: 10, bottom: 8 })
   }
 }
 
@@ -165,6 +165,7 @@ export struct PlaylistCard {
       }
     }
     .onClick(() => this.onOpen())
+    .clickEffect({ level: ClickEffectLevel.LIGHT })
   }
 }
 
@@ -235,6 +236,7 @@ export struct SettingRow {
     .padding({ left: 16, right: 16, top: 12, bottom: 12 })
     .backgroundColor(Theme.surface(Theme.isDark()))
     .onClick(() => this.onTap())
+    .clickEffect({ level: ClickEffectLevel.LIGHT })
   }
 }
 
