@@ -60,6 +60,7 @@ import dynamicThemeTest from './ets/test/DynamicTheme.test';
 import ttmlParserTest from './ets/test/TtmlParser.test';
 import amllLyricsResolverTest from './ets/test/AmllLyricsResolver.test';
 import lyricLineTrackerTest from './ets/test/LyricLineTracker.test';
+import lyricIndexResolverTest from './ets/test/LyricIndexResolver.test';
 import diagnosticsTest from './ets/test/Diagnostics.test';
 import routeStackTest from './ets/test/RouteStack.test';
 import breakpointTest from './ets/test/Breakpoint.test';
@@ -67,6 +68,7 @@ import playbackSpeedMapTest from './ets/test/PlaybackSpeedMap.test';
 import lyricScrollMathTest from './ets/test/LyricScrollMath.test';
 import shareLinksTest from './ets/test/ShareLinks.test';
 import albumSongsTest from './ets/test/AlbumSongs.test';
+import motionSpecTest from './ets/test/MotionSpec.test';
 
 export default function testsuite(): void {
   lrcParserTest();
@@ -131,6 +133,7 @@ export default function testsuite(): void {
   ttmlParserTest();
   amllLyricsResolverTest();
   lyricLineTrackerTest();
+  lyricIndexResolverTest();
   diagnosticsTest();
   routeStackTest();
   breakpointTest();
@@ -138,4 +141,5 @@ export default function testsuite(): void {
   lyricScrollMathTest();
   shareLinksTest();
   albumSongsTest();
+  motionSpecTest();
 }

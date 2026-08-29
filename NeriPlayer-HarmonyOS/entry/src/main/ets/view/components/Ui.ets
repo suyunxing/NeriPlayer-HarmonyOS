@@ -106,7 +106,11 @@ export struct PlaylistCard {
 
   build() {
     Column({ space: 6 }) {
-      Stack() {
+      // TopEnd + fixed margin rather than a percentage .position(): percentages
+      // resolve against the Stack's *measured* width, which grows with the
+      // system font scale and drifted the badge off the cover corner. Same fix
+      // as the SongRow index badge (M9.3).
+      Stack({ alignContent: Alignment.TopEnd }) {
         if (this.coverUrl.length > 0) {
           Image(this.coverUrl)
             .width('100%')
@@ -135,7 +139,7 @@ export struct PlaylistCard {
             .padding(5)
             .backgroundColor(Theme.scrim(Theme.isDark()))
             .borderRadius(8)
-            .position({ x: '82%', y: '3%' })
+            .margin({ top: 6, right: 6 })
         }
       }
       .width('100%')

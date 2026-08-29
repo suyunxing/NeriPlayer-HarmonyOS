@@ -18,6 +18,7 @@ export struct PlaylistDetailPage {
   @State history: SongItem[] = [];
   @State showAddDialog: boolean = false;
   @State showRenameDialog: boolean = false;
+  @State showDeleteConfirm: boolean = false;
   @State renameValue: string = '';
 
   private isFavorites(): boolean {
@@ -66,7 +67,16 @@ export struct PlaylistDetailPage {
     await this.reload();
   }
 
+  /** Confirmation copy for the delete; there is no recycle bin to undo it. */
+  private deleteWarning(): string {
+    const playlist = this.playlist;
+    const name = playlist !== null ? playlist.name : '';
+    const count = playlist !== null ? playlist.songs.length : 0;
+    return `歌单「${name}」及其 ${count} 首歌曲记录将被删除，此操作无法撤销。`;
+  }
+
   private async deletePlaylist(): Promise<void> {
+    this.showDeleteConfirm = false;
     if (this.isFavorites()) {
       return;
     }
@@ -337,7 +347,12 @@ export struct PlaylistDetailPage {
               .width('100%')
               .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
               .fontColor(Theme.danger(Theme.isDark()))
-              .onClick(() => this.deletePlaylist())
+              .onClick(() => {
+                // Destructive and irreversible, so it now opens a confirmation
+                // instead of deleting on the first tap (static audit 2026-08-25).
+                this.showRenameDialog = false;
+                this.showDeleteConfirm = true;
+              })
           }
           .width('86%')
           .padding(20)
@@ -350,6 +365,46 @@ export struct PlaylistDetailPage {
         .backgroundColor(Theme.scrim(Theme.isDark()))
         .onClick(() => {
           this.showRenameDialog = false;
+        })
+      }
+
+      if (this.showDeleteConfirm) {
+        Column() {
+          Column({ space: 12 }) {
+            Text('删除歌单')
+              .fontSize(17)
+              .fontWeight(FontWeight.Bold)
+              .fontColor(Theme.textPrimary(Theme.isDark()))
+            Text(this.deleteWarning())
+              .fontSize(13)
+              .fontColor(Theme.textSecondary(Theme.isDark()))
+              .width('100%')
+            Row({ space: 12 }) {
+              Button('取消')
+                .layoutWeight(1)
+                .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+                .fontColor(Theme.textPrimary(Theme.isDark()))
+                .onClick(() => {
+                  this.showDeleteConfirm = false;
+                })
+              Button('删除')
+                .layoutWeight(1)
+                .backgroundColor(Theme.danger(Theme.isDark()))
+                .onClick(() => this.deletePlaylist())
+            }
+            .width('100%')
+          }
+          .width('86%')
+          .padding(20)
+          .backgroundColor(Theme.surface(Theme.isDark()))
+          .borderRadius(18)
+        }
+        .width('100%')
+        .height('100%')
+        .justifyContent(FlexAlign.Center)
+        .backgroundColor(Theme.scrim(Theme.isDark()))
+        .onClick(() => {
+          this.showDeleteConfirm = false;
         })
       }
     }

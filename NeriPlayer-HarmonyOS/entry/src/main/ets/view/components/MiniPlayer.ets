@@ -4,6 +4,8 @@ import { PlayerManager } from '../../player/PlayerManager';
 import { Router } from '../Router';
 import { Theme } from '../Theme';
 import { platformName } from './Ui';
+import { MotionSpec } from '../theme/MotionSpec';
+import { MotionCurves } from '../theme/MotionCurves';
 
 @Component
 export struct MiniPlayer {
@@ -21,6 +23,10 @@ export struct MiniPlayer {
   // visual offset eased with exponential resistance peaking at 52vp).
   @State swipeOffset: number = 0;
   @State swiping: boolean = false;
+  // Invalidates the onFinish chain of a release animation that a newer
+  // gesture/release has interrupted, so a stale stage-two or track switch
+  // never fires into unrelated state.
+  private releaseGeneration: number = 0;
 
   private static readonly SWIPE_TRIGGER_VP = 72;
   private static readonly SWIPE_MAX_OFFSET_VP = 52;
@@ -29,6 +35,51 @@ export struct MiniPlayer {
     const direction = rawOffset >= 0 ? 1 : -1;
     const magnitude = MiniPlayer.SWIPE_MAX_OFFSET_VP * (1 - Math.exp(-Math.abs(rawOffset) / 160));
     return direction * magnitude;
+  }
+
+  /**
+   * Two-stage release, porting NeriMiniPlayer.animateSwipeRelease: flick to
+   * ±52vp over 120ms, fall back to 0 over 180ms, and switch the track only
+   * after both stages complete — Android fires onPrevious/onNext from the
+   * coroutine's end, after the whole motion.
+   */
+  private animateSwipeRelease(direction: number, onCompleted: () => void): void {
+    this.releaseGeneration += 1;
+    const generation = this.releaseGeneration;
+    animateTo({
+      duration: MotionSpec.SWIPE_RELEASE_STAGE_MS,
+      curve: MotionCurves.fastOutSlowIn(),
+      onFinish: () => {
+        if (generation !== this.releaseGeneration) {
+          return;
+        }
+        animateTo({
+          duration: MotionSpec.SWIPE_RELEASE_RETURN_MS,
+          curve: MotionCurves.fastOutSlowIn(),
+          onFinish: () => {
+            if (generation === this.releaseGeneration) {
+              onCompleted();
+            }
+          }
+        }, () => {
+          this.swipeOffset = 0;
+          this.swiping = false;
+        });
+      }
+    }, () => {
+      // swiping stays true through stage one: the 0.975 grip scale matches
+      // Android's offsetRatio peak (52/52) at the flick apex.
+      this.swipeOffset = direction * MiniPlayer.SWIPE_MAX_OFFSET_VP;
+    });
+  }
+
+  /** Under-threshold or cancelled drag: plain spring-back to rest (Android 160ms tween). */
+  private animateSwipeReturn(durationMs: number): void {
+    this.releaseGeneration += 1;
+    animateTo({ duration: durationMs, curve: MotionCurves.fastOutSlowIn() }, () => {
+      this.swipeOffset = 0;
+      this.swiping = false;
+    });
   }
 
   private song(): SongItem {
@@ -149,26 +200,23 @@ export struct MiniPlayer {
         PanGesture({ fingers: 1, direction: PanDirection.Horizontal, distance: 12 })
           .onActionStart(() => {
             this.swiping = true;
+            // A new finger invalidates any release animation still flying.
+            this.releaseGeneration += 1;
           })
           .onActionUpdate((event: GestureEvent) => {
             this.swipeOffset = this.resistedOffset(event.offsetX);
           })
           .onActionEnd((event: GestureEvent) => {
             if (event.offsetX >= MiniPlayer.SWIPE_TRIGGER_VP) {
-              PlayerManager.previous();
+              this.animateSwipeRelease(1, () => PlayerManager.previous());
             } else if (event.offsetX <= -MiniPlayer.SWIPE_TRIGGER_VP) {
-              PlayerManager.next(false);
+              this.animateSwipeRelease(-1, () => PlayerManager.next(false));
+            } else {
+              this.animateSwipeReturn(MotionSpec.SWIPE_CANCEL_MS);
             }
-            animateTo({ duration: 180, curve: Curve.Friction }, () => {
-              this.swipeOffset = 0;
-              this.swiping = false;
-            });
           })
           .onActionCancel(() => {
-            animateTo({ duration: 180, curve: Curve.Friction }, () => {
-              this.swipeOffset = 0;
-              this.swiping = false;
-            });
+            this.animateSwipeReturn(MotionSpec.SWIPE_CANCEL_MS);
           })
       )
       .translate({ x: this.swipeOffset })

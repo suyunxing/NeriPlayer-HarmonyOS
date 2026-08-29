@@ -2,13 +2,18 @@ import { curves } from '@kit.ArkUI';
 import { LyricLine, LyricWord } from '../../model/LyricLine';
 import { LyricLineLayout, LyricScrollMath } from '../../lyrics/LyricScrollMath';
 import { Theme } from '../Theme';
+import { MotionSpec } from '../theme/MotionSpec';
+import { MotionCurves } from '../theme/MotionCurves';
 
 const LYRIC_OFFSET_STORAGE_KEY = 'np.lyric_offset_ms';
 const LYRIC_TRANSLATION_STORAGE_KEY = 'np.lyric_translation';
 const LYRIC_PHONETIC_STORAGE_KEY = 'np.lyric_phonetic';
 const LYRIC_FONT_SIZE_STORAGE_KEY = 'np.lyric_font_size';
+const LYRIC_BLUR_STORAGE_KEY = 'np.lyric_blur';
 
 const LINE_SPACING = 10;
+/** Ceiling for the distance-based blur of inactive lines, in vp (M11.2 perf ceiling, kept on top of the Android multiplier curve). */
+const MAX_INACTIVE_BLUR_VP = 4;
 /** How long a user-dragged line stays centered before re-syncing (spec: 2s). */
 const USER_HOLD_REVERT_MS = 2000;
 /** HarmonyOS physical spring for the auto-follow; duration is auto-derived. */
@@ -41,6 +46,11 @@ export struct LyricView {
   @StorageProp(LYRIC_TRANSLATION_STORAGE_KEY) lyricTranslation: boolean = true;
   @StorageProp(LYRIC_PHONETIC_STORAGE_KEY) lyricPhonetic: boolean = false;
   @StorageProp(LYRIC_FONT_SIZE_STORAGE_KEY) lyricFontSize: number = 16;
+  // np.lyric_blur shipped with a switch and a subtitle but no consumer anywhere
+  // in main/ets. Inactive lines blur by distance from the active one, matching
+  // Android's AdvancedLyricsView.lyricBlurEnabled. (Blurring the *active* line
+  // would blur the line being read, so it is explicitly excluded below.)
+  @StorageProp(LYRIC_BLUR_STORAGE_KEY) lyricBlur: boolean = true;
 
   @State viewportHeight: number = 0;
   @State scrubIndex: number = -1;
@@ -333,7 +343,11 @@ export struct LyricView {
                     ? Theme.primary(Theme.isDark())
                     : Theme.textSecondary(Theme.isDark()))
                   .fontWeight(index === this.activeIndex() ? FontWeight.Bold : FontWeight.Normal)
-                  .animation({ duration: 250, curve: Curve.EaseOut })
+                  // Same spring as the row's scale/opacity/blur below, not a
+                  // separate 250ms ease: on two curves the text finished growing
+                  // while the row was still settling. Android moves fontSize,
+                  // color, scale, alpha and blur as one motion.
+                  .animation({ curve: MotionCurves.lyricRowSpring() })
                   .textAlign(TextAlign.Center)
                   .width('100%')
               }
@@ -352,6 +366,28 @@ export struct LyricView {
                   .width('100%')
               }
             }
+            // Transform-only attributes: scale/opacity/blur do not affect
+            // layout, so the measured rowHeights stay valid while they animate.
+            // The ramps port SyncedLyricsView's distance curves; the values are
+            // Android-locked in MotionSpec and asserted by MotionSpec.test.ets.
+            // Math.abs(): the ramps are symmetric about the active line, and
+            // MotionSpec reads distance <= 0 as "this *is* the active row", so a
+            // signed distance would leave every line above it at full
+            // scale/opacity.
+            .scale({
+              x: MotionSpec.lyricScaleForDistance(Math.abs(index - this.activeIndex())),
+              y: MotionSpec.lyricScaleForDistance(Math.abs(index - this.activeIndex()))
+            })
+            .opacity(MotionSpec.lyricAlphaForDistance(Math.abs(index - this.activeIndex()), this.lyricBlur))
+            .blur(this.lyricBlur && this.activeIndex() >= 0 && index !== this.activeIndex()
+              ? Math.min(MAX_INACTIVE_BLUR_VP,
+                MotionSpec.LYRIC_BLUR_BASE_VP
+                  * MotionSpec.lyricBlurMultiplierForDistance(Math.abs(index - this.activeIndex())))
+              : 0)
+            // Springs the three ramps instead of snapping them, the counterpart
+            // of Android's spring(StiffnessLow, dampingRatio 0.85) over the same
+            // values. Placed after them so it covers exactly those attributes.
+            .animation({ curve: MotionCurves.lyricRowSpring() })
             .onClick(() => this.handleLineTap(line))
             .onAreaChange((_oldArea: Area, newArea: Area) => this.onRowMeasured(index, Number(newArea.height)))
           }, (line: LyricLine) => `${line.timeMs}_${line.text}`)
