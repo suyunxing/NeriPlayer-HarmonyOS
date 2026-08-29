@@ -149,6 +149,10 @@ repaints could not be proven statically; if the probe fails, the fallback is a s
 
 `NowPlayingPage` 第三个冲突是**两边合并**：dev 的 `onScrubLine` 拖动预览包进 ch 的 fade 容器。
 
+> ⚠ **本行已被第二轮推翻，见 §11.2。** `NowPlayingPage` 里除"分享选行计入歌词偏移"以外的
+> 三项（`np.show_lyrics` 持久化、300ms fade、切换按钮 `accessibilityText`）在整合
+> PR #13 时被其横向 Swiper 分页取代并已移除。
+
 ### 5.3 自动合并后回退主题机制（13 个文件）
 
 整文件回退到 dev（ch 的改动只有主题机制，无其他贡献）：
@@ -183,6 +187,7 @@ repaints could not be proven statically; if the probe fails, the fallback is a s
 - 删除歌单二次确认（不可撤销操作）
 - 搜索失败可重试；搜索卡片可聚焦；歌单搜索诚实文案
 - `np.show_lyrics` 持久化（原为本地 `@State`，每次进页面重置，而该设置项无人读取）
+  —— **第二轮已被 PR #13 的横向分页取代并移除，见 §11.2**
 - 分享选行计入歌词偏移（原来忽略偏移，配了偏移就选错行）
 - M9.3 角标定位（系统字号放大后角标会漂出封面）
 - 「加入歌单」「分享」诚实标注未移植
@@ -191,7 +196,7 @@ repaints could not be proven statically; if the probe fails, the fallback is a s
 
 - `MotionSpec` / `MotionCurves` 动效参数层（Android 基准锁定，5 个单测）
 - 歌词行距离模糊 / 缩放 / 透明度 + spring
-- 封面↔歌词 300ms fade
+- 封面↔歌词 300ms fade —— **第二轮已被 PR #13 取代并移除，见 §11.2**
 - MiniPlayer 两段式滑动释放
 - 封面取色 420ms 过渡
 
@@ -329,3 +334,62 @@ grep -c 'AssertException' /tmp/ut.log   # 必须为 0
    并称"构建必须用 command-line-tools 的 hvigorw"。实测 `E:\DevEco Studio`（6.1.1.300）
    自带的 hvigorw **可以**构建本工程（该告警只针对 26.0.0 Beta2）。建议补记本机路径与
    §9.2 的环境变量写法。
+
+## 11. 第二轮：整合 origin/dev 的 PR #13
+
+推送第一个合并提交（`a78e488`）时被拒：`origin/dev` 已前进到 `b23a1c7`
+（PR #13 `feat/nowplaying-ux-rework`，"匹配歌曲信息、菜单锚点箭头联动、点歌进播放页、
+底部标准图标与歌词页横向分页"）。**未强推**，改为把 `origin/dev` 合并进来。
+
+新增锚点：
+
+| 名称 | commit | 说明 |
+| --- | --- | --- |
+| 第一轮合并 | `a78e488` | tag `merge-safety/my-merge` |
+| PR #13 落地后的 origin/dev | `b23a1c7` | tag `merge-safety/origin-dev-pr13` |
+
+PR #13 与本次合并重叠 8 个文件，但只冲突 2 个，其余自动合并，且**歌词视觉层 graft 完好**
+（PR #13 对 `LyricView.ets` 只有 +18/−6，`activeIndex()` / `onRowMeasured` / `handleLineTap` /
+`scrubIndex` / `FOLLOW_SPRING` 等 graft 锚点全部保留）。
+
+### 11.1 `List.test.ets`
+
+并集：保留 `motionSpecTest()` 与 PR #13 的 `qqMusicLyricCodecTest()`。
+
+### 11.2 `NowPlayingPage.ets`：PR #13 取代 ch 的封面↔歌词模型
+
+PR #13 把「`showLyrics` 布尔切换 + 300ms fade」整体换成了**横向 Swiper 分页**
+（`pageIndex` / `lyricsMode` / `paneSwiper`），并在注释里明确写了"取代旧的
+`showLyrics=true` 一进页面就是歌词"。四个冲突块中 git 的边界与 PR #13 的重构错位
+（它同时删掉了含「歌词」切换按钮的整行控件），逐块手工对齐风险高，因此**整文件取
+`origin/dev` 版**，再只贴回 PR #13 未取代的那一项。
+
+因此**被 PR #13 取代、本轮主动放弃**的 ch 内容：
+
+- `np.show_lyrics` 持久化（已无切换按钮，分页状态由 Swiper 承载）
+- 封面↔歌词 300ms fade（`contentTransition()` / `contentTransitionArmed`）与其首帧布防
+- 切换按钮的 `accessibilityText`（按钮已不存在）
+- 该文件里的 `MotionSpec` 引用（只服务于上面的 fade）
+
+**保留并重新贴回**的一项：
+
+- `currentLyricIndex()` 改走 `LyricIndexResolver.resolve(lyrics, positionMs + lyricOffsetMs, -1)`，
+  并补回 `@StorageProp('np.lyric_offset_ms')`。`origin/dev` 那版仍是忽略偏移的内联扫描
+  （`this.lyrics[i].timeMs <= this.positionMs`），配了歌词偏移后分享卡片会选错行 ——
+  这个缺陷 PR #13 没修，仍然需要 ch 的修复。
+
+`SongInfoSheet.ets` 随 PR #13 删除（改为 `MatchSongInfoSheet.ets`），本轮已确认全仓无残留引用。
+
+### 11.3 第二轮验证
+
+见 §11.4。口径与 §9 相同（单测必须 grep `AssertException`，不看退出码）。
+
+### 11.4 第二轮实测结果（2026-08-29，DevEco 6.1.1.300）
+
+- `assembleHap`：**`BUILD SUCCESSFUL in 53 s`，0 `ERROR`**
+- 单测：**0 `AssertException`、0 `ERROR`** → 全部通过（退出码 0 不作为判据，见 §9.4）
+- 跨文件 import/export 解析：**328 个文件、0 问题**
+- 冲突标记零残留；`SongInfoSheet` 删除后全仓无残留引用
+
+设备仍未验证：歌词行距离 ramp、MiniPlayer 滑动释放、封面取色过渡的观感与时序未上机确认；
+PR #13 的横向分页也在同一条船上。
