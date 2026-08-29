@@ -230,6 +230,9 @@ export struct MainShell {
         Column().width('100%').height('100%')
       }
     }
+    // S6: NOW_PLAYING 用共享元素一镜到底时关闭系统默认转场，避免叠加。
+    .systemTransition(name === 'now_playing'
+      ? NavigationSystemTransitionType.NONE : NavigationSystemTransitionType.DEFAULT)
     .hideTitleBar(true)
     // NavDestination 默认背景是不透明白：深色模式下内容区以下的系统
     // 导航条区会露出一截白边。显式置透明，条带回落到 Index 的沉浸背景
