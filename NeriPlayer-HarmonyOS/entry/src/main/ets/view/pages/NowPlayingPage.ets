@@ -424,6 +424,10 @@ export struct NowPlayingPage {
                   .borderRadius(22)
                   .objectFit(ImageFit.Cover)
                   .shadow({ radius: 24, color: '#66000000', offsetY: 8 })
+                  // S6 一镜到底：与迷你条封面共享元素；.id() 防打断重影。
+                  .geometryTransition('np.cover')
+                  .id('np_cover_full')
+                  .transition(TransitionEffect.OPACITY)
               } else {
                 Image($r('app.media.ic_music_note_24'))
                   .width('78%')

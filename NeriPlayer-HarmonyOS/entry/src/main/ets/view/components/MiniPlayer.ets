@@ -1,3 +1,4 @@
+import { curves } from '@kit.ArkUI';
 import { SongItem } from '../../model/SongItem';
 import { PlaybackStatus } from '../../player/PlaybackConstants';
 import { PlayerManager } from '../../player/PlayerManager';
@@ -64,6 +65,10 @@ export struct MiniPlayer {
               .height(44)
               .borderRadius(8)
               .objectFit(ImageFit.Cover)
+              // S6 一镜到底：与播放页封面共享元素（打断保护靠 .id()）。
+              .geometryTransition('np.cover')
+              .id('np_cover_mini')
+              .transition(TransitionEffect.OPACITY)
           } else {
             Image($r('app.media.ic_music_note_24'))
               .width(22)
@@ -143,8 +148,15 @@ export struct MiniPlayer {
       .height(60)
       .padding({ left: 12, right: 8 })
       .onClick(() => {
-        Router.push(Router.NOW_PLAYING);
+        // 一镜到底：push 放进 animateTo 闭包并关闭单次系统转场，
+        // geometryTransition('np.cover') 接管封面过渡（官方共享元素范式）。
+        this.getUIContext().animateTo(
+          { curve: curves.interpolatingSpring(0, 1, 328, 36) },
+          () => {
+            Router.push(Router.NOW_PLAYING);
+          });
       })
+      .clickEffect({ level: ClickEffectLevel.LIGHT })
       .gesture(
         PanGesture({ fingers: 1, direction: PanDirection.Horizontal, distance: 12 })
           .onActionStart(() => {
@@ -159,13 +171,13 @@ export struct MiniPlayer {
             } else if (event.offsetX <= -MiniPlayer.SWIPE_TRIGGER_VP) {
               PlayerManager.next(false);
             }
-            animateTo({ duration: 180, curve: Curve.Friction }, () => {
+            this.getUIContext().animateTo({ duration: 180, curve: Curve.Friction }, () => {
               this.swipeOffset = 0;
               this.swiping = false;
             });
           })
           .onActionCancel(() => {
-            animateTo({ duration: 180, curve: Curve.Friction }, () => {
+            this.getUIContext().animateTo({ duration: 180, curve: Curve.Friction }, () => {
               this.swipeOffset = 0;
               this.swiping = false;
             });
