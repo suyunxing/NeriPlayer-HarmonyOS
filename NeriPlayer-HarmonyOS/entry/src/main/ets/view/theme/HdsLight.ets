@@ -8,8 +8,9 @@
  * Pure helpers that only assemble param objects stay testable; the effect
  * objects themselves require the kit and are built here.
  */
+// VisualEffect 是 common.d.ts 里的全局 ambient 类型（S0 结论的姊妹坑），
+// 不从模块导入。
 import { hdsEffect, hdsMaterial } from '@kit.UIDesignKit';
-import { VisualEffect } from '@ohos.graphics.uiEffect';
 
 class MaterialCapability {
   private static probed: boolean = false;
@@ -50,6 +51,11 @@ export class HdsLight {
   /** True when the device reports the immersive material type. */
   static immersiveSupported(): boolean {
     return MaterialCapability.immersiveSupported();
+  }
+
+  /** True when the device reports any adaptive material support. */
+  static adaptiveSupported(): boolean {
+    return MaterialCapability.adaptiveSupported();
   }
 
   /** Soft glow around the illuminated component (cover art, play FAB, hero card). */

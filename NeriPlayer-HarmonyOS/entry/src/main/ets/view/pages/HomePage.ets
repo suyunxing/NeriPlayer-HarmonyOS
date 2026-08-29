@@ -10,7 +10,7 @@ import { PlayerManager } from '../../player/PlayerManager';
 import { Router } from '../Router';
 import { Theme } from '../Theme';
 import { BAND_LIST_VP, BP_LG, BP_MD } from '../../util/Breakpoint';
-import { SectionHeader, EmptyState, LoadingState, PlaylistCard, ContentBand } from '../components/Ui';
+import { SectionHeader, EmptyState, LoadingState, PlaylistCard, ContentBand , FLOAT_TAB_CLEARANCE } from '../components/Ui';
 
 const BRAND_TITLES: string[] = ['NeriPlayer', '欢迎回来', 'NeriPlayer', '继续听歌'];
 /** 本页在 MainShell 的 Tabs 里的下标，用于过滤刷新信号。 */
@@ -344,7 +344,7 @@ export struct HomePage {
           }
         }
         .width('100%')
-        .padding({ left: 14, right: 14, bottom: 24 })
+        .padding({ left: 14, right: 14, bottom: 24 + FLOAT_TAB_CLEARANCE })
       }
       .layoutWeight(1)
       .scrollBar(BarState.Off)

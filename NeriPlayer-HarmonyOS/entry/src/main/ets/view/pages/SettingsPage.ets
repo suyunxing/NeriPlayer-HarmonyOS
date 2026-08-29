@@ -5,7 +5,7 @@ import { AppColorMode } from '../../util/AppColorMode';
 import { SystemBars } from '../../util/SystemBars';
 import { Router } from '../Router';
 import { Theme } from '../Theme';
-import { ContentBand, OptionEntry, OptionRow, SettingRow, ToggleRow } from '../components/Ui';
+import { ContentBand, OptionEntry, OptionRow, SettingRow, ToggleRow , FLOAT_TAB_CLEARANCE } from '../components/Ui';
 import { BAND_LIST_VP } from '../../util/Breakpoint';
 import { LEGAL_AGREEMENT, LEGAL_PRIVACY } from './LegalDocPage';
 
@@ -239,7 +239,7 @@ export struct SettingsPage {
         .clip(true)
       }
       .width('100%')
-      .padding({ left: 14, right: 14, bottom: 24 })
+      .padding({ left: 14, right: 14, bottom: 24 + FLOAT_TAB_CLEARANCE })
       }
     }
     .layoutWeight(1)

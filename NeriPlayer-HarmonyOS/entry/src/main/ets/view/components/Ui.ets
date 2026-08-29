@@ -8,6 +8,14 @@ import { iconForLegacy } from '../../util/IconCatalog';
  * empty states, list rows). Mirrors the Android ui/component/* helpers.
  */
 
+/**
+ * S3b-2: 悬浮胶囊 Tab 栏（barOverlap）遮住的内容高度避让。MiniBar 展开
+ * 时 HdsTabs 自行增高，此值按「Tab 栏 56 + MiniBar 56 + 边距/呼吸 24」取。
+ * 各 Tab 页滚动尾部 padding.bottom 叠加 ui.bottomLiftVp。
+ */
+export const FLOAT_TAB_CLEARANCE: number = 136;
+
+
 @Component
 export struct SectionHeader {
   @Prop title: string;

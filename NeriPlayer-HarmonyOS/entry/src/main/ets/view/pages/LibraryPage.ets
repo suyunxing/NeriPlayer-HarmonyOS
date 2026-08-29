@@ -18,7 +18,7 @@ import { Router } from '../Router';
 import { Theme } from '../Theme';
 import { BAND_LIST_VP } from '../../util/Breakpoint';
 import { iconForLegacy } from '../../util/IconCatalog';
-import { SettingRow, EmptyState, SongCountChip, ContentBand } from '../components/Ui';
+import { SettingRow, EmptyState, SongCountChip, ContentBand, FLOAT_TAB_CLEARANCE } from '../components/Ui';
 import { SETTING_ACCOUNTS } from './SettingsPage';
 
 /** 本页在 MainShell 的 Tabs 里的下标，用于过滤刷新信号。 */
@@ -539,7 +539,7 @@ export struct LibraryPage {
         .clip(true)
       }
           .width('100%')
-          .padding({ left: 14, right: 14, bottom: 24 })
+          .padding({ left: 14, right: 14, bottom: 24 + FLOAT_TAB_CLEARANCE })
         }
       }
       .layoutWeight(1)
