@@ -1,7 +1,7 @@
 import { Router } from '../Router';
 import { Theme } from '../Theme';
-import { HdsNavigation, HdsNavDestination, HdsTabs, HdsBarLayoutMode, hdsMaterial, SystemMaterialParams } from '@kit.UIDesignKit';
-import { HdsNavigationAttribute, HdsNavDestinationAttribute, HdsTabsAttribute } from '@kit.UIDesignKit';
+import { HdsTabs, HdsBarLayoutMode, hdsMaterial, SystemMaterialParams } from '@kit.UIDesignKit';
+import { HdsTabsAttribute } from '@kit.UIDesignKit';
 import { HdsLight } from '../theme/HdsLight';
 import { AccentScheme } from '../theme/AccentScheme';
 import { BP_LG } from '../../util/Breakpoint';
@@ -196,7 +196,10 @@ export struct MainShell {
    */
   @Builder
   pageMap(name: string, param: Object) {
-    HdsNavDestination() {
+    // S4 实测：HdsNavDestination 在模拟器上只渲染标题栏 chrome、不挂载内容
+    // 子树（与 S0 spike S7 探针一致），路由页回退标准 NavDestination；
+    // HdsNavigation 外壳与 HdsTabs 悬浮栏保留。
+    NavDestination() {
       if (name === Router.NOW_PLAYING) {
         NowPlayingPage()
       } else if (name === Router.PLAYLIST_DETAIL) {
@@ -241,7 +244,10 @@ export struct MainShell {
   }
 
   build() {
-    HdsNavigation(this.pageStack) {
+    // S4 实测：HdsNavigation 的 navDestination 内容子树在模拟器上不挂载
+    // （spike S7 与 NowPlayingPage 空白均同症状），外壳回退标准 Navigation，
+    // HdsNavigation 等真机/后续 SDK 版本再启用。
+    Navigation(this.pageStack) {
       Stack({ alignContent: Alignment.Top }) {
         Column() {
           // MiniPlayer 已迁入 HdsTabs 的 miniBar 槽位（S3b-2）。
@@ -318,7 +324,7 @@ export struct MainShell {
     // 而这里的 navBar 内容是整个 Tab 骨架（完整页面），结构不匹配。大屏适配
     // 由 Tabs.vertical(true) 与各页的 GridRow 承担。
     .mode(NavigationMode.Stack)
-    .navDestination((name: string, pageInfos: Object): void => this.pageMap(name, pageInfos))
+    .navDestination(this.pageMap)
     .width('100%')
     .height('100%')
   }

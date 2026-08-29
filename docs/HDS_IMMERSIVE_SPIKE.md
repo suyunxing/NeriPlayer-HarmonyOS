@@ -61,8 +61,12 @@ build() {
 - [x] 应用启动/调试页/探针面板全程**无崩溃**——HDS 组件可在模拟器上挂载
 - [x] **HdsTabs + barFloatingStyle 渲染成功**：S6 探针出现了官方悬浮胶囊底栏
   （甲/乙，选中蓝色高亮）——悬浮壳路线运行时可行
-- [x] **HdsNavigation 推入成功**：pushPath 后目标页 chrome（返回键）出现，
-  目标页内容区渲染为空（待 S3 迁移时排查 builder 内容挂载）
+- [x] **HdsNavigation 推入成功**：pushPath 后目标页 chrome（返回键）出现
+- [x] **S4 实测（关键结论）：HdsNavigation 与 HdsNavDestination 的路由内容
+  子树在模拟器上不挂载**（目标页只剩标题栏 chrome，NowPlayingPage 整页空白
+  同症状；标准 Navigation/NavDestination 正常）。外壳已回退标准组件，
+  HdsNavigation/HdsNavDestination 待真机或后续 SDK 复核后再启用；
+  HdsTabs（含 barFloatingStyle/miniBar）不受影响，已上线
 - [x] **HdsVisualComponent 有渲染但很淡**：仅两侧可见微弱流光痕迹，
   backgroundMaskColors 渐变未显出——S2 需调参（颜色带 alpha / 场景尺寸）
 - [x] `getSystemMaterialTypes()` 返回 **`[]`（空数组）**：模拟器不支持任何
