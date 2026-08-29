@@ -9,6 +9,7 @@ import { Theme } from '../Theme';
 import { SongRow } from '../components/SongRow';
 import { EmptyState, LoadingState } from '../components/Ui';
 import { Router } from '../Router';
+import { PlaylistHeader, HeaderPill } from '../components/PlaylistHeader';
 
 /** Remote fav items store full SongItems; cap imports to keep one save sane. */
 const IMPORT_CAP: number = 500;
@@ -152,30 +153,6 @@ export struct BiliFavPage {
     this.importing = false;
   }
 
-  @Builder
-  coverArt(size: number) {
-    Stack() {
-      if (this.info !== null && this.info.coverUrl.length > 0) {
-        Image(this.info.coverUrl)
-          .width(size)
-          .height(size)
-          .borderRadius(size > 60 ? 14 : 8)
-          .objectFit(ImageFit.Cover)
-          .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
-      } else {
-        Column() {
-          Image($r('app.media.ic_bilibili'))
-            .width(size * 0.36)
-            .height(size * 0.36)
-        }
-        .width(size)
-        .height(size)
-        .justifyContent(FlexAlign.Center)
-        .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
-        .borderRadius(size > 60 ? 14 : 8)
-      }
-    }
-  }
 
   build() {
     Stack() {
@@ -221,50 +198,27 @@ export struct BiliFavPage {
           .justifyContent(FlexAlign.Center)
         } else {
           Column({ space: 10 }) {
-            Row({ space: 14 }) {
-              this.coverArt(92)
-              Column({ space: 4 }) {
-                Text(this.info !== null && this.info.title.length > 0 ? this.info.title : 'B 站收藏夹')
-                  .fontSize(20)
-                  .fontWeight(FontWeight.Bold)
-                  .fontColor(Theme.textPrimary(Theme.isDark()))
-                  .maxLines(2)
-                Text(this.totalCount > 0
-                  ? `Bilibili · ${this.totalCount} 条`
-                  : `Bilibili · ${this.songs.length} 条`)
-                  .fontSize(13)
-                  .fontColor(Theme.textSecondary(Theme.isDark()))
-                Row({ space: 8 }) {
-                  Button('全部播放')
-                    .height(40)
-                    .fontSize(12)
-                    .fontColor(Theme.onPrimary(Theme.isDark()))
-                    .backgroundColor(Theme.primary(Theme.isDark()))
-                    .borderRadius(16)
-                    .onClick(() => this.playAll(false))
-                  Button('随机播放')
-                    .height(40)
-                    .fontSize(12)
-                    .fontColor(Theme.textPrimary(Theme.isDark()))
-                    .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
-                    .borderRadius(16)
-                    .onClick(() => this.playAll(true))
-                  Button('导入')
-                    .height(40)
-                    .fontSize(12)
-                    .fontColor(Theme.primary(Theme.isDark()))
-                    .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
-                    .borderRadius(16)
-                    .onClick(() => this.openImportDialog())
-                }
-              }
-              .layoutWeight(1)
-              .alignItems(HorizontalAlign.Start)
+            PlaylistHeader({
+              coverUrl: this.info !== null ? this.info.coverUrl : '',
+              title: this.info !== null && this.info.title.length > 0 ? this.info.title : 'B 站收藏夹',
+              subtitle: this.totalCount > 0
+                ? `Bilibili · ${this.totalCount} 条`
+                : `Bilibili · ${this.songs.length} 条`
+            }) {
+              HeaderPill({
+                label: '全部播放',
+                filled: true,
+                onTap: (): void => this.playAll(false)
+              })
+              HeaderPill({
+                label: '随机播放',
+                onTap: (): void => this.playAll(true)
+              })
+              HeaderPill({
+                label: '导入',
+                onTap: (): void => this.openImportDialog()
+              })
             }
-            .width('100%')
-            .padding(14)
-            .backgroundColor(Theme.surface(Theme.isDark()))
-            .borderRadius(Theme.cardRadius())
 
             if (this.songs.length === 0) {
               EmptyState({ icon: '📺', title: '收藏夹为空', subtitle: '该收藏夹没有可播放的视频' })

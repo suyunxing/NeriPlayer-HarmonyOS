@@ -8,6 +8,7 @@ import { PlayerManager } from '../../player/PlayerManager';
 import { Theme } from '../Theme';
 import { SongRow } from '../components/SongRow';
 import { EmptyState, LoadingState } from '../components/Ui';
+import { PlaylistHeader, HeaderPill } from '../components/PlaylistHeader';
 import { Router } from '../Router';
 
 /** Remote playlists store full SongItems; cap imports to keep one save sane. */
@@ -98,31 +99,6 @@ export struct NeteasePlaylistPage {
     this.importing = false;
   }
 
-  @Builder
-  coverArt(size: number) {
-    Stack() {
-      if (this.overview !== null && this.overview.coverUrl.length > 0) {
-        Image(this.overview.coverUrl)
-          .width(size)
-          .height(size)
-          .borderRadius(size > 60 ? 14 : 8)
-          .objectFit(ImageFit.Cover)
-          .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
-      } else {
-        Column() {
-          Image($r('app.media.ic_music_note_24'))
-            .width(size * 0.4)
-            .height(size * 0.4)
-            .fillColor(Theme.primary(Theme.isDark()))
-        }
-        .width(size)
-        .height(size)
-        .justifyContent(FlexAlign.Center)
-        .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
-        .borderRadius(size > 60 ? 14 : 8)
-      }
-    }
-  }
 
   build() {
     Stack() {
@@ -168,54 +144,27 @@ export struct NeteasePlaylistPage {
           .justifyContent(FlexAlign.Center)
         } else if (this.overview !== null) {
           Column({ space: 10 }) {
-            Row({ space: 14 }) {
-              this.coverArt(92)
-              Column({ space: 4 }) {
-                Text(this.overview.name.length > 0 ? this.overview.name : '未命名歌单')
-                  .fontSize(20)
-                  .fontWeight(FontWeight.Bold)
-                  .fontColor(Theme.textPrimary(Theme.isDark()))
-                  .maxLines(2)
-                Text(this.overview.trackCount > 0
-                  ? `网易云 · ${this.overview.trackCount} 首`
-                  : `网易云 · ${this.overview.songs.length} 首`)
-                  .fontSize(13)
-                  .fontColor(Theme.textSecondary(Theme.isDark()))
-                // Wraps instead of a plain Row: at 1.45x system font '导入'
-                // ran past the right screen edge with only a third of it
-                // visible (device audit 2026-08-24).
-                Flex({ wrap: FlexWrap.Wrap, space: { main: LengthMetrics.vp(8), cross: LengthMetrics.vp(8) } }) {
-                  Button('全部播放')
-                    .height(40)
-                    .fontSize(12)
-                    .fontColor(Theme.onPrimary(Theme.isDark()))
-                    .backgroundColor(Theme.primary(Theme.isDark()))
-                    .borderRadius(16)
-                    .onClick(() => this.playAll(false))
-                  Button('随机播放')
-                    .height(40)
-                    .fontSize(12)
-                    .fontColor(Theme.textPrimary(Theme.isDark()))
-                    .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
-                    .borderRadius(16)
-                    .onClick(() => this.playAll(true))
-                  Button('导入')
-                    .height(40)
-                    .fontSize(12)
-                    .fontColor(Theme.primary(Theme.isDark()))
-                    .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
-                    .borderRadius(16)
-                    .onClick(() => this.openImportDialog())
-                }
-                .width('100%')
-              }
-              .layoutWeight(1)
-              .alignItems(HorizontalAlign.Start)
+            PlaylistHeader({
+              coverUrl: this.overview.coverUrl,
+              title: this.overview.name.length > 0 ? this.overview.name : '未命名歌单',
+              subtitle: this.overview.trackCount > 0
+                ? `网易云 · ${this.overview.trackCount} 首`
+                : `网易云 · ${this.overview.songs.length} 首`
+            }) {
+              HeaderPill({
+                label: '全部播放',
+                filled: true,
+                onTap: (): void => this.playAll(false)
+              })
+              HeaderPill({
+                label: '随机播放',
+                onTap: (): void => this.playAll(true)
+              })
+              HeaderPill({
+                label: '导入',
+                onTap: (): void => this.openImportDialog()
+              })
             }
-            .width('100%')
-            .padding(14)
-            .backgroundColor(Theme.surface(Theme.isDark()))
-            .borderRadius(Theme.cardRadius())
 
             if (this.overview.songs.length === 0) {
               EmptyState({ icon: '♪', title: '歌单为空', subtitle: '该歌单没有可播放的歌曲' })
