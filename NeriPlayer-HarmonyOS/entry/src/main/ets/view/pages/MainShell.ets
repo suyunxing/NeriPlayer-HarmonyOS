@@ -69,7 +69,7 @@ export struct MainShell {
   @Builder
   miniBarBuilder() {
     if (this.currentSongJson.length > 0) {
-      MiniPlayer()
+      MiniPlayer({ compact: true })
     }
   }
 

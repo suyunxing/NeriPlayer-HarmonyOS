@@ -18,6 +18,7 @@ import { buildListenTogetherInviteUri } from '../../listentogether/invite/Listen
 import { parseListenTogetherInvite } from '../../listentogether/invite/ListenTogetherInviteParser';
 import { PlayerManager } from '../../player/PlayerManager';
 import { Theme } from '../Theme';
+import { AccentScheme } from '../theme/AccentScheme';
 import { Router } from '../Router';
 
 /** Room creation needs a live local queue (upstream validates this too). */
@@ -82,6 +83,12 @@ function roomStatusLabel(status: string): string {
  */
 @Component
 export struct ListenTogetherPage {
+  /**
+   * S5: 订阅封面配色。Theme.*() 读 AppStorage 是无跟踪调用（M7.4），换歌后
+   * 坐在本页的组件不会重建；有了这个成员并在 build 里经 schemeBg() 直读，
+   * scheme 一发布本页就随新配色重染。
+   */
+  @StorageProp('player.coverScheme') coverScheme: AccentScheme = AccentScheme.neutralFallback();
   // Parsing is mirrored into @State objects via @Watch instead of parsed in
   // render expressions: a state read hidden inside a method call is NOT
   // dependency-tracked on this platform, so `this.session()` in a builder
@@ -458,6 +465,13 @@ export struct ListenTogetherPage {
     .backgroundColor(Theme.surface(Theme.isDark()))
   }
 
+
+  /** build 里直读被跟踪成员注册依赖；颜色本身仍由 Theme 统一决策。 */
+  private schemeBg(dark: boolean): string {
+    const hasScheme = this.coverScheme.light.background.length > 0;
+    return hasScheme ? Theme.background(dark) : Theme.background(dark);
+  }
+
   build() {
     Column() {
       Row({ space: 8 }) {
@@ -499,6 +513,6 @@ export struct ListenTogetherPage {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor(Theme.background(Theme.isDark()))
+    .backgroundColor(this.schemeBg(Theme.isDark()))
   }
 }

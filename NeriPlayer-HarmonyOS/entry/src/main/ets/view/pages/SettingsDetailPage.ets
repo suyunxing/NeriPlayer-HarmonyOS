@@ -29,6 +29,7 @@ import {
   QrPollOutcomeCode
 } from '../components/QrLoginPanel';
 import { Theme } from '../Theme';
+import { AccentScheme } from '../theme/AccentScheme';
 import { BAND_LIST_VP } from '../../util/Breakpoint';
 import { OptionEntry, OptionRow, SettingRow, ToggleRow } from '../components/Ui';
 import { SETTING_PLAYBACK, SETTING_DOWNLOAD, SETTING_LYRICS, SETTING_APPEARANCE,
@@ -70,6 +71,12 @@ const BILI_QR_POLL_INTERVAL_MS: number = 1500;
 
 @Component
 export struct SettingsDetailPage {
+  /**
+   * S5: 订阅封面配色。Theme.*() 读 AppStorage 是无跟踪调用（M7.4），换歌后
+   * 坐在本页的组件不会重建；有了这个成员并在 build 里经 schemeBg() 直读，
+   * scheme 一发布本页就随新配色重染。
+   */
+  @StorageProp('player.coverScheme') coverScheme: AccentScheme = AccentScheme.neutralFallback();
   /** 由 MainShell 的 navDestination builder 从路由参数传入。 */
   @Prop section: string = '';
 
@@ -779,6 +786,13 @@ export struct SettingsDetailPage {
     SettingRow({ title: label, subtitle: value, onTap: onTap })
   }
 
+
+  /** build 里直读被跟踪成员注册依赖；颜色本身仍由 Theme 统一决策。 */
+  private schemeBg(dark: boolean): string {
+    const hasScheme = this.coverScheme.light.background.length > 0;
+    return hasScheme ? Theme.background(dark) : Theme.background(dark);
+  }
+
   build() {
     // 840vp 列表栏宽 + 居中。标题栏与内容区一起被约束，两者左边缘才对得上（同
     // LegalDocPage）；约束手写在这里而不套 ContentBand，因为内容区靠
@@ -1214,7 +1228,7 @@ export struct SettingsDetailPage {
     .width('100%')
     .height('100%')
     .justifyContent(FlexAlign.Center)
-    .backgroundColor(Theme.background(Theme.isDark()))
+    .backgroundColor(this.schemeBg(Theme.isDark()))
   }
 }
 

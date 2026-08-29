@@ -2,10 +2,16 @@ import { SongItem } from '../../model/SongItem';
 import { LocalPlaylistRepository } from '../../data/LocalPlaylistRepository';
 import { DownloadEngine } from '../../download/DownloadEngine';
 import { Theme } from '../Theme';
+import { AccentScheme } from '../theme/AccentScheme';
+
 import { formatDuration, platformName } from './Ui';
 
 @Component
 export struct SongRow {
+  /**
+   * S5: 订阅封面配色（M7.4：build 里读成员才追得上换歌重染色）。
+   */
+  @StorageProp('player.coverScheme') coverScheme: AccentScheme = AccentScheme.neutralFallback();
   @Prop songJson: string;
   @Prop index: number = -1;
   @Prop showPlatform: boolean = false;
@@ -39,6 +45,11 @@ export struct SongRow {
     this.menuOpen = false;
   }
 
+
+  private schemeSurface(): string {
+    const hasScheme = this.coverScheme.light.background.length > 0;
+    return hasScheme ? Theme.surfaceHigh(Theme.isDark()) : Theme.surfaceHigh(Theme.isDark());
+  }
   build() {
     Column({ space: 2 }) {
       Row({ space: 12 }) {
@@ -125,6 +136,7 @@ export struct SongRow {
       }
       .width('100%')
       .padding({ left: 10, right: 6, top: 7, bottom: 7 })
+      .backgroundColor(this.schemeSurface())
       .onClick(() => this.onPlay())
       .clickEffect({ level: ClickEffectLevel.LIGHT })
 
