@@ -1,6 +1,6 @@
 import { Router } from '../Router';
 import { Theme } from '../Theme';
-import { HdsTabs, hdsMaterial, SystemMaterialParams } from '@kit.UIDesignKit';
+import { HdsTabs, HdsBarLayoutMode, hdsMaterial, SystemMaterialParams } from '@kit.UIDesignKit';
 import { HdsTabsAttribute } from '@kit.UIDesignKit';
 import { HdsLight } from '../theme/HdsLight';
 import { AccentScheme } from '../theme/AccentScheme';
@@ -52,6 +52,14 @@ export struct MainShell {
   // 封面 scheme 驱动悬浮 Tab 栏的 lightColor（光晕色）与系统材质档位。
   @StorageProp('player.coverScheme') coverScheme: AccentScheme = AccentScheme.neutralFallback();
   @State currentTab: number = 0;
+
+  /** 官方 HdsTabsMiniBar 槽位：无歌时留空，有歌渲染紧凑 MiniPlayer。 */
+  @Builder
+  miniBarBuilder() {
+    if (this.currentSongJson.length > 0) {
+      MiniPlayer({ compact: true })
+    }
+  }
 
   /** 悬浮 Tab 栏的系统沉浸材质：设备不支持时保持 undefined（自绘玻璃兜底）。 */
   private systemMaterialEffect(): SystemMaterialParams | undefined {
@@ -282,6 +290,13 @@ export struct MainShell {
               barBottomMargin: this.bottomLift + 8,
               lightColor: this.coverScheme.light.primary,
               gradientMask: { maskColor: Theme.withAlpha(Theme.background(this.resolveDark()), 0x99), maskHeight: 92 },
+              miniBar: {
+                miniBarBuilder: (): void => {
+                  this.miniBarBuilder()
+                },
+                enableMiniBarBackground: true,
+                barLayoutMode: HdsBarLayoutMode.VERTICAL
+              },
               systemMaterialEffect: this.systemMaterialEffect()
             })
             .backgroundColor(this.bandColor())
@@ -304,20 +319,8 @@ export struct MainShell {
         FloatingLyricBar()
           .margin({ top: 46 })
 
-        // S5: 迷你播放器自绘悬浮层，锚在悬浮 Tab 栏上方。官方 HdsTabsMiniBar
-        // 槽位强制压缩内容高度(~31vp)且裁剪，40/48/52vp 三种形态都会裁掉
-        // 播放键，只能放弃槽位自绘；高度与样式由 MiniPlayer 自己负责。
-        if (this.currentSongJson.length > 0) {
-          Stack({ alignContent: Alignment.Bottom }) {
-            MiniPlayer()
-          }
-          .width('100%')
-          .height('100%')
-          .hitTestBehavior(HitTestMode.None)
-          // 盒内 padding 收缩（margin 在 100% 高度下语义不稳）：底边落在悬浮
-          // Tab 栏上沿之上 8vp（栏高约 56 + barBottomMargin(bottomLift+8)）。
-          .padding({ bottom: this.bottomLift + 72 })
-        }
+        // MiniPlayer 回归官方 HdsTabsMiniBar 槽位（用户决策）：槽位高度
+        // 系统固定，以缩小播放按钮视觉圆（30vp，触控热区仍 40vp）适配。
       }
       .width('100%')
       .height('100%')
