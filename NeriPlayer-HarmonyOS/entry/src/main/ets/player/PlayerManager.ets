@@ -177,6 +177,7 @@ export class PlayerManager {
     PlayerManager.publishDefaults();
     PlayerManager.restoreFromDisk();
     AVSessionManager.init(context, new PlayerControlListener());
+    BackgroundTaskRunner.init(context);
     // Lyrics are fetched by the UI layer; subscribe to the shared tracker so
     // the whole-song LRC reaches AVMetadata.lyric (scrolling lyrics in the
     // media control center) without duplicating the fetch here.
@@ -567,6 +568,7 @@ export class PlayerManager {
       if (!auto) {
         await PlayerManager.pause(source);
       }
+      PlayerManager.stopContinuousTask();
       PlayerManager.publishStatus(PlaybackStatus.COMPLETED);
       return;
     }
@@ -1041,9 +1043,7 @@ export class PlayerManager {
         PlayerManager.publishStatus(PlaybackStatus.PAUSED);
         PlayerManager.flushPlaybackStatsAsync();
         PlayerManager.schedulePersist(0);
-        if (PlayerManager.context !== null) {
-          BackgroundTaskRunner.stop(PlayerManager.context);
-        }
+        PlayerManager.stopContinuousTask();
         break;
       case 'completed':
         PlayerManager.flushPlaybackStatsAsync();
@@ -1065,6 +1065,7 @@ export class PlayerManager {
       PlayerManager.publishSleepState();
       PlayerManager.publishStatus(PlaybackStatus.COMPLETED);
       PlayerManager.playWhenReady = false;
+      PlayerManager.stopContinuousTask();
       PlayerManager.persistNow();
       return;
     }
@@ -1097,6 +1098,7 @@ export class PlayerManager {
       await PlayerManager.next(true);
       return;
     }
+    PlayerManager.stopContinuousTask();
     PlayerManager.publishStatus(PlaybackStatus.COMPLETED);
   }
 
@@ -1121,8 +1123,21 @@ export class PlayerManager {
   private static onPlayerError(error: BusinessError): void {
     Logger.error(`AVPlayer error: code=${error.code} message=${error.message}`);
     PlayerManager.publishStatus(PlaybackStatus.ERROR);
+    PlayerManager.stopContinuousTask();
     PlayerManager.rejectStateWaiters(error.message);
     PlayerManager.handleLoadFailure();
+  }
+
+  /**
+   * Releases the AUDIO_PLAYBACK continuous task. Terminal paths (queue end,
+   * sleep-timer stop, player error) funnel through here so the app never
+   * holds a task without audible playback — the background guide suspends
+   * apps that keep a task while the business has ended.
+   */
+  private static stopContinuousTask(): void {
+    if (PlayerManager.context !== null) {
+      BackgroundTaskRunner.stop(PlayerManager.context);
+    }
   }
 
   /**
