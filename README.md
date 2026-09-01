@@ -5,7 +5,7 @@
 ## 当前结论
 
 - Android 快照包含完整产品的大部分源码：`app/src/main` 约 634 个 Kotlin 文件、17.2 万行；另有约 285 个本地测试和 25 个设备测试。
-- `NeriPlayer-HarmonyOS` 是可构建的 ArkTS 原型，56 个 ArkTS 文件、约 7,700 行（2026-08-14 实测 7,698 行）。已有页面、数据模型、网络和播放骨架，并建立了首批 hypium 单元测试（`entry/src/test/`，LRC 解析 3 用例）；但与 Android 产品的功能、测试和异常处理规模仍有显著差距，YouTube 取流、下载传输管线、同步、一起听、USB 独占、悬浮歌词和动态取色均未移植（见 `docs/FEATURE_MATRIX.md`）。
+- `NeriPlayer-HarmonyOS` 是可构建的 ArkTS 原型，`entry/src/main/ets` 下 239 个 ArkTS 文件、约 4.98 万行（2026-08-31 实测 49,834 行）。已有页面、数据模型、网络、播放、下载、同步、一起听与动态取色的核心链路，`entry/src/test/` 本地单元测试已随里程碑累积到 874 用例（2026-08-29 记录全绿），另有 `entry/src/ohosTest/` 设备测试；但与 Android 产品的功能与异常处理规模仍有显著差距，YouTube 完整取流、系统级桌面歌词渲染等仍受上游或平台限制，USB 独占已定案不移植（状态明细见 `docs/FEATURE_MATRIX.md`）。
 - `NeriPlayer-ASCF` 是元服务方向的独立试验。它不能替代普通 HarmonyOS 应用，尤其不适合作为本地媒体扫描、完整后台播放和 USB 独占能力的主迁移路线。
 - 2026-08-13 已在本机 6.1.1 Release 工具链完成可重复验证：依赖同步、干净构建、单元测试 3/3、调试签名、模拟器安装与冷启动 smoke test（记录见 `docs/hm.md` §7.4）。2026-08-14 工具链目录整体迁至 `D:\HarmonyOS\Tools\`，系统 PATH 与 `local.properties` 中的旧路径已按根目录 `AGENTS.md` 更新；下次构建前建议先按该文档复核环境。
 - 工作区根目录已初始化 Git（基线提交 `ef89b16`，2026-08-12），三个子工程目录本身仍是无 `.git` 元数据的文件快照。Android 快照基线已通过 GitHub blob SHA 交叉比对确认是上游 commit `d66d465f48a6ae911fef0de88d2d21937760f31d`（2026-07-31）；审计时上游最新 commit 已到 `bc4142bc9e9b0b88e27be8dbc19c85e548400709`（2026-08-12）。
