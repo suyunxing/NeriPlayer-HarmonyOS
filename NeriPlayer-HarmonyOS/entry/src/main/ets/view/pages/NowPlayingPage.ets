@@ -9,7 +9,6 @@ import { PlaybackStatus, RepeatMode } from '../../player/PlaybackConstants';
 import { Theme } from '../Theme';
 import { DynamicTheme } from '../theme/DynamicTheme';
 import { AccentScheme, SchemeMode } from '../theme/AccentScheme';
-import { ImmersiveLightScene } from '../components/ImmersiveLightScene';
 import { LyricView } from '../components/LyricView';
 import { WaveformSlider } from '../components/WaveformSlider';
 import { LyricShareSheet } from '../components/LyricShareSheet';
@@ -79,13 +78,13 @@ export struct NowPlayingPage {
   @StorageProp('player.coverSeedHex') @Watch('onCoverSeedChanged') coverSeedHex: string = '';
   @StorageProp('np.dynamic_color') @Watch('onCoverSeedChanged') dynamicColor: boolean = true;
   @State accentHex: string = '';
-  // 封面全量配色（S1 引擎发布）：沉浸光感场景与文字令牌的唯一来源。
+  // 封面全量配色（S1 引擎发布）：背景毛玻璃取色与文字令牌的唯一来源。
   // 组件自己订阅（M7.4：表达式里直读被跟踪成员），换歌即整页重绘。
   @StorageProp('player.coverScheme') @Watch('onCoverSchemeChanged') coverScheme: AccentScheme = AccentScheme.neutralFallback();
   // Blurred-cover backdrop with track-switch crossfade (Android keeps the old
   // artwork blurred while the new cover fades in). Layer B sits on top; once
-  // its fade finishes it collapses into layer A without animation. S2 起
-  // 封面层只作为光感场景上的 0.3 淡材质颗粒，不再整屏铺满。
+  // its fade finishes it collapses into layer A without animation. 两层都是
+  // 整屏主背景，blur 强度跟随设置项且整体增强（毛玻璃突出控件与歌词）。
   @StorageProp('np.nowplaying_blur_strength') blurStrength: number = 300;
   @StorageProp('np.glass_effect') glassEffect: boolean = true;
   @State bgUnderUrl: string = '';
@@ -326,21 +325,26 @@ export struct NowPlayingPage {
       // 留下色块切割（浅色模式下尤其明显：页面是深色遮罩，导航条却是浅色底）。
       // 下面的内容层不延伸，仍由 ArkUI 的安全区自动避让保护。
       //
-      // S2 沉浸光感：官方 HdsVisualComponent 双边流光场景（封面 scheme 渐变）
-      // 打底，模糊封面降为 0.3 淡材质颗粒，不再整屏铺满。
-      ImmersiveLightScene({
-        dark: Theme.isDark(),
-        blurStrength: this.blurStrength,
-        coverUrl: this.bgUnderUrl
-      })
+      // 背景 = 整屏模糊封面的毛玻璃（双层交叉淡化由 transitionCover 维护），
+      // 换算系数相对旧版整体增强，让控件与歌词从模糊底上突出；其上再叠一层
+      // scrim 压暗保证可读性。
+      if (this.bgUnderUrl.length > 0) {
+        Image(this.bgUnderUrl)
+          .width('100%')
+          .height('100%')
+          .objectFit(ImageFit.Cover)
+          .blur(this.blurStrength * 120 / 500)
+          .scale({ x: 1.4, y: 1.4 })
+          .expandSafeArea(IMMERSIVE_TYPES, IMMERSIVE_EDGES)
+      }
       if (this.bgOverUrl.length > 0) {
         Image(this.bgOverUrl)
           .width('100%')
           .height('100%')
           .objectFit(ImageFit.Cover)
-          .blur(this.blurStrength * 80 / 500)
+          .blur(this.blurStrength * 120 / 500)
           .scale({ x: 1.4, y: 1.4 })
-          .opacity(this.bgOverOpacity * 0.3)
+          .opacity(this.bgOverOpacity)
           .expandSafeArea(IMMERSIVE_TYPES, IMMERSIVE_EDGES)
       }
       Column()
@@ -512,8 +516,9 @@ export struct NowPlayingPage {
         .width('100%')
         .onChange((index: number) => this.switchPane(index))
 
-        // 控制区只有一个（在 Swiper 外），歌词页通过 lyricsMode 形变成
-        // 半透明胶囊：传输键不重复实现，单一数据源。
+        // 控制区只有一个（在 Swiper 外），歌词页通过 lyricsMode 收拢成
+        // 无底控件行：传输键不重复实现，单一数据源。控件直接叠在毛玻璃
+        // 背景上，不再有底部色带。
         Column() {
           if (!this.lyricsMode) {
             Column() {
@@ -522,6 +527,11 @@ export struct NowPlayingPage {
                 durationMs: this.durationMs,
                 playing: this.status === PlaybackStatus.PLAYING,
                 loading: this.status === PlaybackStatus.LOADING,
+                // 未播放段用取色 scheme 的主色系（secondary），已播放段用
+                // 强调色（primary，与主页 FAB 同源）——M7.4：在页面表达式里
+                // 直读被跟踪的 coverScheme，取色变化即时重染。
+                unplayedColor: this.im().secondary,
+                playedColor: this.im().primary,
                 onSeek: (ms: number) => PlayerManager.seekTo(ms),
                 onPreview: (fraction: number) => {
                   this.previewMs = fraction >= 0 ? Math.round(fraction * Math.max(1, this.durationMs)) : -1;
@@ -647,7 +657,8 @@ export struct NowPlayingPage {
             .width('100%')
             .transition(TransitionEffect.OPACITY.animation({ duration: 280, curve: Curve.Friction }))
           } else {
-            // 歌词页胶囊：收藏 / 上一首 / 播放暂停 / 下一首 / 播放列表。
+            // 歌词页控件行：收藏 / 上一首 / 播放暂停 / 下一首 / 播放列表，
+            // 无底色直接贴在毛玻璃背景上。
             Row() {
               Button() {
                 Image(this.favorite
@@ -708,16 +719,12 @@ export struct NowPlayingPage {
             .width('100%')
             .padding({ top: 4, bottom: 4 })
             .justifyContent(FlexAlign.SpaceEvenly)
-            .backgroundColor(this.im().tagBg)
-            .backgroundBlurStyle(BlurStyle.COMPONENT_THIN)
-            .borderRadius(32)
-            .margin({ left: 4, right: 4, bottom: 12 })
+            .margin({ bottom: 12 })
             .transition(TransitionEffect.OPACITY.animation({ duration: 280, curve: Curve.Friction }))
           }
         }
         .width('100%')
         .padding({ left: 20, right: 20, bottom: this.lyricsMode ? this.bottomLift : 0 })
-        .backgroundColor(Theme.scrim(Theme.isDark()))
       }
       .width('100%')
       .height('100%')
