@@ -30,8 +30,23 @@ interface YtmPlaylistItemData {
   videoId?: string;
 }
 
+interface YtmThumbnailSource {
+  url?: string;
+  width?: number;
+  height?: number;
+}
+
+interface YtmThumbnailList {
+  thumbnails?: YtmThumbnailSource[];
+}
+
+interface YtmMusicThumbnailRenderer {
+  thumbnail?: YtmThumbnailList;
+}
+
 interface YtmListItemRenderer {
   playlistItemData?: YtmPlaylistItemData;
+  thumbnail?: YtmMusicThumbnailRenderer;
   flexColumns?: YtmFlexColumn[];
   fixedColumns?: YtmFixedColumn[];
 }
@@ -124,7 +139,7 @@ export function parseYtmSearchResponse(text: string, limit: number): SongItem[] 
         '',
         0,
         parseYtmDurationMs(durationText),
-        '',
+        pickCoverUrl(renderer),
         `${Constants.YOUTUBE_MUSIC_MEDIA_PREFIX}${videoId}`,
         MusicPlatform.YOUTUBE_MUSIC
       );
@@ -138,6 +153,29 @@ export function parseYtmSearchResponse(text: string, limit: number): SongItem[] 
     }
   }
   return items;
+}
+
+/**
+ * Rows carry the cover as a thumbnail ladder; take the largest URL — it is
+ * both the list artwork and the source PlayerManager feeds to the cover
+ * color extractor (a missing cover also means a missing dynamic scheme).
+ */
+function pickCoverUrl(renderer: YtmListItemRenderer): string {
+  const thumbs = renderer.thumbnail?.thumbnail?.thumbnails ?? [];
+  let bestUrl = '';
+  let bestWidth = -1;
+  for (const source of thumbs) {
+    const url = source.url ?? '';
+    if (url.length === 0) {
+      continue;
+    }
+    const width = source.width ?? 0;
+    if (width > bestWidth) {
+      bestWidth = width;
+      bestUrl = url;
+    }
+  }
+  return bestUrl.replace('http://', 'https://');
 }
 
 /**
