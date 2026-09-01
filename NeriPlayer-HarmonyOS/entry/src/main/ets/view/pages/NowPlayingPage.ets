@@ -15,6 +15,7 @@ import { LyricShareSheet } from '../components/LyricShareSheet';
 import { MatchSongInfoSheet } from '../components/MatchSongInfoSheet';
 import { EditSongInfoSheet } from '../components/EditSongInfoSheet';
 import { LyricOffsetSheet, LyricFontSizeSheet } from '../components/LyricTweakSheets';
+import { LyricSettingsRows } from '../components/LyricSettingsRows';
 import { SongShareSheet } from '../components/SongShareSheet';
 import { DownloadEngine } from '../../download/DownloadEngine';
 import { DownloadStorage } from '../../download/DownloadStorage';
@@ -58,6 +59,8 @@ export struct NowPlayingPage {
   @State lyricsMode: boolean = false;
   private paneSwiper: SwiperController = new SwiperController();
   @State showQueue: boolean = false;
+  // 「词」按钮拉起的歌词设置半模态面板（原生 bindSheet，与播放列表同规格）。
+  @State showLyricSettings: boolean = false;
   @State showSleep: boolean = false;
   @State showShare: boolean = false;
   // ⋯ menu action sheets (the queue keeps its dedicated bottom-right button).
@@ -682,8 +685,26 @@ export struct NowPlayingPage {
               .height(44)
               .type(ButtonType.Circle)
               .backgroundColor(Color.Transparent)
-              .accessibilityText('切换到封面')
-              .onClick(() => this.paneSwiper.showPrevious())
+              .accessibilityText('歌词设置')
+              // 「词」面板绑定在按钮自身：外层 Stack 已挂播放列表 bindSheet，
+              // 同节点二次绑定会被覆盖。
+              .bindSheet($$this.showLyricSettings, this.lyricSettingsSheetBuilder(), {
+                detents: [SheetSize.MEDIUM, SheetSize.LARGE],
+                dragBar: true,
+                showClose: false,
+                // API 24 上半模态的官方材质入口（since 12）。COMPONENT 系列
+                // 跟随组件圆角取景，即「沉浸光感」玻璃观感；设备材质能力
+                // 不足或用户关闭毛玻璃时用不透明 surface 兜底（HdsLight 探针
+                // 在模拟器恒为空，故不做运行时材质探测）。
+                blurStyle: this.glassEffect ? BlurStyle.COMPONENT_ULTRA_THICK : BlurStyle.NONE,
+                backgroundColor: this.glassEffect ? Theme.surfaceGlass(Theme.isDark()) : Theme.surface(Theme.isDark()),
+                onDisappear: () => {
+                  this.showLyricSettings = false;
+                }
+              })
+              .onClick(() => {
+                this.showLyricSettings = true;
+              })
 
               PlayerControlButton({
                 icon: $r('app.media.round_skip_previous_24'),
@@ -868,6 +889,11 @@ export struct NowPlayingPage {
       }
     })
   }
+
+  @Builder
+  lyricSettingsSheetBuilder() {
+    LyricSettingsSheetContent()
+  }
 }
 
 @Component
@@ -909,8 +935,7 @@ struct PlayerControlButton {
  * S4: 播放列表内容（宿主用原生 bindSheet 承载：detents 双档位 + dragBar +
  * 下滑关闭，替代旧的手工 scrim+position('38%') 覆盖层——百分比 .position
  * 是布局守则明令禁止的写法，且旧实现没有进出场动画与手势关闭）。
- */
-@Component
+ */@Component
 struct QueueSheetContent {
   @Prop queueJson: string = '';
   currentOrderIndex: number = 0;
@@ -980,5 +1005,36 @@ struct QueueSheetContent {
 
   private safeBottom(): number {
     return 16;
+  }
+}
+
+/**
+ * 「词」按钮拉起的歌词设置面板内容：与设置页「歌词设置」分区共用
+ * LyricSettingsRows，保证两处展示与生效的配置一致。材质背景由宿主的
+ * bindSheet blurStyle 提供，这里只负责标题与滚动内容。
+ */
+@Component
+struct LyricSettingsSheetContent {
+  build() {
+    Column() {
+      Text('歌词设置')
+        .fontSize(17)
+        .fontWeight(FontWeight.Bold)
+        .fontColor(Theme.textPrimary(Theme.isDark()))
+        .width('100%')
+        .padding({ bottom: 10 })
+
+      Scroll() {
+        LyricSettingsRows({ transparentBg: true })
+      }
+      .scrollBar(BarState.Off)
+      .width('100%')
+      .layoutWeight(1)
+      .align(Alignment.Top)
+      .nestedScroll({ scrollForward: NestedScrollMode.PARENT_FIRST, scrollBackward: NestedScrollMode.SELF_FIRST })
+    }
+    .width('100%')
+    .height('100%')
+    .padding({ left: 16, right: 16, top: 8, bottom: 16 })
   }
 }
