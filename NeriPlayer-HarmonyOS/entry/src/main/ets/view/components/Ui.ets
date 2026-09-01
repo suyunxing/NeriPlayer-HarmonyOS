@@ -347,6 +347,8 @@ export struct ToggleRow {
   @Prop icon: string = '';
   @Prop iconResource: Resource = $r('app.media.ic_info_24');
   @Prop showIcon: boolean = false;
+  /** true 时底色透明（叠在 bindSheet 等材质背景上），默认不透明 surface。 */
+  @Prop transparentBg: boolean = false;
   @Prop value: boolean = false;
   onChange: (value: boolean) => void = () => {};
 
@@ -388,7 +390,7 @@ export struct ToggleRow {
     }
     .width('100%')
     .padding({ left: 16, right: 16, top: 12, bottom: 12 })
-    .backgroundColor(Theme.surface(Theme.isDark()))
+    .backgroundColor(this.transparentBg ? Color.Transparent : Theme.surface(Theme.isDark()))
   }
 }
 
@@ -405,6 +407,8 @@ export struct OptionRow {
   @Prop icon: string = '';
   @Prop iconResource: Resource = $r('app.media.ic_info_24');
   @Prop showIcon: boolean = false;
+  /** true 时底色透明（叠在 bindSheet 等材质背景上），默认不透明 surface。 */
+  @Prop transparentBg: boolean = false;
   @Prop options: OptionEntry[] = [];
   @Prop current: string = '';
   onPick: (value: string) => void = () => {};
@@ -490,7 +494,7 @@ export struct OptionRow {
     }
     .width('100%')
     .padding({ left: 16, right: 16, top: 12, bottom: 12 })
-    .backgroundColor(Theme.surface(Theme.isDark()))
+    .backgroundColor(this.transparentBg ? Color.Transparent : Theme.surface(Theme.isDark()))
     .onClick(() => {
       this.menuShow = true;
     })
