@@ -8,7 +8,10 @@ const LYRIC_TRANSLATION_STORAGE_KEY = 'np.lyric_translation';
 const LYRIC_PHONETIC_STORAGE_KEY = 'np.lyric_phonetic';
 const LYRIC_FONT_SIZE_STORAGE_KEY = 'np.lyric_font_size';
 
-const LINE_SPACING = 10;
+// The reference lyric page uses an editorial, airy rhythm rather than a
+// compact karaoke list. Keep the value in vp so it scales with the device.
+const LINE_SPACING = 22;
+const ACTIVE_LINE_ANCHOR = 0.42;
 /** How long a user-dragged line stays centered before re-syncing (spec: 2s). */
 const USER_HOLD_REVERT_MS = 2000;
 /** HarmonyOS physical spring for the auto-follow; duration is auto-derived. */
@@ -95,15 +98,44 @@ export struct LyricView {
     return 0;
   }
 
+  /** Active lyrics are dark and large; surrounding rows fade into the glass. */
+  private lineOpacity(index: number): number {
+    const active = this.activeIndex();
+    if (active < 0) {
+      return 0.7;
+    }
+    const distance = Math.abs(index - active);
+    return Math.max(0.18, Math.pow(0.5, distance));
+  }
+
+  private lineFontSize(index: number): number {
+    return index === this.activeIndex()
+      ? this.lyricFontSize + 6
+      : Math.max(18, this.lyricFontSize + 2);
+  }
+
   // ---- Layout plumbing ----------------------------------------------------
 
-  /** Symmetric half-viewport padding lets every line reach the exact center. */
-  private edgePadding(): number {
-    return this.viewportHeight > 0 ? Math.max(0, this.viewportHeight / 2 - 16) : 120;
+  private topEdgePadding(): number {
+    return this.viewportHeight > 0 ? Math.max(0, this.viewportHeight * ACTIVE_LINE_ANCHOR - 16) : 100;
+  }
+
+  private bottomEdgePadding(): number {
+    return this.viewportHeight > 0 ? Math.max(0, this.viewportHeight * (1 - ACTIVE_LINE_ANCHOR) - 16) : 140;
+  }
+
+  /** LyricScrollMath centers within this virtual height, yielding the 42% anchor. */
+  private anchorViewportHeight(): number {
+    return this.viewportHeight * ACTIVE_LINE_ANCHOR * 2;
   }
 
   private layout(): LyricLineLayout {
-    return LyricScrollMath.buildLayout(this.rowHeights, LINE_SPACING, this.edgePadding(), this.edgePadding());
+    return LyricScrollMath.buildLayout(
+      this.rowHeights,
+      LINE_SPACING,
+      this.topEdgePadding(),
+      this.bottomEdgePadding()
+    );
   }
 
   private heightsMeasured(): boolean {
@@ -166,7 +198,11 @@ export struct LyricView {
   /** Re-center after a re-layout (font size / translation toggle / viewport change). */
   private recenterIfDrifted(): void {
     const current = this.scroller.currentOffset().yOffset;
-    const target = LyricScrollMath.targetScroll(Math.max(0, this.currentIndex()), this.layout(), this.viewportHeight);
+    const target = LyricScrollMath.targetScroll(
+      Math.max(0, this.currentIndex()),
+      this.layout(),
+      this.anchorViewportHeight()
+    );
     if (Math.abs(current - target) > 2) {
       this.followCurrent(true);
     }
@@ -198,7 +234,7 @@ export struct LyricView {
     }
     const index = Math.max(0, this.currentIndex());
     this.lastFollowedIndex = this.currentIndex();
-    const target = LyricScrollMath.targetScroll(index, this.layout(), this.viewportHeight);
+    const target = LyricScrollMath.targetScroll(index, this.layout(), this.anchorViewportHeight());
     // Zero-displacement scrolls never raise onDidScroll/onScrollStop, so the
     // programmatic flag must not be armed (it would wedge scrub mode).
     if (this.scroller.currentOffset().yOffset === target) {
@@ -266,7 +302,7 @@ export struct LyricView {
       return;
     }
     const scroll = this.scroller.currentOffset().yOffset;
-    const index = LyricScrollMath.centeredIndex(scroll, this.layout(), this.viewportHeight);
+    const index = LyricScrollMath.centeredIndex(scroll, this.layout(), this.anchorViewportHeight());
     if (index !== this.scrubIndex) {
       this.scrubIndex = index;
       if (index >= 0 && index < this.lyrics.length) {
@@ -314,11 +350,11 @@ export struct LyricView {
     Text() {
       ForEach(line.words, (word: LyricWord) => {
         Span(word.text)
-          .fontColor(this.wordState(word) > 0 ? Theme.primary(Theme.isDark()) : Theme.textSecondary(Theme.isDark()))
-          .fontWeight(this.wordState(word) === 1 ? FontWeight.Bold : FontWeight.Normal)
+          .fontColor(this.wordState(word) > 0 ? Theme.textPrimary(Theme.isDark()) : Theme.textSecondary(Theme.isDark()))
+          .fontWeight(this.wordState(word) === 1 ? FontWeight.Medium : FontWeight.Normal)
       }, (word: LyricWord, index: number) => `${index}_${word.startMs}_${word.text}`)
     }
-    .fontSize(this.lyricFontSize + 2)
+    .fontSize(this.lyricFontSize + 6)
     .textAlign(TextAlign.Center)
     .width('100%')
   }
@@ -333,18 +369,16 @@ export struct LyricView {
             .margin({ top: 40 })
         } else {
           ForEach(this.lyrics, (line: LyricLine, index: number) => {
-            Column({ space: 4 }) {
+            Column({ space: 6 }) {
               if (index === this.currentIndex() && index === this.activeIndex() && line.words.length > 0) {
                 // Karaoke line: per-word highlight driven by positionMs. While
                 // scrubbing the highlight belongs to the centered line instead.
                 this.activeWordLine(line)
               } else {
                 Text(line.text)
-                  .fontSize(index === this.activeIndex() ? this.lyricFontSize + 2 : this.lyricFontSize - 2)
-                  .fontColor(index === this.activeIndex()
-                    ? Theme.primary(Theme.isDark())
-                    : Theme.textSecondary(Theme.isDark()))
-                  .fontWeight(index === this.activeIndex() ? FontWeight.Bold : FontWeight.Normal)
+                  .fontSize(this.lineFontSize(index))
+                  .fontColor(Theme.textPrimary(Theme.isDark()))
+                  .fontWeight(index === this.activeIndex() ? FontWeight.Medium : FontWeight.Normal)
                   .animation({ duration: 250, curve: Curve.EaseOut })
                   .textAlign(TextAlign.Center)
                   .width('100%')
@@ -364,13 +398,15 @@ export struct LyricView {
                   .width('100%')
               }
             }
+            .opacity(this.lineOpacity(index))
+            .animation({ duration: 250, curve: Curve.EaseOut })
             .onClick(() => this.handleLineTap(line))
             .onAreaChange((_oldArea: Area, newArea: Area) => this.onRowMeasured(index, Number(newArea.height)))
           }, (line: LyricLine) => `${line.timeMs}_${line.text}`)
         }
       }
       .width('100%')
-      .padding({ top: this.edgePadding(), bottom: this.edgePadding() })
+      .padding({ top: this.topEdgePadding(), bottom: this.bottomEdgePadding() })
     }
     .scrollBar(BarState.Off)
     .edgeEffect(EdgeEffect.Spring)

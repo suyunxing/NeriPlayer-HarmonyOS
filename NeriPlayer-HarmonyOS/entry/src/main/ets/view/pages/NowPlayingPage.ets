@@ -325,32 +325,43 @@ export struct NowPlayingPage {
       // 留下色块切割（浅色模式下尤其明显：页面是深色遮罩，导航条却是浅色底）。
       // 下面的内容层不延伸，仍由 ArkUI 的安全区自动避让保护。
       //
-      // 背景 = 整屏模糊封面的毛玻璃（双层交叉淡化由 transitionCover 维护），
-      // 换算系数相对旧版整体增强，让控件与歌词从模糊底上突出；其上再叠一层
-      // scrim 压暗保证可读性。
-      if (this.bgUnderUrl.length > 0) {
-        Image(this.bgUnderUrl)
-          .width('100%')
-          .height('100%')
-          .objectFit(ImageFit.Cover)
-          .blur(this.blurStrength * 120 / 500)
-          .scale({ x: 1.4, y: 1.4 })
-          .expandSafeArea(IMMERSIVE_TYPES, IMMERSIVE_EDGES)
-      }
-      if (this.bgOverUrl.length > 0) {
-        Image(this.bgOverUrl)
-          .width('100%')
-          .height('100%')
-          .objectFit(ImageFit.Cover)
-          .blur(this.blurStrength * 120 / 500)
-          .scale({ x: 1.4, y: 1.4 })
-          .opacity(this.bgOverOpacity)
-          .expandSafeArea(IMMERSIVE_TYPES, IMMERSIVE_EDGES)
-      }
+      // 背景先铺封面取色，再以半透明模糊封面补充明暗纹理。浅色模式使用白色
+      // wash 保持通透，深色模式再适度压暗；双层封面的交叉淡化仍由
+      // transitionCover 维护。
       Column()
         .width('100%')
         .height('100%')
-        .backgroundColor(Theme.scrim(Theme.isDark()))
+        .backgroundColor(this.accentHex.length > 0 ? this.accentHex : this.im().background)
+        .expandSafeArea(IMMERSIVE_TYPES, IMMERSIVE_EDGES)
+      Stack() {
+        if (this.bgUnderUrl.length > 0) {
+          Image(this.bgUnderUrl)
+            .width('100%')
+            .height('100%')
+            .objectFit(ImageFit.Cover)
+            .blur(this.blurStrength * 120 / 500)
+            .scale({ x: 1.35, y: 1.35 })
+            .expandSafeArea(IMMERSIVE_TYPES, IMMERSIVE_EDGES)
+        }
+        if (this.bgOverUrl.length > 0) {
+          Image(this.bgOverUrl)
+            .width('100%')
+            .height('100%')
+            .objectFit(ImageFit.Cover)
+            .blur(this.blurStrength * 120 / 500)
+            .scale({ x: 1.35, y: 1.35 })
+            .opacity(this.bgOverOpacity)
+            .expandSafeArea(IMMERSIVE_TYPES, IMMERSIVE_EDGES)
+        }
+      }
+      .width('100%')
+      .height('100%')
+      .opacity(Theme.isDark() ? 0.82 : 0.44)
+      .expandSafeArea(IMMERSIVE_TYPES, IMMERSIVE_EDGES)
+      Column()
+        .width('100%')
+        .height('100%')
+        .backgroundColor(Theme.isDark() ? '#52000000' : '#28FFFFFF')
         .expandSafeArea(IMMERSIVE_TYPES, IMMERSIVE_EDGES)
 
       Column() {
@@ -657,9 +668,52 @@ export struct NowPlayingPage {
             .width('100%')
             .transition(TransitionEffect.OPACITY.animation({ duration: 280, curve: Curve.Friction }))
           } else {
-            // 歌词页控件行：收藏 / 上一首 / 播放暂停 / 下一首 / 播放列表，
-            // 无底色直接贴在毛玻璃背景上。
+            // 歌词页控件行：歌词 / 上一首 / 播放暂停 / 下一首 / 收藏。
+            // The reference uses one outlined, translucent capsule instead of
+            // five unrelated floating buttons.
             Row() {
+              Button() {
+                Image($r('app.media.ic_lyricon'))
+                  .width(25)
+                  .height(25)
+                  .fillColor(this.im().textSecondary)
+              }
+              .width(44)
+              .height(44)
+              .type(ButtonType.Circle)
+              .backgroundColor(Color.Transparent)
+              .accessibilityText('切换到封面')
+              .onClick(() => this.paneSwiper.showPrevious())
+
+              PlayerControlButton({
+                icon: $r('app.media.round_skip_previous_24'),
+                tintOn: this.im().textPrimary,
+                tintOff: this.im().textSecondary,
+                label: '上一首',
+                onTap: () => PlayerManager.previous()
+              })
+              Button() {
+                Image(this.status === PlaybackStatus.PLAYING
+                  ? $r('app.media.round_pause_24')
+                  : $r('app.media.round_play_arrow_24'))
+                  .width(32)
+                  .height(32)
+                  .fillColor(this.im().textSecondary)
+              }
+              .width(44)
+              .height(44)
+              .type(ButtonType.Circle)
+              .backgroundColor(Color.Transparent)
+              .accessibilityText(this.status === PlaybackStatus.PLAYING ? '暂停' : '播放')
+              .onClick(() => PlayerManager.togglePlayPause())
+              PlayerControlButton({
+                icon: $r('app.media.round_skip_next_24'),
+                tintOn: this.im().textPrimary,
+                tintOff: this.im().textSecondary,
+                label: '下一首',
+                onTap: () => PlayerManager.next(false)
+              })
+
               Button() {
                 Image(this.favorite
                   ? $r('app.media.ic_baseline_favorite_24')
@@ -674,57 +728,22 @@ export struct NowPlayingPage {
               .backgroundColor(Color.Transparent)
               .accessibilityText(this.favorite ? '取消收藏' : '收藏')
               .onClick(() => this.toggleFavorite())
-
-              PlayerControlButton({
-                icon: $r('app.media.round_skip_previous_24'),
-                tintOn: this.im().textPrimary,
-                tintOff: this.im().textSecondary,
-                label: '上一首',
-                onTap: () => PlayerManager.previous()
-              })
-              PlayerControlButton({
-                icon: this.status === PlaybackStatus.PLAYING
-                  ? $r('app.media.round_pause_24')
-                  : $r('app.media.round_play_arrow_24'),
-                tintOn: this.im().onPrimary,
-                active: true,
-                filled: true,
-                buttonSize: 52,
-                label: this.status === PlaybackStatus.PLAYING ? '暂停' : '播放',
-                onTap: () => PlayerManager.togglePlayPause()
-              })
-              PlayerControlButton({
-                icon: $r('app.media.round_skip_next_24'),
-                tintOn: this.im().textPrimary,
-                tintOff: this.im().textSecondary,
-                label: '下一首',
-                onTap: () => PlayerManager.next(false)
-              })
-
-              Button() {
-                Image($r('app.media.ic_queue_music_24'))
-                  .width(22)
-                  .height(22)
-                  .fillColor(this.im().textPrimary)
-              }
-              .width(44)
-              .height(44)
-              .type(ButtonType.Circle)
-              .backgroundColor(Color.Transparent)
-              .accessibilityText('播放列表')
-              .onClick(() => {
-                this.showQueue = true;
-              })
             }
-            .width('100%')
-            .padding({ top: 4, bottom: 4 })
+            .width('82%')
+            .height(60)
+            .padding({ left: 14, right: 14 })
             .justifyContent(FlexAlign.SpaceEvenly)
-            .margin({ bottom: 12 })
+            .alignSelf(ItemAlign.Center)
+            .backgroundColor('#14FFFFFF')
+            .backgroundBlurStyle(BlurStyle.COMPONENT_THIN)
+            .border({ width: 1, color: '#52FFFFFF', radius: 32 })
+            .borderRadius(32)
+            .margin({ bottom: 8 })
             .transition(TransitionEffect.OPACITY.animation({ duration: 280, curve: Curve.Friction }))
           }
         }
         .width('100%')
-        .padding({ left: 20, right: 20, bottom: this.lyricsMode ? this.bottomLift : 0 })
+        .padding({ left: 20, right: 20, bottom: 0 })
       }
       .width('100%')
       .height('100%')
