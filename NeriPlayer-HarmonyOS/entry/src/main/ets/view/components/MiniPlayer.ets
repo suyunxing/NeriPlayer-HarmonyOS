@@ -6,15 +6,16 @@ import { PlaybackStatus } from '../../player/PlaybackConstants';
 import { PlayerManager } from '../../player/PlayerManager';
 import { Router } from '../Router';
 import { Theme } from '../Theme';
+import { AccentScheme, SchemeMode } from '../theme/AccentScheme';
 import { platformName } from './Ui';
 
 @Component
 export struct MiniPlayer {
   /**
    * 官方 HdsTabsMiniBar 槽位形态（用户决策：回用官方槽位、缩小播放按钮
-   * 适配尺寸）。紧凑形态：无进度条、40vp 行、32vp 圆封面、无外边距；
-   * 播放键触控热区保持 40vp（项目触达下限），可见圆缩到 30vp 在槽位
-   * 圆角内留出空余。独立悬浮形态才用完整卡片。
+   * 适配尺寸）。紧凑形态：无线性进度条、40vp 行、32vp 圆封面、无外边距；
+   * 播放键触控热区保持 40vp（项目触达下限），进度改由播放键外圈细环
+   * 显示（可见环缩到 30vp 在槽位圆角内留出空余）。独立悬浮形态才用完整卡片。
    */
   @Prop compact: boolean = false;
   @StorageLink('player.currentSong') currentSongJson: string = '';
@@ -24,6 +25,10 @@ export struct MiniPlayer {
   private replaceEffect: ReplaceSymbolEffect = new ReplaceSymbolEffect(EffectScope.WHOLE);
   @StorageLink('player.positionMs') positionMs: number = 0;
   @StorageLink('player.durationMs') durationMs: number = 0;
+  // 播放页同源全量配色：进度环已播放取 primary、未播放取 secondary
+  // （与 NowPlayingPage.im() 同一来源）。@StorageProp 成员直读即可被最小
+  // 更新跟踪，换封面 scheme 即重染，无需镜像 @State（M7.4）。
+  @StorageProp('player.coverScheme') coverScheme: AccentScheme = AccentScheme.neutralFallback();
   // Mirror the cover seed into @State and read it directly in the accent
   // expressions: AppStorage reads hidden inside Theme.* calls are invisible
   // to minimal-update tracking (M7.4 pitfall), so the raw copy is required.
@@ -62,13 +67,18 @@ export struct MiniPlayer {
       : Theme.primary(Theme.isDark());
   }
 
+  /** 当前深浅色模式的 scheme ramp（与播放页 im() 同一规则）。 */
+  private scheme(): SchemeMode {
+    return Theme.isDark() ? this.coverScheme.dark : this.coverScheme.light;
+  }
+
   build() {
     Column() {
       if (!this.compact) {
         // Progress 的 total 不给就是 100，原来喂进去的是 0..1 的比例，播到一半也只
         // 有 0.5% 的填充（tablet 上像素采样实测：播放 11% 时整条都是轨道色）。改成
         // 直接把毫秒喂给 value/total，单位自洽（同 DownloadsPage 的 value+total 写法）。
-        // 紧凑形态没有这条高度，进度看播放页波形条。
+        // 紧凑形态没有这条高度，进度由播放键外圈细环显示。
         Progress({
           value: this.positionMs,
           total: this.durationMs > 0 ? this.durationMs : 1,
@@ -108,48 +118,79 @@ export struct MiniPlayer {
         }
 
         Column({ space: 2 }) {
-          Row({ space: 6 }) {
+          // 标题右端渐隐截断。迷你条背景是毛玻璃非纯色，不能叠一层同色渐变假装
+          // 淡出，必须做真 alpha 蒙版：Stack 先离屏（OFFSCREEN）把文字隔离进自身
+          // 缓冲，渐变层再用 DST_IN 把文字 alpha 乘上渐变 alpha——渐变不透明处
+          // 保留文字，右端透明处文字平滑淡出（Text 无原生渐隐截断，fadeout 仅
+          // 跑马灯适用）。短标题不进入渐变区，不受影响。
+          Stack() {
             Text(this.song().displayName)
               .fontSize(14)
               .fontWeight(FontWeight.Medium)
               .fontColor(Theme.textPrimary(Theme.isDark()))
               .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Clip })
+              .width('100%')
+            Column()
+              .width('100%')
+              .height('100%')
+              .linearGradient({
+                direction: GradientDirection.Right,
+                colors: [[0xFF000000, 0], [0xFF000000, 0.8], [0x00000000, 1]]
+              })
+              // DST_IN 只取渐变的 alpha 做蒙版，颜色通道被丢弃；遮罩层不得拦截点击。
+              .blendMode(BlendMode.DST_IN)
+              .hitTestBehavior(HitTestMode.None)
+          }
+          .width('100%')
+          .clip(true)
+          .blendMode(BlendMode.SRC_OVER, BlendApplyType.OFFSCREEN)
+
+          // 来源标识挂在作者行末尾（用户决策）：标题行只留标题，避免长标题顶按钮。
+          Row({ space: 6 }) {
+            Text(this.song().displayArtist)
+              .fontSize(11)
+              .fontColor(Theme.textSecondary(Theme.isDark()))
+              .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
+              .flexShrink(1)
             Text(platformName(this.song().platform))
               .fontSize(9)
               .fontColor(Theme.primary(Theme.isDark()))
               .padding({ left: 5, right: 5, top: 1, bottom: 1 })
               .backgroundColor(Theme.primaryContainer(Theme.isDark()))
               .borderRadius(5)
+              .flexShrink(0)
           }
           .width('100%')
-
-          Text(this.song().displayArtist)
-            .fontSize(11)
-            .fontColor(Theme.textSecondary(Theme.isDark()))
-            .maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
-            .width('100%')
         }
         .layoutWeight(1)
         .alignItems(HorizontalAlign.Start)
 
         Button() {
           Stack({ alignContent: Alignment.Center }) {
-            // 紧凑形态：可见圆 30vp（槽位 40vp 行内留出空余不被圆角裁），
-            // 触控热区仍是整个 40vp Button。
+            // 紧凑形态：播放键改为透明圆 + 着色三角，外圈 2vp 细环作进度
+            // 显示，配色与播放页波形条一致（已播放 primary/未播放 secondary）。
+            // 可见环 30vp（槽位 40vp 行内留出空余不被圆角裁），触控热区
+            // 仍是整个 40vp Button。
             if (this.compact) {
-              Circle()
+              Progress({
+                value: this.positionMs,
+                total: this.durationMs > 0 ? this.durationMs : 1,
+                type: ProgressType.Ring
+              })
                 .width(30)
                 .height(30)
-                .fill(this.playBackground())
+                .style({ strokeWidth: 2 })
+                .color(this.scheme().primary)
+                .backgroundColor(this.scheme().secondary)
             }
             // S6: 官方符号替换动效（CROSS_FADE），播放/暂停切换不再是硬切。
             SymbolGlyph(this.status === PlaybackStatus.PLAYING
               ? $r('sys.symbol.pause_fill')
               : $r('sys.symbol.play_fill'))
               .fontSize(this.compact ? 15 : 22)
-              .fontColor(['#FFFFFF'])
+              .fontColor([this.compact ? this.scheme().primary : '#FFFFFF'])
               .symbolEffect(this.replaceEffect, this.symbolTrigger)
           }
         }
