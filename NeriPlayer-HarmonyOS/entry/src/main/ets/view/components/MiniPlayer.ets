@@ -7,6 +7,7 @@ import { PlayerManager } from '../../player/PlayerManager';
 import { Router } from '../Router';
 import { Theme } from '../Theme';
 import { AccentScheme, SchemeMode } from '../theme/AccentScheme';
+import { HdsLight } from '../theme/HdsLight';
 import { platformName } from './Ui';
 
 @Component
@@ -79,6 +80,25 @@ export struct MiniPlayer {
    */
   private ringTrackColor(): string {
     return '#45' + this.scheme().primary.substring(1);
+  }
+
+  /**
+   * 官方槽位形态且设备支持系统材质：不自绘背景，透出悬浮 Tab 栏的沉浸
+   * 光感材质（MainShell 的 barFloatingStyle.systemMaterialEffect 作用于
+   * 整条栏，enableMiniBarBackground 让槽位背景跟随栏身，lightColor 随
+   * 封面取色）。自绘玻璃会盖在系统材质上把光感挡掉，仅在不支持材质的
+   * 设备（模拟器 getSystemMaterialTypes 为空）或用户关闭毛玻璃时回落。
+   */
+  private followsBarMaterial(): boolean {
+    return this.compact && this.glassEffect
+      && (HdsLight.immersiveSupported() || HdsLight.adaptiveSupported());
+  }
+
+  private barBackground(): ResourceColor {
+    if (this.followsBarMaterial()) {
+      return Color.Transparent;
+    }
+    return this.glassEffect ? Theme.surfaceGlass(Theme.isDark()) : Theme.surface(Theme.isDark());
   }
 
   build() {
@@ -274,8 +294,11 @@ export struct MiniPlayer {
       .scale(this.swiping ? { x: 0.975, y: 0.975 } : { x: 1, y: 1 })
     }
     .width('100%')
-    .backgroundColor(this.glassEffect ? Theme.surfaceGlass(Theme.isDark()) : Theme.surface(Theme.isDark()))
-    .backgroundBlurStyle(this.glassEffect ? BlurStyle.COMPONENT_THICK : BlurStyle.NONE)
+    .backgroundColor(this.barBackground())
+    // 槽位形态透出栏身沉浸光感材质时不得再叠组件级模糊（NONE 关掉，
+    // 否则 COMPONENT_THICK 会在透明底上自取一框内容，重新变成玻璃卡片）。
+    .backgroundBlurStyle(this.followsBarMaterial() || !this.glassEffect
+      ? BlurStyle.NONE : BlurStyle.COMPONENT_THICK)
     .borderRadius(this.compact ? 20 : 16)
     .clip(true)
     .margin(this.compact ? { left: 0, right: 0, bottom: 0 } : { left: 10, right: 10, bottom: 8 })
