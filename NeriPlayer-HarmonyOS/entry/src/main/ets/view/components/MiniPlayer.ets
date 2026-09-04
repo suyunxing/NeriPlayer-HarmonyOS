@@ -72,6 +72,15 @@ export struct MiniPlayer {
     return Theme.isDark() ? this.coverScheme.dark : this.coverScheme.light;
   }
 
+  /**
+   * 进度环未播放段：主色低透明度。scheme.secondary 与 primary 明度几乎相同
+   * （播放页 4-6px 粗波形条靠色相才可辨），2vp 细环上不可分，改用主色
+   * ~27% alpha 拉开明暗（浅色下≈L83、深色下≈L28，对 primary 均 ≥40 L 差）。
+   */
+  private ringTrackColor(): string {
+    return '#45' + this.scheme().primary.substring(1);
+  }
+
   build() {
     Column() {
       if (!this.compact) {
@@ -170,9 +179,10 @@ export struct MiniPlayer {
         Button() {
           Stack({ alignContent: Alignment.Center }) {
             // 紧凑形态：播放键改为透明圆 + 着色三角，外圈 2vp 细环作进度
-            // 显示，配色与播放页波形条一致（已播放 primary/未播放 secondary）。
-            // 可见环 30vp（槽位 40vp 行内留出空余不被圆角裁），触控热区
-            // 仍是整个 40vp Button。
+            // 显示。已播放 primary 与播放页一致；未播放用主色低透明度
+            // （secondary 明度与 primary 过近，细环上无法区分，见
+            // ringTrackColor 注释）。可见环 30vp（槽位 40vp 行内留出空余
+            // 不被圆角裁），触控热区仍是整个 40vp Button。
             if (this.compact) {
               Progress({
                 value: this.positionMs,
@@ -183,7 +193,7 @@ export struct MiniPlayer {
                 .height(30)
                 .style({ strokeWidth: 2 })
                 .color(this.scheme().primary)
-                .backgroundColor(this.scheme().secondary)
+                .backgroundColor(this.ringTrackColor())
             }
             // S6: 官方符号替换动效（CROSS_FADE），播放/暂停切换不再是硬切。
             SymbolGlyph(this.status === PlaybackStatus.PLAYING
