@@ -1,20 +1,27 @@
 /**
- * Waveform-style playback progress slider, the HarmonyOS counterpart of
- * Android ui/component/playback/WaveformSlider.kt. The wave is procedural,
- * not real audio data: a fixed sine (amplitude 6, frequency 0.08 per px)
- * sampled every 6 px into 48..180 points whose phase loops every 2s while
- * playing (a lightweight timer instead of withFrameNanos). Drag gestures
- * mirror the Material Slider contract of the previous inline Slider: local
- * preview while dragging, seek fires on release/tap.
+ * Linear playback progress bar (the successor of the waveform slider): a thin
+ * round-capped track spanning the full width with the played part drawn on
+ * top in the accent color, slightly thicker. The accent segment's round cap
+ * protrudes over the unplayed track and forms the connecting arc between the
+ * two segments; both ends are clipped flush against the canvas edges. Colors
+ * come from the cover scheme via the parent (unplayed = secondary, played =
+ * accent), so the bar re-tints together with the rest of the page.
+ *
+ * Scrubbing is absolute (Material Slider contract): the preview jumps to the
+ * touch point and follows the finger, and the seek fires on release/tap. The
+ * 50ms repaint timer keeps the bar in sync while positionMs advances and
+ * drives the buffering pulse while loading.
+ *
+ * Units: canvasWidth comes from renderContext.width and GestureEvent.localX /
+ * ClickEvent.x are component-local values in vp, so all fraction math stays
+ * in vp — never convert either side to px.
  */
-const SAMPLE_INTERVAL_PX = 6;
-const MIN_POINTS = 48;
-const MAX_POINTS = 180;
-const WAVE_AMPLITUDE = 6;
-const WAVE_FREQUENCY = 0.08;
-const PHASE_LOOP_MS = 2000;
+import { Logger } from '../../app/Logger';
+
 const REPAINT_INTERVAL_MS = 50;
-const DRAG_THRESHOLD_VP = 8;
+const TRACK_HEIGHT_PX = 4;
+const PLAYED_HEIGHT_PX = 6;
+const PULSE_LOOP_MS = 1400;
 
 @Component
 export struct WaveformSlider {
@@ -22,16 +29,20 @@ export struct WaveformSlider {
   @Prop durationMs: number = 0;
   @Prop playing: boolean = false;
   @Prop loading: boolean = false;
+  /** Unplayed track color: the cover scheme's secondary tone. */
+  @Prop unplayedColor: string = '#80FFFFFF';
+  /** Played segment color: the scheme accent (same source as the home FAB). */
+  @Prop playedColor: string = '#FFFFFF';
   onSeek: (ms: number) => void = () => {};
   /** Drag preview as a 0..1 fraction; -1 restores the live position. */
   onPreview: (fraction: number) => void = () => {};
 
   private canvasWidth: number = 0;
   private canvasHeight: number = 0;
-  private pointCount: number = MIN_POINTS;
-  private phase: number = 0;
   private repaintTimer: number = -1;
   private frameTime: number = 0;
+  /** Fraction under the finger at touch-down; anchors the absolute pan. */
+  private panBaseFraction: number = -1;
   @State previewFraction: number = -1;
 
   private renderContext: CanvasRenderingContext2D =
@@ -47,12 +58,6 @@ export struct WaveformSlider {
     }
     this.frameTime = Date.now();
     this.repaintTimer = setInterval(() => {
-      const now = Date.now();
-      const delta = now - this.frameTime;
-      this.frameTime = now;
-      if (this.playing) {
-        this.phase = (this.phase + (Math.PI * 2) * delta / PHASE_LOOP_MS) % (Math.PI * 2);
-      }
       this.draw();
     }, REPAINT_INTERVAL_MS);
   }
@@ -70,15 +75,12 @@ export struct WaveformSlider {
     return Math.max(0, Math.min(1, raw));
   }
 
-  private waveY(x: number): number {
-    const center = this.canvasHeight / 2;
-    let amplitude = WAVE_AMPLITUDE;
-    if (this.loading) {
-      // Waiting pulse: the wave breathes between half-height 2 and 7 over a
-      // 1.4s cycle while playback is buffering (Android waiting animation).
-      amplitude = 4.5 + 2.5 * Math.sin((Date.now() % 1400) / 1400 * Math.PI * 2);
+  /** Maps a component-local touch x to the 0..1 bar fraction (both in vp). */
+  private fractionAt(localX: number): number {
+    if (this.canvasWidth <= 0) {
+      return 0;
     }
-    return center + Math.sin(x * WAVE_FREQUENCY + this.phase) * amplitude;
+    return Math.max(0, Math.min(1, localX / this.canvasWidth));
   }
 
   private draw(): void {
@@ -87,36 +89,39 @@ export struct WaveformSlider {
       return;
     }
     ctx.clearRect(0, 0, this.canvasWidth, this.canvasHeight);
+    const cy = this.canvasHeight / 2;
     const progressX = this.fraction() * this.canvasWidth;
+    // 'round' must be the string literal — the enum form is not accepted here.
     ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    this.drawWaveSegment(this.canvasWidth, 4, 'rgba(255,255,255,0.45)');
-    if (progressX > 1) {
-      this.drawWaveSegment(progressX, 6, '#FFFFFF');
-    }
+    // Unplayed track: full width; both round caps get clipped flush at the
+    // canvas edges, leaving only the joint arc visible mid-bar.
+    ctx.strokeStyle = this.unplayedColor;
+    ctx.lineWidth = TRACK_HEIGHT_PX;
     ctx.beginPath();
-    ctx.arc(progressX, this.waveY(progressX), 7, 0, Math.PI * 2);
-    ctx.fillStyle = '#FFFFFF';
-    ctx.fill();
-  }
-
-  /** Continuous sine polyline from x=0 to `widthPx`. */
-  private drawWaveSegment(widthPx: number, stroke: number, color: string): void {
-    const ctx = this.renderContext;
-    const step = widthPx / this.pointCount;
-    ctx.strokeStyle = color;
-    ctx.lineWidth = stroke;
-    ctx.beginPath();
-    ctx.moveTo(0, this.waveY(0));
-    for (let x = step; x < widthPx; x += step) {
-      ctx.lineTo(x, this.waveY(x));
-    }
+    ctx.moveTo(0, cy);
+    ctx.lineTo(this.canvasWidth, cy);
     ctx.stroke();
+    if (progressX > 0) {
+      if (this.loading) {
+        // Buffering pulse: the accent breathes between 0.45 and 1 alpha.
+        ctx.globalAlpha = 0.45 + 0.55 *
+          (0.5 + 0.5 * Math.sin((Date.now() % PULSE_LOOP_MS) / PULSE_LOOP_MS * Math.PI * 2));
+      }
+      ctx.strokeStyle = this.playedColor;
+      ctx.lineWidth = PLAYED_HEIGHT_PX;
+      ctx.beginPath();
+      ctx.moveTo(0, cy);
+      ctx.lineTo(progressX, cy);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
   }
 
   private commitPreview(): void {
     if (this.previewFraction >= 0) {
-      this.onSeek(Math.round(this.previewFraction * Math.max(1, this.durationMs)));
+      const targetMs = Math.round(this.previewFraction * Math.max(1, this.durationMs));
+      Logger.debug(`WaveformSlider commit: fraction=${this.previewFraction.toFixed(3)} targetMs=${targetMs}`);
+      this.onSeek(targetMs);
     }
     this.previewFraction = -1;
     this.onPreview(-1);
@@ -130,8 +135,6 @@ export struct WaveformSlider {
       .onReady(() => {
         this.canvasWidth = this.renderContext.width;
         this.canvasHeight = this.renderContext.height;
-        this.pointCount = Math.max(MIN_POINTS, Math.min(MAX_POINTS,
-          Math.floor(this.canvasWidth / SAMPLE_INTERVAL_PX)));
         this.draw();
       })
       .onAttach(() => {
@@ -140,34 +143,43 @@ export struct WaveformSlider {
       .onDetach(() => {
         this.stopTimer();
       })
+      .onTouch((event: TouchEvent) => {
+        // GestureEvent carries no component-local position on this API level,
+        // so the touch-down point is captured here: TouchInfo.x, offsetX and
+        // canvasWidth are all component-local vp, keeping the math unit-safe.
+        if (event.type === TouchType.Down && event.touches.length > 0) {
+          this.panBaseFraction = this.fractionAt(event.touches[0].x);
+        }
+      })
       .gesture(
-        PanGesture({ fingers: 1, direction: PanDirection.Horizontal, distance: DRAG_THRESHOLD_VP })
+        PanGesture({ fingers: 1, direction: PanDirection.Horizontal })
           .onActionStart(() => {
-            this.previewFraction = this.fraction();
+            this.previewFraction = this.panBaseFraction >= 0 ? this.panBaseFraction : this.fraction();
+            this.onPreview(this.previewFraction);
+            this.draw();
           })
           .onActionUpdate((event: GestureEvent) => {
-            if (this.canvasWidth <= 0) {
+            if (this.panBaseFraction < 0) {
               return;
             }
-            const raw = (this.previewFraction * this.canvasWidth + event.offsetX) / this.canvasWidth;
+            const raw = this.panBaseFraction + event.offsetX / this.canvasWidth;
             this.previewFraction = Math.max(0, Math.min(1, raw));
             this.onPreview(this.previewFraction);
             this.draw();
           })
           .onActionEnd(() => {
             this.commitPreview();
+            this.panBaseFraction = -1;
           })
           .onActionCancel(() => {
             this.previewFraction = -1;
+            this.panBaseFraction = -1;
             this.onPreview(-1);
             this.draw();
           })
       )
       .onClick((event: ClickEvent) => {
-        if (this.canvasWidth <= 0) {
-          return;
-        }
-        this.previewFraction = Math.max(0, Math.min(1, event.x / this.canvasWidth));
+        this.previewFraction = this.fractionAt(event.x);
         this.commitPreview();
       })
   }

@@ -6,6 +6,7 @@ import { SongItem } from '../../model/SongItem';
 import { MusicPlatform } from '../../model/MusicPlatform';
 import { stableKeyOf } from '../../model/SongIdentity';
 import { Theme } from '../Theme';
+import { AccentScheme } from '../theme/AccentScheme';
 import { EmptyState } from '../components/Ui';
 import { Router } from '../Router';
 
@@ -26,6 +27,12 @@ class DownloadsListener implements DownloadEngineListener {
 
 @Component
 export struct DownloadsPage {
+  /**
+   * S5: 订阅封面配色。Theme.*() 读 AppStorage 是无跟踪调用（M7.4），换歌后
+   * 坐在本页的组件不会重建；有了这个成员并在 build 里经 schemeBg() 直读，
+   * scheme 一发布本页就随新配色重染。
+   */
+  @StorageProp('player.coverScheme') coverScheme: AccentScheme = AccentScheme.neutralFallback();
   @State tasks: DownloadTask[] = [];
   private listener: DownloadsListener = new DownloadsListener();
 
@@ -82,6 +89,13 @@ export struct DownloadsPage {
       return;
     }
     DownloadEngine.resume(key);
+  }
+
+
+  /** build 里直读被跟踪成员注册依赖；颜色本身仍由 Theme 统一决策。 */
+  private schemeBg(dark: boolean): string {
+    const hasScheme = this.coverScheme.light.background.length > 0;
+    return hasScheme ? Theme.background(dark) : Theme.background(dark);
   }
 
   build() {
@@ -202,6 +216,6 @@ export struct DownloadsPage {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor(Theme.background(Theme.isDark()))
+    .backgroundColor(this.schemeBg(Theme.isDark()))
   }
 }

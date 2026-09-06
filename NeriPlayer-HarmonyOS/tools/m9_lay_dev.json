@@ -1,0 +1,546 @@
+[
+  {
+    "bounds": [
+      0,
+      0,
+      1320,
+      2856
+    ],
+    "children": [
+      {
+        "type": "Progress",
+        "text": "0.000000",
+        "bounds": [
+          0,
+          137,
+          1320,
+          143
+        ],
+        "children": []
+      },
+      {
+        "type": "Row",
+        "bounds": [
+          0,
+          143,
+          1320,
+          353
+        ],
+        "clickable": true,
+        "children": [
+          {
+            "type": "Text",
+            "text": "Take My Hand",
+            "bounds": [
+              238,
+              194,
+              559,
+              251
+            ],
+            "children": []
+          },
+          {
+            "type": "Text",
+            "text": "网易云",
+            "bounds": [
+              580,
+              201,
+              709,
+              244
+            ],
+            "children": []
+          },
+          {
+            "type": "Text",
+            "text": "DAISHI DANCE / Cécile Corbel",
+            "bounds": [
+              238,
+              258,
+              942,
+              303
+            ],
+            "children": []
+          },
+          {
+            "type": "Button",
+            "bounds": [
+              984,
+              178,
+              1124,
+              318
+            ],
+            "clickable": true,
+            "children": []
+          },
+          {
+            "type": "Button",
+            "bounds": [
+              1166,
+              185,
+              1292,
+              311
+            ],
+            "clickable": true,
+            "children": []
+          }
+        ]
+      },
+      {
+        "type": "Scroll",
+        "bounds": [
+          0,
+          381,
+          1320,
+          2450
+        ],
+        "scrollable": true,
+        "children": [
+          {
+            "type": "Text",
+            "text": "播放",
+            "bounds": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "children": []
+          },
+          {
+            "type": "Row",
+            "bounds": [
+              49,
+              381,
+              1271,
+              385
+            ],
+            "clickable": true,
+            "children": []
+          },
+          {
+            "type": "Text",
+            "text": "网络与存储",
+            "bounds": [
+              60,
+              434,
+              1282,
+              487
+            ],
+            "children": []
+          },
+          {
+            "type": "Row",
+            "bounds": [
+              49,
+              501,
+              1271,
+              703
+            ],
+            "clickable": true,
+            "children": [
+              {
+                "type": "Text",
+                "text": "流量与封面",
+                "bounds": [
+                  217,
+                  543,
+                  1103,
+                  605
+                ],
+                "children": []
+              },
+              {
+                "type": "Text",
+                "text": "省流量模式、封面加载策略",
+                "bounds": [
+                  217,
+                  612,
+                  1103,
+                  661
+                ],
+                "children": []
+              }
+            ]
+          },
+          {
+            "type": "Row",
+            "bounds": [
+              49,
+              707,
+              1271,
+              909
+            ],
+            "clickable": true,
+            "children": [
+              {
+                "type": "Text",
+                "text": "存储与缓存",
+                "bounds": [
+                  217,
+                  749,
+                  1103,
+                  811
+                ],
+                "children": []
+              },
+              {
+                "type": "Text",
+                "text": "缓存占用、清理与下载目录",
+                "bounds": [
+                  217,
+                  818,
+                  1103,
+                  867
+                ],
+                "children": []
+              }
+            ]
+          },
+          {
+            "type": "Text",
+            "text": "平台",
+            "bounds": [
+              60,
+              958,
+              1282,
+              1011
+            ],
+            "children": []
+          },
+          {
+            "type": "Row",
+            "bounds": [
+              49,
+              1025,
+              1271,
+              1227
+            ],
+            "clickable": true,
+            "children": [
+              {
+                "type": "Text",
+                "text": "账号与登录",
+                "bounds": [
+                  217,
+                  1067,
+                  1103,
+                  1129
+                ],
+                "children": []
+              },
+              {
+                "type": "Text",
+                "text": "网易云 / Bilibili / YouTube",
+                "bounds": [
+                  217,
+                  1136,
+                  1103,
+                  1185
+                ],
+                "children": []
+              }
+            ]
+          },
+          {
+            "type": "Row",
+            "bounds": [
+              49,
+              1231,
+              1271,
+              1433
+            ],
+            "clickable": true,
+            "children": [
+              {
+                "type": "Text",
+                "text": "启用 YouTube",
+                "bounds": [
+                  217,
+                  1273,
+                  1103,
+                  1335
+                ],
+                "children": []
+              },
+              {
+                "type": "Text",
+                "text": "已启用",
+                "bounds": [
+                  217,
+                  1342,
+                  1103,
+                  1391
+                ],
+                "children": []
+              }
+            ]
+          },
+          {
+            "type": "Row",
+            "bounds": [
+              49,
+              1436,
+              1271,
+              1638
+            ],
+            "clickable": true,
+            "children": [
+              {
+                "type": "Text",
+                "text": "同步",
+                "bounds": [
+                  217,
+                  1478,
+                  1103,
+                  1540
+                ],
+                "children": []
+              },
+              {
+                "type": "Text",
+                "text": "GitHub / WebDAV 元数据同步",
+                "bounds": [
+                  217,
+                  1547,
+                  1103,
+                  1596
+                ],
+                "children": []
+              }
+            ]
+          },
+          {
+            "type": "Row",
+            "bounds": [
+              49,
+              1642,
+              1271,
+              1844
+            ],
+            "clickable": true,
+            "children": [
+              {
+                "type": "Text",
+                "text": "一起听",
+                "bounds": [
+                  217,
+                  1684,
+                  1103,
+                  1746
+                ],
+                "children": []
+              },
+              {
+                "type": "Text",
+                "text": "Listen Together（待移植）",
+                "bounds": [
+                  217,
+                  1753,
+                  1103,
+                  1802
+                ],
+                "children": []
+              }
+            ]
+          },
+          {
+            "type": "Text",
+            "text": "其他",
+            "bounds": [
+              60,
+              1892,
+              1282,
+              1945
+            ],
+            "children": []
+          },
+          {
+            "type": "Row",
+            "bounds": [
+              49,
+              1959,
+              1271,
+              2161
+            ],
+            "clickable": true,
+            "children": [
+              {
+                "type": "Text",
+                "text": "开发者模式",
+                "bounds": [
+                  217,
+                  2001,
+                  1103,
+                  2063
+                ],
+                "children": []
+              },
+              {
+                "type": "Text",
+                "text": "已开启",
+                "bounds": [
+                  217,
+                  2070,
+                  1103,
+                  2119
+                ],
+                "children": []
+              }
+            ]
+          },
+          {
+            "type": "Row",
+            "bounds": [
+              49,
+              2165,
+              1271,
+              2367
+            ],
+            "clickable": true,
+            "children": [
+              {
+                "type": "Text",
+                "text": "调试工具",
+                "bounds": [
+                  217,
+                  2207,
+                  1103,
+                  2269
+                ],
+                "children": []
+              },
+              {
+                "type": "Text",
+                "text": "API 探测、日志与崩溃模拟",
+                "bounds": [
+                  217,
+                  2276,
+                  1103,
+                  2325
+                ],
+                "children": []
+              }
+            ]
+          },
+          {
+            "type": "Row",
+            "bounds": [
+              49,
+              2370,
+              1271,
+              2450
+            ],
+            "clickable": true,
+            "children": [
+              {
+                "type": "Text",
+                "text": "关于",
+                "bounds": [
+                  217,
+                  2412,
+                  1103,
+                  2450
+                ],
+                "children": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Column",
+        "bounds": [
+          0,
+          2461,
+          330,
+          2657
+        ],
+        "clickable": true,
+        "children": [
+          {
+            "type": "Text",
+            "text": "首页",
+            "bounds": [
+              130,
+              2581,
+              201,
+              2622
+            ],
+            "children": []
+          }
+        ]
+      },
+      {
+        "type": "Column",
+        "bounds": [
+          330,
+          2461,
+          660,
+          2657
+        ],
+        "clickable": true,
+        "children": [
+          {
+            "type": "Text",
+            "text": "探索",
+            "bounds": [
+              460,
+              2581,
+              531,
+              2622
+            ],
+            "children": []
+          }
+        ]
+      },
+      {
+        "type": "Column",
+        "bounds": [
+          660,
+          2461,
+          990,
+          2657
+        ],
+        "clickable": true,
+        "children": [
+          {
+            "type": "Text",
+            "text": "资料库",
+            "bounds": [
+              772,
+              2581,
+              878,
+              2622
+            ],
+            "children": []
+          }
+        ]
+      },
+      {
+        "type": "Column",
+        "bounds": [
+          990,
+          2461,
+          1320,
+          2657
+        ],
+        "clickable": true,
+        "children": [
+          {
+            "type": "Text",
+            "text": "设置",
+            "bounds": [
+              1120,
+              2581,
+              1191,
+              2622
+            ],
+            "children": []
+          }
+        ]
+      }
+    ]
+  }
+]
+
+[33mNew version 1.3.0 available, run `devecocli update` to upgrade[39m
