@@ -6,12 +6,20 @@ import { HistoryRepository } from '../../data/HistoryRepository';
 import { stableKeyOf } from '../../model/SongIdentity';
 import { PlayerManager } from '../../player/PlayerManager';
 import { Theme } from '../Theme';
+import { AccentScheme } from '../theme/AccentScheme';
 import { SongRow } from '../components/SongRow';
 import { EmptyState } from '../components/Ui';
+import { PlaylistHeader, HeaderPill } from '../components/PlaylistHeader';
 import { Router } from '../Router';
 
 @Component
 export struct PlaylistDetailPage {
+  /**
+   * S5: 订阅封面配色。Theme.*() 读 AppStorage 是无跟踪调用（M7.4），换歌后
+   * 坐在本页的组件不会重建；有了这个成员并在 build 里经 schemeBg() 直读，
+   * scheme 一发布本页就随新配色重染。
+   */
+  @StorageProp('player.coverScheme') coverScheme: AccentScheme = AccentScheme.neutralFallback();
   /** 由 MainShell 的 navDestination builder 从路由参数传入。 */
   @Prop playlistId: string = '';
   @State playlist: Playlist | null = null;
@@ -74,6 +82,13 @@ export struct PlaylistDetailPage {
     Router.pop();
   }
 
+
+  /** build 里直读被跟踪成员注册依赖；颜色本身仍由 Theme 统一决策。 */
+  private schemeBg(dark: boolean): string {
+    const hasScheme = this.coverScheme.light.background.length > 0;
+    return hasScheme ? Theme.background(dark) : Theme.background(dark);
+  }
+
   build() {
     Stack() {
       Column() {
@@ -115,56 +130,21 @@ export struct PlaylistDetailPage {
 
         if (this.playlist !== null) {
           Column({ space: 10 }) {
-            Row({ space: 14 }) {
-              Column() {
-                Image($r('app.media.ic_music_note_24'))
-                  .width(34)
-                  .height(34)
-                  .fillColor(Theme.primary(Theme.isDark()))
-              }
-              .width(92)
-              .height(92)
-              .justifyContent(FlexAlign.Center)
-              .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
-              .borderRadius(14)
-
-              Column({ space: 4 }) {
-                Text(this.playlist.name)
-                  .fontSize(20)
-                  .fontWeight(FontWeight.Bold)
-                  .fontColor(Theme.textPrimary(Theme.isDark()))
-                  .maxLines(2)
-                Text(`${this.playlist.songKeys.length} 首`)
-                  .fontSize(13)
-                  .fontColor(Theme.textSecondary(Theme.isDark()))
-                // Same X-to-Y trade as the NetEase header: the button pair sits
-                // in a layoutWeight(1) column beside a 92vp cover, so at large
-                // system fonts a plain Row runs off the right edge.
-                Flex({ wrap: FlexWrap.Wrap, space: { main: LengthMetrics.vp(8), cross: LengthMetrics.vp(8) } }) {
-                  Button('全部播放')
-                    .height(40)
-                    .fontSize(12)
-                    .fontColor(Theme.onPrimary(Theme.isDark()))
-                    .backgroundColor(Theme.primary(Theme.isDark()))
-                    .borderRadius(16)
-                    .onClick(() => this.playAll(false))
-                  Button('随机播放')
-                    .height(40)
-                    .fontSize(12)
-                    .fontColor(Theme.textPrimary(Theme.isDark()))
-                    .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
-                    .borderRadius(16)
-                    .onClick(() => this.playAll(true))
-                }
-                .width('100%')
-              }
-              .layoutWeight(1)
-              .alignItems(HorizontalAlign.Start)
+            PlaylistHeader({
+              coverUrl: '',
+              title: this.playlist.name,
+              subtitle: `${this.playlist.songKeys.length} 首`
+            }) {
+              HeaderPill({
+                label: '全部播放',
+                filled: true,
+                onTap: (): void => this.playAll(false)
+              })
+              HeaderPill({
+                label: '随机播放',
+                onTap: (): void => this.playAll(true)
+              })
             }
-            .width('100%')
-            .padding(14)
-            .backgroundColor(Theme.surface(Theme.isDark()))
-            .borderRadius(Theme.cardRadius())
 
             Row() {
               Text('歌曲')
@@ -356,6 +336,6 @@ export struct PlaylistDetailPage {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor(Theme.background(Theme.isDark()))
+    .backgroundColor(this.schemeBg(Theme.isDark()))
   }
 }

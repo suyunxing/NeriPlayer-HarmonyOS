@@ -306,6 +306,37 @@ export class QueueEngine {
     }
   }
 
+  /**
+   * Flips the whole queue order in place: every stored index remaps to its
+   * mirrored position, so the same songs play in reverse while the stack
+   * chronology (history as a time-ordered backtrack log) is preserved.
+   */
+  reverse(): void {
+    const count = this.queueSize;
+    if (count < 2) {
+      return;
+    }
+    const flip = (index: number): number => {
+      return index >= 0 && index < count ? count - 1 - index : index;
+    };
+    this.currentIndex = flip(this.currentIndex);
+    this.bag = this.bag.map((value: number): number => flip(value));
+    this.history = this.history.map((value: number): number => flip(value));
+    this.future = this.future.map((value: number): number => flip(value));
+  }
+
+  /**
+   * Empties the queue: clears both stacks, the bag and the current index,
+   * leaving the engine inert until the next start()/setQueueSize().
+   */
+  reset(): void {
+    this.queueSize = 0;
+    this.bag = [];
+    this.history = [];
+    this.future = [];
+    this.currentIndex = -1;
+  }
+
   // --------------------------------------------------------------------------
   // Track-end policy
   // --------------------------------------------------------------------------

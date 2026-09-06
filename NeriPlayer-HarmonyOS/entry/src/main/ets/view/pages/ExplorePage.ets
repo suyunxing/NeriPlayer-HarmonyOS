@@ -9,15 +9,22 @@ import { UsageRepository } from '../../data/UsageRepository';
 import { PlayerManager } from '../../player/PlayerManager';
 import { Router } from '../Router';
 import { Theme } from '../Theme';
+import { AccentScheme } from '../theme/AccentScheme';
 import { BAND_LIST_VP, BP_LG, BP_MD } from '../../util/Breakpoint';
 import { SongRow } from '../components/SongRow';
-import { EmptyState, LoadingState } from '../components/Ui';
+import { EmptyState, LoadingState, FLOAT_TAB_CLEARANCE } from '../components/Ui';
 
 /** 本页在 MainShell 的 Tabs 里的下标，用于过滤刷新信号。 */
 const TAB_INDEX: number = 1;
 
 @Component
 export struct ExplorePage {
+  /**
+   * S5: 订阅封面配色。Theme.*() 读 AppStorage 是无跟踪调用（M7.4），换歌后
+   * 坐在本页的组件不会重建；有了这个成员并在 build 里经 schemeBg() 直读，
+   * scheme 一发布本页就随新配色重染。
+   */
+  @StorageProp('player.coverScheme') coverScheme: AccentScheme = AccentScheme.neutralFallback();
   @State query: string = '';
   @State platform: number = 0;
   @State results: SongItem[] = [];
@@ -121,12 +128,20 @@ export struct ExplorePage {
     .padding({ left: 14, right: 14 })
     .backgroundColor(this.platform === index ? Theme.primary(Theme.isDark()) : Theme.surface(Theme.isDark()))
     .borderRadius(17)
+    .clickEffect({ level: ClickEffectLevel.LIGHT })
     .onClick(() => {
       this.platform = index;
       this.results = [];
       this.error = '';
       this.searched = false;
     })
+  }
+
+
+  /** build 里直读被跟踪成员注册依赖；颜色本身仍由 Theme 统一决策。 */
+  private schemeBg(dark: boolean): string {
+    const hasScheme = this.coverScheme.light.background.length > 0;
+    return hasScheme ? Theme.background(dark) : Theme.background(dark);
   }
 
   build() {
@@ -136,28 +151,49 @@ export struct ExplorePage {
     Row() {
     Column({ space: 10 }) {
       Text('探索')
-        .fontSize(26)
+        .fontSize(32)
         .fontWeight(FontWeight.Bold)
         .fontColor(Theme.textPrimary(Theme.isDark()))
         .width('100%')
         .margin({ top: 12 })
 
-      Row({ space: 8 }) {
-        TextInput({ placeholder: '搜索歌曲 / 歌手 / 歌单', text: this.query })
-          .layoutWeight(1)
-          .height(42)
-          .fontSize(14)
-          .onChange((value: string) => {
-            this.query = value;
-          })
-          .onSubmit(() => {
-            this.search();
-          })
-        Button('搜索')
-          .height(42)
-          .fontSize(14)
-          .backgroundColor(Theme.primary(Theme.isDark()))
-          .onClick(() => this.search())
+      // S5: 参考图搜索条——胶囊输入框 + 重点色圆形搜索键（触达 44vp）。
+      Row({ space: 10 }) {
+        Row({ space: 8 }) {
+          SymbolGlyph($r('sys.symbol.magnifyingglass'))
+            .fontSize(18)
+            .fontColor([Theme.textSecondary(Theme.isDark())])
+          TextInput({ placeholder: '搜索歌曲 / 歌手 / 歌单', text: this.query })
+            .layoutWeight(1)
+            .height(44)
+            .fontSize(14)
+            .backgroundColor(Color.Transparent)
+            .padding({ left: 0, right: 0 })
+            .onChange((value: string) => {
+              this.query = value;
+            })
+            .onSubmit(() => {
+              this.search();
+            })
+        }
+        .layoutWeight(1)
+        .height(44)
+        .padding({ left: 14, right: 8 })
+        .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+        .borderRadius(22)
+
+        Button() {
+          SymbolGlyph($r('sys.symbol.magnifyingglass'))
+            .fontSize(20)
+            .fontColor([Theme.onPrimary(Theme.isDark())])
+        }
+        .width(44)
+        .height(44)
+        .type(ButtonType.Circle)
+        .backgroundColor(Theme.primary(Theme.isDark()))
+        .accessibilityText('搜索')
+        .clickEffect({ level: ClickEffectLevel.LIGHT })
+        .onClick(() => this.search())
       }
       .width('100%')
 
@@ -290,6 +326,6 @@ export struct ExplorePage {
     .width('100%')
     .height('100%')
     .justifyContent(FlexAlign.Center)
-    .backgroundColor(Theme.background(Theme.isDark()))
+    .backgroundColor(this.schemeBg(Theme.isDark()))
   }
 }

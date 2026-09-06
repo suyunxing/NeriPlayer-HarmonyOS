@@ -138,19 +138,37 @@ export class NeteaseApi {
 
   static async search(keyword: string, limit: number = 30): Promise<SongItem[]> {
     try {
-      const items = await NeteaseApi.searchWeapi(keyword, limit);
-      if (items.length > 0) {
+      let response = await NeteaseApi.searchWeapi(keyword, limit);
+      // 2026-08-29 实测：登录态 jar 请求 cloudsearch 会被风控（code=50000005），
+      // 匿名请求正常——与推荐接口同款行为。命中降级码时仅本次移除 MUSIC_U
+      // 重试，完了恢复 cookie 种子；仍拿不到歌再走 legacy 兜底。
+      const logged = NeteaseCookieRepository.isLoggedIn();
+      if (logged && response.code !== 200 && shouldFallbackRecommendToAnonymous(response.code)) {
+        Logger.warn(`NeteaseApi weapi search code=${response.code} while logged in, retrying anonymously`);
+        HttpClient.removeCookie(`${Constants.NETEASE_BASE}/`, 'MUSIC_U');
+        try {
+          response = await NeteaseApi.searchWeapi(keyword, limit);
+        } finally {
+          NeteaseCookieRepository.seedHttpClient();
+        }
+      }
+      const songs = response.code === 200 ? (response.result?.songs ?? []) : [];
+      if (songs.length > 0) {
+        const items: SongItem[] = [];
+        for (const song of songs) {
+          items.push(NeteaseApi.toSongItem(song));
+        }
         return items;
       }
-      Logger.warn('NeteaseApi weapi search returned no songs, falling back to legacy API');
+      Logger.warn(`NeteaseApi weapi search code=${response.code} songs=${songs.length}, falling back to legacy API`);
     } catch (error) {
       const e = error as Error;
-      Logger.warn(`NeteaseApi weapi search failed, falling back: ${e.message}`);
+      Logger.warn(`NeteaseApi weapi search failed, falling back to legacy API: ${e.message}`);
     }
     return NeteaseApi.searchLegacy(keyword, limit);
   }
 
-  private static async searchWeapi(keyword: string, limit: number): Promise<SongItem[]> {
+  private static async searchWeapi(keyword: string, limit: number): Promise<NeteaseSearchResponse> {
     const payload: Record<string, Object> = {};
     payload['s'] = keyword;
     payload['type'] = '1';
@@ -167,17 +185,7 @@ export class NeteaseApi {
       true
     );
     Logger.debug(`weapi search resp len=${text.length} head=${text.substring(0, 160)}`);
-    const response = JSON.parse(text) as NeteaseSearchResponse;
-    if (response.code !== 200) {
-      Logger.warn(`NeteaseApi weapi search code=${response.code}`);
-      return [];
-    }
-    const songs = response.result?.songs ?? [];
-    const items: SongItem[] = [];
-    for (const song of songs) {
-      items.push(NeteaseApi.toSongItem(song));
-    }
-    return items;
+    return JSON.parse(text) as NeteaseSearchResponse;
   }
 
   private static async searchLegacy(keyword: string, limit: number): Promise<SongItem[]> {
@@ -194,7 +202,52 @@ export class NeteaseApi {
     for (const song of songs) {
       items.push(NeteaseApi.toSongItem(song));
     }
+    await NeteaseApi.fillSearchCovers(items);
     return items;
+  }
+
+  /**
+   * legacy 搜索接口已不再返回 album.picUrl（2026-08-29 实测只剩 picId），
+   * 走到该兜底时结果会整体无封面——播放页与动态取色也跟着拿不到图。
+   * song/detail 批量接口仍返回完整 album.picUrl，按歌曲 id 补齐缺的封面；
+   * 补图失败时保持无封面继续（UI 占位图兜底），不阻塞搜索结果。
+   */
+  private static async fillSearchCovers(items: SongItem[]): Promise<void> {
+    const missing: SongItem[] = [];
+    for (const item of items) {
+      if (item.coverUrl.length === 0 && item.id > 0) {
+        missing.push(item);
+      }
+    }
+    if (missing.length === 0) {
+      return;
+    }
+    const ids = missing.map((item: SongItem) => `${item.id}`).join(',');
+    try {
+      const text = await HttpClient.getText(
+        `${Constants.NETEASE_BASE}/api/song/detail?ids=[${ids}]`,
+        NeteaseApi.headers(),
+        15000,
+        true
+      );
+      const response = JSON.parse(text) as NeteaseSongDetailResponse;
+      const picById = new Map<string, string>();
+      for (const song of response.songs ?? []) {
+        const pic = song.album?.picUrl ?? '';
+        if (pic.length > 0) {
+          picById.set(`${song.id}`, pic.replace('http://', 'https://'));
+        }
+      }
+      for (const item of missing) {
+        const pic = picById.get(`${item.id}`);
+        if (pic !== undefined) {
+          item.coverUrl = pic;
+        }
+      }
+    } catch (error) {
+      const e = error as Error;
+      Logger.warn(`NeteaseApi fillSearchCovers failed: ${e.message}`);
+    }
   }
 
   /**

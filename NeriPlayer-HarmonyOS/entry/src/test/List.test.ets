@@ -57,6 +57,9 @@ import listenTogetherConfigSnapshotTest from './ets/test/ListenTogetherConfigSna
 import listenTogetherStateApplierTest from './ets/test/ListenTogetherStateApplier.test';
 import paletteTest from './ets/test/Palette.test';
 import dynamicThemeTest from './ets/test/DynamicTheme.test';
+import colorScienceTest from './ets/test/ColorScience.test';
+import swatchCardTest from './ets/test/SwatchCard.test';
+import accentSchemeTest from './ets/test/AccentScheme.test';
 import ttmlParserTest from './ets/test/TtmlParser.test';
 import amllLyricsResolverTest from './ets/test/AmllLyricsResolver.test';
 import lyricLineTrackerTest from './ets/test/LyricLineTracker.test';
@@ -68,6 +71,9 @@ import lyricScrollMathTest from './ets/test/LyricScrollMath.test';
 import shareLinksTest from './ets/test/ShareLinks.test';
 import albumSongsTest from './ets/test/AlbumSongs.test';
 import qqMusicLyricCodecTest from './ets/test/QQMusicLyricCodec.test';
+import songTitleExtractorTest from './ets/test/SongTitleExtractor.test';
+import songMatchScorerTest from './ets/test/SongMatchScorer.test';
+import autoMatchPolicyTest from './ets/test/AutoMatchPolicy.test';
 
 export default function testsuite(): void {
   lrcParserTest();
@@ -129,6 +135,9 @@ export default function testsuite(): void {
   listenTogetherStateApplierTest();
   paletteTest();
   dynamicThemeTest();
+  colorScienceTest();
+  swatchCardTest();
+  accentSchemeTest();
   ttmlParserTest();
   amllLyricsResolverTest();
   lyricLineTrackerTest();
@@ -140,4 +149,7 @@ export default function testsuite(): void {
   shareLinksTest();
   albumSongsTest();
   qqMusicLyricCodecTest();
+  songTitleExtractorTest();
+  songMatchScorerTest();
+  autoMatchPolicyTest();
 }

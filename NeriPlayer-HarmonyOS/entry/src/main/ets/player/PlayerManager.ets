@@ -18,6 +18,7 @@ import { PlaybackStatsRepository } from '../data/PlaybackStatsRepository';
 import { PlaybackStateRepository } from '../data/PlaybackStateRepository';
 import { PersistedPlaybackState } from '../model/PersistedPlaybackState';
 import { AVSessionManager, SessionControlListener } from './AVSessionManager';
+import { AutoSongMatcher, AutoMatchPlaybackEnv } from './AutoSongMatcher';
 import { BackgroundTaskRunner } from './BackgroundTaskRunner';
 import { CoverArtColorCache } from '../view/theme/CoverArtColorCache';
 import { LyricLineTracker } from '../lyrics/LyricLineTracker';
@@ -36,8 +37,28 @@ import {
 } from '../listentogether/control/ListenTogetherPlaybackCommand';
 import { shouldHoldListenTogetherPlaybackForSafetyPause } from '../listentogether/playback/ListenTogetherListenerSafetyPausePolicy';
 
+/**
+ * Reconciliation slack for the AVPlayer's reported duration: VBR/late-demux
+ * re-estimates can drift a few hundred ms between reads, and re-publishing
+ * each drift would churn AppStorage and the media session for no visible change.
+ */
+const DURATION_RECONCILE_TOLERANCE_MS = 300;
+
 export interface PlayerListener {
   onSnapshotChanged(): void;
+}
+
+/** Bridges AutoSongMatcher back into the queue without a circular import at
+ * call sites (loadSong hands it over fire-and-forget). */
+class PlayerManagerAutoMatchEnv implements AutoMatchPlaybackEnv {
+  isCurrentSong(candidate: SongItem): boolean {
+    const current = PlayerManager.getCurrentSong();
+    return current !== null && stableKeyOf(current) === stableKeyOf(candidate);
+  }
+
+  applyToPlayerQueue(updated: SongItem): void {
+    PlayerManager.applySongMetadataUpdate(updated);
+  }
 }
 
 /**
@@ -177,6 +198,7 @@ export class PlayerManager {
     PlayerManager.publishDefaults();
     PlayerManager.restoreFromDisk();
     AVSessionManager.init(context, new PlayerControlListener());
+    BackgroundTaskRunner.init(context);
     // Lyrics are fetched by the UI layer; subscribe to the shared tracker so
     // the whole-song LRC reaches AVMetadata.lyric (scrolling lyrics in the
     // media control center) without duplicating the fetch here.
@@ -567,6 +589,7 @@ export class PlayerManager {
       if (!auto) {
         await PlayerManager.pause(source);
       }
+      PlayerManager.stopContinuousTask();
       PlayerManager.publishStatus(PlaybackStatus.COMPLETED);
       return;
     }
@@ -610,23 +633,73 @@ export class PlayerManager {
     return PlayerManager.engine.getCurrentQueueIndex();
   }
 
+  /**
+   * Reverses the whole queue order while the current track keeps playing
+   * (queue sheet "倒序播放"): every engine index is remapped to its mirrored
+   * position, so next()/previous() continue from the same song in the
+   * flipped order. No-op for queues with fewer than two songs.
+   */
+  static reverseQueue(): void {
+    if (PlayerManager.queue.length < 2) {
+      return;
+    }
+    PlayerManager.queue.reverse();
+    PlayerManager.engine.reverse();
+    PlayerManager.publishQueue();
+  }
+
+  /**
+   * Empties the queue and stops playback (queue sheet "清空列表"). The load
+   * generation is bumped first so an in-flight loadSong cannot repopulate
+   * player state after the clear.
+   */
+  static async clearQueue(): Promise<void> {
+    PlayerManager.playWhenReady = false;
+    PlayerManager.loadGeneration++;
+    const player = PlayerManager.player;
+    if (player !== null) {
+      try {
+        await player.stop();
+        await player.reset();
+      } catch (error) {
+        const e = error as Error;
+        Logger.warn(`clearQueue stop failed: ${e.message}`);
+      }
+    }
+    PlayerManager.positionMs = 0;
+    PlayerManager.durationMs = 0;
+    PlayerManager.engine.reset();
+    PlayerManager.stopContinuousTask();
+    PlayerManager.publishDefaults();
+    PlayerManager.publishStatus(PlaybackStatus.IDLE);
+    PlayerManager.persistNow();
+  }
+
   static async seekTo(
     timeMs: number,
     source: ListenTogetherPlaybackCommandSource = ListenTogetherPlaybackCommandSource.LOCAL
   ): Promise<void> {
-    const command = createListenTogetherPlaybackCommand('SEEK', source, Date.now());
-    command.positionMs = Math.max(0, timeMs);
-    PlayerManager.emitPlaybackCommand(command);
     const player = PlayerManager.player;
     if (player === null) {
       return;
     }
+    // The bar and lyrics scale seek targets by the catalog-declared duration,
+    // which can exceed the resolved stream's real length (NetEase -> Bilibili
+    // fallback). A target past the real end drops the AVPlayer on its final
+    // frame and instantly fires 'completed', so a drag reads as a skip —
+    // clamp to the player-known duration before anything consumes the value.
+    const targetMs = PlayerManager.clampSeekTarget(Math.max(0, timeMs));
+    Logger.debug(`seekTo: requested=${Math.round(timeMs)} target=${targetMs}`);
+    const command = createListenTogetherPlaybackCommand('SEEK', source, Date.now());
+    command.positionMs = targetMs;
+    PlayerManager.emitPlaybackCommand(command);
     try {
-      await player.seek(Math.max(0, timeMs), media.SeekMode.SEEK_PREV_SYNC);
+      // seek() returns void on this API level (no promise overload to await).
+      player.seek(targetMs, media.SeekMode.SEEK_PREV_SYNC);
       // A seek moves the extrapolation baseline while `status` is unchanged,
       // so nothing else would push it to the session and the control center
       // would keep counting from the pre-seek datum until the next play/pause.
-      PlayerManager.positionMs = Math.max(0, timeMs);
+      PlayerManager.positionMs = targetMs;
       // Rebase the listened-time accumulator too: onTimeUpdate credits
       // `timeMs - lastTimeMs` to listenedMs, so a forward seek would otherwise
       // bank the skipped span as if it had been played.
@@ -635,6 +708,58 @@ export class PlayerManager {
     } catch (error) {
       const e = error as Error;
       Logger.warn(`PlayerManager.seekTo failed: ${e.message}`);
+    }
+  }
+
+  /**
+   * Caps a seek target at the AVPlayer's real stream length: `durationMs` may
+   * still hold the catalog-declared value (reconcileStreamDuration trues it up
+   * asynchronously), and seeking past the real end completes the track.
+   */
+  private static clampSeekTarget(targetMs: number): number {
+    const player = PlayerManager.player;
+    if (player === null) {
+      return targetMs;
+    }
+    try {
+      const realDurationMs = player.duration;
+      if (realDurationMs > 0 && targetMs > realDurationMs) {
+        return realDurationMs;
+      }
+    } catch (error) {
+      const e = error as Error;
+      Logger.debug(`read AVPlayer duration for seek clamp failed: ${e.message}`);
+    }
+    return targetMs;
+  }
+
+  /**
+   * Trues the published duration up with the AVPlayer's real stream length.
+   * loadSong seeds the UI with the catalog-declared `durationMs`; some sources
+   * (notably the NetEase -> Bilibili fallback) resolve to a stream whose real
+   * length differs and is only reported after prepare, leaving the play page's
+   * bar scaled by a wrong total — a drag past the real end then instantly
+   * completes the track and reads as an unintended skip. Callers must already
+   * know the player belongs to the current song (the load chain after prepare,
+   * a 'playing' transition, or a timeUpdate while PLAYING): a stale timeUpdate
+   * from the previous track during a load transition must not re-seed the next
+   * song's duration.
+   */
+  private static reconcileStreamDuration(): void {
+    const player = PlayerManager.player;
+    if (player === null) {
+      return;
+    }
+    try {
+      const realDurationMs = player.duration;
+      if (realDurationMs > 0 &&
+        Math.abs(realDurationMs - PlayerManager.durationMs) > DURATION_RECONCILE_TOLERANCE_MS) {
+        PlayerManager.durationMs = realDurationMs;
+        PlayerManager.publishDuration();
+      }
+    } catch (error) {
+      const e = error as Error;
+      Logger.debug(`reconcile AVPlayer duration failed: ${e.message}`);
     }
   }
 
@@ -661,19 +786,41 @@ export class PlayerManager {
     PlayerManager.emitPlaybackCommand(command);
   }
 
-  /** Android order: OFF -> ALL -> ONE. */
-  static cycleRepeatMode(
+  /**
+   * One-button play-mode cycle for the now-playing page:
+   * 顺序播放 -> 列表循环 -> 单曲循环 -> 随机播放 -> 顺序播放. Each step fully
+   * defines both axes (repeat + shuffle), so a state left behind by AVSession
+   * or Listen-Together sync simply falls into the nearest step on next tap.
+   */
+  static cyclePlayMode(
     source: ListenTogetherPlaybackCommandSource = ListenTogetherPlaybackCommandSource.LOCAL
-  ): RepeatMode {
-    const mode = PlayerManager.engine.cycleRepeatMode();
-    AppStorage.setOrCreate(PlaybackConstants.KEY_REPEAT_MODE, mode);
-    PlayerManager.schedulePersist(0);
-    PlayerManager.notify();
+  ): void {
+    const engine = PlayerManager.engine;
+    if (engine.shuffle) {
+      PlayerManager.applyPlayMode(false, RepeatMode.OFF, source);
+    } else if (engine.repeatMode === RepeatMode.OFF) {
+      PlayerManager.applyPlayMode(false, RepeatMode.ALL, source);
+    } else if (engine.repeatMode === RepeatMode.ALL) {
+      PlayerManager.applyPlayMode(false, RepeatMode.ONE, source);
+    } else {
+      PlayerManager.applyPlayMode(true, RepeatMode.ALL, source);
+    }
+  }
+
+  private static applyPlayMode(
+    shuffle: boolean,
+    mode: RepeatMode,
+    source: ListenTogetherPlaybackCommandSource
+  ): void {
+    PlayerManager.engine.setRepeatMode(mode);
+    PlayerManager.engine.setShuffle(shuffle);
+    // publishQueue re-publishes both mode keys, persists the session and
+    // notifies listeners, so the cycle emits exactly one PLAYBACK_MODE command.
+    PlayerManager.publishQueue();
     const command = createListenTogetherPlaybackCommand('PLAYBACK_MODE', source, Date.now());
     command.repeatMode = mode;
-    command.shuffleEnabled = PlayerManager.engine.shuffle;
+    command.shuffleEnabled = shuffle;
     PlayerManager.emitPlaybackCommand(command);
-    return mode;
   }
 
   static setSpeed(speed: number): void {
@@ -819,6 +966,10 @@ export class PlayerManager {
     PlayerManager.publishQueue();
     PlayerManager.publishStatus(PlaybackStatus.LOADING);
     HistoryRepository.addSong(song);
+    // Fire-and-forget metadata auto-match (lyrics/artist/cover) for songs
+    // missing it. Must never delay or break playback, so it is not awaited;
+    // stale results are rejected inside via the current-song check.
+    AutoSongMatcher.maybeAutoMatch(song, new PlayerManagerAutoMatchEnv());
 
     try {
       const player = await PlayerManager.ensurePlayer();
@@ -879,16 +1030,9 @@ export class PlayerManager {
       // Shared focus mode keeps a single focus owner inside this app; must be
       // set between prepare and the first play of each source.
       player.audioInterruptMode = audio.InterruptMode.SHARE_MODE;
-      try {
-        const duration = player.duration;
-        if (duration > 0) {
-          PlayerManager.durationMs = duration;
-          PlayerManager.publishDuration();
-        }
-      } catch (error) {
-        const e = error as Error;
-        Logger.debug(`getAVPlayerDuration failed: ${e.message}`);
-      }
+      // First correction point for the catalog-declared duration; playing and
+      // timeUpdate reconcile later if the demuxer only reports the length then.
+      PlayerManager.reconcileStreamDuration();
       try {
         player.setSpeed(
           PlayerManager.toPlaybackSpeed(PlayerManager.speed * PlayerManager.listenTogetherSyncPlaybackRate)
@@ -1033,6 +1177,7 @@ export class PlayerManager {
     switch (state) {
       case 'playing':
         PlayerManager.publishStatus(PlaybackStatus.PLAYING);
+        PlayerManager.reconcileStreamDuration();
         if (PlayerManager.context !== null) {
           BackgroundTaskRunner.start(PlayerManager.context);
         }
@@ -1041,9 +1186,7 @@ export class PlayerManager {
         PlayerManager.publishStatus(PlaybackStatus.PAUSED);
         PlayerManager.flushPlaybackStatsAsync();
         PlayerManager.schedulePersist(0);
-        if (PlayerManager.context !== null) {
-          BackgroundTaskRunner.stop(PlayerManager.context);
-        }
+        PlayerManager.stopContinuousTask();
         break;
       case 'completed':
         PlayerManager.flushPlaybackStatsAsync();
@@ -1065,6 +1208,7 @@ export class PlayerManager {
       PlayerManager.publishSleepState();
       PlayerManager.publishStatus(PlaybackStatus.COMPLETED);
       PlayerManager.playWhenReady = false;
+      PlayerManager.stopContinuousTask();
       PlayerManager.persistNow();
       return;
     }
@@ -1082,7 +1226,9 @@ export class PlayerManager {
       const player = PlayerManager.player;
       if (player !== null) {
         try {
-          await player.seek(0, media.SeekMode.SEEK_PREV_SYNC);
+          // seek() returns void on this API level; the pending seek applies
+          // before the play() below starts (same contract as in loadSong).
+          player.seek(0, media.SeekMode.SEEK_PREV_SYNC);
           await player.play();
           return;
         } catch (error) {
@@ -1097,6 +1243,7 @@ export class PlayerManager {
       await PlayerManager.next(true);
       return;
     }
+    PlayerManager.stopContinuousTask();
     PlayerManager.publishStatus(PlaybackStatus.COMPLETED);
   }
 
@@ -1111,6 +1258,12 @@ export class PlayerManager {
     if (now - PlayerManager.lastPublishMs > 500) {
       PlayerManager.lastPublishMs = now;
       PlayerManager.publishPosition();
+      // PLAYING-only: a stale timeUpdate from the previous track can still
+      // arrive during a load transition, and its duration must not re-seed
+      // the incoming song's bar scale.
+      if (PlayerManager.status === PlaybackStatus.PLAYING) {
+        PlayerManager.reconcileStreamDuration();
+      }
     }
     if (now - PlayerManager.lastProgressPersistMs > 15000) {
       PlayerManager.lastProgressPersistMs = now;
@@ -1121,8 +1274,21 @@ export class PlayerManager {
   private static onPlayerError(error: BusinessError): void {
     Logger.error(`AVPlayer error: code=${error.code} message=${error.message}`);
     PlayerManager.publishStatus(PlaybackStatus.ERROR);
+    PlayerManager.stopContinuousTask();
     PlayerManager.rejectStateWaiters(error.message);
     PlayerManager.handleLoadFailure();
+  }
+
+  /**
+   * Releases the AUDIO_PLAYBACK continuous task. Terminal paths (queue end,
+   * sleep-timer stop, player error) funnel through here so the app never
+   * holds a task without audible playback — the background guide suspends
+   * apps that keep a task while the business has ended.
+   */
+  private static stopContinuousTask(): void {
+    if (PlayerManager.context !== null) {
+      BackgroundTaskRunner.stop(PlayerManager.context);
+    }
   }
 
   /**
