@@ -7,16 +7,21 @@
  * come from the cover scheme via the parent (unplayed = secondary, played =
  * accent), so the bar re-tints together with the rest of the page.
  *
- * Drag gestures mirror the Material Slider contract of the previous inline
- * Slider: local preview while dragging, seek fires on release/tap. The 50ms
- * repaint timer keeps the bar in sync while positionMs advances and drives
- * the buffering pulse while loading.
+ * Scrubbing is absolute (Material Slider contract): the preview jumps to the
+ * touch point and follows the finger, and the seek fires on release/tap. The
+ * 50ms repaint timer keeps the bar in sync while positionMs advances and
+ * drives the buffering pulse while loading.
+ *
+ * Units: canvasWidth comes from renderContext.width and GestureEvent.localX /
+ * ClickEvent.x are component-local values in vp, so all fraction math stays
+ * in vp — never convert either side to px.
  */
+import { Logger } from '../../app/Logger';
+
 const REPAINT_INTERVAL_MS = 50;
 const TRACK_HEIGHT_PX = 4;
 const PLAYED_HEIGHT_PX = 6;
 const PULSE_LOOP_MS = 1400;
-const DRAG_THRESHOLD_VP = 8;
 
 @Component
 export struct WaveformSlider {
@@ -36,6 +41,8 @@ export struct WaveformSlider {
   private canvasHeight: number = 0;
   private repaintTimer: number = -1;
   private frameTime: number = 0;
+  /** Fraction under the finger at touch-down; anchors the absolute pan. */
+  private panBaseFraction: number = -1;
   @State previewFraction: number = -1;
 
   private renderContext: CanvasRenderingContext2D =
@@ -66,6 +73,14 @@ export struct WaveformSlider {
     const duration = Math.max(1, this.durationMs);
     const raw = this.previewFraction >= 0 ? this.previewFraction : this.positionMs / duration;
     return Math.max(0, Math.min(1, raw));
+  }
+
+  /** Maps a component-local touch x to the 0..1 bar fraction (both in vp). */
+  private fractionAt(localX: number): number {
+    if (this.canvasWidth <= 0) {
+      return 0;
+    }
+    return Math.max(0, Math.min(1, localX / this.canvasWidth));
   }
 
   private draw(): void {
@@ -104,7 +119,9 @@ export struct WaveformSlider {
 
   private commitPreview(): void {
     if (this.previewFraction >= 0) {
-      this.onSeek(Math.round(this.previewFraction * Math.max(1, this.durationMs)));
+      const targetMs = Math.round(this.previewFraction * Math.max(1, this.durationMs));
+      Logger.debug(`WaveformSlider commit: fraction=${this.previewFraction.toFixed(3)} targetMs=${targetMs}`);
+      this.onSeek(targetMs);
     }
     this.previewFraction = -1;
     this.onPreview(-1);
@@ -126,34 +143,43 @@ export struct WaveformSlider {
       .onDetach(() => {
         this.stopTimer();
       })
+      .onTouch((event: TouchEvent) => {
+        // GestureEvent carries no component-local position on this API level,
+        // so the touch-down point is captured here: TouchInfo.x, offsetX and
+        // canvasWidth are all component-local vp, keeping the math unit-safe.
+        if (event.type === TouchType.Down && event.touches.length > 0) {
+          this.panBaseFraction = this.fractionAt(event.touches[0].x);
+        }
+      })
       .gesture(
-        PanGesture({ fingers: 1, direction: PanDirection.Horizontal, distance: DRAG_THRESHOLD_VP })
+        PanGesture({ fingers: 1, direction: PanDirection.Horizontal })
           .onActionStart(() => {
-            this.previewFraction = this.fraction();
+            this.previewFraction = this.panBaseFraction >= 0 ? this.panBaseFraction : this.fraction();
+            this.onPreview(this.previewFraction);
+            this.draw();
           })
           .onActionUpdate((event: GestureEvent) => {
-            if (this.canvasWidth <= 0) {
+            if (this.panBaseFraction < 0) {
               return;
             }
-            const raw = (this.previewFraction * this.canvasWidth + event.offsetX) / this.canvasWidth;
+            const raw = this.panBaseFraction + event.offsetX / this.canvasWidth;
             this.previewFraction = Math.max(0, Math.min(1, raw));
             this.onPreview(this.previewFraction);
             this.draw();
           })
           .onActionEnd(() => {
             this.commitPreview();
+            this.panBaseFraction = -1;
           })
           .onActionCancel(() => {
             this.previewFraction = -1;
+            this.panBaseFraction = -1;
             this.onPreview(-1);
             this.draw();
           })
       )
       .onClick((event: ClickEvent) => {
-        if (this.canvasWidth <= 0) {
-          return;
-        }
-        this.previewFraction = Math.max(0, Math.min(1, event.x / this.canvasWidth));
+        this.previewFraction = this.fractionAt(event.x);
         this.commitPreview();
       })
   }

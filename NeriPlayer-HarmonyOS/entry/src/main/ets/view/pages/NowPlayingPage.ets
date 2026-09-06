@@ -1,5 +1,6 @@
 import { curves, SymbolGlyphModifier, LengthMetrics } from '@kit.ArkUI';
 import { SongItem } from '../../model/SongItem';
+import { stableKeyOf } from '../../model/SongIdentity';
 import { LyricLine } from '../../model/LyricLine';
 import { QueueState } from '../../model/QueueState';
 import { LyricDispatcher } from '../../lyrics/LyricDispatcher';
@@ -80,6 +81,9 @@ export struct NowPlayingPage {
   // tracking cannot see AppStorage reads inside expressions (M7.4 pitfall).
   @StorageProp('player.coverSeedHex') @Watch('onCoverSeedChanged') coverSeedHex: string = '';
   @StorageProp('np.dynamic_color') @Watch('onCoverSeedChanged') dynamicColor: boolean = true;
+  // Bumped by AutoSongMatcher after it applied a match to the current song
+  // (same-song publish, so currentSongJson's @Watch deliberately skips it).
+  @StorageProp('player.autoMatchTick') @Watch('onAutoMatched') autoMatchTick: number = 0;
   @State accentHex: string = '';
   // 封面全量配色（S1 引擎发布）：背景毛玻璃取色与文字令牌的唯一来源。
   // 组件自己订阅（M7.4：表达式里直读被跟踪成员），换歌即整页重绘。
@@ -94,6 +98,11 @@ export struct NowPlayingPage {
   @State bgOverUrl: string = '';
   @State bgOverOpacity: number = 0;
   private crossfadeToken: number = 0;
+  /** Identity of the song whose lyrics are loaded (or loading); a different
+   * key on a currentSong publish means a track switch, not a metadata update. */
+  private lyricsSongKey: string = '';
+  /** Drops a slow lyric fetch that finishes after a newer reload started. */
+  private lyricsGeneration: number = 0;
 
   private song(): SongItem {
     return this.currentSongJson.length > 0 ? SongItem.fromJson(this.currentSongJson) : new SongItem();
@@ -112,6 +121,14 @@ export struct NowPlayingPage {
   }
 
   private onSongJsonChanged(): void {
+    // Track switches while the page is open must reload lyrics here: the
+    // auto-match tick only fires when a match lands, so without this the
+    // previous song's lines stayed on screen whenever the next song brought
+    // no lyrics of its own. Same-song publishes (metadata/favorite updates)
+    // keep the loaded lyrics.
+    if (stableKeyOf(this.song()) !== this.lyricsSongKey) {
+      void this.reloadSongData();
+    }
     this.transitionCover(this.song().effectiveCoverUrl);
   }
 
@@ -158,6 +175,11 @@ export struct NowPlayingPage {
   private onCoverSchemeChanged(): void {
   }
 
+  /** The automatic「匹配歌曲信息」landed on the current song: reload lyrics. */
+  private onAutoMatched(): void {
+    void this.reloadSongData();
+  }
+
   /** 当前模式的沉浸令牌（深色模式取 dark ramp）。页面级，M7.4 直读成员。 */
   private im(): SchemeMode {
     return Theme.isDark() ? this.coverScheme.dark : this.coverScheme.light;
@@ -176,16 +198,27 @@ export struct NowPlayingPage {
   }
 
   private async reloadSongData(): Promise<void> {
+    const generation = ++this.lyricsGeneration;
     const song = this.song();
+    this.lyricsSongKey = stableKeyOf(song);
     this.lyrics = [];
     LyricLineTracker.getInstance().setLines([]);
-    if (song.audioId.length > 0) {
+    // matched* lyrics from「匹配歌曲信息」(manual sheet or the automatic
+    // matcher) need no audioId — the dispatcher resolves them before any
+    // platform branch, which is how local songs get lyrics at all.
+    if (song.audioId.length > 0 || song.matchedLyric.trim().length > 0) {
       try {
-        this.lyrics = await LyricDispatcher.loadLyrics(song);
+        const lines = await LyricDispatcher.loadLyrics(song);
+        if (generation !== this.lyricsGeneration) {
+          return;
+        }
+        this.lyrics = lines;
         LyricLineTracker.getInstance().setLines(this.lyrics);
       } catch (error) {
         const e = error as Error;
-        this.lyrics = [];
+        if (generation === this.lyricsGeneration) {
+          this.lyrics = [];
+        }
         console.warn(`lyrics load failed: ${e.message}`);
       }
     }
@@ -197,8 +230,28 @@ export struct NowPlayingPage {
     await PlayerManager.toggleFavoriteForCurrentSong();
   }
 
-  private cycleRepeat(): void {
-    PlayerManager.cycleRepeatMode();
+  /** 当前组合播放模式的图标：随机 > 单曲循环 > 列表循环 > 顺序播放，与 cyclePlayMode 的档位一致。 */
+  private playModeIcon(): Resource {    if (this.shuffle) {
+      return $r('app.media.ic_shuffle_24');
+    }
+    if (this.repeatMode === RepeatMode.ONE) {
+      return $r('app.media.ic_repeat_one_24');
+    }
+    if (this.repeatMode === RepeatMode.ALL) {
+      return $r('app.media.ic_repeat_24');
+    }
+    return $r('app.media.ic_play_order_24');
+  }
+
+  /** Announces the current play mode; the icon alone carries no label. */
+  private playModeLabel(): string {
+    if (this.shuffle) {
+      return '随机播放，点击切换';
+    }
+    if (this.repeatMode === RepeatMode.ONE) {
+      return '单曲循环，点击切换';
+    }
+    return this.repeatMode === RepeatMode.ALL ? '列表循环，点击切换' : '顺序播放，点击切换';
   }
 
   /** 倍速是六档单选：锚定菜单替代原来的循环点击（UX 规范）。 */
@@ -212,14 +265,6 @@ export struct NowPlayingPage {
           .onClick(() => PlayerManager.setSpeed(speedValue))
       }, (speedValue: number) => `${speedValue}`)
     }
-  }
-
-  /** Announces the current repeat mode; the icon alone carries no label. */
-  private repeatLabel(): string {
-    if (this.repeatMode === RepeatMode.ONE) {
-      return '单曲循环，点击切换';
-    }
-    return this.repeatMode === RepeatMode.OFF ? '不循环，点击切换' : '列表循环，点击切换';
   }
 
   private sleepButtonText(): string {
@@ -563,19 +608,15 @@ export struct NowPlayingPage {
               }
               .width('100%')
 
+              // 传输行只保留上一曲/播放暂停/下一曲；播放模式收进下方控件行。
+              // 上一曲/下一曲放大到 58/30，与 64/34 的主播放键形成尺寸梯度。
               Row() {
-                PlayerControlButton({
-                  icon: $r('app.media.ic_shuffle_24'),
-                  tintOn: this.im().textPrimary,
-                  tintOff: this.im().textSecondary,
-                  active: this.shuffle,
-                  label: this.shuffle ? '关闭随机播放' : '随机播放',
-                  onTap: () => PlayerManager.setShuffle(!this.shuffle)
-                })
                 PlayerControlButton({
                   icon: $r('app.media.round_skip_previous_24'),
                   tintOn: this.im().textPrimary,
                   tintOff: this.im().textSecondary,
+                  buttonSize: 58,
+                  iconSize: 30,
                   label: '上一首',
                   onTap: () => PlayerManager.previous()
                 })
@@ -586,6 +627,7 @@ export struct NowPlayingPage {
                   tintOn: this.im().onPrimary,
                   active: true,
                   buttonSize: 64,
+                  iconSize: 34,
                   label: this.status === PlaybackStatus.PLAYING ? '暂停' : '播放',
                   onTap: () => PlayerManager.togglePlayPause()
                 })
@@ -593,16 +635,10 @@ export struct NowPlayingPage {
                   icon: $r('app.media.round_skip_next_24'),
                   tintOn: this.im().textPrimary,
                   tintOff: this.im().textSecondary,
+                  buttonSize: 58,
+                  iconSize: 30,
                   label: '下一首',
                   onTap: () => PlayerManager.next(false)
-                })
-                PlayerControlButton({
-                  icon: this.repeatMode === RepeatMode.ONE
-                    ? $r('app.media.ic_repeat_one_24')
-                    : $r('app.media.ic_repeat_24'),
-                  active: this.repeatMode !== RepeatMode.OFF,
-                  label: this.repeatLabel(),
-                  onTap: () => this.cycleRepeat()
                 })
               }
               .width('100%')
@@ -612,6 +648,21 @@ export struct NowPlayingPage {
               // 无背景裸图标行（鸿蒙标准符号）；去背景后状态靠颜色区分，
               // 文字信息（1.0x、剩余分钟）由无障碍文案补偿。
               Row() {
+                // 播放模式单键：顺序播放 -> 列表循环 -> 单曲循环 -> 随机播放
+                // 四档循环，图标随档位切换（PlayerManager.cyclePlayMode）。
+                // 与整行裸图标保持同一灰阶，档位信息由无障碍文案补偿。
+                Column() {
+                  Image(this.playModeIcon())
+                    .width(24)
+                    .height(24)
+                    .fillColor(this.im().textSecondary)
+                }
+                .width(44)
+                .height(44)
+                .justifyContent(FlexAlign.Center)
+                .accessibilityText(this.playModeLabel())
+                .onClick(() => PlayerManager.cyclePlayMode())
+
                 Column() {
                   SymbolGlyph($r('sys.symbol.speed_multiple'))
                     .fontSize(24)
@@ -639,7 +690,7 @@ export struct NowPlayingPage {
                 Column() {
                   SymbolGlyph($r('sys.symbol.share'))
                     .fontSize(24)
-                    .fontColor([this.im().textPrimary])
+                    .fontColor([this.im().textSecondary])
                 }
                 .width(44)
                 .height(44)
@@ -652,7 +703,7 @@ export struct NowPlayingPage {
                 Column() {
                   SymbolGlyph($r('sys.symbol.music_note_list'))
                     .fontSize(24)
-                    .fontColor([this.im().textPrimary])
+                    .fontColor([this.im().textSecondary])
                 }
                 .width(44)
                 .height(44)
@@ -787,8 +838,8 @@ export struct NowPlayingPage {
         MatchSongInfoSheet({
           songJson: this.currentSongJson,
           onApplied: () => {
-            // 匹配写入的是 matched*/custom* 字段；currentSongJson 的 @Watch
-            // 只做封面淡入，歌词要在这里主动重载。
+            // 匹配写入的是 matched*/custom* 字段，歌曲身份不变，currentSongJson
+            // 的 @Watch 视作同歌更新不重载，歌词要在这里主动重载。
             void this.reloadSongData();
           },
           onClose: () => {
@@ -873,6 +924,9 @@ export struct NowPlayingPage {
     .bindSheet($$this.showQueue, this.queueSheetBuilder(), {
       detents: [SheetSize.MEDIUM, SheetSize.LARGE],
       dragBar: true,
+      // 面板自带关闭键会压在标题行右侧的更多按钮上（计数右移前压的是
+      // 计数文字），关闭交给下滑手势，与「词」面板同规格。
+      showClose: false,
       onDisappear: () => {
         this.showQueue = false;
       }
@@ -883,7 +937,6 @@ export struct NowPlayingPage {
   queueSheetBuilder() {
     QueueSheetContent({
       queueJson: this.queueJson,
-      currentOrderIndex: PlayerManager.getCurrentQueueIndex(),
       onPlay: (orderIndex: number) => {
         PlayerManager.playAt(orderIndex);
       }
@@ -904,6 +957,9 @@ struct PlayerControlButton {
   @Prop icon: Resource = $r('app.media.round_play_arrow_24');
   @Prop active: boolean = false;
   @Prop buttonSize: number = 48;
+  // Explicit glyph size: the enlarged transport prev/next buttons need a
+  // mid-tier icon (30vp) between the default 24 and the play button's 34.
+  @Prop iconSize: number = 24;
   // Solid primary disc independent of size: the lyrics-page capsule shrinks
   // the play button below the 60vp threshold but keeps it filled.
   @Prop filled: boolean = false;
@@ -918,8 +974,8 @@ struct PlayerControlButton {
   build() {
     Button() {
       Image(this.icon)
-        .width(this.buttonSize >= 60 ? 34 : 24)
-        .height(this.buttonSize >= 60 ? 34 : 24)
+        .width(this.iconSize)
+        .height(this.iconSize)
         .fillColor(this.active ? this.tintOn : this.tintOff)
     }
     .width(this.buttonSize)
@@ -938,41 +994,100 @@ struct PlayerControlButton {
  */@Component
 struct QueueSheetContent {
   @Prop queueJson: string = '';
-  currentOrderIndex: number = 0;
   onPlay: (orderIndex: number) => void = () => {};
+  private scroller: Scroller = new Scroller();
 
   private queue(): QueueState {
     return this.queueJson.length > 0 ? QueueState.fromJson(this.queueJson) : new QueueState();
   }
 
+  // 直读引擎而非一次性入参：弹窗在每次 queueJson 发布时重建，高亮与
+  // 「定位」跟随真正的当前曲目，弹窗打开期间切歌也不会漂移。
+  private orderIndex(): number {
+    return PlayerManager.getCurrentQueueIndex();
+  }
+
+  private locateCurrent(): void {
+    const index = this.orderIndex();
+    if (index < 0 || index >= this.queue().songs.length) {
+      return;
+    }
+    this.scroller.scrollToIndex(index, true, ScrollAlign.CENTER);
+  }
+
+  /** 标题行 2x2 点按钮的队列操作菜单：倒序播放 / 清空列表。 */
+  @Builder
+  queueMenuBuilder() {
+    Menu() {
+      MenuItem({
+        symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.sort')).fontSize(22),
+        content: '倒序播放'
+      }).onClick(() => {
+        PlayerManager.reverseQueue();
+      })
+      MenuItem({
+        symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.trash')).fontSize(22),
+        content: '清空列表'
+      }).onClick(() => {
+        PlayerManager.clearQueue();
+      })
+    }
+  }
+
   build() {
     Column() {
-      Row() {
+      Row({ space: 8 }) {
         Text('播放列表')
           .fontSize(17)
           .fontWeight(FontWeight.Bold)
           .fontColor(Theme.textPrimary(Theme.isDark()))
-          .layoutWeight(1)
         Text(`${this.queue().songs.length} 首`)
           .fontSize(13)
           .fontColor(Theme.textSecondary(Theme.isDark()))
+        Blank()
+
+        Button() {
+          Image($r('app.media.ic_my_location_24'))
+            .width(22)
+            .height(22)
+            .fillColor(Theme.textSecondary(Theme.isDark()))
+        }
+        .width(40)
+        .height(40)
+        .type(ButtonType.Circle)
+        .backgroundColor(Color.Transparent)
+        .accessibilityText('定位当前播放歌曲')
+        .onClick(() => this.locateCurrent())
+
+        Button() {
+          Image($r('app.media.ic_grid_dots_24'))
+            .width(22)
+            .height(22)
+            .fillColor(Theme.textSecondary(Theme.isDark()))
+        }
+        .width(40)
+        .height(40)
+        .type(ButtonType.Circle)
+        .backgroundColor(Color.Transparent)
+        .accessibilityText('更多操作')
+        .bindMenu(this.queueMenuBuilder)
       }
       .width('100%')
       .padding({ bottom: 10 })
 
       // bindSheet 的滚动内容要显式声明嵌套滚动方向，才能先滚内容再拉档位。
-      List() {
+      List({ scroller: this.scroller }) {
         ForEach(this.queue().songs, (song: SongItem, index: number) => {
           ListItem() {
             Row({ space: 10 }) {
               Text(`${index + 1}`)
                 .fontSize(13)
-                .fontColor(index === this.currentOrderIndex ? Theme.primary(Theme.isDark()) : Theme.textDisabled(Theme.isDark()))
+                .fontColor(index === this.orderIndex() ? Theme.primary(Theme.isDark()) : Theme.textDisabled(Theme.isDark()))
                 .width(24)
               Column({ space: 2 }) {
                 Text(song.displayName)
                   .fontSize(14)
-                  .fontColor(index === this.currentOrderIndex ? Theme.primary(Theme.isDark()) : Theme.textPrimary(Theme.isDark()))
+                  .fontColor(index === this.orderIndex() ? Theme.primary(Theme.isDark()) : Theme.textPrimary(Theme.isDark()))
                   .maxLines(1)
                   .textOverflow({ overflow: TextOverflow.Ellipsis })
                 Text(song.displayArtist)
