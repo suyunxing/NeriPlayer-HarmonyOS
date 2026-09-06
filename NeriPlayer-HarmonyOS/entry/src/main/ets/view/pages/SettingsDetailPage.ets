@@ -29,8 +29,10 @@ import {
   QrPollOutcomeCode
 } from '../components/QrLoginPanel';
 import { Theme } from '../Theme';
+import { AccentScheme } from '../theme/AccentScheme';
 import { BAND_LIST_VP } from '../../util/Breakpoint';
 import { OptionEntry, OptionRow, SettingRow, ToggleRow } from '../components/Ui';
+import { LyricSettingsRows } from '../components/LyricSettingsRows';
 import { SETTING_PLAYBACK, SETTING_DOWNLOAD, SETTING_LYRICS, SETTING_APPEARANCE,
   SETTING_TRAFFIC, SETTING_STORAGE, SETTING_ACCOUNTS, SETTING_SYNC, SETTING_DEBUG,
   SETTING_ABOUT } from './SettingsPage';
@@ -70,6 +72,12 @@ const BILI_QR_POLL_INTERVAL_MS: number = 1500;
 
 @Component
 export struct SettingsDetailPage {
+  /**
+   * S5: 订阅封面配色。Theme.*() 读 AppStorage 是无跟踪调用（M7.4），换歌后
+   * 坐在本页的组件不会重建；有了这个成员并在 build 里经 schemeBg() 直读，
+   * scheme 一发布本页就随新配色重染。
+   */
+  @StorageProp('player.coverScheme') coverScheme: AccentScheme = AccentScheme.neutralFallback();
   /** 由 MainShell 的 navDestination builder 从路由参数传入。 */
   @Prop section: string = '';
 
@@ -705,34 +713,6 @@ export struct SettingsDetailPage {
     return options;
   }
 
-  private fontSizeOptions(): OptionEntry[] {
-    const options: OptionEntry[] = [];
-    for (let size = 14; size <= 24; size += 2) {
-      options.push({ value: `${size}`, label: `${size} sp` });
-    }
-    return options;
-  }
-
-  private lyricOffsetOptions(): OptionEntry[] {
-    const options: OptionEntry[] = [
-      { value: '0', label: '无偏移' },
-      { value: '250', label: '提前 0.25s' },
-      { value: '500', label: '提前 0.5s' },
-      { value: '1000', label: '提前 1s' },
-      { value: '-250', label: '延后 0.25s' },
-      { value: '-500', label: '延后 0.5s' },
-      { value: '-1000', label: '延后 1s' }
-    ];
-    return options;
-  }
-
-  private lyricOffsetSubtitle(): string {
-    if (this.lyricOffsetMs === 0) {
-      return '无偏移';
-    }
-    return this.lyricOffsetMs > 0 ? `提前 ${this.lyricOffsetMs} ms` : `延后 ${-this.lyricOffsetMs} ms`;
-  }
-
   private blurStrengthOptions(): OptionEntry[] {
     const options: OptionEntry[] = [
       { value: '0', label: '关闭' },
@@ -777,6 +757,13 @@ export struct SettingsDetailPage {
   @Builder
   optionRow(label: string, value: string, onTap: () => void) {
     SettingRow({ title: label, subtitle: value, onTap: onTap })
+  }
+
+
+  /** build 里直读被跟踪成员注册依赖；颜色本身仍由 Theme 统一决策。 */
+  private schemeBg(dark: boolean): string {
+    const hasScheme = this.coverScheme.light.background.length > 0;
+    return hasScheme ? Theme.background(dark) : Theme.background(dark);
   }
 
   build() {
@@ -837,63 +824,8 @@ export struct SettingsDetailPage {
               onTap: () => promptAction.openToast({ message: '目录选择待移植' })
             })
           } else if (this.section === SETTING_LYRICS) {
-            OptionRow({
-              title: '歌词字号',
-              icon: '🔠',
-              options: this.fontSizeOptions(),
-              current: `${this.lyricFontSize}`,
-              onPick: (value: string) =>
-                SettingsRepository.setNumber(SettingsRepository.KEY_LYRIC_FONT_SIZE, Number(value))
-            })
-            OptionRow({
-              title: '歌词偏移',
-              icon: '⏱',
-              subtitle: this.lyricOffsetSubtitle(),
-              options: this.lyricOffsetOptions(),
-              current: `${this.lyricOffsetMs}`,
-              onPick: (value: string) =>
-                SettingsRepository.setNumber(SettingsRepository.KEY_LYRIC_OFFSET_MS, Number(value))
-            })
-
-            ToggleRow({
-              title: 'AMLL 逐字歌词',
-              subtitle: '优先逐字 TTML 词库',
-              icon: '✍',
-              value: this.amllLyrics,
-              onChange: (on: boolean) => SettingsRepository.setBoolean(SettingsRepository.KEY_AMLL_LYRICS, on)
-            })
-            ToggleRow({
-              title: '显示翻译',
-              icon: '🌐',
-              value: this.lyricTranslation,
-              onChange: (on: boolean) => SettingsRepository.setBoolean(SettingsRepository.KEY_LYRIC_TRANSLATION, on)
-            })
-            ToggleRow({
-              title: '音译显示',
-              icon: '🗣',
-              value: this.lyricPhonetic,
-              onChange: (on: boolean) => SettingsRepository.setBoolean(SettingsRepository.KEY_LYRIC_PHONETIC, on)
-            })
-            ToggleRow({
-              title: '歌词模糊效果',
-              icon: '🌫',
-              value: this.lyricBlur,
-              onChange: (on: boolean) => SettingsRepository.setBoolean(SettingsRepository.KEY_LYRIC_BLUR, on)
-            })
-            ToggleRow({
-              title: '应用内悬浮歌词',
-              subtitle: '页面顶部悬浮一行，系统级悬浮不受支持',
-              icon: '👓',
-              value: this.floatingLyric,
-              onChange: (on: boolean) => SettingsRepository.setBoolean(SettingsRepository.KEY_FLOATING_LYRIC, on)
-            })
-            ToggleRow({
-              title: '通知栏/蓝牙歌词',
-              subtitle: '播放时通知栏与蓝牙设备显示当前歌词行',
-              icon: '📡',
-              value: this.btLyric,
-              onChange: (on: boolean) => SettingsRepository.setBoolean(SettingsRepository.KEY_BT_LYRIC, on)
-            })
+            // 行组已抽成共享组件：播放页「词」面板展示同一组设置（LyricSettingsRows）。
+            LyricSettingsRows()
           } else if (this.section === SETTING_APPEARANCE) {
             OptionRow({
               title: '语言',
@@ -1214,7 +1146,7 @@ export struct SettingsDetailPage {
     .width('100%')
     .height('100%')
     .justifyContent(FlexAlign.Center)
-    .backgroundColor(Theme.background(Theme.isDark()))
+    .backgroundColor(this.schemeBg(Theme.isDark()))
   }
 }
 

@@ -227,4 +227,59 @@ export default function queueEngineTest(): void {
       expect(QueueEngine.fromJson('not json {', 3)).assertNull();
     });
   });
+
+  describe('QueueEngineReverseReset', () => {
+    it('reverseMirrorsCurrentIndexAndSequentialMovement', 0, () => {
+      const engine = engineWith(5, 1);
+      engine.start(1, false, RepeatMode.OFF);
+      engine.reverse();
+      // The track at index 1 remaps to 3 in the flipped order, then next/prev
+      // walk the reversed sequence from there.
+      expect(engine.getCurrentQueueIndex()).assertEqual(3);
+      expect(engine.next(false)).assertEqual(4);
+      expect(engine.previous()).assertEqual(3);
+    });
+
+    it('reverseRemapsEveryShuffleStructureWithoutDuplicates', 0, () => {
+      const engine = engineWith(6, 42);
+      engine.start(0, true, RepeatMode.ALL);
+      engine.next(false);
+      engine.next(false);
+      engine.previous();
+      const bag = engine.getBag();
+      const history = engine.getHistory();
+      const future = engine.getFuture();
+      engine.reverse();
+      const flip = (value: number): number => 5 - value;
+      expectList(engine.getBag(), bag.map(flip), 'bag');
+      expectList(engine.getHistory(), history.map(flip), 'history');
+      expectList(engine.getFuture(), future.map(flip), 'future');
+      // The remap keeps the invariant that the current track is out of the bag.
+      expect(engine.getBag().indexOf(engine.getCurrentQueueIndex())).assertEqual(-1);
+    });
+
+    it('reverseIsNoOpForSmallQueues', 0, () => {
+      const single = engineWith(1, 1);
+      single.start(0, false, RepeatMode.OFF);
+      single.reverse();
+      expect(single.getCurrentQueueIndex()).assertEqual(0);
+      const empty = engineWith(0, 1);
+      empty.reverse();
+      expect(empty.getCurrentQueueIndex()).assertEqual(-1);
+    });
+
+    it('resetLeavesTheEngineInertUntilNextStart', 0, () => {
+      const engine = engineWith(4, 7);
+      engine.start(0, true, RepeatMode.ALL);
+      engine.next(false);
+      engine.reset();
+      expect(engine.getCurrentQueueIndex()).assertEqual(-1);
+      expectList(engine.getBag(), [], 'bag');
+      expectList(engine.getHistory(), [], 'history');
+      expectList(engine.getFuture(), [], 'future');
+      expect(engine.hasNext(false)).assertFalse();
+      expect(engine.next(true)).assertEqual(-1);
+      expect(engine.previous()).assertEqual(-1);
+    });
+  });
 }

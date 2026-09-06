@@ -1,5 +1,9 @@
 import { Router } from '../Router';
 import { Theme } from '../Theme';
+import { HdsTabs, HdsBarLayoutMode, hdsMaterial, SystemMaterialParams } from '@kit.UIDesignKit';
+import { HdsTabsAttribute } from '@kit.UIDesignKit';
+import { HdsLight } from '../theme/HdsLight';
+import { AccentScheme } from '../theme/AccentScheme';
 import { BP_LG } from '../../util/Breakpoint';
 import { MiniPlayer } from '../components/MiniPlayer';
 import { FloatingLyricBar } from '../components/FloatingLyricBar';
@@ -45,7 +49,30 @@ export struct MainShell {
    * 是直接调函数，同样是为了让最小化更新看得见这个值（见 resolveDark 注释）。
    */
   @StorageProp('ui.bottomLiftVp') bottomLift: number = Theme.bottomBarLift();
+  // 封面 scheme 驱动悬浮 Tab 栏的 lightColor（光晕色）与系统材质档位。
+  @StorageProp('player.coverScheme') coverScheme: AccentScheme = AccentScheme.neutralFallback();
   @State currentTab: number = 0;
+
+  /** 官方 HdsTabsMiniBar 槽位：无歌时留空，有歌渲染紧凑 MiniPlayer。 */
+  @Builder
+  miniBarBuilder() {
+    if (this.currentSongJson.length > 0) {
+      MiniPlayer({ compact: true })
+    }
+  }
+
+  /** 悬浮 Tab 栏的系统沉浸材质：设备不支持时保持 undefined（自绘玻璃兜底）。 */
+  private systemMaterialEffect(): SystemMaterialParams | undefined {
+    if (!HdsLight.immersiveSupported() && !HdsLight.adaptiveSupported()) {
+      return undefined;
+    }
+    const params: SystemMaterialParams = {
+      materialType: hdsMaterial.MaterialType.ADAPTIVE,
+      materialLevel: hdsMaterial.MaterialLevel.ADAPTIVE
+    };
+    return params;
+  }
+
 
   /**
    * 与 Theme.isDark() 同一规则，但读自被跟踪的成员，所以 build() 会响应切换。
@@ -170,6 +197,9 @@ export struct MainShell {
    */
   @Builder
   pageMap(name: string, param: Object) {
+    // S4 实测：HdsNavDestination 在模拟器上只渲染标题栏 chrome、不挂载内容
+    // 子树（与 S0 spike S7 探针一致），路由页回退标准 NavDestination；
+    // HdsNavigation 外壳与 HdsTabs 悬浮栏保留。
     NavDestination() {
       if (name === Router.NOW_PLAYING) {
         NowPlayingPage()
@@ -201,6 +231,9 @@ export struct MainShell {
         Column().width('100%').height('100%')
       }
     }
+    // S6: NOW_PLAYING 用共享元素一镜到底时关闭系统默认转场，避免叠加。
+    .systemTransition(name === 'now_playing'
+      ? NavigationSystemTransitionType.NONE : NavigationSystemTransitionType.DEFAULT)
     .hideTitleBar(true)
     // NavDestination 默认背景是不透明白：深色模式下内容区以下的系统
     // 导航条区会露出一截白边。显式置透明，条带回落到 Index 的沉浸背景
@@ -215,15 +248,14 @@ export struct MainShell {
   }
 
   build() {
+    // S4 实测：HdsNavigation 的 navDestination 内容子树在模拟器上不挂载
+    // （spike S7 与 NowPlayingPage 空白均同症状），外壳回退标准 Navigation，
+    // HdsNavigation 等真机/后续 SDK 版本再启用。
     Navigation(this.pageStack) {
       Stack({ alignContent: Alignment.Top }) {
         Column() {
-          if (this.currentSongJson.length > 0) {
-            MiniPlayer()
-          }
-
           if (this.wide()) {
-            Tabs({ barPosition: BarPosition.Start, index: this.currentTab }) {
+            HdsTabs({ barPosition: BarPosition.Start, index: this.currentTab }) {
               this.tabPages()
             }
             .vertical(true)
@@ -244,14 +276,29 @@ export struct MainShell {
               this.selectTab(index);
             })
           } else {
-            Tabs({ barPosition: BarPosition.End, index: this.currentTab }) {
+            // S3b-2: 悬浮胶囊 Tab 栏 + 官方 MiniBar 槽位。barOverlap 后
+            // 内容延伸到栏下，四个 Tab 页的滚动尾部加了 FLOAT_TAB_CLEARANCE
+            // 避让；系统材质在不支持的设备上回落自绘玻璃。
+            HdsTabs({ barPosition: BarPosition.End, index: this.currentTab }) {
               this.tabPages()
             }
             .vertical(false)
-            .barHeight(TAB_BAR_CONTENT_VP + this.bottomLift)
             .barMode(BarMode.Fixed)
-            .barBackgroundColor(Theme.surface(this.resolveDark()))
-            // 同上：容器延伸进系统导航条区域，背景色让条带与 Tab 栏连续。
+            .barOverlap(true)
+            .barFloatingStyle({
+              barSideMargin: 16,
+              barBottomMargin: this.bottomLift + 8,
+              lightColor: this.coverScheme.light.primary,
+              gradientMask: { maskColor: Theme.withAlpha(Theme.background(this.resolveDark()), 0x99), maskHeight: 92 },
+              miniBar: {
+                miniBarBuilder: (): void => {
+                  this.miniBarBuilder()
+                },
+                enableMiniBarBackground: true,
+                barLayoutMode: HdsBarLayoutMode.VERTICAL
+              },
+              systemMaterialEffect: this.systemMaterialEffect()
+            })
             .backgroundColor(this.bandColor())
             .animationDuration(250)
             // 不允许左右滑动切页：保持改造前的行为，也避免与首页每日推荐的
@@ -271,6 +318,9 @@ export struct MainShell {
         // In-app floating lyric overlay (D4 fallback), floats above content.
         FloatingLyricBar()
           .margin({ top: 46 })
+
+        // MiniPlayer 回归官方 HdsTabsMiniBar 槽位（用户决策）：槽位高度
+        // 系统固定，以缩小播放按钮视觉圆（30vp，触控热区仍 40vp）适配。
       }
       .width('100%')
       .height('100%')

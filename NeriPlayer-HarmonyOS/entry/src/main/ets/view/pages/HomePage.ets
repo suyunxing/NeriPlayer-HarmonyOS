@@ -6,11 +6,14 @@ import { LocalPlaylistRepository } from '../../data/LocalPlaylistRepository';
 import { NeteaseApi } from '../../network/NeteaseApi';
 import { NeteasePlaylistSummary } from '../../network/NeteasePlaylistParser';
 import { NetworkStatus } from '../../util/NetworkStatus';
+import { Logger } from '../../app/Logger';
 import { PlayerManager } from '../../player/PlayerManager';
 import { Router } from '../Router';
 import { Theme } from '../Theme';
+import { AccentScheme } from '../theme/AccentScheme';
 import { BAND_LIST_VP, BP_LG, BP_MD } from '../../util/Breakpoint';
-import { SectionHeader, EmptyState, LoadingState, PlaylistCard, ContentBand } from '../components/Ui';
+import { SectionHeader, EmptyState, LoadingState, PlaylistCard, ContentBand , FLOAT_TAB_CLEARANCE } from '../components/Ui';
+import { promptAction } from '@kit.ArkUI';
 
 const BRAND_TITLES: string[] = ['NeriPlayer', '欢迎回来', 'NeriPlayer', '继续听歌'];
 /** 本页在 MainShell 的 Tabs 里的下标，用于过滤刷新信号。 */
@@ -18,12 +21,20 @@ const TAB_INDEX: number = 0;
 
 @Component
 export struct HomePage {
+  /**
+   * S5: 订阅封面配色。Theme.*() 读 AppStorage 是无跟踪调用（M7.4），换歌后
+   * 坐在本页的组件不会重建；有了这个成员并在 build 里经 schemeBg() 直读，
+   * scheme 一发布本页就随新配色重染。
+   */
+  @StorageProp('player.coverScheme') coverScheme: AccentScheme = AccentScheme.neutralFallback();
   @State usage: UsageEntry[] = [];
   @State localPlaylists: Playlist[] = [];
   @State recentSongs: SongItem[] = [];
   @State neteaseRecommend: NeteasePlaylistSummary[] = [];
   @State loading: boolean = true;
   @State offline: boolean = false;
+  /** 每日推荐 FAB 开播进行中：按钮转圈并禁触，防止重复拉歌单。 */
+  @State heroPlayBusy: boolean = false;
   @State titleIndex: number = 0;
   /** 由 util/WindowMetrics.ets 发布，决定网格列数与推荐区形态。 */
   @StorageProp('ui.breakpoint') breakpoint: string = 'sm';
@@ -105,11 +116,154 @@ export struct HomePage {
     PlayerManager.playPlaylist(this.recentSongs, index);
   }
 
+  /**
+   * 播放 FAB 的专属动作：拉取歌单全量歌曲，作为当前播放列表直接开播，
+   * 不再借用整卡的进详情路由（2026-08-30）。走歌单详情页同一条
+   * getPlaylistOverview 路径；失败 toast 提示，卡片本体仍可点进详情。
+   */
+  private async playNeteaseHero(item: NeteasePlaylistSummary): Promise<void> {
+    if (this.heroPlayBusy) {
+      return;
+    }
+    this.heroPlayBusy = true;
+    try {
+      const overview = await NeteaseApi.getPlaylistOverview(item.id);
+      if (overview.songs.length === 0) {
+        promptAction.openToast({ message: '歌单为空' });
+        return;
+      }
+      PlayerManager.playPlaylist(overview.songs, 0);
+    } catch (error) {
+      const e = error as Error;
+      Logger.warn(`playNeteaseHero id=${item.id} failed: ${e.message}`);
+      promptAction.openToast({ message: `开播失败：${e.message}` });
+    } finally {
+      this.heroPlayBusy = false;
+    }
+  }
+
+  /**
+   * S5: 参考图「每日推荐」Hero 卡——大封面 + 重点色标签 pill + 两行粗标题 +
+   * 播放 FAB。点卡进歌单详情；点 FAB 直接开播整个歌单（子组件 onClick 消费
+   * 点击，不会再触发整卡的进详情路由）。
+   */
+  @Builder
+  recommendHero(item: NeteasePlaylistSummary) {
+    Row({ space: 14 }) {
+      if (item.coverUrl.length > 0) {
+        Image(item.coverUrl)
+          .width(118)
+          .height(118)
+          .borderRadius(18)
+          .objectFit(ImageFit.Cover)
+          .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+      } else {
+        Image($r('app.media.ic_music_note_24'))
+          .width(40)
+          .height(40)
+          .fillColor(this.accentPrimary(Theme.isDark()))
+          .margin({ left: 39, right: 39, top: 39, bottom: 39 })
+          .backgroundColor(this.accentSurfaceVariant(Theme.isDark()))
+          .borderRadius(18)
+      }
+      Column({ space: 8 }) {
+        Text('每日推荐')
+          .fontSize(12)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(this.accentTagText(Theme.isDark()))
+          .padding({ left: 10, right: 10, top: 4, bottom: 4 })
+          .backgroundColor(this.accentTagBg(Theme.isDark()))
+          .borderRadius(12)
+        Text(item.name)
+          .fontSize(21)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(Theme.textPrimary(Theme.isDark()))
+          .maxLines(2)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+        Text(item.trackCount > 0 ? `共 ${item.trackCount} 首` : '网易云歌单')
+          .fontSize(13)
+          .fontColor(Theme.textSecondary(Theme.isDark()))
+      }
+      .layoutWeight(1)
+      .alignItems(HorizontalAlign.Start)
+
+      Stack({ alignContent: Alignment.Center }) {
+        // FAB 保持无阴影：shadow() 是通用属性，作用在节点矩形边界上，
+        // Circle 之外会露出一圈方形阴影（2026-08-30 实测），扁平圆最干净。
+        Circle()
+          .width(52)
+          .height(52)
+          .fill(this.accentPrimary(Theme.isDark()))
+        if (this.heroPlayBusy) {
+          LoadingProgress()
+            .width(26)
+            .height(26)
+            .color(this.accentOnPrimary(Theme.isDark()))
+        } else {
+          Image($r('app.media.round_play_arrow_24'))
+            .width(26)
+            .height(26)
+            .fillColor(this.accentOnPrimary(Theme.isDark()))
+        }
+      }
+      .width(52)
+      .height(52)
+      .accessibilityText('播放每日推荐')
+      .onClick(() => this.playNeteaseHero(item))
+    }
+    .width('100%')
+    .padding(14)
+    .backgroundColor(Theme.surface(Theme.isDark()))
+    .borderRadius(Theme.cardRadius())
+    .margin({ bottom: 14 })
+    .alignItems(VerticalAlign.Center)
+    .onClick(() => Router.push(Router.NETEASE_PLAYLIST, `${item.id}`))
+    .clickEffect({ level: ClickEffectLevel.LIGHT })
+  }
+
+
+  /** build 里直读被跟踪成员注册依赖；颜色本身仍由 Theme 统一决策。 */
+  private schemeBg(dark: boolean): string {
+    const hasScheme = this.coverScheme.light.background.length > 0;
+    return hasScheme ? Theme.background(dark) : Theme.background(dark);
+  }
+
+  /**
+   * M7.4 的另一半：schemeBg 只让页面背景随取色重染，强调色节点（占位图标、
+   * 标签 pill、播放 FAB）直接写 Theme.*() 仍是无跟踪调用，换歌后不动。下面
+   * 的读法与 schemeBg 相同——先摸被跟踪的 coverScheme 注册依赖，取值依旧
+   * 交给 Theme 统一决策（动态取色关闭、legacy seed 等回退路径不变）。
+   */
+  private accentPrimary(dark: boolean): string {
+    const hasScheme = this.coverScheme.light.primary.length > 0;
+    return hasScheme ? Theme.primary(dark) : Theme.primary(dark);
+  }
+
+  private accentOnPrimary(dark: boolean): string {
+    const hasScheme = this.coverScheme.light.primary.length > 0;
+    return hasScheme ? Theme.onPrimary(dark) : Theme.onPrimary(dark);
+  }
+
+  private accentSurfaceVariant(dark: boolean): string {
+    const hasScheme = this.coverScheme.light.primary.length > 0;
+    return hasScheme ? Theme.surfaceVariant(dark) : Theme.surfaceVariant(dark);
+  }
+
+  private accentTagBg(dark: boolean): string {
+    const hasScheme = this.coverScheme.light.primary.length > 0;
+    return hasScheme ? Theme.tagBg(dark) : Theme.tagBg(dark);
+  }
+
+  private accentTagText(dark: boolean): string {
+    const hasScheme = this.coverScheme.light.primary.length > 0;
+    return hasScheme ? Theme.tagText(dark) : Theme.tagText(dark);
+  }
+
   build() {
     Column() {
       Row() {
         Text(BRAND_TITLES[this.titleIndex])
-          .fontSize(28)
+          .fontSize(32)
           .fontWeight(FontWeight.Bold)
           .fontColor(Theme.textPrimary(Theme.isDark()))
           .layoutWeight(1)
@@ -158,9 +312,9 @@ export struct HomePage {
                           Image($r('app.media.ic_music_note_24'))
                             .width(40)
                             .height(40)
-                            .fillColor(Theme.primary(Theme.isDark()))
+                            .fillColor(this.accentPrimary(Theme.isDark()))
                             .margin({ left: 46, right: 46, top: 46, bottom: 46 })
-                            .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+                            .backgroundColor(this.accentSurfaceVariant(Theme.isDark()))
                             .borderRadius(16)
                         }
                       }
@@ -206,9 +360,9 @@ export struct HomePage {
                           Image($r('app.media.ic_music_note_24'))
                             .width(22)
                             .height(22)
-                            .fillColor(Theme.primary(Theme.isDark()))
+                            .fillColor(this.accentPrimary(Theme.isDark()))
                             .margin({ left: 12, right: 12, top: 12, bottom: 12 })
-                            .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+                            .backgroundColor(this.accentSurfaceVariant(Theme.isDark()))
                             .borderRadius(8)
                         }
                       }
@@ -245,6 +399,7 @@ export struct HomePage {
 
             if (this.neteaseRecommend.length > 0) {
               SectionHeader({ title: '每日推荐', icon: '★' })
+              this.recommendHero(this.neteaseRecommend[0])
               if (this.wideGrid()) {
                 // md 每行 4 张、lg 每行 6 张（span 2 配 8/12 列）。列数断点与
                 // GridRow 默认的 320/600/840vp 同源，所以侧边导航栏出现的那一刻
@@ -253,7 +408,7 @@ export struct HomePage {
                   columns: { xs: 4, sm: 4, md: 8, lg: 12 },
                   gutter: { x: 12, y: 14 }
                 }) {
-                  ForEach(this.neteaseRecommend, (item: NeteasePlaylistSummary) => {
+                  ForEach(this.neteaseRecommend.slice(1), (item: NeteasePlaylistSummary) => {
                     GridCol({ span: 2 }) {
                       PlaylistCard({
                         name: item.name,
@@ -269,7 +424,7 @@ export struct HomePage {
               } else {
                 Scroll() {
                   Row({ space: 12 }) {
-                    ForEach(this.neteaseRecommend, (item: NeteasePlaylistSummary) => {
+                    ForEach(this.neteaseRecommend.slice(1), (item: NeteasePlaylistSummary) => {
                       Column({ space: 6 }) {
                         if (item.coverUrl.length > 0) {
                           Image(item.coverUrl)
@@ -282,9 +437,9 @@ export struct HomePage {
                           Image($r('app.media.ic_music_note_24'))
                             .width(40)
                             .height(40)
-                            .fillColor(Theme.primary(Theme.isDark()))
+                            .fillColor(this.accentPrimary(Theme.isDark()))
                             .margin({ left: 46, right: 46, top: 46, bottom: 46 })
-                            .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+                            .backgroundColor(this.accentSurfaceVariant(Theme.isDark()))
                             .borderRadius(16)
                         }
                         Text(item.name)
@@ -344,7 +499,7 @@ export struct HomePage {
           }
         }
         .width('100%')
-        .padding({ left: 14, right: 14, bottom: 24 })
+        .padding({ left: 14, right: 14, bottom: 24 + FLOAT_TAB_CLEARANCE })
       }
       .layoutWeight(1)
       .scrollBar(BarState.Off)
@@ -353,6 +508,6 @@ export struct HomePage {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor(Theme.background(Theme.isDark()))
+    .backgroundColor(this.schemeBg(Theme.isDark()))
   }
 }

@@ -1,27 +1,36 @@
 /**
- * Platform glue for cover-seed extraction: downloads the cover, decodes a
- * tiny downsampled RGBA bitmap, and hands it to the pure Palette. Mirrors
- * CoverArtColorCache.preload/getOrLoad (96px decode size, Coil replaced by
- * @ohos http + @ohos image) and adds a generation token so a slow extraction
- * finishing after a track switch never publishes a stale seed for the new
- * song (the PlayerManager publishes songs synchronously, extraction is not).
+ * Platform glue for cover color extraction: downloads the cover, decodes a
+ * tiny downsampled RGBA bitmap, extracts colors with the official
+ * effectKit ColorPicker (fallback: the hand-rolled Palette when effectKit
+ * throws), derives the full AccentScheme, and publishes it to AppStorage
+ * ('player.coverScheme') alongside the legacy seed ('player.coverSeedHex').
+ *
+ * Mirrors CoverArtColorCache.preload/getOrLoad (96px decode size) and keeps a
+ * generation token so a slow extraction finishing after a track switch never
+ * publishes a stale scheme for the new song (PlayerManager publishes songs
+ * synchronously, extraction is not).
  */
 import { http } from '@kit.NetworkKit';
 import { image } from '@kit.ImageKit';
+import { effectKit } from '@kit.ArkGraphics2D';
 import { Logger } from '../../app/Logger';
 import { Palette } from './Palette';
 import { CoverColorCacheCore } from './CoverColorCacheCore';
+import { AccentScheme, CoverCandidate } from './AccentScheme';
 
 // Android decodes at sizePx=96; that already is the low-end downsample
 // strategy (9216 pixels), so no extra device-tier branching is needed.
 const DECODE_SIZE = 96;
 const MAX_COVER_BYTES = 8 * 1024 * 1024;
+// Scheme memo: republish synchronously when a known cover re-plays.
+const SCHEME_MEMO_CAPACITY = 16;
 
 export class CoverArtColorCache {
   private static readonly core: CoverColorCacheCore = new CoverColorCacheCore(
     (coverUrl: string): Promise<string | null> => CoverArtColorCache.loadCoverSeed(coverUrl)
   );
   private static generation: number = 0;
+  private static readonly schemeMemo: Map<string, AccentScheme> = new Map<string, AccentScheme>();
 
   static peek(coverUrl: string): string | null | undefined {
     return CoverArtColorCache.core.peek(coverUrl);
@@ -43,6 +52,12 @@ export class CoverArtColorCache {
         return;
       }
       AppStorage.setOrCreate('player.coverSeedHex', hex ?? '');
+      // Republish the memoized scheme synchronously so replaying a known
+      // cover re-tints the UI on the first frame.
+      const memo = CoverArtColorCache.schemeMemo.get(coverUrl.trim());
+      if (memo !== undefined) {
+        CoverArtColorCache.publishScheme(memo, generation);
+      }
     };
     if (coverUrl.trim().length === 0) {
       publish(null);
@@ -56,6 +71,26 @@ export class CoverArtColorCache {
       return;
     }
     CoverArtColorCache.getOrLoad(coverUrl).then(publish).catch(() => publish(null));
+  }
+
+  private static publishScheme(scheme: AccentScheme, generation: number): void {
+    if (generation !== CoverArtColorCache.generation) {
+      return;
+    }
+    AppStorage.setOrCreate('player.coverScheme', scheme);
+  }
+
+  private static stashScheme(coverUrl: string, scheme: AccentScheme): void {
+    const key = coverUrl.trim();
+    CoverArtColorCache.schemeMemo.delete(key);
+    CoverArtColorCache.schemeMemo.set(key, scheme);
+    while (CoverArtColorCache.schemeMemo.size > SCHEME_MEMO_CAPACITY) {
+      const oldest = CoverArtColorCache.schemeMemo.keys().next();
+      if (oldest.done) {
+        break;
+      }
+      CoverArtColorCache.schemeMemo.delete(oldest.value);
+    }
   }
 
   private static async loadCoverSeed(coverUrl: string): Promise<string | null> {
@@ -92,7 +127,12 @@ export class CoverArtColorCache {
       for (let row = 0; row < pixelInfo.size.height; row++) {
         pixels.set(bytes.subarray(row * stride, row * stride + rowBytes), row * rowBytes);
       }
-      return Palette.extractSeedHex(pixels, pixelInfo.size.width, pixelInfo.size.height);
+      const seed = Palette.extractSeedHex(pixels, pixelInfo.size.width, pixelInfo.size.height);
+      const scheme = await CoverArtColorCache.extractScheme(pixelMap, seed);
+      if (scheme !== null) {
+        CoverArtColorCache.stashScheme(coverUrl, scheme);
+      }
+      return seed;
     } catch (error) {
       const e = error as Error;
       Logger.warn(`cover seed extract failed: ${e.message}`);
@@ -105,6 +145,51 @@ export class CoverArtColorCache {
         source.release().catch(() => {});
       }
     }
+  }
+
+  /**
+   * Official extraction path: effectKit ColorPicker top colors + most-saturated
+   * color → AccentScheme. Falls back to the Palette seed when effectKit is
+   * unavailable on the device.
+   */
+  private static async extractScheme(pixelMap: image.PixelMap, paletteSeed: string | null): Promise<AccentScheme | null> {
+    const candidates: CoverCandidate[] = [];
+    try {
+      const picker: effectKit.ColorPicker = await effectKit.createColorPicker(pixelMap);
+      const largest = picker.getLargestProportionColor();
+      if (largest !== null && largest.alpha > 0) {
+        candidates.push({ hex: CoverArtColorCache.colorToHex(largest), proportion: 0.5 });
+      }
+      const tops = picker.getTopProportionColors(6);
+      if (tops !== null) {
+        const usable = tops.filter((c: effectKit.Color | null): boolean => c !== null && c!.alpha > 0);
+        for (const color of usable) {
+          candidates.push({ hex: CoverArtColorCache.colorToHex(color!), proportion: 0.4 / Math.max(1, usable.length) });
+        }
+      }
+      const saturated = picker.getHighestSaturationColor();
+      if (saturated !== null && saturated.alpha > 0) {
+        candidates.push({ hex: CoverArtColorCache.colorToHex(saturated), proportion: 0.1 });
+      }
+    } catch (error) {
+      Logger.warn(`effectKit color pick failed, falling back to Palette: ${(error as Error).message}`);
+    }
+    if (candidates.length === 0 && paletteSeed !== null) {
+      candidates.push({ hex: paletteSeed, proportion: 1.0 });
+    }
+    if (candidates.length === 0) {
+      return null;
+    }
+    return AccentScheme.from(candidates);
+  }
+
+  private static colorToHex(color: effectKit.Color): string {
+    const to2 = (v: number): string => {
+      const clamped = Math.max(0, Math.min(255, Math.round(v)));
+      const text = clamped.toString(16).toUpperCase();
+      return text.length < 2 ? `0${text}` : text;
+    };
+    return `#${to2(color.red)}${to2(color.green)}${to2(color.blue)}`;
   }
 
   private static async download(coverUrl: string): Promise<ArrayBuffer | null> {

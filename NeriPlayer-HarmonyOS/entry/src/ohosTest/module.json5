@@ -21,7 +21,10 @@
         "label": "$string:TestAbility_label",
         "exported": true,
         "startWindowIcon": "$media:icon",
-        "startWindowBackground": "$color:start_window_background"
+        "startWindowBackground": "$color:start_window_background",
+        "backgroundModes": [
+          "audioPlayback"
+        ]
       }
     ]
   }

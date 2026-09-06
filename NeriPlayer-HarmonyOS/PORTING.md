@@ -28,18 +28,18 @@
 | 迷你播放器 | 播放中显示当前歌曲 + 进度条 + 来源角标，点击进入 NowPlaying 页 |
 | 崩溃安全模式 | 标记后重启进入 SafeMode（代码路径，未实测崩溃注入） |
 
-## 当前状态（2026-08-19 复核）
+## 当前状态（2026-08-31 复核）
 
 2026-08-13 在本机 6.1.1 Release 工具链完成可重复验证：`ohpm install --all`、`hvigorw clean`、Debug `assembleHap` 构建成功（存在 6 条"Function may throw exceptions"非阻塞警告，分布在 `LibraryPage.ets`、`PlaylistDetailPage.ets`、`DebugPage.ets`）；ArkTS 单元测试 3/3 通过（`entry/src/test/`，LRC 解析/翻译合并/时间格式化）；调试签名、模拟器安装、冷启动与设置页 smoke test 通过。完整记录见 `../docs/hm.md` §7.4。
 
-该验证只覆盖构建、启动、安全区和设置页入口，不代表下述能力已完成。2026-08-19 又完成同步核心的本地验证：WebDAV PROPFIND/GET/PUT 与 ETag/Last-Modified/SHA-256 回退、SyncCoordinator 三路合并与冲突重试、真实仓库快照接线、apply journal 和设置页同步报告；本地单测 378/378、`entry@default`/`entry@ohosTest` 构建成功、CodeLinter 0 error。真实 PAT/WebDAV 写入和双设备冲突仍未验证。当前待办（代码中均有 porting seam 标注，不得在文档中标为已完成）：
+该验证只覆盖构建、启动、安全区和设置页入口，不代表下述能力已完成。2026-08-19 又完成同步核心的本地验证：WebDAV PROPFIND/GET/PUT 与 ETag/Last-Modified/SHA-256 回退、SyncCoordinator 三路合并与冲突重试、真实仓库快照接线、apply journal 和设置页同步报告；本地单测 378/378、`entry@default`/`entry@ohosTest` 构建成功、CodeLinter 0 error。真实 PAT/WebDAV 写入和双设备冲突仍未验证。当前待办（2026-08-31 复核更新；代码中均有 porting seam 标注，不得在文档中标为已完成）：
 
 1. **weapi 风控**：`weapi/cloudsearch/get/web` 在本模拟器网络环境返回 `{"code":50000005}`（无浏览器指纹/IP 风控），目前靠旧版接口回退可用；后续可补 eapi 路径或二维码登录后携带 `MUSIC_U` 重试。
-2. **YouTube 取流**：仍缺 signature/n 参数、PoToken 与 EJS 引擎，仅搜索可用（`YouTubeMusicApi.ets` 取流当前直接抛错）。
-3. **下载管线**：`DownloadsPage` 与任务目录已完成，需移植 Range 断点续传 + 实际文件落盘。
-4. **同步验收**：核心传输、合并和本地接线已完成；真实 PAT/WebDAV 写路径、省流格式写出及双设备冲突验收待完成。
-5. **一起听 / USB 独占 / 悬浮歌词**：待移植（USB 需 NAPI C++）。
-6. **动态取色与高级模糊**：设置页已有入口，引擎待实现。
+2. **YouTube 取流**：搜索与匿名 IOS 直连取流已落地（M6.1/M6.2，`network/ytm/*`）；设备实测匿名直链仅整轨前约一分钟可播、生产播放链路未接环回桥（M6.5），完整取流仍需 PoToken/JS 运行时（M6.3 未开始）。
+3. **下载管线**：已于 2026-08-16 全链落地并模拟器实测（DIRECT Range/If-Range 续传、HLS checkpoint、原子提交、启动恢复、离线短路）；断网暂停/杀进程恢复的设备端自动化与元数据 tag 写入（现为 sidecar 编目）待补。
+4. **同步验收**：核心传输、合并和本地接线已完成；双设备冲突验收已于 2026-08-22 经本地自建 WebDAV 服务器通过（M5.6），真实云 PAT/WebDAV 写路径与省流格式写出（现降级 JSON）待复核。
+5. **一起听 / USB 独占 / 悬浮歌词**：一起听核心链路已于 2026-08-22 双端设备闭环（M7.5，房间设置开关等增强项未做）；USB 独占经 M9.1 spike 定案**不移植**（ArkTS 单 JS 线程守不住等时节拍、SDK 无公开 USB DDK，见 `../docs/USB_M91_SPIKE.md`）；悬浮歌词已按 D4 降级落地（应用内悬浮条 + AVSession 正规歌词字段，系统级桌面歌词渲染层待真机，M10.2）。
+6. **动态取色与高级模糊**：已于 2026-08-23 落地（M8.1 封面 Palette 取色 + Theme 覆盖层；M8.4 背景模糊/玻璃子集，AGSL 区域掩码玻璃无平台对应、按 D 级降级，记录见 `../docs/FEATURE_MATRIX.md`）。
 
 ## 目录结构
 
@@ -95,19 +95,19 @@ $env:DEVECO_STUDIO_HOME = 'D:\HarmonyOS\Tools\devecostudio-windows-26.0.0.621\De
 | 设置 | DataStore/SharedPreferences | `data/SettingsRepository.ets`（preferences + AppStorage） | ✅ 实测持久化 |
 | 播放历史/统计 | `PlayHistoryRepository` 等 | `data/HistoryRepository.ets` / `PlaybackStatsRepository.ets` | ✅ |
 | 继续收听 | `PlaylistUsageRepository` | `data/UsageRepository.ets` | ✅ |
-| 下载任务目录 | `DownloadTaskStore` | `data/DownloadsRepository.ets` + `model/DownloadTask.ets` | ✅ 目录/UI，传输管线待移植 |
+| 下载任务目录 | `DownloadTaskStore` | `data/DownloadsRepository.ets` + `model/DownloadTask.ets` | ✅ 目录/UI；传输管线已落地（2026-08-16 全链实测） |
 | 搜索历史 | 探索页历史 | `data/SearchHistoryRepository.ets` | ✅ |
 | 歌单/收藏 | `LocalPlaylistRepository` | `data/LocalPlaylistRepository.ets` | ✅ |
 | 网络 | OkHttpClient | `network/HttpClient.ets`（@ohos.net.http + Cookie 罐） | ✅ |
 | 网易云 | weapi 搜索/取流/歌词/歌单 | `network/NeteaseApi.ets` + `NeteaseCrypto.ets` | ✅ 搜索/歌词实测；weapi 有风控回退 |
-| Bilibili | 搜索 + DASH 取流 | `network/BiliApi.ets` | ⏳ 待实测 |
-| YouTube Music | innertube 搜索 | `network/YouTubeMusicApi.ets` | ⏳ 搜索待实测，取流待移植 |
+| Bilibili | 搜索 + DASH 取流 | `network/BiliApi.ets`（含 `BiliWbi.ets` WBI 签名、音轨选择） | ✅ QR 登录/收藏夹/真网搜索取流实测（2026-08-18/19） |
+| YouTube Music | innertube 搜索 + IOS 直连取流 | `network/YouTubeMusicApi.ets`、`network/ytm/*` | ⏳ 搜索/取流已落地（M6.1/M6.5），播放受上游约一分钟封顶，完整取流待 M6.3 |
 | 歌词 | LRCLIB + 网易云 + LRC 解析 | `network/LyricApi.ets` + `lyrics/LrcParser.ets` | ✅ 实测 |
 | 本地媒体 | `LocalAudioImportManager` | `data/LocalMediaScanner.ets` | ⏳ 待真机验证 |
-| 主题 | Material3 色板（浅/深色） | `view/Theme.ets` | ✅ 浅/深色；动态取色待移植 |
-| 下载 | `GlobalDownloadManager` | `view/pages/DownloadsPage.ets` + `DownloadsRepository` | ✅ UI/目录；传输管线待移植 |
-| 同步 | GitHub/WebDAV 三路合并 | `sync/`、`SettingsDetailPage.ets` | ✅ 核心；真实凭据/双设备验收待完成 |
-| 一起听/USB/悬浮歌词 | — | 设置页占位 | ⏳ 待移植 |
+| 主题 | Material3 色板（浅/深色） | `view/Theme.ets` + `view/theme/` | ✅ 浅/深色 + 封面动态取色（M8.1，2026-08-23 设备实证） |
+| 下载 | `GlobalDownloadManager` | `view/pages/DownloadsPage.ets` + `download/` 引擎 | ✅ UI/目录/传输管线全链实测（2026-08-16） |
+| 同步 | GitHub/WebDAV 三路合并 | `sync/`、`SettingsDetailPage.ets` | ✅ 核心 + 双设备本地服务器验收（M5.6）；真实云凭据待复核 |
+| 一起听/USB/悬浮歌词 | — | `listentogether/`、`view/components/FloatingLyricBar.ets` 等 | 一起听核心闭环（M7.5）；USB 定案不移植（M9.1）；悬浮歌词 D4 降级落地（M8.6） |
 
 ### UI 页面映射（Android → HarmonyOS）
 
@@ -138,6 +138,8 @@ $env:DEVECO_STUDIO_HOME = 'D:\HarmonyOS\Tools\devecostudio-windows-26.0.0.621\De
 6. **本地播放 fd 生命周期**：AVPlayer 播放 `fd://` 期间保持 `fileIo` 句柄存活，切歌时再关闭旧句柄。
 
 ## 后续阶段清单 (Roadmap)
+
+> 2026-08-31 复核：第 2、3、4 项与第 6～9 项多数已落地或已有定案（第 5 项 USB 经 M9.1 spike 定案不移植），当前任务级状态以 `../docs/PORTING_EXECUTION_PLAN.md` 看板与 `../docs/FEATURE_MATRIX.md` 为准，下表保留为历史规划原文。
 
 1. YouTube 取流：移植 yt-dlp EJS 引擎或集成 JS 运行时（签名/n、PoToken、HLS 回退）。
 2. 下载管线：共享 HTTP 客户端上的分块 Range 续传、HLS 段索引、启动恢复、sidecar 元数据。

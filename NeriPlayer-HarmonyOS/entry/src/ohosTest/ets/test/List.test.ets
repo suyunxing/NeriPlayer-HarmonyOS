@@ -1,6 +1,7 @@
 import abilityTest from './Ability.test';
 import playbackStateRestoreTest from './PlaybackStateRestore.test';
 import playbackSmokeTest from './PlaybackSmoke.test';
+import backgroundTaskSmokeTest from './BackgroundTaskSmoke.test';
 import biliPlaybackSmokeTest from './BiliPlaybackSmoke.test';
 import ytmPlaybackSmokeTest from './YtmPlaybackSmoke.test';
 import schemaRecoveryTest from './SchemaRecovery.test';
@@ -20,6 +21,7 @@ export default function testsuite(): void {
   abilityTest();
   playbackStateRestoreTest();
   playbackSmokeTest();
+  backgroundTaskSmokeTest();
   biliPlaybackSmokeTest();
   ytmPlaybackSmokeTest();
   schemaRecoveryTest();

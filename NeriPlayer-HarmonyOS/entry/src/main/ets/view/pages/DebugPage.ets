@@ -16,6 +16,7 @@ import { formatRecordLine } from '../../app/diagnostics/DiagnosticsModels';
 import { Logger } from '../../app/Logger';
 import { Router } from '../Router';
 import { Theme } from '../Theme';
+import { HdsSpikePanel } from './HdsSpikePanel';
 
 @Component
 export struct DebugPage {
@@ -236,6 +237,9 @@ export struct DebugPage {
 
       Scroll() {
         Column({ space: 6 }) {
+          // S0 摸底（docs/HDS_IMMERSIVE_SPIKE.md）：UIDesignKit 编译与运行探针。
+          HdsSpikePanel()
+
           this.testButton('网易云 API 测试', () => this.testNetease())
           this.testButton('Bilibili API 测试', () => this.testBili())
           this.testButton('YouTube Music API 测试', () => this.testYoutube())
