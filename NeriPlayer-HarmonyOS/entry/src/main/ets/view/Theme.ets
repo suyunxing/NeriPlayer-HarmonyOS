@@ -1,18 +1,20 @@
 import { SettingsRepository } from '../data/SettingsRepository';
 import { GUIDELINE_BOTTOM_LIFT_VP } from '../util/Breakpoint';
 import { DynamicTheme, TonePalette } from './theme/DynamicTheme';
+import { AccentScheme, SchemeMode } from './theme/AccentScheme';
 
 /**
- * Material3-inspired palette for the HarmonyOS port. Since M8.1 the static
- * palette doubles as the fallback layer of dynamic color: when
- * np.dynamic_color is on and a cover seed has been published to AppStorage
- * ('player.coverSeedHex', written by CoverArtColorCache from the vibrant ->
- * muted -> dominant cover color), the seed-derived TonePalette overrides the
- * accent/surface slots below; everything else stays on the tuned defaults.
+ * Material3-inspired palette for the HarmonyOS port. Since S1 the palette is
+ * fully cover-driven: CoverArtColorCache extracts colors with the official
+ * effectKit ColorPicker, snaps the dominant to the standard swatch card
+ * (AccentScheme) and publishes the whole light/dark scheme to AppStorage
+ * ('player.coverScheme'). The static hexes below are only the fallback layer
+ * shown before the first cover scheme arrives (or when np.dynamic_color is
+ * off and no legacy seed exists).
  *
  * Note on reactivity: these static methods read AppStorage at call time, so
  * components repaint on their next rebuild — the components that must react
- * instantly to a seed change subscribe to 'player.coverSeedHex' themselves
+ * instantly to a scheme change subscribe to 'player.coverScheme' themselves
  * (NowPlayingPage backdrop, MiniPlayer, MainShell).
  */
 export class Theme {
@@ -29,6 +31,15 @@ export class Theme {
     }
     const systemDark = AppStorage.get<boolean>('systemDark');
     return systemDark === true;
+  }
+
+  /** Active cover scheme, or null before the first extraction / when off. */
+  static activeScheme(): AccentScheme | null {
+    if (!SettingsRepository.getBoolean(SettingsRepository.KEY_DYNAMIC_COLOR, true)) {
+      return null;
+    }
+    const scheme = AppStorage.get<AccentScheme>('player.coverScheme');
+    return scheme !== undefined && scheme !== null ? scheme : null;
   }
 
   /** Active cover seed ('#RRGGBB') or null when dynamic color is off/unseeded. */
@@ -55,7 +66,31 @@ export class Theme {
     return normalized !== null ? DynamicTheme.tonePalette(normalized, dark).primary : Theme.primary(dark);
   }
 
+  private static schemeMode(dark: boolean): SchemeMode | null {
+    const scheme = Theme.activeScheme();
+    return scheme !== null ? (dark ? scheme.dark : scheme.light) : null;
+  }
+
   private static palette(dark: boolean): TonePalette | null {
+    const mode = Theme.schemeMode(dark);
+    if (mode !== null) {
+      const key = `${mode.primary}_${mode.background}_${dark ? 'd' : 'l'}`;
+      if (Theme.cachedPaletteKey !== key || Theme.cachedPalette === null) {
+        Theme.cachedPalette = new TonePalette(
+          mode.primary,
+          mode.onPrimary,
+          mode.primaryContainer,
+          mode.secondary,
+          mode.tertiary,
+          mode.background,
+          mode.surface,
+          mode.surfaceVariant,
+          mode.surfaceHigh
+        );
+        Theme.cachedPaletteKey = key;
+      }
+      return Theme.cachedPalette;
+    }
     const seed = Theme.activeSeed();
     if (seed === null) {
       return null;
@@ -126,19 +161,35 @@ export class Theme {
   }
 
   static textPrimary(dark: boolean): string {
-    return dark ? '#ECECF0' : '#1B1B20';
+    const mode = Theme.schemeMode(dark);
+    return mode !== null ? mode.textPrimary : (dark ? '#ECECF0' : '#1B1B20');
   }
 
   static textSecondary(dark: boolean): string {
-    return dark ? '#A6A6B0' : '#66666F';
+    const mode = Theme.schemeMode(dark);
+    return mode !== null ? mode.textSecondary : (dark ? '#A6A6B0' : '#66666F');
   }
 
   static textDisabled(dark: boolean): string {
-    return dark ? '#6B6B74' : '#B0B0B8';
+    const mode = Theme.schemeMode(dark);
+    return mode !== null ? mode.textDisabled : (dark ? '#6B6B74' : '#B0B0B8');
   }
 
   static divider(dark: boolean): string {
-    return dark ? '#2C2C35' : '#E8E8ED';
+    const mode = Theme.schemeMode(dark);
+    return mode !== null ? mode.divider : (dark ? '#2C2C35' : '#E8E8ED');
+  }
+
+  /** Tag pill background (light tint of the accent hue). */
+  static tagBg(dark: boolean): string {
+    const mode = Theme.schemeMode(dark);
+    return mode !== null ? mode.tagBg : Theme.primaryContainer(dark);
+  }
+
+  /** Tag pill text color, contrast-checked against tagBg by the scheme. */
+  static tagText(dark: boolean): string {
+    const mode = Theme.schemeMode(dark);
+    return mode !== null ? mode.tagText : Theme.primary(dark);
   }
 
   static danger(dark: boolean): string {

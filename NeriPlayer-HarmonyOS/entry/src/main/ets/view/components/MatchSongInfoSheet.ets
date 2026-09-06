@@ -1,5 +1,7 @@
 import { MatchCandidate, MatchSource, SongMatchApi, matchSourceTag } from '../../network/SongMatchApi';
 import { SongItem } from '../../model/SongItem';
+import { stableKeyOf } from '../../model/SongIdentity';
+import { AutoSongMatcher } from '../../player/AutoSongMatcher';
 import { LocalPlaylistRepository } from '../../data/LocalPlaylistRepository';
 import { PlayerManager } from '../../player/PlayerManager';
 import { Theme } from '../Theme';
@@ -35,6 +37,9 @@ export struct MatchSongInfoSheet {
   }
 
   aboutToAppear(): void {
+    // The user took over matching for this song: the automatic matcher in
+    // AutoSongMatcher stands down for it for the rest of the session.
+    AutoSongMatcher.markManualQuery(this.song());
     this.keyword = this.song().displayName;
     if (this.keyword.length > 0) {
       void this.search();

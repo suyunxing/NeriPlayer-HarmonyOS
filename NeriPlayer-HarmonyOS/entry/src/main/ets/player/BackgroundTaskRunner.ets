@@ -9,25 +9,74 @@ import { Logger } from '../app/Logger';
  * The `backgroundModes: ["audioPlayback"]` declaration in module.json5 is
  * only the prerequisite: per the AVSession background guide the app must
  * also request the AUDIO_PLAYBACK continuous task while playing (otherwise
- * audio is muted/frozen once backgrounded), and cancel it on pause/stop.
- * Failures degrade to a log line and never block playback.
+ * the system kills the process a few minutes after backgrounding), and
+ * cancel it on pause/stop. Failures degrade to a log line and never block
+ * playback, but `running` is only latched on success so the next 'playing'
+ * transition retries instead of being short-circuited forever.
  */
 export class BackgroundTaskRunner {
   private static running = false;
   private static cachedAgent: WantAgent | null = null;
+  // start/stop arrive from AVPlayer state transitions that can overtake an
+  // in-flight request; serializing through one chain keeps a later stop from
+  // racing past an earlier start at the system service.
+  private static chain: Promise<void> = Promise.resolve();
+  private static listenersBound = false;
 
-  static async start(context: common.Context): Promise<void> {
+  /**
+   * Subscribes to the system-side cancel/suspend notifications. They are the
+   * only signal for "the task is gone although we never stopped it" (user
+   * dismissed the notification, load-audit reclaim, AVSession compliance
+   * suspend), so bind them once at player initialization for diagnostics.
+   */
+  static init(context: common.UIAbilityContext): void {
+    if (BackgroundTaskRunner.listenersBound) {
+      return;
+    }
+    BackgroundTaskRunner.listenersBound = true;
+    try {
+      backgroundTaskManager.on('continuousTaskCancel', (info: backgroundTaskManager.ContinuousTaskCancelInfo) => {
+        Logger.warn(`BackgroundTaskRunner: system canceled continuous task id=${info.id} reason=${info.reason}`);
+        BackgroundTaskRunner.running = false;
+      });
+      backgroundTaskManager.on('continuousTaskSuspend', (info: backgroundTaskManager.ContinuousTaskSuspendInfo) => {
+        Logger.warn(`BackgroundTaskRunner: continuous task id=${info.continuousTaskId} suspendState=${info.suspendState}` +
+          ` reason=${info.suspendReason}`);
+      });
+    } catch (error) {
+      const e = error as BusinessError;
+      Logger.warn(`BackgroundTaskRunner.init on() failed: code=${e.code} message=${e.message}`);
+    }
+  }
+
+  static start(context: common.UIAbilityContext): void {
+    BackgroundTaskRunner.chain = BackgroundTaskRunner.chain
+      .then(() => BackgroundTaskRunner.startLocked(context))
+      .catch(() => {
+        // startLocked already logs; swallow so the chain never rejects.
+      });
+  }
+
+  static stop(context: common.UIAbilityContext): void {
+    BackgroundTaskRunner.chain = BackgroundTaskRunner.chain
+      .then(() => BackgroundTaskRunner.stopLocked(context))
+      .catch(() => {
+        // stopLocked already logs; swallow so the chain never rejects.
+      });
+  }
+
+  private static async startLocked(context: common.UIAbilityContext): Promise<void> {
     if (BackgroundTaskRunner.running) {
       return;
     }
-    BackgroundTaskRunner.running = true;
     try {
-      const agent = await BackgroundTaskRunner.getAgent();
+      const agent = await BackgroundTaskRunner.getAgent(context);
       await backgroundTaskManager.startBackgroundRunning(
         context,
         backgroundTaskManager.BackgroundMode.AUDIO_PLAYBACK,
         agent
       );
+      BackgroundTaskRunner.running = true;
       Logger.info('BackgroundTaskRunner: AUDIO_PLAYBACK continuous task started');
     } catch (error) {
       const e = error as BusinessError;
@@ -35,7 +84,7 @@ export class BackgroundTaskRunner {
     }
   }
 
-  static async stop(context: common.Context): Promise<void> {
+  private static async stopLocked(context: common.UIAbilityContext): Promise<void> {
     if (!BackgroundTaskRunner.running) {
       return;
     }
@@ -49,18 +98,22 @@ export class BackgroundTaskRunner {
     }
   }
 
-  private static async getAgent(): Promise<WantAgent> {
+  private static async getAgent(context: common.UIAbilityContext): Promise<WantAgent> {
     if (BackgroundTaskRunner.cachedAgent !== null) {
       return BackgroundTaskRunner.cachedAgent;
     }
+    // bundleName/abilityName must come from the runtime context; a hardcoded
+    // bundle once drifted from AppScope/app.json5 and silently invalidated
+    // the continuous task (background playback was killed within minutes).
     const target: Want = {
-      bundleName: 'moe.ouom.neriplayer',
-      abilityName: 'EntryAbility'
+      bundleName: context.abilityInfo.bundleName,
+      abilityName: context.abilityInfo.name
     };
     const info: wantAgent.WantAgentInfo = {
       wants: [target],
       operationType: wantAgent.OperationType.START_ABILITY,
-      requestCode: 0
+      requestCode: 0,
+      actionFlags: [wantAgent.WantAgentFlags.UPDATE_PRESENT_FLAG]
     };
     const agent: WantAgent = await wantAgent.getWantAgent(info);
     BackgroundTaskRunner.cachedAgent = agent;

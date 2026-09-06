@@ -1,0 +1,138 @@
+[
+  {
+    "bounds": [
+      0,
+      0,
+      1320,
+      2856
+    ],
+    "children": [
+      {
+        "type": "Text",
+        "text": "安全模式",
+        "bounds": [
+          492,
+          731,
+          829,
+          829
+        ],
+        "children": []
+      },
+      {
+        "type": "Text",
+        "text": "上次启动出现异常，已进入安全模式。\n播放与本地功能保持可用，网络与扩展功能已禁用。",
+        "bounds": [
+          40,
+          885,
+          1280,
+          1107
+        ],
+        "children": []
+      },
+      {
+        "type": "Column",
+        "bounds": [
+          79,
+          1233,
+          1241,
+          1449
+        ],
+        "clickable": true,
+        "children": [
+          {
+            "type": "Text",
+            "text": "导出诊断报告",
+            "bounds": [
+              135,
+              1282,
+              451,
+              1344
+            ],
+            "children": []
+          },
+          {
+            "type": "Text",
+            "text": "崩溃/冻结记录 + 详情 + 最近日志，保存为文本文件",
+            "bounds": [
+              135,
+              1351,
+              1085,
+              1400
+            ],
+            "children": []
+          }
+        ]
+      },
+      {
+        "type": "Column",
+        "bounds": [
+          79,
+          1453,
+          1241,
+          1669
+        ],
+        "clickable": true,
+        "children": [
+          {
+            "type": "Text",
+            "text": "复制诊断摘要",
+            "bounds": [
+              135,
+              1502,
+              451,
+              1564
+            ],
+            "children": []
+          },
+          {
+            "type": "Text",
+            "text": "将最近故障记录摘要复制到剪贴板",
+            "bounds": [
+              135,
+              1571,
+              766,
+              1620
+            ],
+            "children": []
+          }
+        ]
+      },
+      {
+        "type": "Column",
+        "bounds": [
+          79,
+          1672,
+          1241,
+          1888
+        ],
+        "clickable": true,
+        "children": [
+          {
+            "type": "Text",
+            "text": "恢复正常模式",
+            "bounds": [
+              135,
+              1721,
+              451,
+              1783
+            ],
+            "children": []
+          },
+          {
+            "type": "Text",
+            "text": "清除崩溃标记并重启流程",
+            "bounds": [
+              135,
+              1790,
+              598,
+              1839
+            ],
+            "children": []
+          }
+        ]
+      }
+    ]
+  }
+]
+
+[33mNew version 1.3.0 available, run `devecocli update` to upgrade[39m

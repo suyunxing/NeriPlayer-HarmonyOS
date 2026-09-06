@@ -1,0 +1,499 @@
+[
+  {
+    "bounds": [
+      0,
+      0,
+      1320,
+      2856
+    ],
+    "children": [
+      {
+        "type": "Progress",
+        "text": "0.000000",
+        "bounds": [
+          0,
+          137,
+          1320,
+          143
+        ],
+        "children": []
+      },
+      {
+        "type": "Row",
+        "bounds": [
+          0,
+          143,
+          1320,
+          353
+        ],
+        "clickable": true,
+        "children": [
+          {
+            "type": "Text",
+            "text": "Take My Hand",
+            "bounds": [
+              238,
+              194,
+              559,
+              251
+            ],
+            "children": []
+          },
+          {
+            "type": "Text",
+            "text": "网易云",
+            "bounds": [
+              580,
+              201,
+              709,
+              244
+            ],
+            "children": []
+          },
+          {
+            "type": "Text",
+            "text": "DAISHI DANCE / Cécile Corbel",
+            "bounds": [
+              238,
+              258,
+              942,
+              303
+            ],
+            "children": []
+          },
+          {
+            "type": "Button",
+            "bounds": [
+              984,
+              178,
+              1124,
+              318
+            ],
+            "clickable": true,
+            "children": []
+          },
+          {
+            "type": "Button",
+            "bounds": [
+              1166,
+              185,
+              1292,
+              311
+            ],
+            "clickable": true,
+            "children": []
+          }
+        ]
+      },
+      {
+        "type": "Text",
+        "text": "NeriPlayer",
+        "bounds": [
+          56,
+          429,
+          1124,
+          544
+        ],
+        "children": []
+      },
+      {
+        "type": "Button",
+        "bounds": [
+          1124,
+          416,
+          1264,
+          556
+        ],
+        "clickable": true,
+        "children": []
+      },
+      {
+        "type": "Scroll",
+        "bounds": [
+          0,
+          584,
+          1320,
+          2450
+        ],
+        "scrollable": true,
+        "children": [
+          {
+            "type": "Text",
+            "text": "最近播放",
+            "bounds": [
+              147,
+              605,
+              399,
+              679
+            ],
+            "children": []
+          },
+          {
+            "type": "Row",
+            "bounds": [
+              63,
+              714,
+              1257,
+              931
+            ],
+            "clickable": true,
+            "children": [
+              {
+                "type": "Text",
+                "text": "Take My Hand",
+                "bounds": [
+                  294,
+                  766,
+                  615,
+                  823
+                ],
+                "children": []
+              },
+              {
+                "type": "Text",
+                "text": "DAISHI DANCE / Cécile Corbel",
+                "bounds": [
+                  294,
+                  830,
+                  867,
+                  879
+                ],
+                "children": []
+              },
+              {
+                "type": "Text",
+                "text": "›",
+                "bounds": [
+                  1208,
+                  786,
+                  1229,
+                  860
+                ],
+                "children": []
+              }
+            ]
+          },
+          {
+            "type": "Row",
+            "bounds": [
+              63,
+              938,
+              1257,
+              1155
+            ],
+            "clickable": true,
+            "children": [
+              {
+                "type": "Text",
+                "text": "Booty Music",
+                "bounds": [
+                  294,
+                  990,
+                  574,
+                  1047
+                ],
+                "children": []
+              },
+              {
+                "type": "Text",
+                "text": "Deep Side",
+                "bounds": [
+                  294,
+                  1054,
+                  490,
+                  1103
+                ],
+                "children": []
+              },
+              {
+                "type": "Text",
+                "text": "›",
+                "bounds": [
+                  1208,
+                  1010,
+                  1229,
+                  1084
+                ],
+                "children": []
+              }
+            ]
+          },
+          {
+            "type": "Row",
+            "bounds": [
+              63,
+              1162,
+              1257,
+              1379
+            ],
+            "clickable": true,
+            "children": [
+              {
+                "type": "Text",
+                "text": "Love Story",
+                "bounds": [
+                  294,
+                  1214,
+                  536,
+                  1271
+                ],
+                "children": []
+              },
+              {
+                "type": "Text",
+                "text": "Taylor Swift",
+                "bounds": [
+                  294,
+                  1278,
+                  517,
+                  1327
+                ],
+                "children": []
+              },
+              {
+                "type": "Text",
+                "text": "›",
+                "bounds": [
+                  1208,
+                  1234,
+                  1229,
+                  1308
+                ],
+                "children": []
+              }
+            ]
+          },
+          {
+            "type": "Row",
+            "bounds": [
+              63,
+              1386,
+              1257,
+              1603
+            ],
+            "clickable": true,
+            "children": [
+              {
+                "type": "Text",
+                "text": "【洛天依原创曲】《我·共鸣者》——“我永远期待 下一次共鸣”【成都路展2.0专辑·梦境少女】",
+                "bounds": [
+                  294,
+                  1438,
+                  1166,
+                  1495
+                ],
+                "children": []
+              },
+              {
+                "type": "Text",
+                "text": "丨闹闹丶丨",
+                "bounds": [
+                  294,
+                  1502,
+                  505,
+                  1551
+                ],
+                "children": []
+              },
+              {
+                "type": "Text",
+                "text": "›",
+                "bounds": [
+                  1208,
+                  1458,
+                  1229,
+                  1532
+                ],
+                "children": []
+              }
+            ]
+          },
+          {
+            "type": "Row",
+            "bounds": [
+              63,
+              1610,
+              1257,
+              1827
+            ],
+            "clickable": true,
+            "children": [
+              {
+                "type": "Text",
+                "text": "【洛天依】《被遗忘的故事》|“往事是水面上散去的字，她一唱，便重新凝固成诗”（ACE Cover）",
+                "bounds": [
+                  294,
+                  1662,
+                  1166,
+                  1719
+                ],
+                "children": []
+              },
+              {
+                "type": "Text",
+                "text": "KunKi114514",
+                "bounds": [
+                  294,
+                  1726,
+                  552,
+                  1775
+                ],
+                "children": []
+              },
+              {
+                "type": "Text",
+                "text": "›",
+                "bounds": [
+                  1208,
+                  1682,
+                  1229,
+                  1756
+                ],
+                "children": []
+              }
+            ]
+          },
+          {
+            "type": "Text",
+            "text": "我的歌单",
+            "bounds": [
+              147,
+              1862,
+              399,
+              1936
+            ],
+            "children": []
+          },
+          {
+            "type": "Grid",
+            "bounds": [
+              49,
+              1957,
+              1271,
+              2450
+            ],
+            "scrollable": true,
+            "children": [
+              {
+                "type": "Column",
+                "bounds": [
+                  56,
+                  1957,
+                  639,
+                  2450
+                ],
+                "clickable": true,
+                "children": []
+              },
+              {
+                "type": "Column",
+                "bounds": [
+                  681,
+                  1957,
+                  1264,
+                  2450
+                ],
+                "clickable": true,
+                "children": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Column",
+        "bounds": [
+          0,
+          2461,
+          330,
+          2657
+        ],
+        "clickable": true,
+        "children": [
+          {
+            "type": "Text",
+            "text": "首页",
+            "bounds": [
+              130,
+              2581,
+              201,
+              2622
+            ],
+            "children": []
+          }
+        ]
+      },
+      {
+        "type": "Column",
+        "bounds": [
+          330,
+          2461,
+          660,
+          2657
+        ],
+        "clickable": true,
+        "children": [
+          {
+            "type": "Text",
+            "text": "探索",
+            "bounds": [
+              460,
+              2581,
+              531,
+              2622
+            ],
+            "children": []
+          }
+        ]
+      },
+      {
+        "type": "Column",
+        "bounds": [
+          660,
+          2461,
+          990,
+          2657
+        ],
+        "clickable": true,
+        "children": [
+          {
+            "type": "Text",
+            "text": "资料库",
+            "bounds": [
+              772,
+              2581,
+              878,
+              2622
+            ],
+            "children": []
+          }
+        ]
+      },
+      {
+        "type": "Column",
+        "bounds": [
+          990,
+          2461,
+          1320,
+          2657
+        ],
+        "clickable": true,
+        "children": [
+          {
+            "type": "Text",
+            "text": "设置",
+            "bounds": [
+              1120,
+              2581,
+              1191,
+              2622
+            ],
+            "children": []
+          }
+        ]
+      }
+    ]
+  }
+]
+
+[33mNew version 1.3.0 available, run `devecocli update` to upgrade[39m
