@@ -71,6 +71,9 @@ import lyricScrollMathTest from './ets/test/LyricScrollMath.test';
 import shareLinksTest from './ets/test/ShareLinks.test';
 import albumSongsTest from './ets/test/AlbumSongs.test';
 import qqMusicLyricCodecTest from './ets/test/QQMusicLyricCodec.test';
+import songTitleExtractorTest from './ets/test/SongTitleExtractor.test';
+import songMatchScorerTest from './ets/test/SongMatchScorer.test';
+import autoMatchPolicyTest from './ets/test/AutoMatchPolicy.test';
 
 export default function testsuite(): void {
   lrcParserTest();
@@ -146,4 +149,7 @@ export default function testsuite(): void {
   shareLinksTest();
   albumSongsTest();
   qqMusicLyricCodecTest();
+  songTitleExtractorTest();
+  songMatchScorerTest();
+  autoMatchPolicyTest();
 }
