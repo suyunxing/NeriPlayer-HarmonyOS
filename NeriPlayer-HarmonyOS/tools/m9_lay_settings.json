@@ -1,0 +1,512 @@
+[
+  {
+    "bounds": [
+      0,
+      0,
+      1320,
+      2856
+    ],
+    "children": [
+      {
+        "type": "Progress",
+        "text": "0.000000",
+        "bounds": [
+          0,
+          137,
+          1320,
+          143
+        ],
+        "children": []
+      },
+      {
+        "type": "Row",
+        "bounds": [
+          0,
+          143,
+          1320,
+          353
+        ],
+        "clickable": true,
+        "children": [
+          {
+            "type": "Text",
+            "text": "Take My Hand",
+            "bounds": [
+              238,
+              194,
+              559,
+              251
+            ],
+            "children": []
+          },
+          {
+            "type": "Text",
+            "text": "网易云",
+            "bounds": [
+              580,
+              201,
+              709,
+              244
+            ],
+            "children": []
+          },
+          {
+            "type": "Text",
+            "text": "DAISHI DANCE / Cécile Corbel",
+            "bounds": [
+              238,
+              258,
+              942,
+              303
+            ],
+            "children": []
+          },
+          {
+            "type": "Button",
+            "bounds": [
+              984,
+              178,
+              1124,
+              318
+            ],
+            "clickable": true,
+            "children": []
+          },
+          {
+            "type": "Button",
+            "bounds": [
+              1166,
+              185,
+              1292,
+              311
+            ],
+            "clickable": true,
+            "children": []
+          }
+        ]
+      },
+      {
+        "type": "Scroll",
+        "bounds": [
+          0,
+          381,
+          1320,
+          2450
+        ],
+        "scrollable": true,
+        "children": [
+          {
+            "type": "Text",
+            "text": "设置",
+            "bounds": [
+              49,
+              423,
+              1271,
+              530
+            ],
+            "children": []
+          },
+          {
+            "type": "Text",
+            "text": "播放",
+            "bounds": [
+              60,
+              593,
+              1282,
+              646
+            ],
+            "children": []
+          },
+          {
+            "type": "Row",
+            "bounds": [
+              49,
+              660,
+              1271,
+              862
+            ],
+            "clickable": true,
+            "children": [
+              {
+                "type": "Text",
+                "text": "播放设置",
+                "bounds": [
+                  217,
+                  702,
+                  1103,
+                  764
+                ],
+                "children": []
+              },
+              {
+                "type": "Text",
+                "text": "速度、随机/循环、音质与断点恢复",
+                "bounds": [
+                  217,
+                  771,
+                  1103,
+                  820
+                ],
+                "children": []
+              }
+            ]
+          },
+          {
+            "type": "Row",
+            "bounds": [
+              49,
+              866,
+              1271,
+              1068
+            ],
+            "clickable": true,
+            "children": [
+              {
+                "type": "Text",
+                "text": "下载设置",
+                "bounds": [
+                  217,
+                  908,
+                  1103,
+                  970
+                ],
+                "children": []
+              },
+              {
+                "type": "Text",
+                "text": "并发数、下载目录与流量提醒",
+                "bounds": [
+                  217,
+                  977,
+                  1103,
+                  1026
+                ],
+                "children": []
+              }
+            ]
+          },
+          {
+            "type": "Row",
+            "bounds": [
+              49,
+              1071,
+              1271,
+              1273
+            ],
+            "clickable": true,
+            "children": [
+              {
+                "type": "Text",
+                "text": "歌词设置",
+                "bounds": [
+                  217,
+                  1113,
+                  1103,
+                  1175
+                ],
+                "children": []
+              },
+              {
+                "type": "Text",
+                "text": "字号、偏移、翻译与模糊效果",
+                "bounds": [
+                  217,
+                  1182,
+                  1103,
+                  1231
+                ],
+                "children": []
+              }
+            ]
+          },
+          {
+            "type": "Text",
+            "text": "外观",
+            "bounds": [
+              60,
+              1322,
+              1282,
+              1375
+            ],
+            "children": []
+          },
+          {
+            "type": "Row",
+            "bounds": [
+              49,
+              1389,
+              1271,
+              1591
+            ],
+            "clickable": true,
+            "children": [
+              {
+                "type": "Text",
+                "text": "深色模式",
+                "bounds": [
+                  217,
+                  1431,
+                  1103,
+                  1493
+                ],
+                "children": []
+              },
+              {
+                "type": "Text",
+                "text": "跟随系统",
+                "bounds": [
+                  217,
+                  1500,
+                  1103,
+                  1549
+                ],
+                "children": []
+              }
+            ]
+          },
+          {
+            "type": "Row",
+            "bounds": [
+              49,
+              1595,
+              1271,
+              1797
+            ],
+            "clickable": true,
+            "children": [
+              {
+                "type": "Text",
+                "text": "动态取色",
+                "bounds": [
+                  217,
+                  1637,
+                  1103,
+                  1699
+                ],
+                "children": []
+              },
+              {
+                "type": "Text",
+                "text": "已开启（跟随封面取色）",
+                "bounds": [
+                  217,
+                  1706,
+                  1103,
+                  1755
+                ],
+                "children": []
+              }
+            ]
+          },
+          {
+            "type": "Row",
+            "bounds": [
+              49,
+              1800,
+              1271,
+              2002
+            ],
+            "clickable": true,
+            "children": [
+              {
+                "type": "Text",
+                "text": "外观与动效",
+                "bounds": [
+                  217,
+                  1842,
+                  1103,
+                  1904
+                ],
+                "children": []
+              },
+              {
+                "type": "Text",
+                "text": "毛玻璃、过渡动画与桌面布局",
+                "bounds": [
+                  217,
+                  1911,
+                  1103,
+                  1960
+                ],
+                "children": []
+              }
+            ]
+          },
+          {
+            "type": "Text",
+            "text": "网络与存储",
+            "bounds": [
+              60,
+              2051,
+              1282,
+              2104
+            ],
+            "children": []
+          },
+          {
+            "type": "Row",
+            "bounds": [
+              49,
+              2118,
+              1271,
+              2320
+            ],
+            "clickable": true,
+            "children": [
+              {
+                "type": "Text",
+                "text": "流量与封面",
+                "bounds": [
+                  217,
+                  2160,
+                  1103,
+                  2222
+                ],
+                "children": []
+              },
+              {
+                "type": "Text",
+                "text": "省流量模式、封面加载策略",
+                "bounds": [
+                  217,
+                  2229,
+                  1103,
+                  2278
+                ],
+                "children": []
+              }
+            ]
+          },
+          {
+            "type": "Row",
+            "bounds": [
+              49,
+              2324,
+              1271,
+              2450
+            ],
+            "clickable": true,
+            "children": [
+              {
+                "type": "Text",
+                "text": "存储与缓存",
+                "bounds": [
+                  217,
+                  2366,
+                  1103,
+                  2428
+                ],
+                "children": []
+              },
+              {
+                "type": "Text",
+                "text": "缓存占用、清理与下载目录",
+                "bounds": [
+                  217,
+                  2435,
+                  1103,
+                  2450
+                ],
+                "children": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Column",
+        "bounds": [
+          0,
+          2461,
+          330,
+          2657
+        ],
+        "clickable": true,
+        "children": [
+          {
+            "type": "Text",
+            "text": "首页",
+            "bounds": [
+              130,
+              2581,
+              201,
+              2622
+            ],
+            "children": []
+          }
+        ]
+      },
+      {
+        "type": "Column",
+        "bounds": [
+          330,
+          2461,
+          660,
+          2657
+        ],
+        "clickable": true,
+        "children": [
+          {
+            "type": "Text",
+            "text": "探索",
+            "bounds": [
+              460,
+              2581,
+              531,
+              2622
+            ],
+            "children": []
+          }
+        ]
+      },
+      {
+        "type": "Column",
+        "bounds": [
+          660,
+          2461,
+          990,
+          2657
+        ],
+        "clickable": true,
+        "children": [
+          {
+            "type": "Text",
+            "text": "资料库",
+            "bounds": [
+              772,
+              2581,
+              878,
+              2622
+            ],
+            "children": []
+          }
+        ]
+      },
+      {
+        "type": "Column",
+        "bounds": [
+          990,
+          2461,
+          1320,
+          2657
+        ],
+        "clickable": true,
+        "children": [
+          {
+            "type": "Text",
+            "text": "设置",
+            "bounds": [
+              1120,
+              2581,
+              1191,
+              2622
+            ],
+            "children": []
+          }
+        ]
+      }
+    ]
+  }
+]
+
+[33mNew version 1.3.0 available, run `devecocli update` to upgrade[39m
