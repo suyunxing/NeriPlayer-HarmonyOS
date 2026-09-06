@@ -1,6 +1,5 @@
 // ReplaceSymbolEffect/EffectScope 是 symbolglyph.d.ts 的全局 ambient 类
 // （与 VisualEffect 同类），不从 kit 导入。
-import { curves } from '@kit.ArkUI';
 import { SongItem } from '../../model/SongItem';
 import { PlaybackStatus } from '../../player/PlaybackConstants';
 import { PlayerManager } from '../../player/PlayerManager';
@@ -255,13 +254,10 @@ export struct MiniPlayer {
       .height(this.compact ? 40 : 60)
       .padding({ left: this.compact ? 8 : 12, right: this.compact ? 4 : 8 })
       .onClick(() => {
-        // 一镜到底：push 放进 animateTo 闭包并关闭单次系统转场，
-        // geometryTransition('np.cover') 接管封面过渡（官方共享元素范式）。
-        this.getUIContext().animateTo(
-          { curve: curves.interpolatingSpring(0, 1, 328, 36) },
-          () => {
-            Router.push(Router.NOW_PLAYING);
-          });
+        // 一镜到底：push/pop 的动画上下文统一收在 Router（NOW_PLAYING 系统
+        // 转场为 NONE，animateTo + geometryTransition('np.cover') 接管封面过渡），
+        // 这里裸 push 即可，各入口的正反半程动画因此一致。
+        Router.push(Router.NOW_PLAYING);
       })
       .clickEffect({ level: ClickEffectLevel.LIGHT })
       .gesture(
