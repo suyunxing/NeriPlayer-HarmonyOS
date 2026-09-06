@@ -203,4 +203,42 @@ git status --short
 - 未执行的验证、原因和剩余风险。
 - 是否触及数据格式、权限、第三方接口、签名或设备相关行为。
 
-除非用户明确要求，不要自行提交、推送、创建 PR、修改版本号或生成发布产物。
+## Git 提交与推送（用户 2026-09-06 起的常设要求）
+
+**每个任务完成（功能、修复、文档、配置均算）后，必须提交并推送**，不允许攒批：
+
+```bash
+git add -A
+git commit -m "<类型>: <中文简述>"   # feat/fix/docs/refactor/chore/test
+git push
+```
+
+- 提交前必须通过对应验证（主线改动至少 `hvigorw assembleHap` 构建成功，见下文服务器环境）。
+- push 被拒时 `git pull --rebase` 后重推；禁止 `--force`。
+- 不要把多个不相关改动混进一个 commit。
+- 创建 PR、修改版本号、生成发布产物仍需用户明确要求。
+- `signing/`、`local.properties`、构建产物严禁入库（.gitignore 已排除）。
+
+## 服务器开发环境（Azure Linux，2026-09-06 起可用）
+
+服务器为 Ubuntu 24.04 + 中文 XFCE 桌面，经 Tailscale 内网 `100.73.184.27` RDP 访问，ZCode 已装在服务器上可直接开发本仓库。
+
+- 鸿蒙工具链：`/opt/command-line-tools`，版本 **26.0.0.821 正式版**（API 26 SDK、hvigor 6.26.4、ohpm 26.0.0.630、Node 18 自带）。**与 PC 上 26.0.0.621 Beta2 不同，.821 的 hvigor 可直接构建 6.1.1(24) 工程**（2026-09-06 服务器实测 BUILD SUCCESSFUL）。
+- `hvigorw`/`ohpm`/`hdc`/`codelinter` 已在 PATH；`HOS_SDK_HOME` 等环境变量见 `~/.bashrc`。
+- JDK 17（`java`）已装，用于 hap-sign-tool 签名。
+- 工程内 `local.properties` 已指向服务器 SDK：`sdk.dir=/opt/command-line-tools/sdk/default`（本机文件，不入库）。
+
+服务器上的构建与签名（在仓库根目录执行）：
+
+```bash
+cd NeriPlayer-HarmonyOS
+ohpm install --all
+hvigorw --no-daemon assembleHap --mode module -p module=entry@default -p product=default -p buildMode=debug
+# 或在仓库根目录一键构建+签名：
+./build-signed.sh
+```
+
+- 签名材料位于 `NeriPlayer-HarmonyOS/signing/`（AGC 官方调试证书：`harmonyos_debug.p12/.cer` + `NeriPlayerDebug.p7b`，绑定设备与 bundleName）。密钥口令在服务器 `~/harmony-projects/signing/keystore-password.txt`，严禁写入仓库。
+- `build-signed.sh`：构建 → hap-sign-tool 签名 → 复制产物到下载目录（Tailscale 内网 http://100.73.184.27:8000/NeriPlayer-signed.hap），PC 端 `hdc install -r` 安装。
+- 真机无线调试：手机与服务器均可访问时 `hdc tconn <手机IP>:<端口>`（跨网络时可在手机装 Tailscale 后用其 100.x 地址）。
+- 服务器磁盘约 8GB 可用，不要在服务器上解包无关大文件；`.appanalyzer` 等缓存已在 .gitignore 排除。
