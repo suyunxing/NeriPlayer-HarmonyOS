@@ -16,6 +16,7 @@ import { DownloadStorage } from '../download/DownloadStorage';
 import { HistoryRepository } from '../data/HistoryRepository';
 import { PlaybackStatsRepository } from '../data/PlaybackStatsRepository';
 import { PlaybackStateRepository } from '../data/PlaybackStateRepository';
+import { AppPreferences } from '../data/AppPreferences';
 import { PersistedPlaybackState } from '../model/PersistedPlaybackState';
 import { AVSessionManager, SessionControlListener } from './AVSessionManager';
 import { AutoSongMatcher, AutoMatchPlaybackEnv } from './AutoSongMatcher';
@@ -834,6 +835,26 @@ export class PlayerManager {
     PlayerManager.applyEffectiveSpeed();
   }
 
+  /**
+   * App-level soft volume (np.playback_volume, 0..1): persisted through the
+   * settings store and applied live when a player exists; every freshly
+   * prepared source re-applies it in loadSong. The system volume curve is
+   * untouched.
+   */
+  static setVolume(volume: number): void {
+    const clamped = Math.min(1, Math.max(0, volume));
+    SettingsRepository.setNumber(SettingsRepository.KEY_PLAYBACK_VOLUME, clamped);
+    const player = PlayerManager.player;
+    if (player !== null) {
+      try {
+        player.setVolume(clamped);
+      } catch (error) {
+        const e = error as Error;
+        Logger.warn(`PlayerManager.setVolume failed: ${e.message}`);
+      }
+    }
+  }
+
   // --------------------------------------------------------------------------
   // Sleep timer
   // --------------------------------------------------------------------------
@@ -916,6 +937,18 @@ export class PlayerManager {
       return;
     }
     PlayerManager.applyRestoredState(state);
+    // np.autoplay_on_launch: continue the restored session without waiting
+    // for the first play press. Read from the preferences store (not the
+    // reactive AppStorage mirror) — the settings merge may still be in
+    // flight while restore runs.
+    const autoplay = await AppPreferences.getBoolean(
+      SettingsRepository.KEY_AUTOPLAY_ON_LAUNCH, false);
+    if (autoplay) {
+      Logger.info('PlayerManager autoplay-on-launch armed, resuming restored session');
+      PlayerManager.play().catch((error: Error) => {
+        Logger.warn(`autoplay on launch failed: ${error.message}`);
+      });
+    }
   }
 
   static applyRestoredState(state: PersistedPlaybackState): void {
@@ -1037,9 +1070,21 @@ export class PlayerManager {
       if (generation !== PlayerManager.loadGeneration) {
         return;
       }
-      // Shared focus mode keeps a single focus owner inside this app; must be
-      // set between prepare and the first play of each source.
-      player.audioInterruptMode = audio.InterruptMode.SHARE_MODE;
+      // Focus mode follows np.mix_audio ("允许与其他应用同时播放"): SHARE keeps
+      // a single focus owner inside this app and lets cooperative pause hints
+      // from other apps be ignored (AudioInterruptPolicy); INDEPENDENT makes
+      // each stream request focus on its own. Must be set between prepare and
+      // the first play of each source.
+      player.audioInterruptMode = SettingsRepository.getBoolean(SettingsRepository.KEY_MIX_AUDIO, true)
+        ? audio.InterruptMode.SHARE_MODE
+        : audio.InterruptMode.INDEPENDENT_MODE;
+      // Re-apply the app-level soft volume to every freshly prepared source.
+      try {
+        player.setVolume(SettingsRepository.getNumber(SettingsRepository.KEY_PLAYBACK_VOLUME, 1.0));
+      } catch (error) {
+        const e = error as Error;
+        Logger.debug(`apply playback volume failed: ${e.message}`);
+      }
       // First correction point for the catalog-declared duration; playing and
       // timeUpdate reconcile later if the demuxer only reports the length then.
       PlayerManager.reconcileStreamDuration();
@@ -1479,7 +1524,8 @@ export class PlayerManager {
       event.hintType,
       event.forceType,
       wasPlaying,
-      PlayerManager.resumeOnFocusRegain
+      PlayerManager.resumeOnFocusRegain,
+      SettingsRepository.getBoolean(SettingsRepository.KEY_MIX_AUDIO, true)
     );
     PlayerManager.applyInterruptAction(action);
   }

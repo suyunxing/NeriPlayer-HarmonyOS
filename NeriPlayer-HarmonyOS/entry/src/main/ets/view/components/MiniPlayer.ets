@@ -35,6 +35,13 @@ export struct MiniPlayer {
   @StorageProp('player.coverSeedHex') @Watch('onCoverSeedChanged') coverSeedHex: string = '';
   @StorageProp('np.glass_effect') glassEffect: boolean = true;
   @State seedHex: string = '';
+  // 播放器设置（np.mini_next_button / np.mini_show_lyric / np.mini_expand_autoplay）。
+  @StorageProp('np.mini_next_button') miniNextButton: boolean = true;
+  @StorageProp('np.mini_show_lyric') miniShowLyric: boolean = true;
+  @StorageProp('np.mini_expand_autoplay') miniExpandAutoplay: boolean = false;
+  // 当前歌词行（PlayerManager 经 LyricLineTracker 发布，与悬浮歌词条同源）。
+  @StorageProp('player.currentLyricLine') @Watch('onLyricLineChanged') lyricLineFeed: string = '';
+  @State lyricLineText: string = '';
   // Horizontal swipe-to-skip (Android NeriMiniPlayer: 72vp raw threshold,
   // visual offset eased with exponential resistance peaking at 52vp).
   @State swipeOffset: number = 0;
@@ -59,6 +66,16 @@ export struct MiniPlayer {
 
   private onStatusChanged(): void {
     this.symbolTrigger += 1;
+  }
+
+  private onLyricLineChanged(): void {
+    this.lyricLineText = this.lyricLineFeed;
+  }
+
+  /** np.mini_show_lyric：有当前歌词行且正在播放时，副行换成歌词。 */
+  private showLyricLine(): boolean {
+    return this.miniShowLyric && this.lyricLineText.length > 0
+      && this.status === PlaybackStatus.PLAYING;
   }
 
   private playBackground(): string {
@@ -175,22 +192,32 @@ export struct MiniPlayer {
           .blendMode(BlendMode.SRC_OVER, BlendApplyType.OFFSCREEN)
 
           // 来源标识挂在作者行末尾（用户决策）：标题行只留标题，避免长标题顶按钮。
-          Row({ space: 6 }) {
-            Text(this.song().displayArtist)
+          // np.mini_show_lyric 开启且正在播放时，这一行优先显示当前歌词行。
+          if (this.showLyricLine()) {
+            Text(this.lyricLineText)
               .fontSize(11)
-              .fontColor(Theme.textSecondary(Theme.isDark()))
+              .fontColor(Theme.primary(Theme.isDark()))
               .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
-              .flexShrink(1)
-            Text(platformName(this.song().platform))
-              .fontSize(9)
-              .fontColor(Theme.primary(Theme.isDark()))
-              .padding({ left: 5, right: 5, top: 1, bottom: 1 })
-              .backgroundColor(Theme.primaryContainer(Theme.isDark()))
-              .borderRadius(5)
-              .flexShrink(0)
+              .width('100%')
+          } else {
+            Row({ space: 6 }) {
+              Text(this.song().displayArtist)
+                .fontSize(11)
+                .fontColor(Theme.textSecondary(Theme.isDark()))
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+                .flexShrink(1)
+              Text(platformName(this.song().platform))
+                .fontSize(9)
+                .fontColor(Theme.primary(Theme.isDark()))
+                .padding({ left: 5, right: 5, top: 1, bottom: 1 })
+                .backgroundColor(Theme.primaryContainer(Theme.isDark()))
+                .borderRadius(5)
+                .flexShrink(0)
+            }
+            .width('100%')
           }
-          .width('100%')
         }
         .layoutWeight(1)
         .alignItems(HorizontalAlign.Start)
@@ -234,21 +261,23 @@ export struct MiniPlayer {
           PlayerManager.togglePlayPause();
         })
 
-        Button() {
-          Image($r('app.media.round_skip_next_24'))
-            .width(this.compact ? 20 : 22)
-            .height(this.compact ? 20 : 22)
-            .fillColor(Theme.textPrimary(Theme.isDark()))
+        if (this.miniNextButton) {
+          Button() {
+            Image($r('app.media.round_skip_next_24'))
+              .width(this.compact ? 20 : 22)
+              .height(this.compact ? 20 : 22)
+              .fillColor(Theme.textPrimary(Theme.isDark()))
+          }
+          // 36vp measured on device; 40vp is the touch-target floor this port holds to.
+          .width(40)
+          .height(40)
+          .type(ButtonType.Circle)
+          .backgroundColor(Color.Transparent)
+          .accessibilityText('下一首')
+          .onClick(() => {
+            PlayerManager.next(false);
+          })
         }
-        // 36vp measured on device; 40vp is the touch-target floor this port holds to.
-        .width(40)
-        .height(40)
-        .type(ButtonType.Circle)
-        .backgroundColor(Color.Transparent)
-        .accessibilityText('下一首')
-        .onClick(() => {
-          PlayerManager.next(false);
-        })
       }
       .width('100%')
       .height(this.compact ? 40 : 60)
@@ -257,6 +286,11 @@ export struct MiniPlayer {
         // 一镜到底：push/pop 的动画上下文统一收在 Router（NOW_PLAYING 系统
         // 转场为 NONE，animateTo + geometryTransition('np.cover') 接管封面过渡），
         // 这里裸 push 即可，各入口的正反半程动画因此一致。
+        if (this.miniExpandAutoplay && this.status !== PlaybackStatus.PLAYING) {
+          // np.mini_expand_autoplay：从底部播放器展开到全屏播放页时自动续播。
+          PlayerManager.play().catch(() => {
+          });
+        }
         Router.push(Router.NOW_PLAYING);
       })
       .clickEffect({ level: ClickEffectLevel.LIGHT })

@@ -501,6 +501,168 @@ export struct OptionRow {
   }
 }
 
+/**
+ * Numeric setting row with a live slider (UX adaptation of the reference
+ * app's slider rows: 字号/字重/行距/音量/偏移). `format` renders the current
+ * value next to the title so the row stays readable while dragging. The
+ * switch stays off here — every change is committed through onPick.
+ */
+@Component
+export struct SliderRow {
+  @Prop title: string;
+  @Prop subtitle: string = '';
+  @Prop icon: string = '';
+  @Prop iconResource: Resource = $r('app.media.ic_info_24');
+  @Prop showIcon: boolean = false;
+  /** true 时底色透明（叠在 bindSheet 等材质背景上），默认不透明 surface。 */
+  @Prop transparentBg: boolean = false;
+  @Prop min: number = 0;
+  @Prop max: number = 1;
+  @Prop step: number = 0.1;
+  @Prop value: number = 0;
+  /** Live value label builder (e.g. `20` / `500` / `1.0x`). */
+  format: (value: number) => string = (value: number) => `${value}`;
+  onPick: (value: number) => void = () => {};
+  /** Value currently under the finger; -1 when not dragging. */
+  @State liveValue: number = -1;
+
+  build() {
+    Row({ space: 12 }) {
+      if (this.showIcon) {
+        Image(this.iconResource)
+          .width(20)
+          .height(20)
+          .fillColor(Theme.primary(Theme.isDark()))
+      } else if (this.icon.length > 0) {
+        Image(iconForLegacy(this.icon, this.iconResource))
+          .width(20)
+          .height(20)
+          .fillColor(Theme.primary(Theme.isDark()))
+      }
+      Column({ space: 4 }) {
+        Row({ space: 8 }) {
+          Text(this.title)
+            .fontSize(15)
+            .fontColor(Theme.textPrimary(Theme.isDark()))
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+          Text(this.format(this.liveValue >= 0 ? this.liveValue : this.value))
+            .fontSize(13)
+            .fontColor(Theme.primary(Theme.isDark()))
+        }
+        .width('100%')
+        .alignItems(VerticalAlign.Center)
+
+        Slider({
+          value: this.value,
+          min: this.min,
+          max: this.max,
+          step: this.step,
+          style: SliderStyle.OutSet
+        })
+          .selectedColor(Theme.primary(Theme.isDark()))
+          .blockColor(Theme.primary(Theme.isDark()))
+          .trackColor(Theme.surfaceVariant(Theme.isDark()))
+          .width('100%')
+          .height(36)
+          .onChange((value: number, eventMode: SliderChangeMode) => {
+            if (eventMode === SliderChangeMode.End || eventMode === SliderChangeMode.Click) {
+              this.liveValue = -1;
+              this.onPick(value);
+            } else {
+              this.liveValue = value;
+            }
+          })
+
+        if (this.subtitle.length > 0) {
+          Text(this.subtitle)
+            .fontSize(12)
+            .fontColor(Theme.textSecondary(Theme.isDark()))
+            .maxLines(2)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .width('100%')
+        }
+      }
+      .layoutWeight(1)
+      .alignItems(HorizontalAlign.Start)
+    }
+    .width('100%')
+    .padding({ left: 16, right: 16, top: 10, bottom: 8 })
+    .backgroundColor(this.transparentBg ? Color.Transparent : Theme.surface(Theme.isDark()))
+  }
+}
+
+/**
+ * Settings hub entry card (参考应用的设置总览卡片)：彩色圆底图标 + 双行文字 +
+ * 跳转箭头。tint 由调用方传入，圆底取 tint 低透明度、图标着色为 tint 本色。
+ */
+@Component
+export struct SettingHubRow {
+  @StorageProp('player.coverScheme') coverScheme: AccentScheme = AccentScheme.neutralFallback();
+  @Prop title: string;
+  @Prop subtitle: string = '';
+  @Prop icon: string = '';
+  @Prop iconResource: Resource = $r('app.media.ic_music_note_24');
+  @Prop showIcon: boolean = false;
+  @Prop tint: string = '#7C4DFF';
+  onTap: () => void = () => {};
+
+  build() {
+    Row({ space: 12 }) {
+      Stack() {
+        Column()
+          .width(38)
+          .height(38)
+          .borderRadius(19)
+          .backgroundColor(Theme.withAlpha(this.tint, 0x30))
+        if (this.showIcon) {
+          Image(this.iconResource)
+            .width(19)
+            .height(19)
+            .fillColor(this.tint)
+        } else {
+          Image(iconForLegacy(this.icon, this.iconResource))
+            .width(19)
+            .height(19)
+            .fillColor(this.tint)
+        }
+      }
+      .width(38)
+      .height(38)
+
+      Column({ space: 2 }) {
+        Text(this.title)
+          .fontSize(15)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(Theme.textPrimary(Theme.isDark()))
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .width('100%')
+        if (this.subtitle.length > 0) {
+          Text(this.subtitle)
+            .fontSize(12)
+            .fontColor(Theme.textSecondary(Theme.isDark()))
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .width('100%')
+        }
+      }
+      .layoutWeight(1)
+      .alignItems(HorizontalAlign.Start)
+
+      Image($r('app.media.ic_chevron_right_24'))
+        .width(20)
+        .height(20)
+        .fillColor(Theme.textDisabled(Theme.isDark()))
+    }
+    .width('100%')
+    .padding({ left: 14, right: 14, top: 12, bottom: 12 })
+    .backgroundColor(Theme.surface(Theme.isDark()))
+    .onClick(() => this.onTap())
+    .clickEffect({ level: ClickEffectLevel.LIGHT })
+  }
+}
+
 export function platformName(platform: MusicPlatform): string {
   if (platform === MusicPlatform.BILIBILI) {
     return 'Bilibili';
