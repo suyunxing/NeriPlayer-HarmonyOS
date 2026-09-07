@@ -28,6 +28,7 @@
 **/node_modules/
 **/oh_modules/
 **/build/
+**/.test/
 **/out/
 **/output/
 **/captures/
