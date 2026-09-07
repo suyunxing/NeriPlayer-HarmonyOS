@@ -77,6 +77,8 @@ import songMatchScorerTest from './ets/test/SongMatchScorer.test';
 import autoMatchPolicyTest from './ets/test/AutoMatchPolicy.test';
 import avPlaylistPolicyTest from './ets/test/AvPlaylistPolicy.test';
 import playbackCacheLedgerTest from './ets/test/PlaybackCacheLedger.test';
+import audioQualityPolicyTest from './ets/test/AudioQualityPolicy.test';
+import historyRepositoryTest from './ets/test/HistoryRepository.test';
 
 export default function testsuite(): void {
   lrcParserTest();
@@ -158,4 +160,6 @@ export default function testsuite(): void {
   autoMatchPolicyTest();
   avPlaylistPolicyTest();
   playbackCacheLedgerTest();
+  audioQualityPolicyTest();
+  historyRepositoryTest();
 }

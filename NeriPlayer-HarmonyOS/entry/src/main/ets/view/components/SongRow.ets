@@ -15,6 +15,8 @@ export struct SongRow {
   @Prop songJson: string;
   @Prop index: number = -1;
   @Prop showPlatform: boolean = false;
+  /** >= 0 时在行尾展示播放次数（播放历史页）。 */
+  @Prop playCount: number = -1;
   onPlay: () => void = () => {};
 
   @State menuOpen: boolean = false;
@@ -115,6 +117,19 @@ export struct SongRow {
         }
         .layoutWeight(1)
         .alignItems(HorizontalAlign.Start)
+
+        if (this.playCount >= 0) {
+          Row({ space: 2 }) {
+            Text(`${this.playCount}`)
+              .fontSize(12)
+              .fontColor(Theme.textSecondary(Theme.isDark()))
+            Image($r('app.media.round_play_arrow_24'))
+              .width(12)
+              .height(12)
+              .fillColor(Theme.textSecondary(Theme.isDark()))
+          }
+          .margin({ left: 4 })
+        }
 
         if (this.song().durationMs > 0) {
           Text(formatDuration(this.song().durationMs))
