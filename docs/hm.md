@@ -27,8 +27,8 @@ NeriPlayer 的主迁移路线是 HarmonyOS 普通应用：ArkTS + ArkUI + Stage 
 
 | 用途 | API/套件 | 状态 | 本项目策略 |
 | --- | --- | --- | --- |
-| 生产发布 | 6.1.1(24) + DevEco Studio 6.1.1 Release | Release | 默认基线 |
-| 兼容旧设备 | 6.0.x(20～23) | Release | 作为兼容测试目标，按实际设备分布选择 |
+| 生产发布 | 26.0.0(26) + command-line-tools 26.0.0.105 Release | Release | 默认基线（2026-09-07 迁移，见 §7.12） |
+| 兼容旧设备 | 6.0.x～6.1.1(20～24) | Release | 不再支持：compatibleSdkVersion 已随迁移抬到 26.0.0，26 以下设备无法安装本应用 |
 | 新能力预览 | 26.0.0 Beta2 + DevEco Studio 26.0.0 Beta2 | Beta | 独立适配分支或产品配置 |
 
 华为文档中的发布类型含义是：Release 为正式稳定版本，Beta 为公开但仍在稳定中的版本，Canary 为更早期体验版本。
@@ -48,8 +48,8 @@ NeriPlayer 的主迁移路线是 HarmonyOS 普通应用：ArkTS + ArkUI + Stage 
 compatibleSdkVersion ≤ targetSdkVersion ≤ compileSdkVersion
 ```
 
-当前工程根目录 `build-profile.json5` 已配置 `targetSdkVersion` 和 `compatibleSdkVersion` 为 `6.1.1(24)`，但未显式配置 `compileSdkVersion`。
-迁移前应在 DevEco Studio 中补齐并由 IDE 校验，不要依赖缓存或工具默认值。
+当前工程根目录 `build-profile.json5` 已配置 `targetSdkVersion` 和 `compatibleSdkVersion` 为 `26.0.0`（2026-09-07 迁移），未显式配置 `compileSdkVersion`（hvigor 使用工具链配套 SDK）。
+注意自 26.0.0 起版本号改用纯 SemVer 三段式，**不再写 `(26)` 括号后缀**：hvigor 6.26.4 对 `"26.0.0(26)"` 直接报 `api version parameter is illegal! Expected format: <major>[.<minor>][.<patch>]`（2026-09-07 实测）。
 
 生产配置示例：
 
@@ -653,6 +653,27 @@ $hdc = 'D:\HarmonyOS\Tools\command-line-tools\sdk\default\openharmony\toolchains
   - fs 对目录 URI 的操作边界：`openSync(uri + '/<name>', READ_WRITE|CREATE)`（官方 DOWNLOAD 示例即此写法，建议先 `new FileUri(...).path` 转换）与 `fs.stat(path)`（path 参数 API 22+ 支持 URI）有文档承诺；`renameSync`/`mkdirSync`/`accessSync`/`unlinkSync`/`listFileSync` 参数文档只写「应用沙箱路径」，对 URI 不可依赖——这是 commit 改 fd 对拷、init 跳过 ensureDir 的依据。
 - 验证（服务器，2026-09-07）：`hvigorw --no-daemon assembleHap` BUILD SUCCESSFUL；`hvigorw test` 编译级 0 error（执行阶段挂死为 §服务器已知限制，新用例已编入测试 abc，真实计数待 Windows 工作站）；codelinter 改动文件 **0 新增**（全仓现值 5 error + 23 warn + 3 suggestion，5 个 `await-thenable` error 均在 8 月存量文件——AmllLyricsResolver/AppPreferences/CoverColorCacheCore/YtmLoopbackStreamBridge，与 2026-08-24 基线「0 error」漂移，属基线漂移或 codelinter 版本变化，待单独复核，非本次引入）。
 - 未验证（设备侧全部）：API 24 真机/模拟器上 `canIUse(FolderSelection)` 实际值；FOLDER 选择器实际拉起与返回 uri 形态；persist/activate 真实生效；uri 下创建文件/中文文件名/播放（catalog 存 uri 后 `openSync(READ_ONLY)`）冷启动可读；`FILE_ACCESS_PERSIST` 在真机的授予行为（华为在线权限列表页 JS 渲染未能核对该权限级别）。恢复默认后旧目录授权保留策略（保播放）未在设备回归。
+
+### 7.12 2026-09-07 API 26 全量迁移记录（服务器 Linux CLT 26.0.0.105，无设备，分支 `feature/api26-migration`）
+
+工程从 6.1.1(24) 整体迁移到 26.0.0(26)。所有结论以本机 SDK `.d.ts`（`/opt/command-line-tools/sdk/default`，apiVersion 26，releaseType Release）与官方文档为依据，**无任何设备实证**。
+
+- 配置：根 `build-profile.json5` 的 `compatibleSdkVersion`/`targetSdkVersion` 均改为 `"26.0.0"`（纯 SemVer，带 `(26)` 后缀会被 hvigor 拒绝）。`module.json5`/`app.json5` 无需配套改动（minAPIVersion/targetAPIVersion 由打包工具自动注入）。
+- 弃用接口修复（编译器在新基线暴露，全部替换为官方 `@useinstead`）：
+  - `util.TextDecoder.decodeWithStream`（@deprecated since 12）→ `decodeToString`：`download/DownloadStorage.ets`、`ohosTest/ets/testrunner/OpenHarmonyTestRunner.ets`。
+  - 全局 `animateTo` → `UIContext.animateTo`：`view/pages/NowPlayingPage.ets:154`（封面 crossfade）。
+  - `AlertDialog.show`（@useinstead `UIContext#showAlertDialog`）→ `this.getUIContext().showAlertDialog`：`view/pages/SettingsDetailPage.ets` 6 处确认对话框。
+- 有意保留的弃用：`app/diagnostics/CrashEventWatcher.ets` 的 `FaultLogger.querySelfFaultLog` 拉取通道（faultLogger 模块 @deprecated since 18，官方指向 hiAppEvent，但新版 `@ohos.hiviewdfx.hiAppEvent` 仍**无历史故障查询接口**，addWatcher 只订阅不回放；`FaultLogExtensionAbility` 是需注册 ExtensionAbility 的延迟通知机制，架构改造代价大）。该组弃用告警为已知项。
+- 新特性接入（均为既有功能的 API 26 升级）：
+  - `player/AVSessionManager.ets`：`setMediaCenterControlType`（@since 26）向播控中心显式声明按钮集 `playNext/playPrevious/setSpeed/setLoopMode/toggleFavorite`（与 `on()` 注册命令一一对应；失败降级为系统默认布局，不阻塞会话）。
+  - `player/BackgroundTaskRunner.ets`：`continuousTaskCancel` 日志接入 `detailedReason`（@since 26，`ContinuousTaskDetailedCancelReason`，可区分用户划除通知(3)与播放合规审计(6)等精确触发；字段缺省时留空兼容）。
+- 评估后不接入（结论备查）：
+  - `window.setImageForRecent`（多任务卡片自定义封面，@since 20 在 26 权限列表中开放权限名）：需 `ohos.permission.MANAGE_RECENT_SNAPSHOT`（system_basic 级，三方应用不可申请），跳过。
+  - AVPlayer 原生播放列表（`addPlaybackMediaSource`/`playlistLoopMode`/`onPlaybackContentChanged`，@since 26）与 `createAVDownloaderManager` 流式下载（@since 26）：与既有 `QueueEngine` 状态机/自研下载引擎（Range+If-Range 指纹、HLS checkpoint）是整体替换关系而非增量升级，牵动播放恢复、一起听同步与 900+ 单测，本轮不做，留待独立专项。
+  - AVPlayer `seek` 在 26 仍为 `void`（无 Promise 重载），原样保留。
+- targetSdk 26 行为变更核对（逐项走查，均不受影响）：后台「真播放」审计收紧——本工程暂停即 `stopBackgroundRunning`，已合规；沙箱 stat/access 收紧——无硬编码沙箱路径；剪贴板读取需 PasteButton/权限——工程只写不读；Dialog/Toast 默认沉浸材质——工程弹窗均走系统默认样式，与 glass UI 方向一致，**视觉实际效果待设备复核**；`WindowProperties.type` 更名 `windowType`、avSession `playFromAssetId`（since 20 废弃）——工程均未使用。
+- 验证（服务器）：`hvigorw --no-daemon assembleHap` BUILD SUCCESSFUL 且无新增弃用告警；`hvigorw test` 编译级 0 error（执行阶段挂死为 Linux 已知限制，真实通过计数待 Windows 工作站）；codelinter 全仓 5 error + 23 warn + 3 suggestion，与迁移前 stash 基线**逐字节一致**（5 个 `await-thenable` error 为 CLT 26.0.0.105 codelinter 对 8 月存量文件的误报，见 §7.11），本次 8 个改动文件 0 error 0 warn。
+- 未验证（设备侧全部）：播控中心按钮实际渲染；`detailedReason` 实际取值分布；26 镜像上全功能回归（播放/下载/同步/一起听）；弹窗沉浸材质视觉。`compatibleSdkVersion` 抬至 26.0.0 后 26 以下设备无法安装，属预期取舍（用户要求全量迁移）。
 
 每次 SDK 或上游 Android 更新，都更新本文件的核验日期、版本矩阵、源码状态和测试结果。
 新增能力必须附官方页面 URL、适用 API、代码位置、验证设备、失败日志和降级方案。

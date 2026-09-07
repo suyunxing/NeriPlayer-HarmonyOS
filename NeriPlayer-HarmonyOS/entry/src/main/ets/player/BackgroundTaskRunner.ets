@@ -36,7 +36,13 @@ export class BackgroundTaskRunner {
     BackgroundTaskRunner.listenersBound = true;
     try {
       backgroundTaskManager.on('continuousTaskCancel', (info: backgroundTaskManager.ContinuousTaskCancelInfo) => {
-        Logger.warn(`BackgroundTaskRunner: system canceled continuous task id=${info.id} reason=${info.reason}`);
+        // detailedReason (@since 26) narrows the coarse reason into the exact
+        // trigger — user dismissing the notification vs. playback-compliance
+        // audit — and is absent on older runtimes.
+        const detail = info.detailedReason === undefined
+          ? ''
+          : ` detailedReason=${info.detailedReason}`;
+        Logger.warn(`BackgroundTaskRunner: system canceled continuous task id=${info.id} reason=${info.reason}${detail}`);
         BackgroundTaskRunner.running = false;
       });
       backgroundTaskManager.on('continuousTaskSuspend', (info: backgroundTaskManager.ContinuousTaskSuspendInfo) => {

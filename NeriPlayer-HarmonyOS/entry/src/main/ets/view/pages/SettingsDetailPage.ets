@@ -205,7 +205,7 @@ export struct SettingsDetailPage {
   }
 
   private confirmResetDownloadDirectory(): void {
-    AlertDialog.show({
+    this.getUIContext().showAlertDialog({
       title: '恢复默认目录',
       message: '之后的下载将保存到应用内部 Download/NeriPlayer 目录；已下载文件保留在原目录，仍可播放。',
       primaryButton: {
@@ -264,7 +264,7 @@ export struct SettingsDetailPage {
   }
 
   private confirmNeteaseLogout(): void {
-    AlertDialog.show({
+    this.getUIContext().showAlertDialog({
       title: '退出登录',
       message: '确定退出网易云音乐登录？',
       primaryButton: {
@@ -346,7 +346,7 @@ export struct SettingsDetailPage {
   }
 
   private confirmBiliLogout(): void {
-    AlertDialog.show({
+    this.getUIContext().showAlertDialog({
       title: '退出登录',
       message: '确定退出 Bilibili 登录？',
       primaryButton: {
@@ -524,7 +524,7 @@ export struct SettingsDetailPage {
   }
 
   private confirmGithubClear(): void {
-    AlertDialog.show({
+    this.getUIContext().showAlertDialog({
       title: '清除 GitHub 配置',
       message: '将移除令牌与仓库设置，不影响本地数据。确定继续？',
       primaryButton: {
@@ -697,7 +697,7 @@ export struct SettingsDetailPage {
     for (const conflict of report.conflicts) {
       message += `\n\n${conflict.description}（${conflict.resolution}）`;
     }
-    AlertDialog.show({
+    this.getUIContext().showAlertDialog({
       title: report.success ? title : `${title}失败`,
       message,
       confirm: {
@@ -709,7 +709,7 @@ export struct SettingsDetailPage {
   }
 
   private confirmWebDavClear(): void {
-    AlertDialog.show({
+    this.getUIContext().showAlertDialog({
       title: '清除 WebDAV 配置',
       message: '将移除服务器地址、用户名和密码，不影响本地或远端数据。确定继续？',
       primaryButton: {

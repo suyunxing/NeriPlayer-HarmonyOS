@@ -28,8 +28,9 @@ export class DownloadDirectoryPickResult {
 export class DownloadDirectoryManager {
   /**
    * Folder selection is gated by a system capability and only reaches Phone
-   * devices from 26.0.0 (official picker guide); this build targets
-   * 6.1.1(24), so the settings row must degrade gracefully on older devices.
+   * devices from 26.0.0 (official picker guide). Since this build targets
+   * 26.0.0 it should always be available; the probe is kept so the settings
+   * row still degrades gracefully on devices trimmed of the syscap.
    */
   static folderPickerSupported(): boolean {
     return canIUse('SystemCapability.FileManagement.UserFileService.FolderSelection');

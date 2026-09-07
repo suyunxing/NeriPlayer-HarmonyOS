@@ -87,6 +87,7 @@ export class AVSessionManager {
         AVSessionManager.controlListener?.onToggleFavorite(assetId);
       });
       await AVSessionManager.bindLaunchAbility(context, session);
+      await AVSessionManager.declareMediaCenterControls(session);
       Logger.info('AVSessionManager initialized');
     } catch (error) {
       const e = error as Error;
@@ -122,6 +123,25 @@ export class AVSessionManager {
       const e = error as Error;
       // Non-fatal: the session still works, the card just is not tappable.
       Logger.warn(`AVSessionManager.bindLaunchAbility failed: ${e.message}`);
+    }
+  }
+
+  /**
+   * Tells the media center which optional controls to prioritize (@since 26).
+   * Only types whose commands are also registered via on() may be declared —
+   * the list below mirrors the handlers wired in init().
+   */
+  private static async declareMediaCenterControls(session: avSession.AVSession): Promise<void> {
+    try {
+      const controls: Array<avSession.AVMediaCenterControlType> = [
+        'playNext', 'playPrevious', 'setSpeed', 'setLoopMode', 'toggleFavorite'
+      ];
+      await session.setMediaCenterControlType(controls);
+    } catch (error) {
+      const e = error as Error;
+      // Non-fatal: without the declaration the media center falls back to its
+      // default layout derived from the session type.
+      Logger.warn(`AVSessionManager.declareMediaCenterControls failed: ${e.message}`);
     }
   }
 
