@@ -1,7 +1,7 @@
 import { SettingsRepository } from '../../data/SettingsRepository';
-import { OptionEntry, OptionRow, SliderRow, ToggleRow } from './Ui';
+import { SliderRow, ToggleRow } from './Ui';
 import { Theme } from '../Theme';
-
+import { iconForLegacy } from '../../util/IconCatalog';
 /**
  * 歌词设置行组（设置页「歌词设置」分区与播放页歌词面板共用）。
  *
@@ -32,16 +32,6 @@ export struct LyricSettingsRows {
     return value > 0 ? `提前 ${value}` : `延后 ${-value}`;
   }
 
-  /** 多行歌词副行的当前档位（写回时同时维护 translation/phonetic 两个键）。 */
-  private secondaryLineOptions(): OptionEntry[] {
-    const options: OptionEntry[] = [
-      { value: 'translation', label: '中文翻译' },
-      { value: 'phonetic', label: '发音音译' },
-      { value: 'off', label: '不显示' }
-    ];
-    return options;
-  }
-
   private secondaryLineCurrent(): string {
     if (this.lyricPhonetic) {
       return 'phonetic';
@@ -54,8 +44,47 @@ export struct LyricSettingsRows {
     SettingsRepository.setBoolean(SettingsRepository.KEY_LYRIC_PHONETIC, value === 'phonetic');
   }
 
+  /** 参考截图的分段胶囊：选中项主色实底白字，再点一次取消（回到不显示）。 */
+  @Builder
+  secondaryLinePill(value: string, label: string) {
+    Text(label)
+      .fontSize(13)
+      .fontColor(this.secondaryLineCurrent() === value
+        ? Theme.onPrimary(Theme.isDark()) : Theme.textSecondary(Theme.isDark()))
+      .padding({ left: 16, right: 16, top: 7, bottom: 7 })
+      .backgroundColor(this.secondaryLineCurrent() === value
+        ? Theme.primary(Theme.isDark()) : Theme.surfaceVariant(Theme.isDark()))
+      .borderRadius(16)
+      .onClick(() => {
+        this.applySecondaryLine(this.secondaryLineCurrent() === value ? 'off' : value);
+      })
+  }
+
+  /** 「多行歌词」行：图标 + 标题 + 右侧「中文/发音」分段胶囊（参考图 3）。 */
+  @Builder
+  secondaryLineRow() {
+    Row({ space: 12 }) {
+      Image(iconForLegacy('🌐', $r('app.media.ic_info_24')))
+        .width(20)
+        .height(20)
+        .fillColor(Theme.primary(Theme.isDark()))
+      Text('多行歌词')
+        .fontSize(15)
+        .fontColor(Theme.textPrimary(Theme.isDark()))
+        .maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+        .layoutWeight(1)
+      this.secondaryLinePill('translation', '中文')
+      this.secondaryLinePill('phonetic', '发音')
+    }
+    .width('100%')
+    .padding({ left: 16, right: 16, top: 10, bottom: 10 })
+    .backgroundColor(this.transparentBg ? Color.Transparent : Theme.surface(Theme.isDark()))
+    .borderRadius(this.transparentBg ? 0 : Theme.cardRadius())
+  }
+
   build() {
-    Column({ space: 1 }) {
+    Column({ space: this.transparentBg ? 1 : 10 }) {
       ToggleRow({
         title: '歌词居中显示',
         subtitle: '关闭后歌词靠左对齐',
@@ -112,15 +141,7 @@ export struct LyricSettingsRows {
         onPick: (value: number) =>
           SettingsRepository.setNumber(SettingsRepository.KEY_LYRIC_OFFSET_MS, Math.round(value))
       })
-      OptionRow({
-        title: '多行歌词副行',
-        subtitle: '主歌词下方的第二行内容',
-        icon: '🌐',
-        transparentBg: this.transparentBg,
-        options: this.secondaryLineOptions(),
-        current: this.secondaryLineCurrent(),
-        onPick: (value: string) => this.applySecondaryLine(value)
-      })
+      this.secondaryLineRow()
       ToggleRow({
         title: 'AMLL 逐字歌词',
         subtitle: '优先逐字 TTML 词库',

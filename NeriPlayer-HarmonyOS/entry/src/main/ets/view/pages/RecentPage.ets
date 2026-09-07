@@ -7,7 +7,7 @@ import { PlaybackStatsRepository, StatsRoot } from '../../data/PlaybackStatsRepo
 import { PlayerManager } from '../../player/PlayerManager';
 import { Theme } from '../Theme';
 import { AccentScheme } from '../theme/AccentScheme';
-import { EmptyState } from '../components/Ui';
+import { EmptyState, menuRadius, menuDivider } from '../components/Ui';
 import { SongRow } from '../components/SongRow';
 import { Router } from '../Router';
 
@@ -211,6 +211,7 @@ export struct RecentPage {
 
   @Builder
   moreMenuBuilder() {
+    // 参考截图的溢出菜单：深色磨砂玻璃浮层 + 大圆角 + 细分隔线。
     Menu() {
       MenuItem({ content: '使用说明' })
         .onClick(() => this.showUsageNote())
@@ -225,6 +226,9 @@ export struct RecentPage {
       MenuItem({ content: '清除所有记录' })
         .onClick(() => this.confirmClearAll())
     }
+      .radius(menuRadius())
+      .backgroundColor(Theme.surfaceGlass(Theme.isDark()))
+      .menuItemDivider(menuDivider(Theme.isDark()))
   }
 
   /** build 里直读被跟踪成员注册依赖；颜色本身仍由 Theme 统一决策。 */
@@ -242,7 +246,7 @@ export struct RecentPage {
           // '‹' is punctuation to a screen reader; name the action.
           .accessibilityText('返回')
           .type(ButtonType.Circle)
-          .backgroundColor(Color.Transparent)
+          .backgroundColor(Theme.surface(Theme.isDark()))
           .fontColor(Theme.textPrimary(Theme.isDark()))
           .fontSize(20)
           .onClick(() => Router.pop())
@@ -251,14 +255,18 @@ export struct RecentPage {
           .fontWeight(FontWeight.Bold)
           .fontColor(Theme.textPrimary(Theme.isDark()))
           .layoutWeight(1)
-        Button(this.sortByCount ? '按次数' : '按时间')
-          .height(32)
-          .fontSize(12)
-          .padding({ left: 12, right: 12 })
-          .backgroundColor(Theme.surface(Theme.isDark()))
-          .fontColor(Theme.textPrimary(Theme.isDark()))
-          .accessibilityText(this.sortByCount ? '按播放次数排序，点击改为按时间' : '按时间排序，点击改为按播放次数')
-          .onClick(() => this.toggleSort())
+        // 参考截图：排序为圆形图标钮，点击弹出「按时间/按次数」气泡提示。
+        Button() {
+          SymbolGlyph($r('sys.symbol.sort'))
+            .fontSize(20)
+            .fontColor([Theme.textPrimary(Theme.isDark())])
+        }
+        .width(40)
+        .height(40)
+        .type(ButtonType.Circle)
+        .backgroundColor(Theme.surface(Theme.isDark()))
+        .accessibilityText(this.sortByCount ? '按播放次数排序，点击改为按时间' : '按时间排序，点击改为按播放次数')
+        .onClick(() => this.toggleSort())
         Button() {
           Image($r('app.media.ic_grid_dots_24'))
             .width(22)
@@ -268,13 +276,14 @@ export struct RecentPage {
         .width(40)
         .height(40)
         .type(ButtonType.Circle)
-        .backgroundColor(Color.Transparent)
+        .backgroundColor(Theme.surface(Theme.isDark()))
         .accessibilityText('更多操作')
         .bindMenu(this.moreMenuBuilder)
       }
       .width('100%')
       .padding({ left: 8, right: 14, top: 8, bottom: 8 })
 
+      // 参考截图的搜索框：透明底 + 灰描边胶囊，非实心底。
       Row({ space: 8 }) {
         Image($r('app.media.ic_tab_search_24'))
           .width(18)
@@ -291,29 +300,37 @@ export struct RecentPage {
       }
       .width('100%')
       .padding({ left: 14, right: 14, top: 4, bottom: 4 })
-      .backgroundColor(Theme.surface(Theme.isDark()))
-      .borderRadius(19)
+      .border({
+        width: 1,
+        color: Theme.withAlpha(Theme.textSecondary(Theme.isDark()), 0x40),
+        radius: 24
+      })
       .margin({ left: 14, right: 14, bottom: 8 })
 
       if (this.loaded && this.songs.length > 0) {
-        Button() {
-          Row({ space: 6 }) {
+        // 参考截图：白色圆形播放钮 + 文字行（非彩色胶囊按钮）。
+        Row({ space: 10 }) {
+          Stack({ alignContent: Alignment.Center }) {
+            Column()
+              .width(32)
+              .height(32)
+              .borderRadius(16)
+              .backgroundColor('#FFFFFF')
             Image($r('app.media.round_play_arrow_24'))
               .width(18)
               .height(18)
-              .fillColor(Theme.onPrimary(Theme.isDark()))
-            Text(`播放全部 (${this.visibleSongs().length})`)
-              .fontSize(13)
-              .fontColor(Theme.onPrimary(Theme.isDark()))
+              .fillColor('#111111')
           }
+          Text(`播放全部 (${this.visibleSongs().length})`)
+            .fontSize(15)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(Theme.textPrimary(Theme.isDark()))
         }
-        .height(36)
-        .padding({ left: 16, right: 16 })
-        .backgroundColor(Theme.primary(Theme.isDark()))
-        .borderRadius(18)
-        .margin({ left: 14, bottom: 8 })
+        .width('100%')
+        .padding({ left: 16, right: 16, top: 4, bottom: 8 })
         .accessibilityText('播放全部历史歌曲')
         .onClick(() => this.playAll())
+        .clickEffect({ level: ClickEffectLevel.LIGHT })
       }
 
       if (!this.loaded) {
@@ -347,6 +364,7 @@ export struct RecentPage {
                 index: index,
                 showPlatform: true,
                 playCount: this.playCountOf(song),
+                transparentBg: true,
                 onPlay: () => this.play(index)
               })
             }

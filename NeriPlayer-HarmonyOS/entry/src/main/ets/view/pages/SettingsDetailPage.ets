@@ -857,7 +857,7 @@ export struct SettingsDetailPage {
         // '‹' is punctuation to a screen reader; name the action.
         .accessibilityText('返回')
         .type(ButtonType.Circle)
-        .backgroundColor(Color.Transparent)
+        .backgroundColor(Theme.surface(Theme.isDark()))
         .fontColor(Theme.textPrimary(Theme.isDark()))
         .fontSize(20)
         .onClick(() => Router.pop())
@@ -891,7 +891,7 @@ export struct SettingsDetailPage {
       this.header()
 
       Scroll() {
-        Column({ space: 1 }) {
+        Column({ space: 10 }) {
           if (this.section === SETTING_PLAYBACK) {
             OptionRow({
               title: '播放速度',
@@ -1006,7 +1006,7 @@ export struct SettingsDetailPage {
               .fontColor(Theme.textSecondary(Theme.isDark()))
               .width('100%')
               .margin({ left: 6, top: 10, bottom: 6 })
-            Column({ space: 1 }) {
+            Column({ space: 10 }) {
               OptionRow({
                 title: '背景样式',
                 icon: '🖼',
@@ -1055,16 +1055,13 @@ export struct SettingsDetailPage {
               })
             }
             .width('100%')
-            .backgroundColor(Theme.surface(Theme.isDark()))
-            .borderRadius(Theme.cardRadius())
-            .clip(true)
 
             Text('底部 Mini 播放器')
               .fontSize(13)
               .fontColor(Theme.textSecondary(Theme.isDark()))
               .width('100%')
               .margin({ left: 6, top: 14, bottom: 6 })
-            Column({ space: 1 }) {
+            Column({ space: 10 }) {
               ToggleRow({
                 title: '下一首按钮',
                 icon: '⏭',
@@ -1090,9 +1087,20 @@ export struct SettingsDetailPage {
               })
             }
             .width('100%')
-            .backgroundColor(Theme.surface(Theme.isDark()))
-            .borderRadius(Theme.cardRadius())
-            .clip(true)
+
+            // 参考截图底部的 (i) 脚注：交代开关的生效边界。
+            Row({ space: 6 }) {
+              Text('ⓘ')
+                .fontSize(13)
+                .fontColor(Theme.danger(Theme.isDark()))
+              Text('“展开时自动播放”在从底部 Mini 播放器展开到全屏播放页时触发；播放中展开不重复操作')
+                .fontSize(12)
+                .fontColor(Theme.textSecondary(Theme.isDark()))
+                .layoutWeight(1)
+            }
+            .width('100%')
+            .padding({ left: 6, right: 6, top: 6 })
+            .alignItems(VerticalAlign.Top)
           } else if (this.section === SETTING_APPEARANCE) {
             OptionRow({
               title: '深色模式',
@@ -1243,7 +1251,7 @@ export struct SettingsDetailPage {
               .fontColor(Theme.textSecondary(Theme.isDark()))
               .width('100%')
               .margin({ left: 6, top: 10, bottom: 6 })
-            Column({ space: 1 }) {
+            Column({ space: 10 }) {
               SettingRow({
                 title: 'GitHub 仓库与令牌',
                 subtitle: this.githubTokenSaved && this.githubOwner.length > 0 && this.githubRepo.length > 0 ?
@@ -1281,16 +1289,13 @@ export struct SettingsDetailPage {
               })
             }
             .width('100%')
-            .backgroundColor(Theme.surface(Theme.isDark()))
-            .borderRadius(Theme.cardRadius())
-            .clip(true)
 
             Text('数据格式')
               .fontSize(13)
               .fontColor(Theme.textSecondary(Theme.isDark()))
               .width('100%')
               .margin({ left: 6, top: 14, bottom: 6 })
-            Column({ space: 1 }) {
+            Column({ space: 10 }) {
               ToggleRow({
                 title: '省流格式',
                 subtitle: '读取兼容全部格式；上传仍为 JSON',
@@ -1308,16 +1313,13 @@ export struct SettingsDetailPage {
               })
             }
             .width('100%')
-            .backgroundColor(Theme.surface(Theme.isDark()))
-            .borderRadius(Theme.cardRadius())
-            .clip(true)
 
             Text('WebDAV 备份')
               .fontSize(13)
               .fontColor(Theme.textSecondary(Theme.isDark()))
               .width('100%')
               .margin({ left: 6, top: 14, bottom: 6 })
-            Column({ space: 1 }) {
+            Column({ space: 10 }) {
               SettingRow({
                 title: '服务器与凭据',
                 subtitle: this.webdavCredentialsSaved && this.webdavServerUrl.length > 0 ?
@@ -1356,9 +1358,6 @@ export struct SettingsDetailPage {
               })
             }
             .width('100%')
-            .backgroundColor(Theme.surface(Theme.isDark()))
-            .borderRadius(Theme.cardRadius())
-            .clip(true)
 
             Text('其他同步方式')
               .fontSize(13)
