@@ -12,9 +12,6 @@ import { EmptyState, LoadingState } from '../components/Ui';
 import { PlaylistHeader, HeaderPill } from '../components/PlaylistHeader';
 import { Router } from '../Router';
 
-/** Remote playlists store full SongItems; cap imports to keep one save sane. */
-const IMPORT_CAP: number = 500;
-
 /**
  * NetEase remote playlist detail: header + resolved songs, play/shuffle, and
  * one-shot import into a local playlist (full song-reference copy).
@@ -89,15 +86,12 @@ export struct NeteasePlaylistPage {
     }
     this.importing = true;
     try {
-      const capped = overview.songs.slice(0, IMPORT_CAP);
       const playlist = await LocalPlaylistRepository.createPlaylistWithSongs(
         trimmed,
-        capped,
+        overview.songs,
         MusicPlatform.LOCAL
       );
-      const skipped = overview.songs.length - capped.length;
-      const suffix = skipped > 0 ? `（超出上限，已截取前 ${IMPORT_CAP} 首）` : '';
-      promptAction.openToast({ message: `已导入「${playlist.name}」${playlist.songKeys.length} 首${suffix}` });
+      promptAction.openToast({ message: `已导入「${playlist.name}」${playlist.songKeys.length} 首` });
       this.showImportDialog = false;
     } catch (error) {
       const e = error as Error;
@@ -220,7 +214,7 @@ export struct NeteasePlaylistPage {
               .fontSize(17)
               .fontWeight(FontWeight.Bold)
               .fontColor(Theme.textPrimary(Theme.isDark()))
-            Text(`将复制 ${Math.min(this.overview?.songs.length ?? 0, IMPORT_CAP)} 首歌曲到新建的本地歌单`)
+            Text(`将复制 ${this.overview?.songs.length ?? 0} 首歌曲到新建的本地歌单`)
               .fontSize(12)
               .fontColor(Theme.textSecondary(Theme.isDark()))
             TextInput({ placeholder: '输入歌单名称', text: this.importName })
