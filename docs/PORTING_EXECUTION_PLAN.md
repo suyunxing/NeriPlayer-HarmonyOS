@@ -221,6 +221,7 @@ fixture 从 Android JVM 测试（`app/src/test/`）摘取**小样本**内嵌进 
   - 证据：2026-08-16 AVSessionManager 重写：AVMetadata 加 duration/mediaImage（封面 URL 字符串，API 24 接受 string|PixelMap）、assetId 稳定化（platform:id:mediaUri 防跨平台撞车）；AVPlaybackState 全状态映射（LOADING→PREPARE/PLAYING→PLAY/PAUSED→PAUSE/COMPLETED/ERROR）+speed/duration/loopMode（LoopMode↔RepeatMode 三值映射）；命令补 stop/setSpeed/setLoopMode；release() 逐一 off+destroy（EntryAbility.onDestroy 调用）。依据：本机 API 24 d.ts（字段/枚举核对）+ avsession-access-scene 指南。锁屏/控制中心显示人工核验未执行，待复核。
 - [x] M1.5 后台播放合规（G4）：核对 API 24 `backgroundTaskManager.startBackgroundRunning` 与 `backgroundModes: audioPlayback` 的关系（是否必须调用/缓存配额），把 BackgroundTaskRunner 改为真调用或删除占位类；熄屏 30 分钟长播 smoke（模拟器）+ 记录结论。
   - 证据：2026-08-16 BackgroundTaskRunner 由纯占位改为 backgroundTaskManager.startBackgroundRunning(context, AUDIO_PLAYBACK, wantAgent) 真调用（wantAgent 指向 EntryAbility，缓存实例；stop 于暂停；失败降级日志不阻断播放）。依据：AVSession 后台指南（必须 AVSession+AUDIO_PLAYBACK 长时任务否则退后台静音冻结）+ API 24 d.ts 签名（startBackgroundRunning 必传 wantAgent）。KEEP_BACKGROUND_RUNNING 权限与 backgroundModes 声明已在 module.json5。熄屏 30 分钟长播 smoke 未执行，待复核。
+  - 证据（2026-09-01 重大缺陷修复——真机后台 2~3 分钟被杀的根因）：上述实现存在三处叠加缺陷致长时任务运行时从未真正生效：① wantAgent 写死旧包名 `moe.ouom.neriplayer`（真实包名 `moe.ouom.neriplayer.hmos`）；② `running` 标志在 try 前置 true 且失败不回滚，首次申请失败后所有后续 start 被永久短路（直到进程重启）；③ 失败仅 warn 日志，无系统侧取消/挂起监听。官方《长时任务(ArkTS)》运行限制明确「未申请长时任务但在后台存在音视频播放行为的应用，退至后台会被查杀」，与真机症状吻合。修复：wantAgent 改从 `context.abilityInfo.bundleName/name` 取（对齐 AVSessionManager.bindLaunchAbility）+ `UPDATE_PRESENT_FLAG`；`running` 仅在成功后置位（失败可重试）；start/stop 串行化到 promise 链防竞态；新增 `on('continuousTaskCancel')`（since 15）与 `on('continuousTaskSuspend')`（since 20）监听记因；PlayerManager 补终态 stop（队列播完/睡眠定时停止/error）满足「业务结束及时取消」。entry_test 的 TestAbility 补 `backgroundModes: ["audioPlayback"]`（ability 级校验，缺失时 startBackgroundRunning 必 9800005 "bgMode is invalid"）。新增 ActsBackgroundTaskSmokeTest（getAllContinuousTasks since 20 公开 API 断言注册/释放）。验证：模拟器（Pura 90 API 24）ohosTest 1/1 通过并抓到修复前失败实锤 `BackgroundTaskRunner.start failed: code=9800005 ... bgMode is invalid`（证明失败日志与重试机制生效）；主应用真实路径后台连续播放 >5 分钟跨 3 首自动切歌，pid 6801 全程未重启、零 cancel/suspend；本地单测 874/874、双模块构建成功。**真机熄屏 30 分钟长播仍待复核**（真机未连接；若真机复现被杀，先看 cancel/suspend 监听日志与 `devecocli log` 中 9800005 系错误）。
 - [x] M1.6 取流健壮性：把 `StreamResolver.resolveNeteaseFallback` 接入 PlayerManager 失败路径（G10，加设置开关「网易失效自动换源」）；`PlayerUrlResolver` 的质量降级语义对齐（exhigh→high→standard 已有，补错误分类）。
   - 证据：2026-08-16 StreamResolver.resolveWithNeteaseAutoFallback：直连失败→设置开关（np.netease_auto_fallback 默认开，SettingsDetailPage 流量区开关行）→BiliApi.search(名称+歌手) 候选→matchScore≥2（标题包含+时长差<8s）→B 站取流，成功 URL 缓存进 song.streamUrl；PlayerManager.resolveStreamUrl 接入。真实换源效果需网易失效场景实测，逻辑由编译+smoke 保障。
 - [x] M1.7 里程碑验收：模拟器全流程 smoke（搜→播→中断→恢复→熄屏→锁屏控制→重启恢复队列）；FEATURE_MATRIX 五行状态更新；hm.md 记录验证。
@@ -448,3 +449,33 @@ eport-m61-recheck.json）：IOS 直出窗口仍开——fbvvS8e1KgI playability 
 - M5.7 完成：2026-08-23 根因定位与修复（`syncPlaylistIdToLocal` 剥 `local_` 前缀致 apply 后本地歌单 id 变形 → 精确匹配删除失配 → builder live-again 保护吞墓碑 → 远端复活；修复=id 前缀恢复+apply 沿用既有形态+删除归一比较）；本地 742/742、双实例真网 4/4×2、远端 JSON 墓碑行直接证据（A 积压历史墓碑首次真正上传、B 转发不复活）。**M5 至此全部完成**。
 - M8 完成：2026-08-23 M8.1/3/4/5/6 全部落地（M8.2 此前已完成）——动态取色（纯 ArkTS Palette+Theme 覆盖层+播放页 accent，设备实证 MiniPlayer 随封面变色）、AMLL TTML 词库（自写解析器+打分/时长容差+分发升级源，设备实证「晴天」逐字 karaoke+翻译渲染=真网命中）、背景模糊/玻璃子集（强度可调+换歌 crossfade+backgroundBlurStyle 降级，AGSL 无对应已记录）、UI 打磨（WaveformSlider 波形进度+逐字 karaoke 渲染+MiniPlayer 滑切+歌词分享卡片 SaveButton 保存）、悬浮/蓝牙歌词 D4 降级（应用内悬浮条+AVSession title 蹭位，设备判定差异已记录）；本地单测 778/778、双模块构建过、codelinter 24 warn+2 suggestion+0 error（+1 为背景模糊 effectkit 性能建议，有意取舍）、ohosTest 回归 3 套全过。待复核项：悬浮条动态行为、分享卡片保存图库、真蓝牙设备 AVRCP。设备验证另登记两条 M8 范围外观察（网络全坏期重试链 UI 争用、恢复态返回栈单层），留后续里程碑。**M6 剩余（M6.3/M6.4/M6.5）按用户指示暂时搁置**。
 - M9 完成：2026-08-24 必做范围（M9.1/M9.2/M9.3）全部闭合，两项因外部输入阻塞的另行登记（M9.3a tablet/2in1 镜像未下载、M9.4 API 26 需 Beta 资格 + GUI 下载）。M9.1 USB 独占**与 D5 预期相反**——API 面上可行（`claimInterface(force)` @8、等时传输 `usbSubmitTransfer`+`UsbIsoPacketDescriptor` @18 均为公开无 systemapi 的 ArkTS API），但**决策维持不移植**（ArkTS 单 JS 线程 + GC 抖动守不住 1ms 等时节拍、与系统 USB Audio HAL 竞争无官方承诺、收益窄；native DDK 头在本 SDK 分发中不存在）。M9.2 崩溃诊断闭环双通道落地并抓出 4 个真缺陷，其中最关键的是**两通道读改写竞态**导致精确类别与栈双双丢失（修法=串到 promise 链），设备端到端三启动实证误报→真崩溃 arming→自愈。M9.3 把回归方法从"截图目视"换成**布局树度量**（`dumpLayout` 的 `bounds` vs `origBounds` 四类判据、屏宽取自根节点故跨形态通用），据此发现并修复 3 个真实布局缺陷：**根因是 HarmonyOS 应用默认 `nonFollowSystem` 即不跟随系统字号**（"全仓用 fp 所以自动跟随"是错的），补 `configuration.json` 开启后才暴露出 ExplorePage chip 排到屏外（1444 > 1320）、网易云歌单页 `导入` 只剩 83/234px 可见、SongRow 序号角标与时长真重叠 36×57px；第三个的根因是**百分比 `.position()` 按父容器实测宽度解析、字号放大即失稳**，已入库为守则。覆盖 phone 377vp × 字号 1.0/1.45/1.75 三档（溢出 0、重叠 0）+ foldable 展开内屏 707vp（LG 断点，17 页全清、宽屏自动双列），触控目标改为度量并**修正旧结论**（实际执行 40vp 下限而非 ≥48vp，约 30 控件落在 40–48vp），无障碍标注 21 处/13 文件但**朗读效果无法验证**（`dumpLayout -e accessibilityText` 被工具拒绝），内存 127–151 MB 无单调增长、CPU 0.017%/0.74% 且明确标注为代理指标。门禁：`assembleHap` BUILD SUCCESSFUL、本地单测 **798/798**（failure 0/error 0）、codelinter `24 warn + 2 suggestion + 0 error` 与基线持平；顺手校正文档中滞留的旧 lint 基线（"1 suggestion"/"17 warn"）与 RELEASE_CHECKLIST 中经实测**证伪**的"API 24 镜像库无 2in1 设备"一说。真机、横屏、折叠外屏、熄屏功耗、BiliFavPage、设置页三处占位均如实标为未验证。详见 §6 M9.1/M9.2/M9.3/M9.3a/M9.4 与 `docs/RELEASE_CHECKLIST.md`。**2026-08-26 两处更正**：① M9.3a 的镜像阻塞已解除并完成回归（下到的是 API 26 Beta 而非 6.1.1，属向上兼容运行），回归暴露的 11 条大屏密度问题已另开一轮 ArkUI 标准组件整改（见 M9.3a 证据行）；② 上面「本地单测 798/798」这个数字**在本机从未被测量过**——2026-08-26 首次实测 `entry/src/test/` 的真实计数是 **819 pass / 0 failure / 0 error**（162 个 `describe`，结果在 `entry/.test/default/intermediates/test/coverage_data/test_result.txt`，`hvigorw test` 默认与 `--debug` 都不打印计数），819 与 798 之间**不可作差**，本轮对 suite 的实际改动是删 2 条 `RouteStack` 用例（被测行为随 `route.stack` AppStorage 镜像一起删除）+ 新增 5 条 `Breakpoint` 用例。
+
+## S 阶段：UI 重构 + 沉浸光感 + 动效（2026-08-29 会话，分支 glass_ui_opus）
+
+- S0 HDS 摸底：✅ 编译全绿+运行时验证（docs/HDS_IMMERSIVE_SPIKE.md）。关键结论：
+  HDS Attribute 类型须显式导入；HdsNavigation/HdsNavDestination 内容子树在模拟器
+  不挂载（已回退标准 Navigation/NavDestination）；模拟器 getSystemMaterialTypes()=[]
+  材质降级必须保留；HdsTabs barFloatingStyle/miniBar 运行时可用。
+- S1 动态配色引擎：✅ ColorScience（Lab/LCh/ΔE00/色域映射，Sharma 参考值锁定）+
+  SwatchCard（907 条 MIT 色卡，仅色号+hex）+ AccentScheme（打分→吸附→护栏→双模式
+  ramp）+ effectKit 取色 + WithTheme/51 槽 CustomColors。单测 26 例。
+- S2 官方光感：✅ ImmersiveLightScene（HdsVisualComponent 流光场景）接入播放页，
+  15 处硬编码白字全部令牌化。
+- S3 悬浮壳：✅ HdsTabs 双断点 + barFloatingStyle（lightColor/gradientMask/
+  miniBar/systemMaterialEffect 降级）+ MiniPlayer 迁入官方 MiniBar 槽位 +
+  FLOAT_TAB_CLEARANCE 四页避让。
+- S4 播放列表：✅ 手工覆盖层（含被禁的百分比 position）删除，原生 bindSheet
+  （detents 双档+dragBar+下滑关闭）。
+- S6-core 动效：✅ 迷你条→播放页封面一镜到底（geometryTransition+animateTo+
+  systemTransition NONE）+ clickEffect + 废弃 animateTo 清理。
+- S5（第二次会话续）：✅ 每日推荐 Hero 卡（标签 pill+21fp 标题+播放 FAB）、
+  探索页参考图搜索胶囊（symbol 放大镜+44vp 圆键）、三页歌单头抽取共用
+  PlaylistHeader（120vp 封面/24fp 标题/透明底，B 站页顺带修 Flex wrap 溢出隐患）、
+  SectionHeader 22fp、页标题 32fp。commit c0e384e/0c245fbf。
+- S6 余项：✅ SongRow/PlaylistCard/SettingRow/平台 chips/搜索键全量 clickEffect、
+  MiniPlayer 播放键 ReplaceSymbolEffect 交叉淡入（sys.symbol.play_fill/pause_fill，
+  模拟器验证切换正常）。列表行封面共享元素（需逐行 id 联动）留作可选。
+  commit bab2f0fa。
+- 待续：字号 1.75x 布局复测（新字阶更大，上架硬性项）、真机 HDS 复核
+  （材质能力/IMMERSIVE 档位/流光调参/WithTheme 整树重绘确认）、探针面板移除
+  （真机复核后再删）。

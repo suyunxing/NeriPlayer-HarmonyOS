@@ -130,6 +130,7 @@ entry/src/main/ets/
 ## 近期优先级
 
 > 2026-08-14 复核：第 1 项已于 2026-08-13 完成（干净构建 + 单测 + 签名 + 模拟器 smoke test，见 `hm.md` §7.4；工具链迁至 `D:\HarmonyOS\Tools` 后需重跑一次确认）；第 3 项部分完成（已建 `entry/src/test/` 并通过 LRC 3 用例，其余模块待补）。
+> 2026-08-31 复核：第 1～3 项均已完成（单测已累积至 874 用例，`ohosTest` 设备测试族已建立），任务级进度以 `PORTING_EXECUTION_PLAN.md` §6/§8 为准。
 
 1. 恢复可用 DevEco SDK 并做干净构建。
 2. 获取上游 commit/子模块基线。

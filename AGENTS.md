@@ -2,6 +2,8 @@
 
 本文件为本仓库内编码代理的项目级工作约定，适用于仓库根目录及其全部子目录。若子目录中存在更具体的 `AGENTS.md`，以离目标文件最近的说明为准；用户或系统的明确指令始终优先。
 
+本文件只包含与机器无关的项目约定；工具链路径、构建入口、签名环境变量和模拟器镜像等机器相关配置，维护在各机器自己的代理全局配置中（见「机器环境分界」）。
+
 ## 项目定位
 
 本仓库是 NeriPlayer 从 Android 迁移到 HarmonyOS 的研究与实现工作区，不是已经完成并可发布的 HarmonyOS 成品。
@@ -19,11 +21,18 @@
 开始工作前先阅读与任务相关的文件，并按以下顺序判断事实：
 
 1. 当前源码、构建配置、可重复执行的测试结果。
-2. `docs/hm.md`（HarmonyOS 开发与迁移指南：版本矩阵、构建命令、2026-08-13 验证记录）、`docs/PROJECT_AUDIT.md`、`docs/FEATURE_MATRIX.md`、`docs/HARMONYOS_PORTING_PLAN.md`、`docs/PORTING_EXECUTION_PLAN.md`（任务级执行计划与进度看板，开始移植任务前先读其 §1/§6）。
-3. 根目录 `README.md`。
-4. 各原型目录中的 `README.md`、`PORTING.md` 和历史日志。
+2. 本机可用的官方 HarmonyOS 文档（本机配置了 DevEco CLI 时使用 `devecocli docs search` / `devecocli docs read`，命中后读取完整 `documentId`，不要仅凭 snippet 或模型记忆下结论；本机没有文档工具时访问华为官方在线文档，并记录缺口）。涉及 ArkTS、ArkUI、Kit、权限、系统能力、SDK 或构建参数时，编码前必须先查。
+3. `docs/hm.md`（HarmonyOS 开发与迁移指南：版本矩阵、构建命令、2026-08-13 验证记录）、`docs/PROJECT_AUDIT.md`、`docs/FEATURE_MATRIX.md`、`docs/HARMONYOS_PORTING_PLAN.md`、`docs/PORTING_EXECUTION_PLAN.md`（任务级执行计划与进度看板，开始移植任务前先读其 §1/§6）。
+4. 根目录 `README.md`。
+5. 各原型目录中的 `README.md`、`PORTING.md` 和历史日志。
 
 历史文档中的“已完成”“已实测”只能视为历史记录。若当前环境不能从干净状态重现，不得将其描述为当前已验证能力。功能状态应使用“已静态确认”“有历史证据”“待复核”等准确措辞。
+
+## 机器环境分界
+
+- 本仓库由多台机器（Windows 工作站、服务器等）共用同一份 `AGENTS.md`。本文件不得出现任何机器绝对路径或单机工具链细节。
+- 各机器的工具链位置、首选构建入口（DevEco CLI 或 command-line-tools hvigorw 等）、签名环境变量（`NERIPLAYER_SIGNING_PASSWORD`、`NERIPLAYER_DEVICE_IDS`）与模拟器/设备启动方式，写在各机器用户目录下的代理全局配置（如 `~/.zcode/AGENTS.md`、`~/.codex/AGENTS.md`）中；处理本仓库任务时与本文件叠加生效。
+- `docs/` 中的验证记录（命令、路径、日期）属于记录当时环境的历史证据，不构成当前机器的配置来源。
 
 ## 修改前检查
 
@@ -38,15 +47,20 @@
 
 ### `NeriPlayer-HarmonyOS/`
 
-- `entry/src/main/ets/app/`：应用常量、日志和应用级基础设施。
+- `entry/src/main/ets/app/`：应用常量、日志与崩溃诊断。
 - `entry/src/main/ets/model/`：歌曲、歌单、歌词、下载和队列模型。
 - `entry/src/main/ets/data/`：设置、历史、统计、歌单和本地媒体数据访问。
+- `entry/src/main/ets/download/`：下载引擎（任务状态机、传输、原子提交与恢复）。
 - `entry/src/main/ets/network/`：HTTP 与第三方音乐平台适配器。
 - `entry/src/main/ets/player/`：AVPlayer、AVSession 和后台播放。
-- `entry/src/main/ets/lyrics/`：歌词解析。
+- `entry/src/main/ets/lyrics/`：LRC/TTML 歌词解析与分发。
+- `entry/src/main/ets/listentogether/`：一起听协议、会话与播放同步策略。
+- `entry/src/main/ets/sync/`：GitHub/WebDAV 同步（传输、合并策略与协调器）。
+- `entry/src/main/ets/util/`：QR 编码、断点与窗口度量等通用工具。
 - `entry/src/main/ets/view/`：ArkUI 页面、路由、主题和共享组件。
 - `entry/src/main/resources/`：字符串、颜色、图标、路由和网络配置。
-- `entry/src/test/`：本地单元测试（hypium），待扩展 `entry/src/ohosTest/` 设备测试。
+- `entry/src/test/`：本地单元测试（hypium，2026-08-29 记录 874 用例全绿）。
+- `entry/src/ohosTest/`：设备侧测试（`aa test` 执行，含播放/下载/同步/一起听/诊断等 Acts* 用例）。
 
 新增代码应放入职责最接近的目录。不要继续把业务状态机堆入页面文件；较大的新能力优先按照 `docs/HARMONYOS_PORTING_PLAN.md` 中的领域、数据、播放和 feature 边界拆分，同时避免为小改动发起无关的全量重构。
 
@@ -87,66 +101,24 @@
 
 ## 构建与验证
 
-所有命令都从对应工程目录执行。不要把历史缓存或已有产物当作验证结果。
+所有命令都从对应工程目录执行（主线为 `NeriPlayer-HarmonyOS/`，ASCF 为 `NeriPlayer-ASCF/`，先确认存在 `build-profile.json5`，不要从仓库聚合根目录猜测工程）。不要把历史缓存或已有产物当作验证结果。具体构建/测试/签名命令与工具链路径按各机器全局配置执行；以下是仓库层面的固定事实与最低要求。
 
 ### HarmonyOS 主线
 
 工程基线为 SDK `6.1.1(24)`（HarmonyOS 6.1.1 Release，API 24，官方 2026-05-26 发布，截至 2026-08 仍是最新稳定 Release）。HarmonyOS 7.0 对应开发套件 `26.0.0`（API 26，2026-07-28 处于 Beta2；版本号自 26.0.0 起改用 SemVer）。版本映射以官方[所有 HarmonyOS 开发套件版本](https://developer.huawei.com/consumer/cn/doc/harmonyos-releases/overview-allversion)页为准，不得凭目录名推断。
 
-本机工具链位于 `D:\HarmonyOS\Tools\`（2026-08-14 已修复用户级 PATH 与环境变量，新开的终端可直接裸调 `ohpm`/`hvigorw`/`hdc`；已运行的旧会话仍持有迁移前的环境，需完整路径调用）：
-
-- 命令行工具 6.1.1.300：`D:\HarmonyOS\Tools\command-line-tools\bin\` 下的 `ohpm.bat`（6.1.2.285）、`hvigorw.bat`（6.24.4）、`codelinter.bat`、`Emulator.bat`；Node 18.20.1 在 `tool\node\`。`hvigorw.bat` 包装器会自动定位自身 SDK 与 Node，通常无需手动设置 `DEVECO_SDK_HOME`/`NODE_HOME`。
-- 唯一完整的 API 24 SDK：`D:\HarmonyOS\Tools\command-line-tools\sdk\default`（6.1.1.125 Release）；`hdc.exe` 在其 `openharmony\toolchains\` 下。
-- DevEco Studio 26.0.0.621（Beta2，自带 API 26 SDK）：`D:\HarmonyOS\Tools\devecostudio-windows-26.0.0.621\DevEco Studio\`，当前主力 IDE（含 `jbr`，其 Java 可运行 hap-sign-tool）。**注意：26.0.0 Beta2 的 hvigor 不支持构建 6.1.1(24) 工程（报 00303031，要求 compileSdkVersion=26.0.0），构建必须用 command-line-tools 的 hvigorw。**
-- 用户级环境变量（2026-08-14 已修正）：`DEVECO_SDK_HOME`/`HOS_SDK_HOME` → `D:\HarmonyOS\Tools\command-line-tools\sdk`，`DEVECO_STUDIO_HOME` → 26.0.0.621 Studio，`NERIPLAYER_SIGNING_PASSWORD` → 本地调试签名口令（33 位，供 sign-local.ps1 读取，勿写入仓库）。
-- `NeriPlayer-HarmonyOS/local.properties`（gitignore 的本机文件）指向 `D:/HarmonyOS/Tools/command-line-tools/sdk/default`。
-- 模拟器系统镜像只有 HarmonyOS-6.1.1（API 24）；API 26 镜像尚未下载，鸿蒙 7.0 模拟器验证需先在 DevEco Studio SDK Manager 下载镜像。
-
-依赖同步与主线 debug 构建优先使用 CLI：
-
-```powershell
-$cli = 'D:\HarmonyOS\Tools\command-line-tools\bin'
-cd NeriPlayer-HarmonyOS
-& "$cli\ohpm.bat" install --all
-& "$cli\hvigorw.bat" assembleHap --mode module -p module=entry@default -p product=default -p buildMode=debug --no-daemon
-& "$cli\hvigorw.bat" test --mode module -p product=default -p buildMode=debug --no-daemon
-& "$cli\hvigorw.bat" assembleHap --mode module -p module=entry@ohosTest -p product=default -p buildMode=debug --no-daemon
-```
-
-仓库脚本需要解析 Studio/SDK 目录时，使用本机真实路径：
-
-```powershell
-$env:DEVECO_SDK_HOME = 'D:\HarmonyOS\Tools\command-line-tools\sdk'
-$env:DEVECO_STUDIO_HOME = 'D:\HarmonyOS\Tools\devecostudio-windows-26.0.0.621\DevEco Studio'
-```
-
-需要走仓库提供的本地调试签名流程时（2026-08-14 已全链验证：构建→签名→安装→冷启动通过）：
-
-```powershell
-cd NeriPlayer-HarmonyOS
-.\sign-local.ps1 -HvigorwPath 'D:\HarmonyOS\Tools\command-line-tools\bin\hvigorw.bat'
-```
-
-sign-local.ps1 依赖以下环境（用户级已持久化）：`DEVECO_SDK_HOME`（command-line-tools 的 API 24 SDK，提供 hap-sign-tool 与 hdc）、`DEVECO_STUDIO_HOME`（26.0.0.621 Studio，提供 jbr 的 java）、`NERIPLAYER_SIGNING_PASSWORD`（33 位本地调试口令）与 `NERIPLAYER_DEVICE_IDS` 或 `-DeviceIds`（目标设备 UDID，可用 `hdc shell bm get --udid` 获取）。`-HvigorwPath` 指定用 command-line-tools 的 hvigorw 构建（默认回退到 Studio hvigor，而 26 Beta2 的 hvigor 无法构建 6.1.1(24) 工程）。
-
-设备侧 ohosTest（`entry/src/ohosTest/`，2026-08-14 已验证 1/1 通过）：先构建并签名 ohosTest HAP（用 hap-sign-tool 对 `entry-ohosTest-unsigned.hap` 执行与 sign-local.ps1 相同的 sign-app 命令），安装两个 HAP 后执行：
+- 本工程不自带项目级 hvigor wrapper；构建工具链随 DevEco Studio / command-line-tools 分发，调用入口以各机器全局配置为准。
+- 依赖同步由构建入口自动处理（ohpm 安装/同步），不要在每轮构建前重复手动 `ohpm install --all`；只有需要证明干净状态可重现时才先 clean，普通局部迭代保留增量缓存。
+- 本地单元测试：`entry/src/test/`（`@ohos/hypium` 1.0.28，随里程碑累积至 874 用例，2026-08-29 记录全绿，沿革见 `docs/hm.md` §8.1），经 `hvigorw test --mode module -p product=default -p buildMode=debug --no-daemon` 执行。
+- 设备侧测试：`entry/src/ohosTest/`（TestAbility + OpenHarmonyTestRunner，含播放/下载/同步/一起听/诊断等 Acts* 用例，各轮实测记录见 `docs/PORTING_EXECUTION_PLAN.md` §6）。先构建并签名 ohosTest HAP（对 `entry-ohosTest-unsigned.hap` 执行与 `sign-local.ps1` 相同的 sign-app 命令），安装后执行：
 
 ```powershell
 hdc -t 127.0.0.1:5555 shell "aa test -b moe.ouom.neriplayer -m entry_test -s unittest OpenHarmonyTestRunner -s class ActsAbilityTest#assertContain -s timeout 15000"
 ```
 
-模拟器冷启动后需 `hdc tconn 127.0.0.1:5555` 才会出现在 `hdc list targets`。
-
-仅在有明确设备验证需求且设备已准备好时运行安装流程：
-
-```powershell
-cd NeriPlayer-HarmonyOS
-$env:NERIPLAYER_DEVICE_IDS = '真实设备UDID'
-$env:NERIPLAYER_SIGNING_PASSWORD = '本地调试口令'
-.\sign-local.ps1
-```
-
-主线已在 `entry/src/test/` 建立本地单元测试（`@ohos/hypium` 1.0.28，覆盖 LRC 解析/翻译合并/时间格式化 3 用例，2026-08-14 复核全部执行通过），并在 `entry/src/ohosTest/` 建立设备测试骨架（TestAbility + OpenHarmonyTestRunner + ActsAbilityTest，2026-08-14 模拟器实测 1/1 通过）。修改纯逻辑时应优先补充或更新 `entry/src/test/` 用例；涉及 Ability、权限、AVPlayer、AVSession、后台播放或系统 UI 时补充 `entry/src/ohosTest/` 用例并按上文 `aa test` 流程验证。静态检查用 `codelinter.bat`（2026-08-14 基线：17 warn + 1 suggestion，无 error）。
+- 本地调试签名使用仓库 `sign-local.ps1`；其依赖的 `NERIPLAYER_SIGNING_PASSWORD`（本地调试口令）与 `NERIPLAYER_DEVICE_IDS`（目标设备 UDID）为机器级用户环境变量，不入库。在线签名/重建签名配置会访问账号并修改 `build-profile.json5`，仅用户明确要求时使用。
+- 静态检查用本机可用的 codelinter 或 `devecocli check lint`（2026-08-27 历史基线：26 warn + 2 suggestion，无 error；不要仅凭退出码判断，解析报告内容，最新值以 `docs/hm.md` 记录为准）。
+- 修改纯逻辑时应优先补充或更新 `entry/src/test/` 用例；涉及 Ability、权限、AVPlayer、AVSession、后台播放或系统 UI 时补充 `entry/src/ohosTest/` 用例并按上文 `aa test` 流程验证。
 
 ### Android 参照工程
 
@@ -162,22 +134,14 @@ cd NeriPlayer-master
 
 ### ASCF 实验
 
-只有修改 `NeriPlayer-ASCF/` 时才执行其同步与构建：
-
-```powershell
-cd NeriPlayer-ASCF
-& 'D:\HarmonyOS\Tools\command-line-tools\bin\ohpm.bat' install --all
-& 'D:\HarmonyOS\Tools\command-line-tools\bin\hvigorw.bat' assembleHap --mode module -p module=entry@default -p product=default -p buildMode=debug --no-daemon
-```
-
-ohpm 官方默认 registry 为 `https://ohpm.openharmony.cn/ohpm/`，通常无需 `--registry` 覆盖。
+只有修改 `NeriPlayer-ASCF/` 时才执行其同步与构建；命令入口按机器配置，等价于 `hvigorw assembleHap --mode module -p module=entry@default -p product=default -p buildMode=debug --no-daemon`。ohpm 官方默认 registry 为 `https://ohpm.openharmony.cn/ohpm/`，不要无故覆盖 registry。
 
 ### 最低验证要求
 
-- 文档或配置改动：检查链接/路径、运行 `git diff --check`。
-- 纯模型、解析、队列或数据逻辑：补充或更新确定性单元测试，并执行相关构建。
-- ArkUI 页面或资源：至少完成主线 debug 构建；可用时在相关设备形态做人工检查。
-- 播放、网络、权限、文件、后台或 AVSession：除构建外，需要模拟器/真机 smoke test；不能执行时明确标记为“未验证”。
+- 文档或配置改动：检查链接/路径，运行 `git diff --check`。
+- 纯模型、解析、队列或数据逻辑：补充或更新确定性单元测试，执行相关 hvigor test，并以 lint + debug 构建收尾。
+- ArkUI 页面或资源：至少完成 debug 构建；有设备时安装运行，并用本机可用的 UI 树/截图工具检查相关设备形态。
+- 播放、网络、权限、文件、后台或 AVSession：除构建外，需要模拟器/真机 smoke test，并检查运行日志（hilog 等）；不能执行时明确标记为“未验证”。
 - 数据格式或迁移：使用旧版本 fixture 验证读取、升级和重新读取，检查异常终止和损坏数据路径。
 
 完成前运行：

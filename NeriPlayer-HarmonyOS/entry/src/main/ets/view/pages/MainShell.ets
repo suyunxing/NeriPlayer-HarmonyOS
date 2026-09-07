@@ -109,7 +109,7 @@ export struct MainShell {
   }
 
   aboutToAppear(): void {
-    Router.attach(this.pageStack);
+    Router.attach(this.pageStack, this.getUIContext());
     const stored = AppStorage.get<number>('np.default_start_tab');
     if (stored !== undefined && stored !== null) {
       this.currentTab = stored;
@@ -235,6 +235,17 @@ export struct MainShell {
     .systemTransition(name === 'now_playing'
       ? NavigationSystemTransitionType.NONE : NavigationSystemTransitionType.DEFAULT)
     .hideTitleBar(true)
+    // 返回键与侧滑手势先到这里。NOW_PLAYING 的系统转场是 NONE，不拦截时
+    // 默认返回同样不带动画（整页硬切消失）；拦下来转交 Router.pop()，由它
+    // 挂进共享元素动画上下文让封面飞回迷你条。其余路由返回 false，走系统
+    // 默认返回（DEFAULT 转场自带动效），行为与拦截前一致。
+    .onBackPressed(() => {
+      if (name === Router.NOW_PLAYING) {
+        Router.pop();
+        return true;
+      }
+      return false;
+    })
     // NavDestination 默认背景是不透明白：深色模式下内容区以下的系统
     // 导航条区会露出一截白边。显式置透明，条带回落到 Index 的沉浸背景
     // 层（应用底色），与改造前全屏路由的行为一致；页面正文各自的
