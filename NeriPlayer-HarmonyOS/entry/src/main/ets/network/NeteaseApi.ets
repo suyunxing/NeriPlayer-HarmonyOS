@@ -395,13 +395,37 @@ export class NeteaseApi {
     overview.name = playlist.name;
     overview.coverUrl = (playlist.coverImgUrl ?? '').replace('http://', 'https://');
     overview.trackCount = playlist.trackCount ?? 0;
+    // /api/v6/playlist/detail embeds only the first few tracks in `tracks`
+    // while `trackIds` carries the authoritative full order. When trackIds is
+    // longer, fetch the missing songs in batches and reassemble in playlist
+    // order (mirrors Android resolvePlaylistTracks/fetchFullPlaylistTracks).
     let songs = playlist.tracks ?? [];
-    if (songs.length === 0 && playlist.trackIds !== undefined) {
-      const ids: number[] = [];
-      for (const trackId of playlist.trackIds.slice(0, 200)) {
-        ids.push(trackId.id);
+    if (playlist.trackIds !== undefined && playlist.trackIds.length > songs.length) {
+      const byId = new Map<number, NeteaseSong>();
+      for (const song of songs) {
+        byId.set(song.id, song);
       }
-      songs = await NeteaseApi.fetchSongDetail(ids);
+      const orderedIds: number[] = [];
+      const missing: number[] = [];
+      for (const trackId of playlist.trackIds) {
+        orderedIds.push(trackId.id);
+        if (!byId.has(trackId.id)) {
+          missing.push(trackId.id);
+        }
+      }
+      if (missing.length > 0) {
+        const fetched = await NeteaseApi.fetchSongDetail(missing);
+        for (const song of fetched) {
+          byId.set(song.id, song);
+        }
+      }
+      songs = [];
+      for (const id of orderedIds) {
+        const song = byId.get(id);
+        if (song !== undefined) {
+          songs.push(song);
+        }
+      }
     }
     for (const song of songs) {
       overview.songs.push(NeteaseApi.toSongItem(song));
