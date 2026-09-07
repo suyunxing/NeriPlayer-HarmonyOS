@@ -1,6 +1,8 @@
 import { promptAction } from '@kit.ArkUI';
 import { common } from '@kit.AbilityKit';
 import { SettingsRepository } from '../../data/SettingsRepository';
+import { AppColorMode } from '../../util/AppColorMode';
+import { SystemBars } from '../../util/SystemBars';
 import { DownloadStorage } from '../../download/DownloadStorage';
 import { DownloadEngine } from '../../download/DownloadEngine';
 import { DownloadDirectory } from '../../download/DownloadDirectory';
@@ -37,11 +39,11 @@ import {
 import { Theme } from '../Theme';
 import { AccentScheme } from '../theme/AccentScheme';
 import { BAND_LIST_VP } from '../../util/Breakpoint';
-import { OptionEntry, OptionRow, SettingRow, ToggleRow } from '../components/Ui';
-import { LyricSettingsRows } from '../components/LyricSettingsRows';
-import { SETTING_PLAYBACK, SETTING_DOWNLOAD, SETTING_LYRICS, SETTING_APPEARANCE,
-  SETTING_TRAFFIC, SETTING_STORAGE, SETTING_ACCOUNTS, SETTING_SYNC, SETTING_DEBUG,
-  SETTING_ABOUT } from './SettingsPage';
+import { OptionEntry, OptionRow, SettingRow, SliderRow, ToggleRow } from '../components/Ui';
+import { LyricSettingsRows, LyricStylePreview } from '../components/LyricSettingsRows';
+import { SETTING_PLAYBACK, SETTING_DOWNLOAD, SETTING_LYRICS, SETTING_PLAYER,
+  SETTING_APPEARANCE, SETTING_NAVIGATION, SETTING_TRAFFIC, SETTING_STORAGE,
+  SETTING_ACCOUNTS, SETTING_SYNC, SETTING_DEBUG, SETTING_ABOUT } from './SettingsPage';
 import { Router } from '../Router';
 import { GitHubConfigRepository } from '../../sync/github/GitHubConfigRepository';
 import { GitHubTransport, isValidGitHubName } from '../../sync/github/GitHubTransport';
@@ -89,6 +91,21 @@ export struct SettingsDetailPage {
 
   @StorageProp('np.playback_speed') speed: number = 1.0;
   @StorageProp('np.audio_quality') quality: string = 'standard';
+  @StorageProp('np.audio_quality_wifi') qualityWifi: string = '';
+  @StorageProp('np.audio_quality_cellular') qualityCellular: string = '';
+  @StorageProp('np.mix_audio') mixAudio: boolean = true;
+  @StorageProp('np.playback_volume') playbackVolume: number = 1.0;
+  @StorageProp('np.autoplay_on_launch') autoplayOnLaunch: boolean = false;
+  @StorageProp('np.nowplaying_bg_style') nowplayingBgStyle: string = 'blur';
+  @StorageProp('np.keep_screen_on') keepScreenOn: boolean = false;
+  @StorageProp('np.dynamic_color') dynamicColor: boolean = true;
+  @StorageProp('np.circular_cover') circularCover: boolean = false;
+  @StorageProp('np.lyric_page_controls') lyricPageControls: boolean = true;
+  @StorageProp('np.mini_next_button') miniNextButton: boolean = true;
+  @StorageProp('np.mini_show_lyric') miniShowLyric: boolean = true;
+  @StorageProp('np.mini_expand_autoplay') miniExpandAutoplay: boolean = false;
+  @StorageProp('np.start_page') startPage: string = 'last';
+  @StorageProp('np.dark_mode') darkMode: string = 'auto';
   @StorageProp('np.lyric_font_size') lyricFontSize: number = 16;
   @StorageProp('np.lyric_offset_ms') lyricOffsetMs: number = 0;
   @StorageProp('np.lyric_translation') lyricTranslation: boolean = true;
@@ -147,8 +164,14 @@ export struct SettingsDetailPage {
     if (this.section === SETTING_LYRICS) {
       return '歌词设置';
     }
+    if (this.section === SETTING_PLAYER) {
+      return '播放器设置';
+    }
     if (this.section === SETTING_APPEARANCE) {
       return '外观与动效';
+    }
+    if (this.section === SETTING_NAVIGATION) {
+      return '页面与导航';
     }
     if (this.section === SETTING_TRAFFIC) {
       return '流量与封面';
@@ -169,6 +192,30 @@ export struct SettingsDetailPage {
       return '关于';
     }
     return '设置';
+  }
+
+  private darkModeOptions(): OptionEntry[] {
+    const options: OptionEntry[] = [
+      { value: 'auto', label: '跟随系统' },
+      { value: 'light', label: '浅色' },
+      { value: 'dark', label: '深色' }
+    ];
+    return options;
+  }
+
+  private applyDarkMode(mode: string): void {
+    if (mode === this.darkMode) {
+      return;
+    }
+    SettingsRepository.setString(SettingsRepository.KEY_DARK_MODE, mode);
+    const context = AppStorage.get<common.UIAbilityContext>('abilityContext');
+    if (context !== undefined) {
+      // setColorMode 触发配置变更、重建整棵组件树，否则本页与 MainShell 的
+      // 颜色表达式不引用可观察状态，切换后不会重绘（见 AppColorMode 注释）。
+      AppColorMode.apply(context, mode);
+      // 系统栏内容色仍显式跟一次：setColorMode 抛错时这里是兜底。
+      SystemBars.apply(context, Theme.isDark());
+    }
   }
 
   async aboutToAppear(): Promise<void> {
@@ -772,6 +819,26 @@ export struct SettingsDetailPage {
     return options;
   }
 
+  private bgStyleOptions(): OptionEntry[] {
+    const options: OptionEntry[] = [
+      { value: 'blur', label: '封面模糊' },
+      { value: 'solid', label: '纯色' },
+      { value: 'gradient', label: '流光' }
+    ];
+    return options;
+  }
+
+  private startPageOptions(): OptionEntry[] {
+    const options: OptionEntry[] = [
+      { value: 'last', label: '跟随上次' },
+      { value: '0', label: '首页' },
+      { value: '1', label: '探索' },
+      { value: '2', label: '资料库' },
+      { value: '3', label: '设置' }
+    ];
+    return options;
+  }
+
   private coverPolicyOptions(): OptionEntry[] {
     const options: OptionEntry[] = [
       { value: 'always', label: '始终加载' },
@@ -835,11 +902,51 @@ export struct SettingsDetailPage {
             })
 
             OptionRow({
-              title: '默认音质',
-              icon: '🎵',
+              title: 'Wi-Fi 网络音质',
+              icon: '📶',
               options: this.qualityOptions(),
-              current: this.quality,
-              onPick: (value: string) => SettingsRepository.setString(SettingsRepository.KEY_AUDIO_QUALITY, value)
+              current: this.qualityWifi.length > 0 ? this.qualityWifi : this.quality,
+              onPick: (value: string) =>
+                SettingsRepository.setString(SettingsRepository.KEY_AUDIO_QUALITY_WIFI, value)
+            })
+
+            OptionRow({
+              title: '非 Wi-Fi 网络音质',
+              subtitle: '蜂窝网络下请求的音质档位',
+              icon: '📡',
+              options: this.qualityOptions(),
+              current: this.qualityCellular.length > 0 ? this.qualityCellular : this.quality,
+              onPick: (value: string) =>
+                SettingsRepository.setString(SettingsRepository.KEY_AUDIO_QUALITY_CELLULAR, value)
+            })
+
+            ToggleRow({
+              title: '允许与其他应用同时播放',
+              subtitle: '其他应用开始播放时尽量不暂停本应用（系统强制抢占除外）',
+              icon: '🔀',
+              value: this.mixAudio,
+              onChange: (on: boolean) =>
+                SettingsRepository.setBoolean(SettingsRepository.KEY_MIX_AUDIO, on)
+            })
+
+            SliderRow({
+              title: '播放音量',
+              icon: '🔊',
+              min: 0,
+              max: 1,
+              step: 0.05,
+              value: this.playbackVolume,
+              format: (value: number) => `${Math.round(value * 100)}%`,
+              onPick: (value: number) => PlayerManager.setVolume(value)
+            })
+
+            ToggleRow({
+              title: '启动应用时自动播放',
+              subtitle: '启动后自动继续播放上次的歌曲',
+              icon: '▷',
+              value: this.autoplayOnLaunch,
+              onChange: (on: boolean) =>
+                SettingsRepository.setBoolean(SettingsRepository.KEY_AUTOPLAY_ON_LAUNCH, on)
             })
 
             ToggleRow({
@@ -892,7 +999,108 @@ export struct SettingsDetailPage {
           } else if (this.section === SETTING_LYRICS) {
             // 行组已抽成共享组件：播放页「词」面板展示同一组设置（LyricSettingsRows）。
             LyricSettingsRows()
+            LyricStylePreview()
+          } else if (this.section === SETTING_PLAYER) {
+            Text('全屏播放器')
+              .fontSize(13)
+              .fontColor(Theme.textSecondary(Theme.isDark()))
+              .width('100%')
+              .margin({ left: 6, top: 10, bottom: 6 })
+            Column({ space: 1 }) {
+              OptionRow({
+                title: '背景样式',
+                icon: '🖼',
+                options: this.bgStyleOptions(),
+                current: this.nowplayingBgStyle,
+                onPick: (value: string) =>
+                  SettingsRepository.setString(SettingsRepository.KEY_NOWPLAYING_BG_STYLE, value)
+              })
+              ToggleRow({
+                title: '保持屏幕常亮',
+                subtitle: '全屏播放时屏幕不会自动熄灭',
+                icon: '☀',
+                value: this.keepScreenOn,
+                onChange: (on: boolean) =>
+                  SettingsRepository.setBoolean(SettingsRepository.KEY_KEEP_SCREEN_ON, on)
+              })
+              ToggleRow({
+                title: '沉浸式取色',
+                subtitle: '播放器背景随封面自动取色',
+                icon: '🎨',
+                value: this.dynamicColor,
+                onChange: (on: boolean) => {
+                  SettingsRepository.setBoolean(SettingsRepository.KEY_DYNAMIC_COLOR, on);
+                  promptAction.openToast({
+                    message: on
+                      ? '已开启：主题色跟随当前歌曲封面'
+                      : '已关闭：主题与播放页使用默认配色'
+                  });
+                }
+              })
+              ToggleRow({
+                title: '圆形封面',
+                subtitle: '封面以圆形唱片样式展示，播放时旋转',
+                icon: '💿',
+                value: this.circularCover,
+                onChange: (on: boolean) =>
+                  SettingsRepository.setBoolean(SettingsRepository.KEY_CIRCULAR_COVER, on)
+              })
+              ToggleRow({
+                title: '歌词页显示播控按钮',
+                subtitle: '在歌词页底部展示播放控制按钮',
+                icon: '🎛',
+                value: this.lyricPageControls,
+                onChange: (on: boolean) =>
+                  SettingsRepository.setBoolean(SettingsRepository.KEY_LYRIC_PAGE_CONTROLS, on)
+              })
+            }
+            .width('100%')
+            .backgroundColor(Theme.surface(Theme.isDark()))
+            .borderRadius(Theme.cardRadius())
+            .clip(true)
+
+            Text('底部 Mini 播放器')
+              .fontSize(13)
+              .fontColor(Theme.textSecondary(Theme.isDark()))
+              .width('100%')
+              .margin({ left: 6, top: 14, bottom: 6 })
+            Column({ space: 1 }) {
+              ToggleRow({
+                title: '下一首按钮',
+                icon: '⏭',
+                value: this.miniNextButton,
+                onChange: (on: boolean) =>
+                  SettingsRepository.setBoolean(SettingsRepository.KEY_MINI_NEXT_BUTTON, on)
+              })
+              ToggleRow({
+                title: '展示歌词',
+                subtitle: '在 Mini 播放器上显示当前歌词行',
+                icon: '♪',
+                value: this.miniShowLyric,
+                onChange: (on: boolean) =>
+                  SettingsRepository.setBoolean(SettingsRepository.KEY_MINI_SHOW_LYRIC, on)
+              })
+              ToggleRow({
+                title: '展开时自动播放',
+                subtitle: '从底部播放器展开到全屏播放页时自动续播',
+                icon: '▷',
+                value: this.miniExpandAutoplay,
+                onChange: (on: boolean) =>
+                  SettingsRepository.setBoolean(SettingsRepository.KEY_MINI_EXPAND_AUTOPLAY, on)
+              })
+            }
+            .width('100%')
+            .backgroundColor(Theme.surface(Theme.isDark()))
+            .borderRadius(Theme.cardRadius())
+            .clip(true)
           } else if (this.section === SETTING_APPEARANCE) {
+            OptionRow({
+              title: '深色模式',
+              icon: '◐',
+              options: this.darkModeOptions(),
+              current: this.darkMode,
+              onPick: (mode: string) => this.applyDarkMode(mode)
+            })
             OptionRow({
               title: '语言',
               icon: '🌐',
@@ -914,6 +1122,16 @@ export struct SettingsDetailPage {
               current: `${this.nowplayingBlurStrength}`,
               onPick: (value: string) =>
                 SettingsRepository.setNumber(SettingsRepository.KEY_NOWPLAYING_BLUR_STRENGTH, Number(value))
+            })
+          } else if (this.section === SETTING_NAVIGATION) {
+            OptionRow({
+              title: '默认启动页',
+              subtitle: '冷启动后首先展示的页面',
+              icon: '🧭',
+              options: this.startPageOptions(),
+              current: this.startPage,
+              onPick: (value: string) =>
+                SettingsRepository.setString(SettingsRepository.KEY_START_PAGE, value)
             })
           } else if (this.section === SETTING_TRAFFIC) {
             ToggleRow({

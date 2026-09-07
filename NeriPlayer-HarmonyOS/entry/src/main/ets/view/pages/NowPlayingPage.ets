@@ -1,4 +1,4 @@
-import { curves, SymbolGlyphModifier, LengthMetrics } from '@kit.ArkUI';
+import { curves, SymbolGlyphModifier, LengthMetrics, window } from '@kit.ArkUI';
 import { SongItem } from '../../model/SongItem';
 import { stableKeyOf } from '../../model/SongIdentity';
 import { LyricLine } from '../../model/LyricLine';
@@ -41,7 +41,7 @@ const IMMERSIVE_EDGES: SafeAreaEdge[] = [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM];
 @Component
 export struct NowPlayingPage {
   @StorageLink('player.currentSong') @Watch('onSongJsonChanged') currentSongJson: string = '';
-  @StorageLink('player.status') status: number = PlaybackStatus.IDLE;
+  @StorageLink('player.status') @Watch('onSpinStatusChanged') status: number = PlaybackStatus.IDLE;
   @StorageLink('player.positionMs') positionMs: number = 0;
   @StorageLink('player.durationMs') durationMs: number = 0;
   @StorageLink('player.shuffle') shuffle: boolean = false;
@@ -94,6 +94,16 @@ export struct NowPlayingPage {
   // 整屏主背景，blur 强度跟随设置项且整体增强（毛玻璃突出控件与歌词）。
   @StorageProp('np.nowplaying_blur_strength') blurStrength: number = 300;
   @StorageProp('np.glass_effect') glassEffect: boolean = true;
+  // 播放器设置（np.nowplaying_bg_style / np.keep_screen_on / np.circular_cover /
+  // np.lyric_page_controls）。
+  @StorageProp('np.nowplaying_bg_style') bgStyle: string = 'blur';
+  @StorageProp('np.keep_screen_on') @Watch('onKeepScreenOnChanged') keepScreenOn: boolean = false;
+  @StorageProp('np.circular_cover') @Watch('onCircularCoverChanged') circularCover: boolean = false;
+  @StorageProp('np.lyric_page_controls') lyricPageControls: boolean = true;
+  // 流光背景的渐变角与圆形封面的旋转角（计时器驱动，见 syncCoverSpinTimer）。
+  @State gradientAngle: number = 0;
+  @State coverSpinAngle: number = 0;
+  private coverSpinTimer: number = -1;
   @State bgUnderUrl: string = '';
   @State bgOverUrl: string = '';
   @State bgOverOpacity: number = 0;
@@ -117,7 +127,86 @@ export struct NowPlayingPage {
     this.bgUnderUrl = this.song().effectiveCoverUrl;
     this.bgOverUrl = '';
     this.bgOverOpacity = 0;
+    this.startGradientFlow();
+    this.syncCoverSpinTimer();
+    await this.applyKeepScreenOn();
     await this.reloadSongData();
+  }
+
+  aboutToDisappear(): void {
+    if (this.coverSpinTimer >= 0) {
+      clearInterval(this.coverSpinTimer);
+      this.coverSpinTimer = -1;
+    }
+    this.releaseKeepScreenOn();
+  }
+
+  // ---- 播放器设置驱动的行为 ------------------------------------------------
+
+  /** np.keep_screen_on：全屏播放页停留期间保持屏幕常亮。 */
+  private async applyKeepScreenOn(): Promise<void> {
+    try {
+      const context = this.getUIContext().getHostContext();
+      if (context === undefined) {
+        return;
+      }
+      const win = await window.getLastWindow(context);
+      await win.setWindowKeepScreenOn(this.keepScreenOn);
+    } catch (error) {
+      const e = error as Error;
+      console.warn(`setWindowKeepScreenOn failed: ${e.message}`);
+    }
+  }
+
+  private onKeepScreenOnChanged(): void {
+    void this.applyKeepScreenOn();
+  }
+
+  private releaseKeepScreenOn(): void {
+    try {
+      const context = this.getUIContext().getHostContext();
+      if (context === undefined) {
+        return;
+      }
+      window.getLastWindow(context).then((win: window.Window) => {
+        win.setWindowKeepScreenOn(false).catch(() => {
+        });
+      }).catch(() => {
+      });
+    } catch (_error) {
+    }
+  }
+
+  /** 流光背景：渐变角 0→360 无限线性循环（角度不支持的设备上退化为静态渐变）。 */
+  private startGradientFlow(): void {
+    this.getUIContext().animateTo({
+      duration: 16000,
+      curve: Curve.Linear,
+      iterations: -1
+    }, () => {
+      this.gradientAngle = 360;
+    });
+  }
+
+  /** 圆形封面：播放中 30fps 匀速旋转（每 tick 0.9°，约 13s 一圈），暂停即停。 */
+  private syncCoverSpinTimer(): void {
+    const shouldSpin = this.circularCover && this.status === PlaybackStatus.PLAYING;
+    if (shouldSpin && this.coverSpinTimer < 0) {
+      this.coverSpinTimer = setInterval(() => {
+        this.coverSpinAngle = (this.coverSpinAngle + 0.9) % 360;
+      }, 33);
+    } else if (!shouldSpin && this.coverSpinTimer >= 0) {
+      clearInterval(this.coverSpinTimer);
+      this.coverSpinTimer = -1;
+    }
+  }
+
+  private onSpinStatusChanged(): void {
+    this.syncCoverSpinTimer();
+  }
+
+  private onCircularCoverChanged(): void {
+    this.syncCoverSpinTimer();
   }
 
   private onSongJsonChanged(): void {
@@ -381,8 +470,25 @@ export struct NowPlayingPage {
         .height('100%')
         .backgroundColor(this.accentHex.length > 0 ? this.accentHex : this.im().background)
         .expandSafeArea(IMMERSIVE_TYPES, IMMERSIVE_EDGES)
+      // 流光（np.nowplaying_bg_style = 'gradient'）：封面取色 scheme 的三段渐变
+      // 随 gradientAngle 缓慢旋转；不支持角度动画的设备上退化为静态渐变。
+      if (this.bgStyle === 'gradient') {
+        Column()
+          .width('100%')
+          .height('100%')
+          .linearGradient({
+            angle: this.gradientAngle,
+            colors: [
+              [this.im().primary, 0],
+              [this.im().secondary, 0.5],
+              [this.im().background, 1]
+            ]
+          })
+          .expandSafeArea(IMMERSIVE_TYPES, IMMERSIVE_EDGES)
+      }
+      // 封面模糊（默认）：双层封面交叉淡化 + 取强度可调的高斯模糊。
       Stack() {
-        if (this.bgUnderUrl.length > 0) {
+        if (this.bgUnderUrl.length > 0 && this.bgStyle === 'blur') {
           Image(this.bgUnderUrl)
             .width('100%')
             .height('100%')
@@ -391,7 +497,7 @@ export struct NowPlayingPage {
             .scale({ x: 1.35, y: 1.35 })
             .expandSafeArea(IMMERSIVE_TYPES, IMMERSIVE_EDGES)
         }
-        if (this.bgOverUrl.length > 0) {
+        if (this.bgOverUrl.length > 0 && this.bgStyle === 'blur') {
           Image(this.bgOverUrl)
             .width('100%')
             .height('100%')
@@ -404,7 +510,7 @@ export struct NowPlayingPage {
       }
       .width('100%')
       .height('100%')
-      .opacity(Theme.isDark() ? 0.82 : 0.44)
+      .opacity(this.bgStyle === 'blur' ? (Theme.isDark() ? 0.82 : 0.44) : 0)
       .expandSafeArea(IMMERSIVE_TYPES, IMMERSIVE_EDGES)
       Column()
         .width('100%')
@@ -484,7 +590,10 @@ export struct NowPlayingPage {
                 Image(this.song().effectiveCoverUrl)
                   .width('78%')
                   .aspectRatio(1)
-                  .borderRadius(22)
+                  // 圆形封面（np.circular_cover）：大圆角 + 播放时匀速旋转。
+                  .borderRadius(this.circularCover ? 999 : 22)
+                  .clip(true)
+                  .rotate({ angle: this.coverSpinAngle })
                   .objectFit(ImageFit.Cover)
                   .shadow({ radius: 24, color: '#66000000', offsetY: 8 })
                   // S6 一镜到底：与迷你条封面共享元素；.id() 防打断重影。
@@ -721,10 +830,10 @@ export struct NowPlayingPage {
             }
             .width('100%')
             .transition(TransitionEffect.OPACITY.animation({ duration: 280, curve: Curve.Friction }))
-          } else {
-            // 歌词页控件行：歌词 / 上一首 / 播放暂停 / 下一首 / 收藏。
-            // The reference uses one outlined, translucent capsule instead of
-            // five unrelated floating buttons.
+          } else if (this.lyricPageControls) {
+            // 歌词页控件行（np.lyric_page_controls 关闭时整行隐藏）：歌词 / 上一首 /
+            // 播放暂停 / 下一首 / 收藏。The reference uses one outlined, translucent
+            // capsule instead of five unrelated floating buttons.
             Row() {
               Button() {
                 Image($r('app.media.ic_lyricon'))

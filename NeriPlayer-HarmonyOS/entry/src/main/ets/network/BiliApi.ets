@@ -5,7 +5,8 @@ import { MusicPlatform } from '../model/MusicPlatform';
 import { HttpClient } from './HttpClient';
 import { mixinKeyFrom, wbiKeyFromUrl, buildWbiSignedQuery } from './BiliWbi';
 import { BiliAudioOption, selectBiliAudioStream, prioritizeBiliStreamUrls } from './BiliAudioSelector';
-import { SettingsRepository } from '../data/SettingsRepository';
+import { AudioQualityPolicy } from '../player/AudioQualityPolicy';
+import { NetworkStatus } from '../util/NetworkStatus';
 import { streamHeadersFor as buildBiliStreamHeaders } from './StreamHeaders';
 import {
   BiliFavFolderSummary,
@@ -253,6 +254,10 @@ export class BiliApi {
     // Track choice follows np.audio_quality with the degrade chain, then the
     // CDN URLs are re-ordered upos-first — the highest-bandwidth track on a
     // slow link stutters (audible fragment loops).
+    // Track choice follows the per-network audio quality (np.audio_quality_*)
+    // with the degrade chain, then the CDN URLs are re-ordered upos-first —
+    // the highest-bandwidth track on a slow link stutters (audible fragment
+    // loops).
     const options: BiliAudioOption[] = [];
     for (const audio of audioList) {
       const option = new BiliAudioOption();
@@ -266,7 +271,7 @@ export class BiliApi {
     if (options.length === 0) {
       return '';
     }
-    const quality = SettingsRepository.getString(SettingsRepository.KEY_AUDIO_QUALITY, 'standard');
+    const quality = AudioQualityPolicy.effective(await NetworkStatus.isWifi());
     const track = selectBiliAudioStream(options, quality);
     if (track === null) {
       return '';

@@ -110,6 +110,15 @@ export struct MainShell {
 
   aboutToAppear(): void {
     Router.attach(this.pageStack, this.getUIContext());
+    // np.start_page ('last' | '0'..'3') is the explicit 启动页 choice; the
+    // legacy np.default_start_tab keeps tracking the last visited tab and is
+    // what 'last' resolves to.
+    const startPage = AppStorage.get<string>('np.start_page') ?? 'last';
+    const parsed = Number(startPage);
+    if (startPage !== 'last' && !Number.isNaN(parsed) && parsed >= 0 && parsed <= 3) {
+      this.currentTab = parsed;
+      return;
+    }
     const stored = AppStorage.get<number>('np.default_start_tab');
     if (stored !== undefined && stored !== null) {
       this.currentTab = stored;
