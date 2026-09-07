@@ -49,6 +49,7 @@ export class SettingsRepository {
   static readonly KEY_LISTEN_TOGETHER_AUTO_PAUSE_ON_MEMBER_CHANGE: string = 'np.listen_together_auto_pause_on_member_change';
   static readonly KEY_LISTEN_TOGETHER_SHARE_AUDIO_LINKS: string = 'np.listen_together_share_audio_links';
   static readonly KEY_AUDIO_QUALITY: string = 'np.audio_quality';
+  static readonly KEY_PLAYBACK_CACHE: string = 'np.playback_cache';
   static readonly KEY_LYRIC_TRANSLATION: string = 'np.lyric_translation';
   static readonly KEY_LYRIC_PHONETIC: string = 'np.lyric_phonetic';
   static readonly KEY_LYRIC_BLUR: string = 'np.lyric_blur';
@@ -112,6 +113,9 @@ export class SettingsRepository {
     [SettingsRepository.KEY_LISTEN_TOGETHER_AUTO_PAUSE_ON_MEMBER_CHANGE, true],
     [SettingsRepository.KEY_LISTEN_TOGETHER_SHARE_AUDIO_LINKS, true],
     [SettingsRepository.KEY_AUDIO_QUALITY, 'standard'],
+    // Opt-in: AVDownloaderManager playback cache is Wi-Fi only but still
+    // re-downloads a copy of what was just streamed.
+    [SettingsRepository.KEY_PLAYBACK_CACHE, false],
     [SettingsRepository.KEY_LYRIC_TRANSLATION, true],
     [SettingsRepository.KEY_LYRIC_PHONETIC, false],
     [SettingsRepository.KEY_LYRIC_BLUR, true],

@@ -16,6 +16,8 @@ import syncWebdavDeviceTest from './SyncWebdavDevice.test';
 import diagnosticsDeviceTest from './DiagnosticsDevice.test';
 import desktopLyricProbeTest from './DesktopLyricProbe.test';
 import audioRendererProbeTest from './AudioRendererProbe.test';
+import nativePlaylistProbeTest from './NativePlaylistProbe.test';
+import avDownloaderProbeTest from './AvDownloaderProbe.test';
 
 export default function testsuite(): void {
   abilityTest();
@@ -36,4 +38,6 @@ export default function testsuite(): void {
   diagnosticsDeviceTest();
   desktopLyricProbeTest();
   audioRendererProbeTest();
+  nativePlaylistProbeTest();
+  avDownloaderProbeTest();
 }

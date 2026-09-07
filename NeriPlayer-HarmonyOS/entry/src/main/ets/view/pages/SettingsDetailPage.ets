@@ -101,6 +101,7 @@ export struct SettingsDetailPage {
   @StorageProp('np.lyric_blur') lyricBlur: boolean = true;
   @StorageProp('np.download_concurrency') downloadConcurrency: number = 6;
   @StorageProp('np.download_match_lyrics') downloadMatchLyrics: boolean = true;
+  @StorageProp('np.playback_cache') playbackCache: boolean = false;
   @StorageProp('np.download_directory_uri') downloadDirectoryUri: string = '';
   @StorageProp('np.download_directory_label') downloadDirectoryLabel: string = '';
   @StorageProp('np.save_traffic') saveTraffic: boolean = false;
@@ -847,6 +848,15 @@ export struct SettingsDetailPage {
               icon: '🔀',
               value: this.shuffle,
               onChange: (on: boolean) => PlayerManager.setShuffle(on)
+            })
+
+            ToggleRow({
+              title: '播放缓存（实验）',
+              subtitle: 'Wi-Fi 下缓存在线歌曲，重播秒开且不重复请求',
+              icon: '⤓',
+              value: this.playbackCache,
+              onChange: (on: boolean) =>
+                SettingsRepository.setBoolean(SettingsRepository.KEY_PLAYBACK_CACHE, on)
             })
           } else if (this.section === SETTING_DOWNLOAD) {
             OptionRow({

@@ -30,6 +30,9 @@ import { AudioInterruptPolicy, InterruptAction } from './AudioInterruptPolicy';
 import { SleepTimer, SleepTimerMode } from './SleepTimer';
 import { PlaybackConstants, PlaybackStatus, RepeatMode } from './PlaybackConstants';
 import { effectivePlaybackRate, toPlaybackSpeedStep } from './PlaybackSpeedMap';
+import { AvPlaylistBridge } from './AvPlaylistBridge';
+import { advanceForceFor, peekNextIndex, shouldPrimeNext } from './AvPlaylistPolicy';
+import { PlaybackCacheManager } from './PlaybackCacheManager';
 import {
   ListenTogetherPlaybackCommand,
   ListenTogetherPlaybackCommandSource,
@@ -656,6 +659,7 @@ export class PlayerManager {
   static async clearQueue(): Promise<void> {
     PlayerManager.playWhenReady = false;
     PlayerManager.loadGeneration++;
+    AvPlaylistBridge.abandon();
     const player = PlayerManager.player;
     if (player !== null) {
       try {
@@ -940,6 +944,9 @@ export class PlayerManager {
 
   private static async loadSong(startPositionMs: number = 0, isRetry: boolean = false): Promise<void> {
     const generation = ++PlayerManager.loadGeneration;
+    // Any explicit load invalidates a primed native-playlist entry: the
+    // bridge's source was predicted for the previous queue position.
+    AvPlaylistBridge.abandon();
     const song = PlayerManager.getCurrentSong();
     if (song === null) {
       return;
@@ -950,53 +957,56 @@ export class PlayerManager {
     if (!isRetry) {
       PlayerManager.errorAttempts = 0;
     }
-    PlayerManager.flushPlaybackStatsAsync();
-    PlayerManager.positionMs = startPositionMs;
-    PlayerManager.restoredPositionMs = 0;
-    PlayerManager.durationMs = song.durationMs;
-    PlayerManager.lastTimeMs = 0;
-    PlayerManager.setCurrentMediaUrl(null);
-    // Before any publish* call: it resets the session's lyric caches and its
-    // duration, so a publishDuration triggered by the new length cannot push
-    // the previous song's lyrics alongside the new title.
-    AVSessionManager.updateMetadata(song, PlayerManager.durationMs);
-    PlayerManager.publishCurrentSong(song);
-    PlayerManager.publishPosition();
-    PlayerManager.publishDuration();
-    PlayerManager.publishQueue();
-    PlayerManager.publishStatus(PlaybackStatus.LOADING);
-    HistoryRepository.addSong(song);
-    // Fire-and-forget metadata auto-match (lyrics/artist/cover) for songs
-    // missing it. Must never delay or break playback, so it is not awaited;
-    // stale results are rejected inside via the current-song check.
-    AutoSongMatcher.maybeAutoMatch(song, new PlayerManagerAutoMatchEnv());
+    PlayerManager.beginTrackTransition(song, startPositionMs);
 
     try {
       const player = await PlayerManager.ensurePlayer();
       if (generation !== PlayerManager.loadGeneration) {
         return;
       }
-      const uri = await PlayerManager.resolveStreamUrl(song);
-      if (generation !== PlayerManager.loadGeneration) {
-        return;
+      // Opt-in playback cache (np.playback_cache): a completed offline copy
+      // replays from disk without touching the platform APIs. Skipped while
+      // a listen-together session is active (the room's link is authoritative).
+      let cachedSource: media.MediaSource | null = null;
+      if (song.platform !== MusicPlatform.LOCAL) {
+        const listenTogetherActive =
+          PlayerManager.listenTogetherDelegate?.isListenTogetherActive() ?? false;
+        cachedSource = await PlaybackCacheManager.takeSourceFor(song, listenTogetherActive);
+        if (generation !== PlayerManager.loadGeneration) {
+          return;
+        }
       }
-      if (uri.length === 0) {
-        throw new Error(`No playable stream for ${song.displayName}`);
+      let source: media.MediaSource;
+      let playedUrl: string = '';
+      let playedHeaders: Record<string, string> = {};
+      if (cachedSource !== null) {
+        await player.reset();
+        source = cachedSource;
+      } else {
+        const uri = await PlayerManager.resolveStreamUrl(song);
+        if (generation !== PlayerManager.loadGeneration) {
+          return;
+        }
+        if (uri.length === 0) {
+          throw new Error(`No playable stream for ${song.displayName}`);
+        }
+        PlayerManager.setCurrentMediaUrl(uri);
+        playedUrl = uri;
+        await player.reset();
+        if (generation !== PlayerManager.loadGeneration) {
+          return;
+        }
+        // Bilibili CDN hosts require a web Referer + desktop UA (plus the login
+        // cookie when present) or the player's own fetch is rejected with 403.
+        const biliCookie = BiliCookieRepository.isLoggedIn()
+          ? buildBiliCookieHeader(BiliCookieRepository.getCookies())
+          : '';
+        const headers = streamHeadersFor(uri, biliCookie);
+        playedHeaders = headers;
+        source = Object.keys(headers).length > 0
+          ? media.createMediaSourceWithUrl(uri, headers)
+          : media.createMediaSourceWithUrl(uri);
       }
-      PlayerManager.setCurrentMediaUrl(uri);
-      await player.reset();
-      if (generation !== PlayerManager.loadGeneration) {
-        return;
-      }
-      // Bilibili CDN hosts require a web Referer + desktop UA (plus the login
-      // cookie when present) or the player's own fetch is rejected with 403.
-      const biliCookie = BiliCookieRepository.isLoggedIn()
-        ? buildBiliCookieHeader(BiliCookieRepository.getCookies())
-        : '';
-      const headers = streamHeadersFor(uri, biliCookie);
-      const source = Object.keys(headers).length > 0
-        ? media.createMediaSourceWithUrl(uri, headers)
-        : media.createMediaSourceWithUrl(uri);
       await player.setMediaSource(source);
       await PlayerManager.waitForState(['initialized']);
       // Pin the stream to the music usage. This is the only window the SDK
@@ -1053,6 +1063,14 @@ export class PlayerManager {
       }
       await player.play();
       Logger.info(`PlayerManager playback started: ${song.displayName}`);
+      if (generation === PlayerManager.loadGeneration) {
+        // Both accelerators are strictly fire-and-forget: playback already
+        // succeeded, so neither may delay or fail this chain.
+        if (playedUrl.length > 0) {
+          PlaybackCacheManager.scheduleCache(song, playedUrl, playedHeaders);
+        }
+        PlayerManager.primeNativeNextAsync(generation);
+      }
     } catch (error) {
       const e = error as Error;
       if (generation !== PlayerManager.loadGeneration) {
@@ -1063,6 +1081,36 @@ export class PlayerManager {
       Logger.error(`PlayerManager.loadSong failed for ${song.displayName}: ${e.message}`);
       await PlayerManager.handleLoadFailure();
     }
+  }
+
+  /**
+   * Track-change side effects shared by loadSong and the native-playlist
+   * advance (tryNativeAdvance): stats flush, position/duration reset and the
+   * AVSession/UI/history/auto-match publishes. loadSong continues from here
+   * into stream resolution; the native advance continues into the kernel
+   * handover that already swapped the media.
+   */
+  private static beginTrackTransition(song: SongItem, startPositionMs: number): void {
+    PlayerManager.flushPlaybackStatsAsync();
+    PlayerManager.positionMs = startPositionMs;
+    PlayerManager.restoredPositionMs = 0;
+    PlayerManager.durationMs = song.durationMs;
+    PlayerManager.lastTimeMs = 0;
+    PlayerManager.setCurrentMediaUrl(null);
+    // Before any publish* call: it resets the session's lyric caches and its
+    // duration, so a publishDuration triggered by the new length cannot push
+    // the previous song's lyrics alongside the new title.
+    AVSessionManager.updateMetadata(song, PlayerManager.durationMs);
+    PlayerManager.publishCurrentSong(song);
+    PlayerManager.publishPosition();
+    PlayerManager.publishDuration();
+    PlayerManager.publishQueue();
+    PlayerManager.publishStatus(PlaybackStatus.LOADING);
+    HistoryRepository.addSong(song);
+    // Fire-and-forget metadata auto-match (lyrics/artist/cover) for songs
+    // missing it. Must never delay or break playback, so it is not awaited;
+    // stale results are rejected inside via the current-song check.
+    AutoSongMatcher.maybeAutoMatch(song, new PlayerManagerAutoMatchEnv());
   }
 
   private static async resolveStreamUrl(song: SongItem): Promise<string> {
@@ -1154,6 +1202,7 @@ export class PlayerManager {
       player.on('audioOutputDeviceChangeWithInfo', (info: audio.AudioStreamDeviceChangeInfo) => {
         PlayerManager.onOutputDeviceChange(info);
       });
+      AvPlaylistBridge.attach(player);
       return player;
     } catch (error) {
       const e = error as Error;
@@ -1204,6 +1253,7 @@ export class PlayerManager {
     // Sleep timer arbitration runs before repeat/advance decisions so that
     // repeat-one/all can never prevent a scheduled stop (Android parity).
     if (PlayerManager.sleepTimer.shouldStopOnTrackEnd(PlayerManager.engine.isLastInPlaylist())) {
+      AvPlaylistBridge.abandon();
       PlayerManager.sleepTimer.cancel();
       PlayerManager.publishSleepState();
       PlayerManager.publishStatus(PlaybackStatus.COMPLETED);
@@ -1223,6 +1273,7 @@ export class PlayerManager {
     PlayerManager.emitPlaybackCommand(finishedCommand);
     const action = PlayerManager.engine.onTrackEnded();
     if (action === TrackEndAction.REPLAY) {
+      AvPlaylistBridge.abandon();
       const player = PlayerManager.player;
       if (player !== null) {
         try {
@@ -1240,11 +1291,136 @@ export class PlayerManager {
       return;
     }
     if (action === TrackEndAction.ADVANCE) {
+      // API 26 native-playlist handover first (gapless); every arbitration
+      // above has already agreed to advance, so the kernel swap only decides
+      // the *how*. Any mismatch or failure falls back to the loadSong path.
+      if (await PlayerManager.tryNativeAdvance()) {
+        return;
+      }
       await PlayerManager.next(true);
       return;
     }
+    AvPlaylistBridge.abandon();
     PlayerManager.stopContinuousTask();
     PlayerManager.publishStatus(PlaybackStatus.COMPLETED);
+  }
+
+  /**
+   * Gapless advance over the API 26 native playlist (AvPlaylistBridge). The
+   * bridge holds the next (offline) source pre-added to the player's list;
+   * advancing swaps media inside the kernel without the reset/prepare cycle
+   * of loadSong. The native list never decides *whether* to advance — only
+   * the *how* is delegated — so the sleep timer, the listen-together room
+   * and repeat-one semantics all keep running in handleCompletion above.
+   * Returns false (engine untouched) whenever the safe path must be taken.
+   */
+  private static async tryNativeAdvance(): Promise<boolean> {
+    if (!AvPlaylistBridge.isPrimed()) {
+      return false;
+    }
+    const delegate = PlayerManager.listenTogetherDelegate;
+    if (delegate !== null && delegate.isListenTogetherActive()) {
+      // The room arbitrates "next"; a locally primed handover would race it.
+      AvPlaylistBridge.abandon();
+      return false;
+    }
+    const primedIndex = AvPlaylistBridge.peekPrimedIndex();
+    const force = advanceForceFor(PlayerManager.engine.repeatMode);
+    if (peekNextIndex(PlayerManager.engine, force) !== primedIndex) {
+      // The queue moved under us (mode toggle, mutation): the primed source
+      // no longer matches the engine's decision.
+      AvPlaylistBridge.abandon();
+      return false;
+    }
+    const mediaUrl = AvPlaylistBridge.primedMediaUrl();
+    if (!(await AvPlaylistBridge.advance())) {
+      // Bridge latched itself off; the engine has not moved.
+      return false;
+    }
+    const target = PlayerManager.engine.next(force);
+    if (target !== primedIndex) {
+      // Cannot happen (predicted above on a full clone); if it ever does,
+      // engine and playback would diverge — recover through a full reload.
+      Logger.warn(`PlayerManager native advance landed on ${target}, expected ${primedIndex}`);
+      await PlayerManager.loadSong();
+      return true;
+    }
+    const song = PlayerManager.getCurrentSong();
+    if (song !== null) {
+      PlayerManager.beginTrackTransition(song, 0);
+      PlayerManager.setCurrentMediaUrl(mediaUrl);
+    }
+    // The kernel already swapped the media; nudge the transport in case it
+    // parked, and re-apply the speed the new source did not inherit.
+    const player = PlayerManager.player;
+    if (player !== null) {
+      try {
+        player.setSpeed(
+          PlayerManager.toPlaybackSpeed(PlayerManager.speed * PlayerManager.listenTogetherSyncPlaybackRate)
+        );
+      } catch (error) {
+        const e = error as Error;
+        Logger.debug(`native advance setSpeed failed: ${e.message}`);
+      }
+      try {
+        await player.play();
+      } catch (error) {
+        const e = error as Error;
+        Logger.warn(`native advance play failed: ${e.message}`);
+      }
+    }
+    PlayerManager.persistNow();
+    Logger.info(`PlayerManager native playlist advance to queue index ${primedIndex}`);
+    return true;
+  }
+
+  private static primeNativeNextAsync(generation: number): void {
+    void PlayerManager.primeNativeNext(generation).catch((error: Object) => {
+      Logger.debug(`primeNativeNext failed: ${(error as Error).message}`);
+    });
+  }
+
+  /**
+   * Primes the native playlist with the next queue entry (AvPlaylistPolicy
+   * gates: no session, no repeat-one, offline-resolvable next). Network
+   * streams are never primed — see AvPlaylistPolicy.shouldPrimeNext.
+   */
+  private static async primeNativeNext(generation: number): Promise<void> {
+    const song = PlayerManager.getCurrentSong();
+    if (song === null) {
+      return;
+    }
+    const delegate = PlayerManager.listenTogetherDelegate;
+    const listenTogetherActive = delegate !== null && delegate.isListenTogetherActive();
+    const force = advanceForceFor(PlayerManager.engine.repeatMode);
+    const nextIndex = peekNextIndex(PlayerManager.engine, force);
+    if (nextIndex < 0 || nextIndex >= PlayerManager.queue.length) {
+      return;
+    }
+    const nextSong = PlayerManager.queue[nextIndex];
+    const localPath = await PlayerManager.offlinePathFor(nextSong);
+    if (generation !== PlayerManager.loadGeneration) {
+      return;
+    }
+    if (!shouldPrimeNext({
+      queueLength: PlayerManager.queue.length,
+      repeatMode: PlayerManager.engine.repeatMode,
+      nextIndex: nextIndex,
+      listenTogetherActive: listenTogetherActive,
+      nextOfflineAvailable: localPath.length > 0
+    })) {
+      return;
+    }
+    await AvPlaylistBridge.prime(nextIndex, localPath);
+  }
+
+  /** Sandbox/download path for an offline-playable song, '' when online-only. */
+  private static async offlinePathFor(song: SongItem): Promise<string> {
+    if (song.platform === MusicPlatform.LOCAL) {
+      return song.localFilePath.length > 0 ? song.localFilePath : song.mediaUri;
+    }
+    const downloaded = await DownloadStorage.findCatalogEntry(song);
+    return downloaded !== null ? downloaded.audioPath : '';
   }
 
   private static onTimeUpdate(timeMs: number): void {
