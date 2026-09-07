@@ -66,7 +66,7 @@ export struct SettingsPage {
 
         // 设置总览（参考应用的设置中心）：六大分类入口一屏直达，其余分组
         // （网络与存储、平台、隐私、其他）保留在下方。
-        Column({ space: 1 }) {
+        Column({ space: 10 }) {
           SettingHubRow({
             title: '云端',
             subtitle: 'GitHub / WebDAV 备份与一起听服务器',
@@ -111,12 +111,9 @@ export struct SettingsPage {
           })
         }
         .width('100%')
-        .backgroundColor(Theme.surface(Theme.isDark()))
-        .borderRadius(Theme.cardRadius())
-        .clip(true)
 
         this.sectionTitle('网络与存储')
-        Column({ space: 1 }) {
+        Column({ space: 10 }) {
           SettingRow({
             title: '下载设置',
             subtitle: '并发数、下载目录与流量提醒',
@@ -137,12 +134,9 @@ export struct SettingsPage {
           })
         }
         .width('100%')
-        .backgroundColor(Theme.surface(Theme.isDark()))
-        .borderRadius(Theme.cardRadius())
-        .clip(true)
 
         this.sectionTitle('平台')
-        Column({ space: 1 }) {
+        Column({ space: 10 }) {
           SettingRow({
             title: '账号与登录',
             subtitle: '网易云 / Bilibili / YouTube',
@@ -164,14 +158,11 @@ export struct SettingsPage {
           })
         }
         .width('100%')
-        .backgroundColor(Theme.surface(Theme.isDark()))
-        .borderRadius(Theme.cardRadius())
-        .clip(true)
 
         // 指南要求隐私政策与用户协议在应用内随时可达、可完整打开，不只出现在
         // 首启弹窗里。
         this.sectionTitle('隐私与协议')
-        Column({ space: 1 }) {
+        Column({ space: 10 }) {
           SettingRow({
             title: '隐私政策',
             subtitle: '收集范围、权限用途与你的控制权',
@@ -186,12 +177,9 @@ export struct SettingsPage {
           })
         }
         .width('100%')
-        .backgroundColor(Theme.surface(Theme.isDark()))
-        .borderRadius(Theme.cardRadius())
-        .clip(true)
 
         this.sectionTitle('其他')
-        Column({ space: 1 }) {
+        Column({ space: 10 }) {
           ToggleRow({
             title: '开发者模式',
             icon: '⚙',
@@ -215,10 +203,7 @@ export struct SettingsPage {
           })
         }
         .width('100%')
-        .backgroundColor(Theme.surface(Theme.isDark()))
-        .borderRadius(Theme.cardRadius())
-        .clip(true)
-      }
+              }
       .width('100%')
       .padding({ left: 14, right: 14, bottom: 24 + FLOAT_TAB_CLEARANCE })
       }

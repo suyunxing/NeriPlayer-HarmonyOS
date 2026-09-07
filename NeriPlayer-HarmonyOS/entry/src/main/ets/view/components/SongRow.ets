@@ -17,6 +17,8 @@ export struct SongRow {
   @Prop showPlatform: boolean = false;
   /** >= 0 时在行尾展示播放次数（播放历史页）。 */
   @Prop playCount: number = -1;
+  /** true 时行底色透明（播放历史页参考样式：直接坐在页面背景上）。 */
+  @Prop transparentBg: boolean = false;
   onPlay: () => void = () => {};
 
   @State menuOpen: boolean = false;
@@ -151,7 +153,8 @@ export struct SongRow {
       }
       .width('100%')
       .padding({ left: 10, right: 6, top: 7, bottom: 7 })
-      .backgroundColor(this.schemeSurface())
+      .backgroundColor(this.transparentBg ? Color.Transparent : this.schemeSurface())
+      .borderRadius(this.transparentBg ? 0 : Theme.cardRadius())
       .onClick(() => this.onPlay())
       .clickEffect({ level: ClickEffectLevel.LIGHT })
 
