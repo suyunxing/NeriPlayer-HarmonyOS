@@ -1,12 +1,14 @@
-import { fileIo } from '@kit.CoreFileKit';
+import { fileIo, fileUri } from '@kit.CoreFileKit';
 import { util } from '@kit.ArkTS';
 import { common } from '@kit.AbilityKit';
 import { Logger } from '../app/Logger';
 import { AppPreferences } from '../data/AppPreferences';
 import { SchemaStore } from '../data/schema/SchemaStore';
+import { SettingsRepository } from '../data/SettingsRepository';
 import { SongItem } from '../model/SongItem';
 import { stableKeyOf } from '../model/SongIdentity';
 import { DownloadNaming } from './DownloadSupport';
+import { DownloadDirectory } from './DownloadDirectory';
 
 /**
  * Resume fingerprint for DIRECT/CHUNKED_RANGE transfers (Android
@@ -97,9 +99,12 @@ export class DownloadedSongEntry {
 }
 
 /**
- * Managed download storage tree (D3 decision: app sandbox):
+ * Managed download storage tree (D3 decision: app sandbox; a user-picked
+ * document URI directory can override the final tree since the directory
+ * selection setting):
  * - working/staging: <filesDir>/download_staging/*.download + sidecars;
- * - final tree: <filesDir>/Download/NeriPlayer/<name>.<ext>;
+ * - final tree: <filesDir>/Download/NeriPlayer/<name>.<ext>, or the picked
+ *   file URI directory when np.download_directory_uri is configured;
  * - catalog: preferences key `downloaded_catalog` via SchemaStore.
  */
 export class DownloadStorage {
@@ -108,7 +113,12 @@ export class DownloadStorage {
   static init(context: common.Context): void {
     DownloadStorage.context = context;
     DownloadStorage.ensureDir(DownloadStorage.stagingDir());
-    DownloadStorage.ensureDir(DownloadStorage.downloadDir());
+    const dir = DownloadStorage.downloadDir();
+    // User-picked document directories exist by construction (picker); mkdir
+    // is not documented for URIs, so only the sandbox default is ensured.
+    if (!DownloadDirectory.isCustomUri(dir)) {
+      DownloadStorage.ensureDir(dir);
+    }
   }
 
   static stagingDir(): string {
@@ -122,7 +132,8 @@ export class DownloadStorage {
     const base = DownloadStorage.context !== null
       ? DownloadStorage.context.filesDir
       : '/data/storage/el2/base/files';
-    return `${base}/Download/NeriPlayer`;
+    const custom = SettingsRepository.getString(SettingsRepository.KEY_DOWNLOAD_DIRECTORY_URI, '');
+    return DownloadDirectory.resolveActiveDir(custom, base);
   }
 
   private static ensureDir(path: string): void {
@@ -231,20 +242,59 @@ export class DownloadStorage {
   // ------------------------------------------------------------------
 
   /**
-   * Atomically commits the working file: fsync + rename into the final
-   * tree, then records the catalog entry. Returns the final path or ''.
+   * Commits the working file into the final tree: rename inside the sandbox
+   * (atomic), or an fd-to-fd copy into a user-picked document URI directory
+   * (rename is not documented for URIs). Returns the final path or ''.
    */
   static commit(song: SongItem, workingPath: string, ext: string): string {
     try {
       const baseName = DownloadNaming.renderWithFallback(DownloadNaming.DEFAULT_TEMPLATE, song);
-      const finalPath = `${DownloadStorage.downloadDir()}/${baseName}.${ext.length > 0 ? ext : 'bin'}`;
-      fileIo.renameSync(workingPath, finalPath);
+      const fileName = `${baseName}.${ext.length > 0 ? ext : 'bin'}`;
+      const dir = DownloadStorage.downloadDir();
+      const finalPath = DownloadDirectory.fileInDir(dir, fileName);
+      if (DownloadDirectory.isCustomUri(dir)) {
+        DownloadStorage.copyIntoDirectory(workingPath, finalPath);
+      } else {
+        fileIo.renameSync(workingPath, finalPath);
+      }
       DownloadStorage.deleteWorkingSet(workingPath);
       return finalPath;
     } catch (error) {
       const e = error as Error;
       Logger.warn(`commit failed: ${e.message}`);
       return '';
+    }
+  }
+
+  /**
+   * Copies the staged file onto the target URI. The openSync address follows
+   * the official DOWNLOAD-mode save example (FileUri(...).path); the staging
+   * copy is removed by the caller afterwards, so a mid-copy crash only leaves
+   * an orphan to overwrite on retry.
+   */
+  private static copyIntoDirectory(workingPath: string, targetUri: string): void {
+    const converted = new fileUri.FileUri(targetUri).path;
+    const target = converted.length > 0 ? converted : targetUri;
+    const source = fileIo.openSync(workingPath, fileIo.OpenMode.READ_ONLY);
+    try {
+      const dest = fileIo.openSync(target, fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC);
+      try {
+        const chunk = new ArrayBuffer(512 * 1024);
+        while (true) {
+          const read = fileIo.readSync(source.fd, chunk);
+          if (read <= 0) {
+            break;
+          }
+          const written = fileIo.writeSync(dest.fd, chunk, { length: read });
+          if (written !== read) {
+            throw new Error(`short write ${written}/${read}`);
+          }
+        }
+      } finally {
+        fileIo.closeSync(dest);
+      }
+    } finally {
+      fileIo.closeSync(source);
     }
   }
 

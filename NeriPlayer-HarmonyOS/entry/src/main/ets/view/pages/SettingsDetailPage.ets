@@ -1,7 +1,13 @@
 import { promptAction } from '@kit.ArkUI';
+import { common } from '@kit.AbilityKit';
 import { SettingsRepository } from '../../data/SettingsRepository';
 import { DownloadStorage } from '../../download/DownloadStorage';
 import { DownloadEngine } from '../../download/DownloadEngine';
+import { DownloadDirectory } from '../../download/DownloadDirectory';
+import {
+  DownloadDirectoryManager,
+  DownloadDirectoryPickCode
+} from '../../download/DownloadDirectoryManager';
 import { PlayerManager } from '../../player/PlayerManager';
 import { NeteaseCookieRepository } from '../../data/auth/NeteaseCookieRepository';
 import { BiliCookieRepository } from '../../data/auth/BiliCookieRepository';
@@ -95,6 +101,8 @@ export struct SettingsDetailPage {
   @StorageProp('np.lyric_blur') lyricBlur: boolean = true;
   @StorageProp('np.download_concurrency') downloadConcurrency: number = 6;
   @StorageProp('np.download_match_lyrics') downloadMatchLyrics: boolean = true;
+  @StorageProp('np.download_directory_uri') downloadDirectoryUri: string = '';
+  @StorageProp('np.download_directory_label') downloadDirectoryLabel: string = '';
   @StorageProp('np.save_traffic') saveTraffic: boolean = false;
   @StorageProp('np.netease_auto_fallback') neteaseAutoFallback: boolean = true;
   @StorageProp('np.cover_policy') coverPolicy: string = 'always';
@@ -173,6 +181,46 @@ export struct SettingsDetailPage {
     this.githubTokenSaved = GitHubConfigRepository.tokenPreview().length > 0;
     await WebDavConfigRepository.init();
     this.webdavCredentialsSaved = WebDavConfigRepository.isConfigured();
+  }
+
+  // ---- Download directory (picker + persisted URI grant) ------------------
+
+  private async pickDownloadDirectory(): Promise<void> {
+    if (!DownloadDirectoryManager.folderPickerSupported()) {
+      promptAction.openToast({ message: '当前系统版本不支持选择下载目录' });
+      return;
+    }
+    const context = AppStorage.get<common.UIAbilityContext>('abilityContext');
+    if (context === undefined) {
+      promptAction.openToast({ message: '应用上下文未就绪' });
+      return;
+    }
+    const result = await DownloadDirectoryManager.pickAndApply(context);
+    if (result.code === DownloadDirectoryPickCode.APPLIED) {
+      promptAction.openToast({ message: `下载目录已切换为「${result.label}」` });
+    } else if (result.code === DownloadDirectoryPickCode.FAILED) {
+      promptAction.openToast({ message: result.message });
+    }
+    // CANCELLED: 用户在选择器中退出，保持原目录，无需提示。
+  }
+
+  private confirmResetDownloadDirectory(): void {
+    AlertDialog.show({
+      title: '恢复默认目录',
+      message: '之后的下载将保存到应用内部 Download/NeriPlayer 目录；已下载文件保留在原目录，仍可播放。',
+      primaryButton: {
+        value: '取消',
+        action: () => {
+        }
+      },
+      secondaryButton: {
+        value: '恢复',
+        action: () => {
+          DownloadDirectoryManager.resetToDefault();
+          promptAction.openToast({ message: '已恢复默认下载目录' });
+        }
+      }
+    });
   }
 
   // ---- NetEase QR login (state machine lives in QrLoginPanel) ------------
@@ -819,10 +867,18 @@ export struct SettingsDetailPage {
             })
             SettingRow({
               title: '下载目录',
-              subtitle: '应用沙箱 Download 目录（当前版本）',
+              subtitle: DownloadDirectory.describeDirectory(this.downloadDirectoryUri, this.downloadDirectoryLabel),
               icon: '📁',
-              onTap: () => promptAction.openToast({ message: '目录选择待移植' })
+              onTap: () => this.pickDownloadDirectory()
             })
+            if (this.downloadDirectoryUri.length > 0) {
+              SettingRow({
+                title: '恢复默认目录',
+                subtitle: '之后的下载存回应用内部目录，已下载文件保留原处',
+                icon: '↩',
+                onTap: () => this.confirmResetDownloadDirectory()
+              })
+            }
           } else if (this.section === SETTING_LYRICS) {
             // 行组已抽成共享组件：播放页「词」面板展示同一组设置（LyricSettingsRows）。
             LyricSettingsRows()
