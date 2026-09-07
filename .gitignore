@@ -3,6 +3,8 @@
 .agents/
 .codex/
 .claude/
+.codegenie/
+**/.codegenie/
 .hvigor/
 **/.hvigor/
 **/.appanalyzer/
@@ -26,6 +28,7 @@
 **/node_modules/
 **/oh_modules/
 **/build/
+**/.test/
 **/out/
 **/output/
 **/captures/

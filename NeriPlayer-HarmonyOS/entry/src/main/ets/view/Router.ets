@@ -1,5 +1,14 @@
+import { curves } from '@kit.ArkUI';
 import { KEY_REFRESH_TICK } from '../util/Breakpoint';
 import { ROUTE_MAIN, RoutePushAction, routePushAction } from './RouteStack';
+
+/**
+ * 一镜到底（NOW_PLAYING）的转场弹簧：push/pop 共用同一条曲线，封面沿
+ * geometryTransition('np.cover') 往返的节奏才对称。该路由的系统转场是
+ * NavigationSystemTransitionType.NONE，动画完全靠把栈操作包进 animateTo
+ * 闭包驱动（MiniPlayer S6 引入，现收敛到 Router 统一提供）。
+ */
+const NOW_PLAYING_SPRING: AnimateParam = { curve: curves.interpolatingSpring(0, 1, 328, 36) };
 
 /**
  * Full-screen route stack for detail overlays.
@@ -31,14 +40,18 @@ export class Router {
   static readonly LEGAL_DOC: string = 'legal_doc';
 
   private static pathStack: NavPathStack | null = null;
+  /** attach 时由 MainShell 一并交入：NOW_PLAYING 的 animateTo 需要 UIContext 入口。 */
+  private static uiContext: UIContext | null = null;
 
   /** MainShell.aboutToAppear 把 Navigation 的栈交给 Router。 */
-  static attach(stack: NavPathStack): void {
+  static attach(stack: NavPathStack, uiContext: UIContext): void {
     Router.pathStack = stack;
+    Router.uiContext = uiContext;
   }
 
   static detach(): void {
     Router.pathStack = null;
+    Router.uiContext = null;
   }
 
   static push(name: string, param: string = ''): void {
@@ -62,17 +75,39 @@ export class Router {
       stack.replacePathByName(name, param);
       return;
     }
-    if (action === RoutePushAction.EVICT_THEN_PUSH) {
-      stack.removeByIndexes([0]);
+    const mutate = (): void => {
+      if (action === RoutePushAction.EVICT_THEN_PUSH) {
+        stack.removeByIndexes([0]);
+      }
+      stack.pushPathByName(name, param);
+    };
+    if (name === Router.NOW_PLAYING && Router.uiContext !== null) {
+      // 一镜到底 push 半程：该路由系统转场为 NONE，动画由这个 animateTo 闭包
+      // 提供，geometryTransition 才能把封面从迷你条飞到播放页。所有入口统一
+      // 在这里包 —— 此前只有 MiniPlayer 自己包了，其余入口 push 是硬切。
+      Router.uiContext.animateTo(NOW_PLAYING_SPRING, mutate);
+      return;
     }
-    stack.pushPathByName(name, param);
+    mutate();
   }
 
   static pop(): void {
     const stack = Router.pathStack;
-    if (stack !== null) {
-      stack.pop();
+    if (stack === null) {
+      return;
     }
+    const names = stack.getAllPathName();
+    const top = names.length > 0 ? names[names.length - 1] : '';
+    if (top === Router.NOW_PLAYING && Router.uiContext !== null) {
+      // 一镜到底 pop 半程：页内返回键、系统返回键此前都是裸 pop，系统转场又
+      // 是 NONE，返回退化为硬切消失。包进对称的 animateTo，封面才会沿共享
+      // 元素飞回迷你条；侧滑手势由 MainShell 的 onBackPressed 拦截后也汇入这里。
+      Router.uiContext.animateTo(NOW_PLAYING_SPRING, () => {
+        stack.pop();
+      });
+      return;
+    }
+    stack.pop();
   }
 
   /** True while a full-screen route is showing, i.e. back has something to pop. */

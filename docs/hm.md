@@ -1,6 +1,6 @@
 # NeriPlayer HarmonyOS 开发与迁移指南
 
-> 核验日期：2026-08-14。本文依据华为开发者联盟文档中心、版本说明和当前工作区源码重写并复核：版本映射与官方文档核对一致；本机工具链路径按 2026-08-14 迁移后的 `D:\HarmonyOS\Tools\` 布局更新（2026-08-13 的验证记录当时基于旧布局 `D:\HarmonyOS\` 根目录）。本文面向 NeriPlayer 的 HarmonyOS 原生迁移，不是 HarmonyOS API 的完整百科。
+> 核验日期：2026-08-14；2026-08-31 复核了 §3.1/§3.2/§8.1 的源码规模、能力域状态与用例计数。本文依据华为开发者联盟文档中心、版本说明和当前工作区源码重写并复核：版本映射与官方文档核对一致；本机工具链路径按 2026-08-14 迁移后的 `D:\HarmonyOS\Tools\` 布局更新（2026-08-13 的验证记录当时基于旧布局 `D:\HarmonyOS\` 根目录）。本文面向 NeriPlayer 的 HarmonyOS 原生迁移，不是 HarmonyOS API 的完整百科。
 
 ## 1. 先看结论
 
@@ -107,7 +107,7 @@ compatibleSdkVersion ≤ targetSdkVersion ≤ compileSdkVersion
 HarmonyOS 工程当前是单 `entry` HAP、Stage 模型、ArkTS 严格模式。
 工程声明支持 phone、tablet、2in1，包名为 `moe.ouom.neriplayer`，许可证沿用 GPL-3.0。
 
-源码约 56 个 `.ets/.ts` 文件、约 7,700 行（2026-08-14 复核为 7,698 行）。当前工作区已在 `entry/src/test/` 建立 ArkTS 单元测试入口，并使用 `@ohos/hypium` 覆盖 LRC 解析、排序、翻译时间容差和时间格式化。
+源码 `entry/src/main/ets` 下 239 个 `.ets` 文件、约 4.98 万行（2026-08-31 实测 49,834 行）。`entry/src/test/` 本地单元测试已随里程碑累积到 874 用例（2026-08-29 记录全绿），`entry/src/ohosTest/` 建有设备测试族；测试范围与计数沿革见 §8.1。
 2026-08-13 已使用 `D:\HarmonyOS` 中的 6.1.1 Release 工具链从 `ohpm install --all`、`clean` 开始完成 Debug HAP 构建，随后执行 ArkTS 单元测试、调试签名、模拟器安装、冷启动和设置页 smoke test。构建与测试结果可从当前源码重复获得，不再依赖 2026-08-02 的历史日志。
 
 ### 3.2 已有代码与可信度
@@ -115,20 +115,20 @@ HarmonyOS 工程当前是单 `entry` HAP、Stage 模型、ArkTS 严格模式。
 | 能力域 | 当前情况 | 可信度/下一步 |
 | --- | --- | --- |
 | 启动、免责声明、引导、安全模式 | `Index.ets` 和对应页面已有路径 | 静态存在；需冷启动、升级和异常恢复测试 |
-| 主导航和页面 | 首页、探索、资料库、设置、播放页等已存在 | 原型；需迁移到官方推荐 Navigation 并做多设备验证 |
+| 主导航和页面 | 首页、探索、资料库、设置、播放页等已存在 | `Navigation`/`NavDestination` + `NavPathStack` 已落地（2026-08-26，`Router` 保留门面）；多形态布局回归记录见 §9 |
 | 基础播放 | `PlayerManager.ets` 使用 AVPlayer，支持 URL/fd、队列、seek、倍速和错误重试骨架 | 原型/待复核；需真实设备闭环 |
-| 系统媒体控制 | `AVSessionManager.ets` 可创建并更新 AVSession | 原型；需锁屏、控制中心、耳机和进程回收测试 |
-| 后台播放 | `audioPlayback` 配置和后台任务封装已存在 | 未完成官方接入闭环；需 AVSession、长时任务和中断测试 |
+| 系统媒体控制 | `AVSessionManager.ets` 可创建并更新 AVSession | 播控中心元数据/歌词字段/seek 回灌已设备实测（2026-08-24/25 M10.1/M10.3）；锁屏、耳机与进程回收真机测试待复核 |
+| 后台播放 | `audioPlayback` 配置 + 真实 AUDIO_PLAYBACK 长时任务申请/取消（2026-08-16；2026-09-01 修复 wantAgent 旧包名/失败短路/静默吞错三缺陷，加 cancel/suspend 监听与终态取消） | 模拟器已实测：ohosTest 断言任务注册/释放（含修复前 9800005 失败实锤）、后台连播 >5 分钟跨 3 首切歌 pid 未重启；真机熄屏长播待复核 |
 | 本地媒体 | `AudioViewPicker` + `AVMetadataExtractor` | 代码路径存在；需真机验证 URI 生命周期和播放 |
-| 网易云 | 搜索、歌词和部分取流适配器 | 有风控回退；登录态、限流和版权场景未闭环 |
-| Bilibili | 基础搜索/取流适配器 | 原型；需 DASH、Cookie、区域和错误测试 |
-| YouTube Music | 搜索适配器 | 取流明确未完成，缺 signature/n、PoToken、EJS/HLS 闭环 |
-| 下载 | 任务模型、页面和 preferences 目录 | 字节传输、Range/HLS、校验和恢复未完成 |
-| GitHub/WebDAV 同步 | 设置页入口 | 同步层未移植 |
-| 一起听 | 设置页入口 | WebSocket 协议、重连和校时未移植 |
-| USB 独占 | 调试页提示 | 没有 NAPI C++ 模块 |
-| 动态取色/高级模糊 | 设置入口和基础主题 | 渲染引擎未完成 |
-| 测试 | ArkTS 本地单元测试 809/809 通过（2026-08-24 M10.1 复核；最初仅 3 个 LRC 用例，随各里程碑累积） | 已建立并持续扩充；仍需补 UI/Instrument 测试 |
+| 网易云 | 搜索、取流、歌词、歌单 + QR 登录与登录态歌单（M4，2026-08-16/17） | 有风控回退；限流、会员内容待复核 |
+| Bilibili | 搜索/取流（WBI 签名）+ QR 登录与收藏夹（M4.4～M4.7，2026-08-17/18） | 真网 ohosTest 覆盖搜索/取流/AVPlayer 播放；dolby/flac 音轨、区域错误分类待补 |
+| YouTube Music | 搜索 + 匿名 IOS 直连取流（M6.1/M6.2，2026-08-19） | 设备实测搜索→取流通过，播放受上游约一分钟封顶（M6.5）；完整取流待 PoToken/JS 运行时（M6.3）；登录未开始 |
+| 下载 | `download/` 引擎 + DownloadsPage（M3，2026-08-16 全链模拟器实测） | Range/HLS 续传、原子提交、启动恢复已落地；断网/杀进程恢复的设备端自动化待补 |
+| GitHub/WebDAV 同步 | `sync/`（传输 + 三路合并 + 协调器）+ 同步报告 UI（M5，2026-08-19） | 双设备冲突验收已过本地自建服务器（M5.6）；真实云凭据待复核 |
+| 一起听 | `listentogether/` 全链 + 房间页（M7，2026-08-21/22） | 建房/加入/同步播放/重连/邀请分享双端设备闭环；房间设置开关等增强项未做 |
+| USB 独占 | M9.1 spike 定案**不移植**（2026-08-24，`docs/USB_M91_SPIKE.md`） | API 面可行，但 ArkTS 单 JS 线程守不住等时节拍、SDK 无公开 USB DDK；系统路径 AVPlayer→USB Audio HAL 可用 |
+| 动态取色/高级模糊 | `view/theme/`（Palette/DynamicTheme 等）+ 背景模糊/玻璃子集（M8.1/M8.4，2026-08-23） | 设备实证随封面变色；AGSL 区域掩码玻璃无平台对应（D 级降级）；壁纸取色待复核 |
+| 测试 | ArkTS 本地单元测试 874/874 通过（2026-08-29 S 阶段记录；最初仅 3 个 LRC 用例，随各里程碑累积）+ `ohosTest` 设备测试族 | 已建立并持续扩充；UI/Instrument 自动化仍薄 |
 
 ### 3.3 当前配置审查
 
@@ -478,7 +478,7 @@ $hdc = 'D:\HarmonyOS\Tools\command-line-tools\sdk\default\openharmony\toolchains
 
 ### 8.1 纯逻辑测试
 
-当前基线位于 `entry/src/test/`，通过 `@ohos/hypium` 和 Hvigor 本地单元测试任务执行 **809 个用例**（2026-08-24 M10.1 复核，`Tests run: 809, Failure: 0, Error: 0, Pass: 809, Ignore: 0`；最初仅 3 个 LRC 用例，随各里程碑累积至今）。测试不访问设备和第三方网络。该结果不替代需要安装测试包并通过 `aa test` 执行的设备侧 JsUnit/Instrument 测试。
+当前基线位于 `entry/src/test/`，通过 `@ohos/hypium` 和 Hvigor 本地单元测试任务执行 **874 个用例**（2026-08-29 S 阶段记录全绿，`docs/FEATURE_MATRIX.md`；此前各里程碑计数 3→42→…→809→816→848→874 递增，`hvigorw test` 默认不打印计数，结果读 `entry/.test/default/intermediates/test/coverage_data/test_result.txt`）。测试不访问设备和第三方网络。该结果不替代需要安装测试包并通过 `aa test` 执行的设备侧 JsUnit/Instrument 测试。
 
 优先为以下模块补 JsUnit：
 
@@ -623,7 +623,7 @@ $hdc = 'D:\HarmonyOS\Tools\command-line-tools\sdk\default\openharmony\toolchains
 
 ### 7.9 2026-08-18 GitHub Actions CI 上线记录
 
-- 仓库根 `.github/workflows/harmonyos-ci.yml`（GitHub `suyunxing/NeriPlayer-HarmonyOS`，私有，当前默认分支 `su`）。触发：push 到 `main`、`dev`，PR 到 `main`、`dev` 或迁移期兼容分支 `su`（直接 push 到 `su` 不触发；paths 限定 `NeriPlayer-HarmonyOS/**` 与 workflow 自身）+ 手动 `workflow_dispatch`；同一 PR 或分支并发取消旧跑。dev 分支上早先手写的 `build-pr.yml` 草稿（npm install/hvigor 命令不可用）已删除，以本文件为准。
+- 仓库根 `.github/workflows/harmonyos-ci.yml`（GitHub `suyunxing/NeriPlayer-HarmonyOS`，私有，记录时默认分支 `su`；**2026-08-31 复核已切换为 `dev`**，push/PR 触发规则未变）。触发：push 到 `main`、`dev`，PR 到 `main`、`dev` 或迁移期兼容分支 `su`（直接 push 到 `su` 不触发；paths 限定 `NeriPlayer-HarmonyOS/**` 与 workflow 自身）+ 手动 `workflow_dispatch`；同一 PR 或分支并发取消旧跑。dev 分支上早先手写的 `build-pr.yml` 草稿（npm install/hvigor 命令不可用）已删除，以本文件为准。
 - 工具链：`ErBWs/setup-ohos@v2` action，从社区镜像仓库 `ErBWs/ohos-sdk` Releases 下载 Command Line Tools **6.1.1.280**（SDK 6.1.1.125 / API 24，与本机 CLT 6.1.1.300 同 SDK 基线；hvigorw/ohpm/Node 进 PATH，`cache: true` 缓存 `~/ohos-sdk`）。华为官网 CLT 下载需账号登录无法直链，镜像分卷资产带 sha256 校验。**不要用镜像里的 26.0.0.621**：其 hvigor 6.26.x 不能构建 6.1.1(24) 工程（同 7.1 的 00303031 限制）。
 - 步骤：`apt libgl1-mesa-dev` → setup → `ohpm install --all` → debug `assembleHap` → 上传 debug unsigned HAP（PR 保留）→ push/手动运行时再构建并上传 release unsigned HAP（14 天）→ Linux 单测诊断。**hypium 本地 runner 在 Linux CI 上挂死**（`UnitTestArkTS` 编译完成后 `> hvigor Linux` 起零输出；本机 Windows 同命令可完成），故单测限时 4 分钟、保留退出码但不阻塞构建，打印 `.test` 目录树并上传 `test-output` artifact。缓存 `~/ohos-sdk`（action 自带）、`~/.ohpm`、`~/.hvigor`。
 - 已知事实：hypium 断言失败不会使 `hvigorw test` 非零退出（本机 StreamHeaders 用例失败仍 BUILD SUCCESSFUL/EXIT 0），CI 的单测把关需解析报告而非依赖退出码；Linux 挂死根因未明，修复后应移除限时与非阻塞。
