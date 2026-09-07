@@ -675,7 +675,25 @@ $hdc = 'D:\HarmonyOS\Tools\command-line-tools\sdk\default\openharmony\toolchains
 - 验证（服务器）：`hvigorw --no-daemon assembleHap` BUILD SUCCESSFUL 且无新增弃用告警；`hvigorw test` 编译级 0 error（执行阶段挂死为 Linux 已知限制，真实通过计数待 Windows 工作站）；codelinter 全仓 5 error + 23 warn + 3 suggestion，与迁移前 stash 基线**逐字节一致**（5 个 `await-thenable` error 为 CLT 26.0.0.105 codelinter 对 8 月存量文件的误报，见 §7.11），本次 8 个改动文件 0 error 0 warn。
 - 未验证（设备侧全部）：播控中心按钮实际渲染；`detailedReason` 实际取值分布；26 镜像上全功能回归（播放/下载/同步/一起听）；弹窗沉浸材质视觉。`compatibleSdkVersion` 抬至 26.0.0 后 26 以下设备无法安装，属预期取舍（用户要求全量迁移）。
 
+### 7.13 2026-09-07 API 26 原生播放列表桥接与播放缓存落地记录（服务器 Linux CLT 26.0.0.105，无设备，分支 `feature/api26-migration`）
+
+§7.12 中「评估后不接入」的两项按既定定位落地：原生播放列表作为 QueueEngine 之下的**换源加速层**（不替换状态机），AVDownloaderManager 作为**播放缓存补充**（不替换下载引擎）。所有平台调用 8s 超时包裹 + 首次硬失败按进程闭锁（防 `setLoudnessGain` 式挂死桩），全部带回退路径。
+
+- **原生播放列表桥（gapless 切歌）** `player/AvPlaylistBridge.ets` + 纯策略 `player/AvPlaylistPolicy.ets`：
+  - 架构：`handleCompletion` 的全部仲裁（睡眠定时、一起听房间、单曲循环重播、TRACK_FINISHED 上报）保持应用侧；仅当仲裁决定前进时，才用内核 `advanceToNextMediaSource()` 换源（无 reset/prepare 空窗）。`playlistLoopMode` 钉死 `NONE`，系统永不自行前进。
+  - 预热条件（AvPlaylistPolicy.shouldPrimeNext，5 门全查）：非单曲循环、队列 ≥2、无一起听会话、引擎会前进、**下一首可离线解析**（下载目录条目或本地文件）。网络流永不预热：预解析每首歌多打一次平台 API（B 站风控教训）且签名 URL 在前进时大概率过期。
+  - 预测一致性：`peekNextIndex` 用 `QueueEngine.toJson()/fromJson()` 全量克隆（含种子随机态）预测 `next(force)` 落点；完成时若克隆预测 ≠ 桥内缓存索引（模式中途切换等）→ 弃用预热回退 loadSong。`QueueEngine` 补 `getQueueSize()`。
+  - fd 生命周期：桥持有预热源的 fd，consume（前进已消费）/abandon（新加载、REPLAY、STOP、清空队列）/失败三条路径都恰好释放一次。
+  - PlayerManager 接线：`loadSong` 前缀抽为 `beginTrackTransition`（原生前进复用同一套元数据/历史/统计/自动匹配副作用）；`ensurePlayer` attach；`clearQueue`/`loadSong` 开头 abandon。
+- **播放缓存** `player/PlaybackCacheManager.ets` + 纯账本 `player/PlaybackCacheLedger.ets`：
+  - 设置 `np.playback_cache` 默认关（opt-in，设置→播放设置→「播放缓存（实验）」）。语义：在线流播放成功后后台入队 `addAVDownloadTask`（带防盗链头），完成后系统缓存目录记入 LRU 账本（上限 24、SchemaStore 持久化、驱逐目录 best-effort rmdir、僵尸任务 5 分钟清扫）；下次 `loadSong` 在下载目录之后、房间权威链接之前查缓存命中（`createMediaSourceWithDirectory` 离线秒开；一起听会话中让位；失效命中自愈剔除）。Wi-Fi only（系统默认）。与文件下载引擎并存不替代。
+- 单测：新增 `AvPlaylistPolicy.test.ets`（5 例：force 镜像、顺序/随机 peek 精确预测、不变更引擎、五门禁）+ `PlaybackCacheLedger.test.ets`（6 例：命中 touch、LRU 驱逐、刷新不驱逐、remove、JSON 往返、损坏降级），编入本地套件。
+- 设备探针（ohosTest，待真机/Windows 跑）：`ActsNativePlaylistProbeTest`（2 例：API 可达性+advance 落点+contentChanged 回传 id、NONE 模式 5s 静默窗不自进）与 `ActsAvDownloaderProbeTest`（1 例：manager 创建→小 MP3 下载完成→getTaskCacheDirectory→目录源 prepare 全链）。
+- 验证（服务器）：entry@default assembleHap **BUILD SUCCESSFUL 0 error**；entry@ohosTest assembleHap（含两个探针）**BUILD SUCCESSFUL 0 error**；`hvigorw test` 编译级 0 error（执行挂死为 Linux 已知限制，真实计数待 Windows 工作站）；codelinter 14 个改动文件 **0 新增缺陷**（全仓仍为基线 5 error + 23 warn + 3 suggestion）。
+- 未验证（设备侧全部）：gapless 实效与 advance 是否跳过 prepare 周期（探针 1 回答）；NONE 模式是否真不自进（探针 2）；缓存目录跨进程存活与 prepare 可行性（探针 3）；B 站带 Referer 头的下载任务是否被 CDN 接受；缓存命中音频与在线流音质一致性。
+
 每次 SDK 或上游 Android 更新，都更新本文件的核验日期、版本矩阵、源码状态和测试结果。
+
 新增能力必须附官方页面 URL、适用 API、代码位置、验证设备、失败日志和降级方案。
 
 如果官方页面、工程配置和历史日志冲突，以当前官方 Release 文档、当前 DevEco Studio 生成配置和可重现设备测试为准。

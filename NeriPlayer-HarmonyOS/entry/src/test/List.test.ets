@@ -75,6 +75,8 @@ import qqMusicLyricCodecTest from './ets/test/QQMusicLyricCodec.test';
 import songTitleExtractorTest from './ets/test/SongTitleExtractor.test';
 import songMatchScorerTest from './ets/test/SongMatchScorer.test';
 import autoMatchPolicyTest from './ets/test/AutoMatchPolicy.test';
+import avPlaylistPolicyTest from './ets/test/AvPlaylistPolicy.test';
+import playbackCacheLedgerTest from './ets/test/PlaybackCacheLedger.test';
 
 export default function testsuite(): void {
   lrcParserTest();
@@ -154,4 +156,6 @@ export default function testsuite(): void {
   songTitleExtractorTest();
   songMatchScorerTest();
   autoMatchPolicyTest();
+  avPlaylistPolicyTest();
+  playbackCacheLedgerTest();
 }
