@@ -26,6 +26,11 @@ export class SettingsRepository {
   static readonly KEY_LAST_STARTUP_MS: string = 'np.last_startup_ms';
   static readonly KEY_SHOW_LYRICS: string = 'np.show_lyrics';
   static readonly KEY_DOWNLOAD_CONCURRENCY: string = 'np.download_concurrency';
+  // Managed download directory (Android download_directory_uri/_label): a
+  // user-picked document URI persisted with fileShare grants; empty means the
+  // sandbox default <filesDir>/Download/NeriPlayer.
+  static readonly KEY_DOWNLOAD_DIRECTORY_URI: string = 'np.download_directory_uri';
+  static readonly KEY_DOWNLOAD_DIRECTORY_LABEL: string = 'np.download_directory_label';
   // Listen Together server. Android keeps two keys with different clearing
   // rules: _SERVER is what the client dials and is stored only for a custom
   // address (the built-in default is represented by absence, so changing the
@@ -96,6 +101,8 @@ export class SettingsRepository {
     [SettingsRepository.KEY_LAST_STARTUP_MS, 0],
     [SettingsRepository.KEY_SHOW_LYRICS, true],
     [SettingsRepository.KEY_DOWNLOAD_CONCURRENCY, 6],
+    [SettingsRepository.KEY_DOWNLOAD_DIRECTORY_URI, ''],
+    [SettingsRepository.KEY_DOWNLOAD_DIRECTORY_LABEL, ''],
     [SettingsRepository.KEY_LISTEN_TOGETHER_SERVER, ''],
     [SettingsRepository.KEY_LISTEN_TOGETHER_SERVER_INPUT, ''],
     [SettingsRepository.KEY_LISTEN_TOGETHER_LAST_USER_ID, ''],

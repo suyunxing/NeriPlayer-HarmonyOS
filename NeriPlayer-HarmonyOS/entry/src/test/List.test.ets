@@ -5,6 +5,7 @@ import audioInterruptPolicyTest from './ets/test/AudioInterruptPolicy.test';
 import sleepTimerTest from './ets/test/SleepTimer.test';
 import androidDataParserTest from './ets/test/AndroidDataParser.test';
 import downloadTaskStoreTest from './ets/test/DownloadTaskStore.test';
+import downloadDirectoryTest from './ets/test/DownloadDirectory.test';
 import qrEncoderTest from './ets/test/QrEncoder.test';
 import neteaseAuthTest from './ets/test/NeteaseAuth.test';
 import neteasePlaylistParserTest from './ets/test/NeteasePlaylistParser.test';
@@ -83,6 +84,7 @@ export default function testsuite(): void {
   sleepTimerTest();
   androidDataParserTest();
   downloadTaskStoreTest();
+  downloadDirectoryTest();
   qrEncoderTest();
   neteaseAuthTest();
   neteasePlaylistParserTest();

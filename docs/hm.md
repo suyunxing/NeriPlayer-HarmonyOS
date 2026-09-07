@@ -644,6 +644,15 @@ $hdc = 'D:\HarmonyOS\Tools\command-line-tools\sdk\default\openharmony\toolchains
 - 未纳入 CI：codelinter（存量基线 **24 warn + 2 suggestion**，2026-08-24 M10.1 复核值；2026-08-18 CI 落地时为 17 warn+1 suggestion，差额来自此后新增模块的存量告警，0 error 始终未变——需过滤规则后才可门禁）、ohosTest（需模拟器+签名）、Release 自动发布。后续可选：tag 触发上传 unsigned HAP 到 GitHub Release。
 - 2026-08-18 协作配置补齐：新增 `.github/PULL_REQUEST_TEMPLATE.md`、HarmonyOS Bug/Feature/分支整合 Issue Forms、`.github/dependabot.yml`、根目录 `CONTRIBUTING.md` 与 `docs/GITHUB_COLLABORATION.md`；workflow 增加 `contents: read`、关闭 checkout 持久凭据、按 lockfile 失效依赖缓存，并使用 PR 号/分支维度并发组。目标模型为 `main` 稳定、`dev` 集成、个人/feature 分支 PR 协作；`su` 在迁移期只保留 PR 检查，不响应直接 push。未修改 Android 参照工程与业务源码。
 
+### 7.11 2026-09-07 下载目录选择落地记录（服务器 Linux CLT 26.0.0.821，无设备）
+
+- 实现（分支 `feature/下载目录选择`）：设置→下载设置→「下载目录」行（原「目录选择待移植」占位替换）+ 自定义时追加「恢复默认目录」确认行。新增 `download/DownloadDirectory.ets`（纯逻辑，8 单测）与 `download/DownloadDirectoryManager.ets`（picker/fileShare 胶水）；`DownloadStorage` 目录解析改为「配置的 URI 优先，否则沙箱默认」，自定义目录 commit 从 `renameSync` 改为 fd 对拷（`FileUri(...).path` 转换后 `openSync(CREATE)`），`init` 对自定义目录跳过 `ensureDir`；`DownloadEngine.init` 追加冷启动 `activatePermission`；设置 key `np.download_directory_uri`/`np.download_directory_label`（空=默认，对齐 Android `download_directory_uri`/`_label` 双 key 语义）。
+- 平台事实（官方文档 + 本机 SDK d.ts 核实，**非设备实证**）：
+  - 文件夹选择现行 API 是 `DocumentSelectOptions.selectMode = picker.DocumentSelectMode.FOLDER`（API 11+，SC `SystemCapability.FileManagement.UserFileService.FolderSelection`；不存在 `documentViewMode`）。官方《选择用户文件》指南注明 **FOLDER 类型在 Phone 设备 26.0.0 起才支持**——本工程 6.1.1(24) 设备上 `canIUse` 预计 false，入口已做降级 toast。`select()` 直接返回 `string[]`（无 `DocumentSelectResult` 包装）。https://developer.huawei.com/consumer/cn/doc/harmonyos-guides/select-user-file
+  - picker 返回的目录 uri 只有临时读写授权；跨重启须 `fileShare.persistPermission`（API 11+，需 `module.json5` 声明 `ohos.permission.FILE_ACCESS_PERSIST`，按 system_grant 方式声明即用、无运行时弹窗），且**每次冷启动须 `activatePermission` 重新激活**（持久化授权不会自动加载）。`PolicyInfo` 为 `{uri: string, operationMode: number}`，读写组合 `READ_MODE | WRITE_MODE`。https://developer.huawei.com/consumer/cn/doc/harmonyos-guides/file-persistpermission
+  - fs 对目录 URI 的操作边界：`openSync(uri + '/<name>', READ_WRITE|CREATE)`（官方 DOWNLOAD 示例即此写法，建议先 `new FileUri(...).path` 转换）与 `fs.stat(path)`（path 参数 API 22+ 支持 URI）有文档承诺；`renameSync`/`mkdirSync`/`accessSync`/`unlinkSync`/`listFileSync` 参数文档只写「应用沙箱路径」，对 URI 不可依赖——这是 commit 改 fd 对拷、init 跳过 ensureDir 的依据。
+- 验证（服务器，2026-09-07）：`hvigorw --no-daemon assembleHap` BUILD SUCCESSFUL；`hvigorw test` 编译级 0 error（执行阶段挂死为 §服务器已知限制，新用例已编入测试 abc，真实计数待 Windows 工作站）；codelinter 改动文件 **0 新增**（全仓现值 5 error + 23 warn + 3 suggestion，5 个 `await-thenable` error 均在 8 月存量文件——AmllLyricsResolver/AppPreferences/CoverColorCacheCore/YtmLoopbackStreamBridge，与 2026-08-24 基线「0 error」漂移，属基线漂移或 codelinter 版本变化，待单独复核，非本次引入）。
+- 未验证（设备侧全部）：API 24 真机/模拟器上 `canIUse(FolderSelection)` 实际值；FOLDER 选择器实际拉起与返回 uri 形态；persist/activate 真实生效；uri 下创建文件/中文文件名/播放（catalog 存 uri 后 `openSync(READ_ONLY)`）冷启动可读；`FILE_ACCESS_PERSIST` 在真机的授予行为（华为在线权限列表页 JS 渲染未能核对该权限级别）。恢复默认后旧目录授权保留策略（保播放）未在设备回归。
 
 每次 SDK 或上游 Android 更新，都更新本文件的核验日期、版本矩阵、源码状态和测试结果。
 新增能力必须附官方页面 URL、适用 API、代码位置、验证设备、失败日志和降级方案。
