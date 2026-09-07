@@ -151,7 +151,7 @@ export struct NowPlayingPage {
     }
     this.bgOverUrl = nextUrl;
     this.bgOverOpacity = 0;
-    animateTo({ duration: 400, curve: Curve.EaseOut }, () => {
+    this.getUIContext().animateTo({ duration: 400, curve: Curve.EaseOut }, () => {
       this.bgOverOpacity = 1;
     });
     setTimeout(() => {

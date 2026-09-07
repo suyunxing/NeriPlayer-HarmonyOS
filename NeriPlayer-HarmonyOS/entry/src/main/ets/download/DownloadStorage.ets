@@ -361,8 +361,8 @@ export class DownloadStorage {
         const stat = fileIo.statSync(path);
         const buffer = new ArrayBuffer(stat.size);
         fileIo.readSync(file.fd, buffer);
-        const decoder = util.TextDecoder.create('utf-8');
-        return decoder.decodeWithStream(new Uint8Array(buffer), { stream: false });
+      const decoder = util.TextDecoder.create('utf-8');
+      return decoder.decodeToString(new Uint8Array(buffer), { stream: false });
       } finally {
         fileIo.closeSync(file);
       }

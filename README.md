@@ -32,7 +32,7 @@
 
 ## 版本与资料原则
 
-- 工程配置基线为 HarmonyOS `6.1.1(24)`（API 24，当前最新稳定 Release）。官方版本映射已于 2026-08-14 复核：HarmonyOS 6.0.0→API 20、6.0.1→21、6.0.2→22、6.1.0→23、6.1.1→24；HarmonyOS 7.0→开发套件 26.0.0（API 26，Beta，版本号自此时改用 SemVer）。以后仍以[华为开发者官方文档](https://developer.huawei.com/consumer/cn/doc/)的版本页为准。
+- 工程配置基线为 HarmonyOS `26.0.0`（API 26，Release；2026-09-07 从 `6.1.1(24)` 全量迁移，版本号自 26.0.0 起改用纯 SemVer，不再带 `(26)` 括号后缀）。官方版本映射已于 2026-08-14 复核：HarmonyOS 6.0.0→API 20、6.0.1→21、6.0.2→22、6.1.0→23、6.1.1→24；HarmonyOS 7.0→开发套件 26.0.0（API 26）。`compatibleSdkVersion` 已抬至 26.0.0，26 以下设备不再可安装（迁移详情见 `docs/hm.md` §7.12）。以后仍以[华为开发者官方文档](https://developer.huawei.com/consumer/cn/doc/)的版本页为准。
 - 每次同步 Android 上游时记录 commit SHA、同步日期、许可证和子模块状态；不要仅覆盖 `NeriPlayer-master` 文件夹。
 - 在线媒体接口只作为适配器实现，并遵守第三方平台条款、账号授权、版权与应用市场审核要求。
 
