@@ -43,8 +43,14 @@ export class NeteaseCookieRepository {
     }
     if (NeteaseCookieRepository.bundle.hasLoginCookies()) {
       NeteaseCookieRepository.seedHttpClient();
-      SettingsRepository.setBoolean(SettingsRepository.KEY_NETEASE_LOGGED, true);
     }
+    // Sync the settings flag with the actually-restored bundle so the UI
+    // reflects reality after a cold start (a failed credential restore also
+    // clears a stale logged-in flag instead of showing a logged-out backend).
+    SettingsRepository.setBoolean(
+      SettingsRepository.KEY_NETEASE_LOGGED,
+      NeteaseCookieRepository.bundle.hasLoginCookies()
+    );
   }
 
   static isLoggedIn(): boolean {

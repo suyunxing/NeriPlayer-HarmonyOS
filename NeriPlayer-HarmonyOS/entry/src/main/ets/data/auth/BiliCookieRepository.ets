@@ -46,8 +46,13 @@ export class BiliCookieRepository {
     }
     if (BiliCookieRepository.bundle.hasLoginCookies()) {
       BiliCookieRepository.seedHttpClient();
-      SettingsRepository.setBoolean(SettingsRepository.KEY_BILIBILI_LOGGED, true);
     }
+    // Sync the settings flag with the actually-restored bundle (mirrors
+    // NeteaseCookieRepository.doInit) so the UI matches reality on cold start.
+    SettingsRepository.setBoolean(
+      SettingsRepository.KEY_BILIBILI_LOGGED,
+      BiliCookieRepository.bundle.hasLoginCookies()
+    );
   }
 
   static isLoggedIn(): boolean {

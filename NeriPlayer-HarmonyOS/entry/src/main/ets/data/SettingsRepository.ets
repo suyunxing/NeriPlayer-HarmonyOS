@@ -178,6 +178,11 @@ export class SettingsRepository {
     [SettingsRepository.KEY_COVER_POLICY, 'always'],
     [SettingsRepository.KEY_DOWNLOAD_MATCH_LYRICS, true],
     [SettingsRepository.KEY_LANGUAGE, 'zh'],
+    // Login flags must be in defaults so the saved value is reloaded from
+    // preferences on cold start (doInit re-derives it from the restored
+    // credential bundle; both must agree for @StorageLink consumers).
+    [SettingsRepository.KEY_NETEASE_LOGGED, false],
+    [SettingsRepository.KEY_BILIBILI_LOGGED, false],
     [SettingsRepository.KEY_NETEASE_AUTO_FALLBACK, true],
     [SettingsRepository.KEY_GITHUB_OWNER, ''],
     [SettingsRepository.KEY_GITHUB_REPO, ''],
