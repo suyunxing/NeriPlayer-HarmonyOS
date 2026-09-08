@@ -40,11 +40,13 @@ jobs:
       # 该步运行于 checkout 之前，工程子目录尚不存在，必须显式回到 workspace
       - name: Resolve release tag
         working-directory: ${{ github.workspace }}
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           echo "TAG=$TAG" >> "$GITHUB_ENV"
-          # tag 必须已存在（dispatch 传名、push 天然存在）
-          git init -q /tmp/tagcheck
-          if ! git ls-remote --tags origin "refs/tags/$TAG" | grep -q "$TAG"; then
+          # tag 必须已存在（dispatch 传名、push 天然存在）。
+          # 此时还没有本地 git 仓库，用 gh api 查远程（不依赖 origin remote 配置）。
+          if ! gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/$TAG" >/dev/null 2>&1; then
             echo "::error::tag $TAG 不存在于远端，先 git push origin $TAG"
             exit 1
           fi
