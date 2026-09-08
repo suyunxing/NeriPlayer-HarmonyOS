@@ -105,15 +105,15 @@
 
 ### HarmonyOS 主线
 
-工程基线为 SDK `6.1.1(24)`（HarmonyOS 6.1.1 Release，API 24，官方 2026-05-26 发布，截至 2026-08 仍是最新稳定 Release）。HarmonyOS 7.0 对应开发套件 `26.0.0`（API 26，2026-07-28 处于 Beta2；版本号自 26.0.0 起改用 SemVer）。版本映射以官方[所有 HarmonyOS 开发套件版本](https://developer.huawei.com/consumer/cn/doc/harmonyos-releases/overview-allversion)页为准，不得凭目录名推断。
+工程基线为 SDK `26.0.0`（API 26；2026-09-07 从 `6.1.1(24)` 全量迁移，迁移记录见 `docs/hm.md` §7.12）。版本号自 26.0.0 起改用纯 SemVer，配置中**不带 `(26)` 括号后缀**；`compatibleSdkVersion` 已抬至 `26.0.0`，26 以下设备不再可安装。版本映射以官方[所有 HarmonyOS 开发套件版本](https://developer.huawei.com/consumer/cn/doc/harmonyos-releases/overview-allversion)页为准，不得凭目录名推断。
 
 - 本工程不自带项目级 hvigor wrapper；构建工具链随 DevEco Studio / command-line-tools 分发，调用入口以各机器全局配置为准。
 - 依赖同步由构建入口自动处理（ohpm 安装/同步），不要在每轮构建前重复手动 `ohpm install --all`；只有需要证明干净状态可重现时才先 clean，普通局部迭代保留增量缓存。
-- 本地单元测试：`entry/src/test/`（`@ohos/hypium` 1.0.28，随里程碑累积至 874 用例，2026-08-29 记录全绿，沿革见 `docs/hm.md` §8.1），经 `hvigorw test --mode module -p product=default -p buildMode=debug --no-daemon` 执行。
+- 本地单元测试：`entry/src/test/`（`@ohos/hypium` 1.0.28，随里程碑累积至 935 用例——2026-09-08 静态清点，最近一次全量执行为 2026-08-29 的 874/874 全绿，沿革见 `docs/hm.md` §8.1），经 `hvigorw test --mode module -p product=default -p buildMode=debug --no-daemon` 执行。
 - 设备侧测试：`entry/src/ohosTest/`（TestAbility + OpenHarmonyTestRunner，含播放/下载/同步/一起听/诊断等 Acts* 用例，各轮实测记录见 `docs/PORTING_EXECUTION_PLAN.md` §6）。先构建并签名 ohosTest HAP（对 `entry-ohosTest-unsigned.hap` 执行与 `sign-local.ps1` 相同的 sign-app 命令），安装后执行：
 
 ```powershell
-hdc -t 127.0.0.1:5555 shell "aa test -b moe.ouom.neriplayer -m entry_test -s unittest OpenHarmonyTestRunner -s class ActsAbilityTest#assertContain -s timeout 15000"
+hdc -t 127.0.0.1:5555 shell "aa test -b moe.ouom.neriplayer.hmos -m entry_test -s unittest OpenHarmonyTestRunner -s class ActsAbilityTest#assertContain -s timeout 15000"
 ```
 
 - 本地调试签名使用仓库 `sign-local.ps1`；其依赖的 `NERIPLAYER_SIGNING_PASSWORD`（本地调试口令）与 `NERIPLAYER_DEVICE_IDS`（目标设备 UDID）为机器级用户环境变量，不入库。在线签名/重建签名配置会访问账号并修改 `build-profile.json5`，仅用户明确要求时使用。

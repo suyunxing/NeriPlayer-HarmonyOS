@@ -1,6 +1,6 @@
 # NeriPlayer for HarmonyOS (鸿蒙原生移植)
 
-> **状态说明（2026-08-31 更新）：** 本目录是持续开发中的 ArkTS 原型，不是已完成的 HarmonyOS 发布版本。本地单测已随里程碑累积到 874 用例（2026-08-29 记录全绿，见 `../docs/FEATURE_MATRIX.md`）；`entry@default` 与 `entry@ohosTest` 构建及 CodeLinter（0 error）在各里程碑复跑。设备侧和真实第三方凭据写入仍按下文标注。下方勾选项表示已实现并有验证证据的代码路径，不代表与 Android 上游功能等价；未完成项在"待移植"中如实列出。统一审计请看仓库根目录的 `docs/PROJECT_AUDIT.md` 与 `docs/FEATURE_MATRIX.md`。
+> **状态说明（2026-09-08 更新）：** 本目录是持续开发中的 ArkTS 原型，不是已完成的 HarmonyOS 发布版本。本地单测已随里程碑累积到 935 用例（2026-09-08 静态清点；最近一次全量执行为 2026-08-29 的 874/874 全绿，见 `../docs/FEATURE_MATRIX.md`）；`entry@default` 与 `entry@ohosTest` 构建及 CodeLinter（0 error）在各里程碑复跑。设备侧和真实第三方凭据写入仍按下文标注。下方勾选项表示已实现并有验证证据的代码路径，不代表与 Android 上游功能等价；未完成项在"待移植"中如实列出。统一审计请看仓库根目录的 `docs/PROJECT_AUDIT.md` 与 `docs/FEATURE_MATRIX.md`。
 
 **NeriPlayer（欢迎回来！）** 是一个把多源在线播放、本地管理、歌词体验和自建同步做进原生 Android 的音频播放器。本仓库将其**原封不动移植为 HarmonyOS NEXT 原生应用**：相同的功能定位、相同的启动流程、相同的多源架构，使用 ArkTS / ArkUI / AVPlayer 重新实现。
 
