@@ -1,6 +1,7 @@
 import { Constants } from '../app/Constants';
 import { SongItem } from '../model/SongItem';
-import { SettingsRepository } from '../data/SettingsRepository';
+import { AudioQualityPolicy } from '../player/AudioQualityPolicy';
+import { NetworkStatus } from '../util/NetworkStatus';
 import { HttpClient } from './HttpClient';
 import { YtmStreamResolver } from './ytm/YtmStreamResolver';
 import { YtmStreamClient } from './ytm/YtmStreamClient';
@@ -60,7 +61,7 @@ export class YouTubeMusicApi {
 
   /** M6.1 primary path: IOS client direct stream (see network/ytm/). */
   static async resolveStream(videoId: string): Promise<string> {
-    const quality = SettingsRepository.getString(SettingsRepository.KEY_AUDIO_QUALITY, 'standard');
+    const quality = AudioQualityPolicy.effective(await NetworkStatus.isWifi());
     return YtmStreamResolver.resolveStreamUrl(videoId, quality);
   }
 

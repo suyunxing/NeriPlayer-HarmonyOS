@@ -26,6 +26,11 @@ export class SettingsRepository {
   static readonly KEY_LAST_STARTUP_MS: string = 'np.last_startup_ms';
   static readonly KEY_SHOW_LYRICS: string = 'np.show_lyrics';
   static readonly KEY_DOWNLOAD_CONCURRENCY: string = 'np.download_concurrency';
+  // Managed download directory (Android download_directory_uri/_label): a
+  // user-picked document URI persisted with fileShare grants; empty means the
+  // sandbox default <filesDir>/Download/NeriPlayer.
+  static readonly KEY_DOWNLOAD_DIRECTORY_URI: string = 'np.download_directory_uri';
+  static readonly KEY_DOWNLOAD_DIRECTORY_LABEL: string = 'np.download_directory_label';
   // Listen Together server. Android keeps two keys with different clearing
   // rules: _SERVER is what the client dials and is stored only for a custom
   // address (the built-in default is represented by absence, so changing the
@@ -43,7 +48,41 @@ export class SettingsRepository {
   static readonly KEY_LISTEN_TOGETHER_ALLOW_MEMBER_CONTROL: string = 'np.listen_together_allow_member_control';
   static readonly KEY_LISTEN_TOGETHER_AUTO_PAUSE_ON_MEMBER_CHANGE: string = 'np.listen_together_auto_pause_on_member_change';
   static readonly KEY_LISTEN_TOGETHER_SHARE_AUDIO_LINKS: string = 'np.listen_together_share_audio_links';
+  // Audio quality. KEY_AUDIO_QUALITY is the legacy single choice (still the
+  // fallback when a per-network key has never been written); the Wi-Fi and
+  // cellular keys implement the per-network split (empty = inherit legacy).
   static readonly KEY_AUDIO_QUALITY: string = 'np.audio_quality';
+  static readonly KEY_AUDIO_QUALITY_WIFI: string = 'np.audio_quality_wifi';
+  static readonly KEY_AUDIO_QUALITY_CELLULAR: string = 'np.audio_quality_cellular';
+  // Keep playing alongside other apps' audio. Maps to the AVPlayer interrupt
+  // mode plus ignoring cooperative (SHARE-type) pause hints; a system FORCED
+  // interruption still wins on HarmonyOS.
+  static readonly KEY_MIX_AUDIO: string = 'np.mix_audio';
+  // App-level soft volume applied to AVPlayer (0.0..1.0).
+  static readonly KEY_PLAYBACK_VOLUME: string = 'np.playback_volume';
+  // Resume playback automatically after cold start once the queue is restored.
+  static readonly KEY_AUTOPLAY_ON_LAUNCH: string = 'np.autoplay_on_launch';
+  // NowPlaying backdrop style: 'blur' (blurred cover), 'solid', 'gradient'
+  // (flowing cover-color gradient).
+  static readonly KEY_NOWPLAYING_BG_STYLE: string = 'np.nowplaying_bg_style';
+  // Keep the screen on while the full-screen player is open.
+  static readonly KEY_KEEP_SCREEN_ON: string = 'np.keep_screen_on';
+  // Circular rotating vinyl cover on the full-screen player.
+  static readonly KEY_CIRCULAR_COVER: string = 'np.circular_cover';
+  // Show the transport capsule at the bottom of the lyric page.
+  static readonly KEY_LYRIC_PAGE_CONTROLS: string = 'np.lyric_page_controls';
+  // Bottom mini player options.
+  static readonly KEY_MINI_NEXT_BUTTON: string = 'np.mini_next_button';
+  static readonly KEY_MINI_SHOW_LYRIC: string = 'np.mini_show_lyric';
+  static readonly KEY_MINI_EXPAND_AUTOPLAY: string = 'np.mini_expand_autoplay';
+  // Lyric typography. Centered alignment, active-line font weight (100..900)
+  // and line-spacing multiplier (LINE_SPACING * value).
+  static readonly KEY_LYRIC_CENTER: string = 'np.lyric_center';
+  static readonly KEY_LYRIC_FONT_WEIGHT: string = 'np.lyric_font_weight';
+  static readonly KEY_LYRIC_LINE_SPACING: string = 'np.lyric_line_spacing';
+  // Fixed start page: 'last' (follow the tab used last time) or '0'..'3'.
+  static readonly KEY_START_PAGE: string = 'np.start_page';
+  static readonly KEY_PLAYBACK_CACHE: string = 'np.playback_cache';
   static readonly KEY_LYRIC_TRANSLATION: string = 'np.lyric_translation';
   static readonly KEY_LYRIC_PHONETIC: string = 'np.lyric_phonetic';
   static readonly KEY_LYRIC_BLUR: string = 'np.lyric_blur';
@@ -96,6 +135,8 @@ export class SettingsRepository {
     [SettingsRepository.KEY_LAST_STARTUP_MS, 0],
     [SettingsRepository.KEY_SHOW_LYRICS, true],
     [SettingsRepository.KEY_DOWNLOAD_CONCURRENCY, 6],
+    [SettingsRepository.KEY_DOWNLOAD_DIRECTORY_URI, ''],
+    [SettingsRepository.KEY_DOWNLOAD_DIRECTORY_LABEL, ''],
     [SettingsRepository.KEY_LISTEN_TOGETHER_SERVER, ''],
     [SettingsRepository.KEY_LISTEN_TOGETHER_SERVER_INPUT, ''],
     [SettingsRepository.KEY_LISTEN_TOGETHER_LAST_USER_ID, ''],
@@ -105,6 +146,25 @@ export class SettingsRepository {
     [SettingsRepository.KEY_LISTEN_TOGETHER_AUTO_PAUSE_ON_MEMBER_CHANGE, true],
     [SettingsRepository.KEY_LISTEN_TOGETHER_SHARE_AUDIO_LINKS, true],
     [SettingsRepository.KEY_AUDIO_QUALITY, 'standard'],
+    [SettingsRepository.KEY_AUDIO_QUALITY_WIFI, ''],
+    [SettingsRepository.KEY_AUDIO_QUALITY_CELLULAR, ''],
+    [SettingsRepository.KEY_MIX_AUDIO, true],
+    [SettingsRepository.KEY_PLAYBACK_VOLUME, 1.0],
+    [SettingsRepository.KEY_AUTOPLAY_ON_LAUNCH, false],
+    [SettingsRepository.KEY_NOWPLAYING_BG_STYLE, 'blur'],
+    [SettingsRepository.KEY_KEEP_SCREEN_ON, false],
+    [SettingsRepository.KEY_CIRCULAR_COVER, false],
+    [SettingsRepository.KEY_LYRIC_PAGE_CONTROLS, true],
+    [SettingsRepository.KEY_MINI_NEXT_BUTTON, true],
+    [SettingsRepository.KEY_MINI_SHOW_LYRIC, true],
+    [SettingsRepository.KEY_MINI_EXPAND_AUTOPLAY, false],
+    [SettingsRepository.KEY_LYRIC_CENTER, true],
+    [SettingsRepository.KEY_LYRIC_FONT_WEIGHT, 500],
+    [SettingsRepository.KEY_LYRIC_LINE_SPACING, 1.0],
+    [SettingsRepository.KEY_START_PAGE, 'last'],
+    // Opt-in: AVDownloaderManager playback cache is Wi-Fi only but still
+    // re-downloads a copy of what was just streamed.
+    [SettingsRepository.KEY_PLAYBACK_CACHE, false],
     [SettingsRepository.KEY_LYRIC_TRANSLATION, true],
     [SettingsRepository.KEY_LYRIC_PHONETIC, false],
     [SettingsRepository.KEY_LYRIC_BLUR, true],
@@ -118,6 +178,11 @@ export class SettingsRepository {
     [SettingsRepository.KEY_COVER_POLICY, 'always'],
     [SettingsRepository.KEY_DOWNLOAD_MATCH_LYRICS, true],
     [SettingsRepository.KEY_LANGUAGE, 'zh'],
+    // Login flags must be in defaults so the saved value is reloaded from
+    // preferences on cold start (doInit re-derives it from the restored
+    // credential bundle; both must agree for @StorageLink consumers).
+    [SettingsRepository.KEY_NETEASE_LOGGED, false],
+    [SettingsRepository.KEY_BILIBILI_LOGGED, false],
     [SettingsRepository.KEY_NETEASE_AUTO_FALLBACK, true],
     [SettingsRepository.KEY_GITHUB_OWNER, ''],
     [SettingsRepository.KEY_GITHUB_REPO, ''],

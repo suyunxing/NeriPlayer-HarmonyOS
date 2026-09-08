@@ -5,7 +5,8 @@ import { MusicPlatform } from '../model/MusicPlatform';
 import { HttpClient } from './HttpClient';
 import { mixinKeyFrom, wbiKeyFromUrl, buildWbiSignedQuery } from './BiliWbi';
 import { BiliAudioOption, selectBiliAudioStream, prioritizeBiliStreamUrls } from './BiliAudioSelector';
-import { SettingsRepository } from '../data/SettingsRepository';
+import { AudioQualityPolicy } from '../player/AudioQualityPolicy';
+import { NetworkStatus } from '../util/NetworkStatus';
 import { streamHeadersFor as buildBiliStreamHeaders } from './StreamHeaders';
 import {
   BiliFavFolderSummary,
@@ -54,6 +55,9 @@ interface BiliDash {
 }
 
 const FAV_PAGE_SIZE: number = 20;
+// Concurrent page fetches when draining a whole favorite folder (mirrors
+// Android BiliClient.MAX_PARALLEL_PAGE_REQUESTS).
+const MAX_PARALLEL_FAV_PAGE_REQUESTS: number = 6;
 const WBI_CACHE_MS: number = 10 * 60 * 1000; // mirrors Android WBI_CACHE_MS
 const FAV_FOLDER_WEB_LOCATION: string = '333.1387';
 
@@ -253,6 +257,10 @@ export class BiliApi {
     // Track choice follows np.audio_quality with the degrade chain, then the
     // CDN URLs are re-ordered upos-first — the highest-bandwidth track on a
     // slow link stutters (audible fragment loops).
+    // Track choice follows the per-network audio quality (np.audio_quality_*)
+    // with the degrade chain, then the CDN URLs are re-ordered upos-first —
+    // the highest-bandwidth track on a slow link stutters (audible fragment
+    // loops).
     const options: BiliAudioOption[] = [];
     for (const audio of audioList) {
       const option = new BiliAudioOption();
@@ -266,7 +274,7 @@ export class BiliApi {
     if (options.length === 0) {
       return '';
     }
-    const quality = SettingsRepository.getString(SettingsRepository.KEY_AUDIO_QUALITY, 'standard');
+    const quality = AudioQualityPolicy.effective(await NetworkStatus.isWifi());
     const track = selectBiliAudioStream(options, quality);
     if (track === null) {
       return '';
@@ -346,44 +354,54 @@ export class BiliApi {
   }
 
   /**
-   * Fetches every item of a favorite folder sequentially (Android
-   * getAllFavFolderItems: stop at !has_more or count reached, failed pages
-   * skipped, entries deduped by type:id:bvid).
+   * Fetches every item of a favorite folder (Android getAllFavFolderItems:
+   * stop at !has_more or count reached, failed pages skipped, entries deduped
+   * by type:id:bvid). Remaining pages are drained in small parallel chunks so
+   * large folders do not pay one full round-trip per page; ordering still
+   * follows page order.
    */
   static async getAllFavFolderItems(mediaId: number): Promise<BiliFavMedia[]> {
     const first = await BiliApi.getFavFolderPage(mediaId, 1);
     const items: BiliFavMedia[] = [];
     const seen = new Set<string>();
-    for (const item of first.items) {
+    BiliApi.appendFavPageItems(items, seen, first.items);
+    if (!first.hasMore || first.totalCount <= items.length) {
+      return items;
+    }
+    const totalPages = Math.ceil(first.totalCount / FAV_PAGE_SIZE);
+    let stop = false;
+    for (let start = 2; start <= totalPages && !stop; start += MAX_PARALLEL_FAV_PAGE_REQUESTS) {
+      const pages: number[] = [];
+      for (let pn = start; pn < start + MAX_PARALLEL_FAV_PAGE_REQUESTS && pn <= totalPages; pn++) {
+        pages.push(pn);
+      }
+      const fetched = await Promise.all(pages.map((pn: number): Promise<BiliFavPage | null> =>
+        BiliApi.getFavFolderPage(mediaId, pn).catch((error: Error): BiliFavPage | null => {
+          Logger.warn(`bili fav page ${pn} failed: ${error.message}`);
+          return null;
+        })
+      ));
+      for (const page of fetched) {
+        if (page === null) {
+          continue;
+        }
+        BiliApi.appendFavPageItems(items, seen, page.items);
+        if (!page.hasMore) {
+          stop = true;
+        }
+      }
+    }
+    return items;
+  }
+
+  private static appendFavPageItems(items: BiliFavMedia[], seen: Set<string>, pageItems: BiliFavMedia[]): void {
+    for (const item of pageItems) {
       const key = biliFavMediaDedupKey(item);
       if (!seen.has(key)) {
         seen.add(key);
         items.push(item);
       }
     }
-    if (!first.hasMore || first.totalCount <= items.length) {
-      return items;
-    }
-    const totalPages = Math.ceil(first.totalCount / FAV_PAGE_SIZE);
-    for (let pn = 2; pn <= totalPages; pn++) {
-      try {
-        const page = await BiliApi.getFavFolderPage(mediaId, pn);
-        for (const item of page.items) {
-          const key = biliFavMediaDedupKey(item);
-          if (!seen.has(key)) {
-            seen.add(key);
-            items.push(item);
-          }
-        }
-        if (!page.hasMore) {
-          break;
-        }
-      } catch (error) {
-        const e = error as Error;
-        Logger.warn(`bili fav page ${pn} failed: ${e.message}`);
-      }
-    }
-    return items;
   }
 
   private static stripHtml(text: string): string {

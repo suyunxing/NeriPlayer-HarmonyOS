@@ -34,7 +34,7 @@
 
 ## 环境与构建
 
-1. 工程基线为 **HarmonyOS 6.1.1 Release（API 24）**。本机工具链位于 `D:\HarmonyOS\Tools\`：API 24 SDK 与 `ohpm`/`hvigorw` 命令行工具在 `command-line-tools\`，DevEco Studio 26.0.0.621（Beta2）为主力 IDE。完整环境说明见仓库根目录 `AGENTS.md`。
+1. 工程基线为 **HarmonyOS 26.0.0 Release（API 26）**（2026-09-07 从 6.1.1(24) 全量迁移，详见仓库根 `docs/hm.md` §7.12）。本机工具链位于 `D:\HarmonyOS\Tools\`：SDK 与 `ohpm`/`hvigorw` 命令行工具在 `command-line-tools\`，DevEco Studio 26.0.0.621（Beta2）为主力 IDE。完整环境说明见仓库根目录 `AGENTS.md`。
 2. `File → Open` 打开本目录，等待 ohpm 同步。
 3. 命令行调试签名（签名材料放在已忽略的 `signing/` 中；需按 `AGENTS.md` 同时设置 `DEVECO_SDK_HOME` 与 `DEVECO_STUDIO_HOME`，脚本依赖 Studio 布局中的 jbr 与 hvigor）：
 

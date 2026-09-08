@@ -7,9 +7,13 @@ const LYRIC_OFFSET_STORAGE_KEY = 'np.lyric_offset_ms';
 const LYRIC_TRANSLATION_STORAGE_KEY = 'np.lyric_translation';
 const LYRIC_PHONETIC_STORAGE_KEY = 'np.lyric_phonetic';
 const LYRIC_FONT_SIZE_STORAGE_KEY = 'np.lyric_font_size';
+const LYRIC_CENTER_STORAGE_KEY = 'np.lyric_center';
+const LYRIC_FONT_WEIGHT_STORAGE_KEY = 'np.lyric_font_weight';
+const LYRIC_LINE_SPACING_STORAGE_KEY = 'np.lyric_line_spacing';
 
 // The reference lyric page uses an editorial, airy rhythm rather than a
-// compact karaoke list. Keep the value in vp so it scales with the device.
+// compact karaoke list. Keep the value in vp so it scales with the device;
+// np.lyric_line_spacing scales it (1.0 = this base).
 const LINE_SPACING = 22;
 const ACTIVE_LINE_ANCHOR = 0.42;
 /** How long a user-dragged line stays centered before re-syncing (spec: 2s). */
@@ -44,6 +48,9 @@ export struct LyricView {
   @StorageProp(LYRIC_TRANSLATION_STORAGE_KEY) lyricTranslation: boolean = true;
   @StorageProp(LYRIC_PHONETIC_STORAGE_KEY) lyricPhonetic: boolean = false;
   @StorageProp(LYRIC_FONT_SIZE_STORAGE_KEY) lyricFontSize: number = 16;
+  @StorageProp(LYRIC_CENTER_STORAGE_KEY) lyricCenter: boolean = true;
+  @StorageProp(LYRIC_FONT_WEIGHT_STORAGE_KEY) lyricFontWeight: number = 500;
+  @StorageProp(LYRIC_LINE_SPACING_STORAGE_KEY) lyricLineSpacing: number = 1.0;
 
   @State viewportHeight: number = 0;
   @State scrubIndex: number = -1;
@@ -114,6 +121,21 @@ export struct LyricView {
       : Math.max(18, this.lyricFontSize + 2);
   }
 
+  /** np.lyric_line_spacing multiplier applied to the base 22vp rhythm. */
+  private effectiveLineSpacing(): number {
+    const clamped = Math.min(2.4, Math.max(0.4, this.lyricLineSpacing));
+    return LINE_SPACING * clamped;
+  }
+
+  /** Text + column alignment derived from np.lyric_center. */
+  private lineTextAlign(): TextAlign {
+    return this.lyricCenter ? TextAlign.Center : TextAlign.Start;
+  }
+
+  private lineColumnAlign(): HorizontalAlign {
+    return this.lyricCenter ? HorizontalAlign.Center : HorizontalAlign.Start;
+  }
+
   // ---- Layout plumbing ----------------------------------------------------
 
   private topEdgePadding(): number {
@@ -132,7 +154,7 @@ export struct LyricView {
   private layout(): LyricLineLayout {
     return LyricScrollMath.buildLayout(
       this.rowHeights,
-      LINE_SPACING,
+      this.effectiveLineSpacing(),
       this.topEdgePadding(),
       this.bottomEdgePadding()
     );
@@ -355,13 +377,14 @@ export struct LyricView {
       }, (word: LyricWord, index: number) => `${index}_${word.startMs}_${word.text}`)
     }
     .fontSize(this.lyricFontSize + 6)
-    .textAlign(TextAlign.Center)
+    .fontWeight(this.lyricFontWeight)
+    .textAlign(this.lineTextAlign())
     .width('100%')
   }
 
   build() {
     Scroll(this.scroller) {
-      Column({ space: LINE_SPACING }) {
+      Column({ space: this.effectiveLineSpacing() }) {
         if (this.lyrics.length === 0) {
           Text('暂无歌词')
             .fontSize(14)
@@ -378,26 +401,27 @@ export struct LyricView {
                 Text(line.text)
                   .fontSize(this.lineFontSize(index))
                   .fontColor(Theme.textPrimary(Theme.isDark()))
-                  .fontWeight(index === this.activeIndex() ? FontWeight.Medium : FontWeight.Normal)
+                  .fontWeight(index === this.activeIndex() ? this.lyricFontWeight : FontWeight.Normal)
                   .animation({ duration: 250, curve: Curve.EaseOut })
-                  .textAlign(TextAlign.Center)
+                  .textAlign(this.lineTextAlign())
                   .width('100%')
               }
               if (this.lyricTranslation && line.translated.length > 0) {
                 Text(line.translated)
                   .fontSize(12)
                   .fontColor(Theme.textSecondary(Theme.isDark()))
-                  .textAlign(TextAlign.Center)
+                  .textAlign(this.lineTextAlign())
                   .width('100%')
               }
               if (this.lyricPhonetic && line.phonetic.length > 0) {
                 Text(line.phonetic)
                   .fontSize(12)
                   .fontColor(Theme.textSecondary(Theme.isDark()))
-                  .textAlign(TextAlign.Center)
+                  .textAlign(this.lineTextAlign())
                   .width('100%')
               }
             }
+            .alignItems(this.lineColumnAlign())
             .opacity(this.lineOpacity(index))
             .animation({ duration: 250, curve: Curve.EaseOut })
             .onClick(() => this.handleLineTap(line))

@@ -88,7 +88,7 @@ export class YtmLoopbackStreamBridge {
     this.stopped = true;
     for (const connection of this.connections) {
       try {
-        await connection.close();
+        await Promise.resolve(connection.close());
       } catch (_) {
         // The media service may already have closed the connection.
       }

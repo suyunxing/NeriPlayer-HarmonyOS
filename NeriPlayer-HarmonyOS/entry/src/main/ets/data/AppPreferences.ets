@@ -136,8 +136,9 @@ export class AppPreferences {
   }
 
   private static async readyStore(): Promise<preferences.Preferences | null> {
-    if (AppPreferences.initPromise !== null) {
-      await AppPreferences.initPromise;
+    const initPromise = AppPreferences.initPromise;
+    if (initPromise !== null) {
+      await Promise.resolve(initPromise);
     }
     return AppPreferences.instance;
   }

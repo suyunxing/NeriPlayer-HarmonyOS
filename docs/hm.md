@@ -27,8 +27,8 @@ NeriPlayer 的主迁移路线是 HarmonyOS 普通应用：ArkTS + ArkUI + Stage 
 
 | 用途 | API/套件 | 状态 | 本项目策略 |
 | --- | --- | --- | --- |
-| 生产发布 | 6.1.1(24) + DevEco Studio 6.1.1 Release | Release | 默认基线 |
-| 兼容旧设备 | 6.0.x(20～23) | Release | 作为兼容测试目标，按实际设备分布选择 |
+| 生产发布 | 26.0.0(26) + command-line-tools 26.0.0.105 Release | Release | 默认基线（2026-09-07 迁移，见 §7.12） |
+| 兼容旧设备 | 6.0.x～6.1.1(20～24) | Release | 不再支持：compatibleSdkVersion 已随迁移抬到 26.0.0，26 以下设备无法安装本应用 |
 | 新能力预览 | 26.0.0 Beta2 + DevEco Studio 26.0.0 Beta2 | Beta | 独立适配分支或产品配置 |
 
 华为文档中的发布类型含义是：Release 为正式稳定版本，Beta 为公开但仍在稳定中的版本，Canary 为更早期体验版本。
@@ -48,8 +48,8 @@ NeriPlayer 的主迁移路线是 HarmonyOS 普通应用：ArkTS + ArkUI + Stage 
 compatibleSdkVersion ≤ targetSdkVersion ≤ compileSdkVersion
 ```
 
-当前工程根目录 `build-profile.json5` 已配置 `targetSdkVersion` 和 `compatibleSdkVersion` 为 `6.1.1(24)`，但未显式配置 `compileSdkVersion`。
-迁移前应在 DevEco Studio 中补齐并由 IDE 校验，不要依赖缓存或工具默认值。
+当前工程根目录 `build-profile.json5` 已配置 `targetSdkVersion` 和 `compatibleSdkVersion` 为 `26.0.0`（2026-09-07 迁移），未显式配置 `compileSdkVersion`（hvigor 使用工具链配套 SDK）。
+注意自 26.0.0 起版本号改用纯 SemVer 三段式，**不再写 `(26)` 括号后缀**：hvigor 6.26.4 对 `"26.0.0(26)"` 直接报 `api version parameter is illegal! Expected format: <major>[.<minor>][.<patch>]`（2026-09-07 实测）。
 
 生产配置示例：
 
@@ -644,8 +644,56 @@ $hdc = 'D:\HarmonyOS\Tools\command-line-tools\sdk\default\openharmony\toolchains
 - 未纳入 CI：codelinter（存量基线 **24 warn + 2 suggestion**，2026-08-24 M10.1 复核值；2026-08-18 CI 落地时为 17 warn+1 suggestion，差额来自此后新增模块的存量告警，0 error 始终未变——需过滤规则后才可门禁）、ohosTest（需模拟器+签名）、Release 自动发布。后续可选：tag 触发上传 unsigned HAP 到 GitHub Release。
 - 2026-08-18 协作配置补齐：新增 `.github/PULL_REQUEST_TEMPLATE.md`、HarmonyOS Bug/Feature/分支整合 Issue Forms、`.github/dependabot.yml`、根目录 `CONTRIBUTING.md` 与 `docs/GITHUB_COLLABORATION.md`；workflow 增加 `contents: read`、关闭 checkout 持久凭据、按 lockfile 失效依赖缓存，并使用 PR 号/分支维度并发组。目标模型为 `main` 稳定、`dev` 集成、个人/feature 分支 PR 协作；`su` 在迁移期只保留 PR 检查，不响应直接 push。未修改 Android 参照工程与业务源码。
 
+### 7.11 2026-09-07 下载目录选择落地记录（服务器 Linux CLT 26.0.0.821，无设备）
+
+- 实现（分支 `feature/下载目录选择`）：设置→下载设置→「下载目录」行（原「目录选择待移植」占位替换）+ 自定义时追加「恢复默认目录」确认行。新增 `download/DownloadDirectory.ets`（纯逻辑，8 单测）与 `download/DownloadDirectoryManager.ets`（picker/fileShare 胶水）；`DownloadStorage` 目录解析改为「配置的 URI 优先，否则沙箱默认」，自定义目录 commit 从 `renameSync` 改为 fd 对拷（`FileUri(...).path` 转换后 `openSync(CREATE)`），`init` 对自定义目录跳过 `ensureDir`；`DownloadEngine.init` 追加冷启动 `activatePermission`；设置 key `np.download_directory_uri`/`np.download_directory_label`（空=默认，对齐 Android `download_directory_uri`/`_label` 双 key 语义）。
+- 平台事实（官方文档 + 本机 SDK d.ts 核实，**非设备实证**）：
+  - 文件夹选择现行 API 是 `DocumentSelectOptions.selectMode = picker.DocumentSelectMode.FOLDER`（API 11+，SC `SystemCapability.FileManagement.UserFileService.FolderSelection`；不存在 `documentViewMode`）。官方《选择用户文件》指南注明 **FOLDER 类型在 Phone 设备 26.0.0 起才支持**——本工程 6.1.1(24) 设备上 `canIUse` 预计 false，入口已做降级 toast。`select()` 直接返回 `string[]`（无 `DocumentSelectResult` 包装）。https://developer.huawei.com/consumer/cn/doc/harmonyos-guides/select-user-file
+  - picker 返回的目录 uri 只有临时读写授权；跨重启须 `fileShare.persistPermission`（API 11+，需 `module.json5` 声明 `ohos.permission.FILE_ACCESS_PERSIST`，按 system_grant 方式声明即用、无运行时弹窗），且**每次冷启动须 `activatePermission` 重新激活**（持久化授权不会自动加载）。`PolicyInfo` 为 `{uri: string, operationMode: number}`，读写组合 `READ_MODE | WRITE_MODE`。https://developer.huawei.com/consumer/cn/doc/harmonyos-guides/file-persistpermission
+  - fs 对目录 URI 的操作边界：`openSync(uri + '/<name>', READ_WRITE|CREATE)`（官方 DOWNLOAD 示例即此写法，建议先 `new FileUri(...).path` 转换）与 `fs.stat(path)`（path 参数 API 22+ 支持 URI）有文档承诺；`renameSync`/`mkdirSync`/`accessSync`/`unlinkSync`/`listFileSync` 参数文档只写「应用沙箱路径」，对 URI 不可依赖——这是 commit 改 fd 对拷、init 跳过 ensureDir 的依据。
+- 验证（服务器，2026-09-07）：`hvigorw --no-daemon assembleHap` BUILD SUCCESSFUL；`hvigorw test` 编译级 0 error（执行阶段挂死为 §服务器已知限制，新用例已编入测试 abc，真实计数待 Windows 工作站）；codelinter 改动文件 **0 新增**（全仓现值 5 error + 23 warn + 3 suggestion，5 个 `await-thenable` error 均在 8 月存量文件——AmllLyricsResolver/AppPreferences/CoverColorCacheCore/YtmLoopbackStreamBridge，与 2026-08-24 基线「0 error」漂移，属基线漂移或 codelinter 版本变化，待单独复核，非本次引入）。
+- 未验证（设备侧全部）：API 24 真机/模拟器上 `canIUse(FolderSelection)` 实际值；FOLDER 选择器实际拉起与返回 uri 形态；persist/activate 真实生效；uri 下创建文件/中文文件名/播放（catalog 存 uri 后 `openSync(READ_ONLY)`）冷启动可读；`FILE_ACCESS_PERSIST` 在真机的授予行为（华为在线权限列表页 JS 渲染未能核对该权限级别）。恢复默认后旧目录授权保留策略（保播放）未在设备回归。
+
+### 7.12 2026-09-07 API 26 全量迁移记录（服务器 Linux CLT 26.0.0.105，无设备，分支 `feature/api26-migration`）
+
+工程从 6.1.1(24) 整体迁移到 26.0.0(26)。所有结论以本机 SDK `.d.ts`（`/opt/command-line-tools/sdk/default`，apiVersion 26，releaseType Release）与官方文档为依据，**无任何设备实证**。
+
+- 配置：根 `build-profile.json5` 的 `compatibleSdkVersion`/`targetSdkVersion` 均改为 `"26.0.0"`（纯 SemVer，带 `(26)` 后缀会被 hvigor 拒绝）。`module.json5`/`app.json5` 无需配套改动（minAPIVersion/targetAPIVersion 由打包工具自动注入）。
+- 弃用接口修复（编译器在新基线暴露，全部替换为官方 `@useinstead`）：
+  - `util.TextDecoder.decodeWithStream`（@deprecated since 12）→ `decodeToString`：`download/DownloadStorage.ets`、`ohosTest/ets/testrunner/OpenHarmonyTestRunner.ets`。
+  - 全局 `animateTo` → `UIContext.animateTo`：`view/pages/NowPlayingPage.ets:154`（封面 crossfade）。
+  - `AlertDialog.show`（@useinstead `UIContext#showAlertDialog`）→ `this.getUIContext().showAlertDialog`：`view/pages/SettingsDetailPage.ets` 6 处确认对话框。
+- 有意保留的弃用：`app/diagnostics/CrashEventWatcher.ets` 的 `FaultLogger.querySelfFaultLog` 拉取通道（faultLogger 模块 @deprecated since 18，官方指向 hiAppEvent，但新版 `@ohos.hiviewdfx.hiAppEvent` 仍**无历史故障查询接口**，addWatcher 只订阅不回放；`FaultLogExtensionAbility` 是需注册 ExtensionAbility 的延迟通知机制，架构改造代价大）。该组弃用告警为已知项。
+- 新特性接入（均为既有功能的 API 26 升级）：
+  - `player/AVSessionManager.ets`：`setMediaCenterControlType`（@since 26）向播控中心显式声明按钮集 `playNext/playPrevious/setSpeed/setLoopMode/toggleFavorite`（与 `on()` 注册命令一一对应；失败降级为系统默认布局，不阻塞会话）。
+  - `player/BackgroundTaskRunner.ets`：`continuousTaskCancel` 日志接入 `detailedReason`（@since 26，`ContinuousTaskDetailedCancelReason`，可区分用户划除通知(3)与播放合规审计(6)等精确触发；字段缺省时留空兼容）。
+- 评估后不接入（结论备查）：
+  - `window.setImageForRecent`（多任务卡片自定义封面，@since 20 在 26 权限列表中开放权限名）：需 `ohos.permission.MANAGE_RECENT_SNAPSHOT`（system_basic 级，三方应用不可申请），跳过。
+  - AVPlayer 原生播放列表（`addPlaybackMediaSource`/`playlistLoopMode`/`onPlaybackContentChanged`，@since 26）与 `createAVDownloaderManager` 流式下载（@since 26）：与既有 `QueueEngine` 状态机/自研下载引擎（Range+If-Range 指纹、HLS checkpoint）是整体替换关系而非增量升级，牵动播放恢复、一起听同步与 900+ 单测，本轮不做，留待独立专项。
+  - AVPlayer `seek` 在 26 仍为 `void`（无 Promise 重载），原样保留。
+- targetSdk 26 行为变更核对（逐项走查，均不受影响）：后台「真播放」审计收紧——本工程暂停即 `stopBackgroundRunning`，已合规；沙箱 stat/access 收紧——无硬编码沙箱路径；剪贴板读取需 PasteButton/权限——工程只写不读；Dialog/Toast 默认沉浸材质——工程弹窗均走系统默认样式，与 glass UI 方向一致，**视觉实际效果待设备复核**；`WindowProperties.type` 更名 `windowType`、avSession `playFromAssetId`（since 20 废弃）——工程均未使用。
+- 验证（服务器）：`hvigorw --no-daemon assembleHap` BUILD SUCCESSFUL 且无新增弃用告警；`hvigorw test` 编译级 0 error（执行阶段挂死为 Linux 已知限制，真实通过计数待 Windows 工作站）；codelinter 全仓 5 error + 23 warn + 3 suggestion，与迁移前 stash 基线**逐字节一致**（5 个 `await-thenable` error 为 CLT 26.0.0.105 codelinter 对 8 月存量文件的误报，见 §7.11），本次 8 个改动文件 0 error 0 warn。
+- 未验证（设备侧全部）：播控中心按钮实际渲染；`detailedReason` 实际取值分布；26 镜像上全功能回归（播放/下载/同步/一起听）；弹窗沉浸材质视觉。`compatibleSdkVersion` 抬至 26.0.0 后 26 以下设备无法安装，属预期取舍（用户要求全量迁移）。
+
+### 7.13 2026-09-07 API 26 原生播放列表桥接与播放缓存落地记录（服务器 Linux CLT 26.0.0.105，无设备，分支 `feature/api26-migration`）
+
+§7.12 中「评估后不接入」的两项按既定定位落地：原生播放列表作为 QueueEngine 之下的**换源加速层**（不替换状态机），AVDownloaderManager 作为**播放缓存补充**（不替换下载引擎）。所有平台调用 8s 超时包裹 + 首次硬失败按进程闭锁（防 `setLoudnessGain` 式挂死桩），全部带回退路径。
+
+- **原生播放列表桥（gapless 切歌）** `player/AvPlaylistBridge.ets` + 纯策略 `player/AvPlaylistPolicy.ets`：
+  - 架构：`handleCompletion` 的全部仲裁（睡眠定时、一起听房间、单曲循环重播、TRACK_FINISHED 上报）保持应用侧；仅当仲裁决定前进时，才用内核 `advanceToNextMediaSource()` 换源（无 reset/prepare 空窗）。`playlistLoopMode` 钉死 `NONE`，系统永不自行前进。
+  - 预热条件（AvPlaylistPolicy.shouldPrimeNext，5 门全查）：非单曲循环、队列 ≥2、无一起听会话、引擎会前进、**下一首可离线解析**（下载目录条目或本地文件）。网络流永不预热：预解析每首歌多打一次平台 API（B 站风控教训）且签名 URL 在前进时大概率过期。
+  - 预测一致性：`peekNextIndex` 用 `QueueEngine.toJson()/fromJson()` 全量克隆（含种子随机态）预测 `next(force)` 落点；完成时若克隆预测 ≠ 桥内缓存索引（模式中途切换等）→ 弃用预热回退 loadSong。`QueueEngine` 补 `getQueueSize()`。
+  - fd 生命周期：桥持有预热源的 fd，consume（前进已消费）/abandon（新加载、REPLAY、STOP、清空队列）/失败三条路径都恰好释放一次。
+  - PlayerManager 接线：`loadSong` 前缀抽为 `beginTrackTransition`（原生前进复用同一套元数据/历史/统计/自动匹配副作用）；`ensurePlayer` attach；`clearQueue`/`loadSong` 开头 abandon。
+- **播放缓存** `player/PlaybackCacheManager.ets` + 纯账本 `player/PlaybackCacheLedger.ets`：
+  - 设置 `np.playback_cache` 默认关（opt-in，设置→播放设置→「播放缓存（实验）」）。语义：在线流播放成功后后台入队 `addAVDownloadTask`（带防盗链头），完成后系统缓存目录记入 LRU 账本（上限 24、SchemaStore 持久化、驱逐目录 best-effort rmdir、僵尸任务 5 分钟清扫）；下次 `loadSong` 在下载目录之后、房间权威链接之前查缓存命中（`createMediaSourceWithDirectory` 离线秒开；一起听会话中让位；失效命中自愈剔除）。Wi-Fi only（系统默认）。与文件下载引擎并存不替代。
+- 单测：新增 `AvPlaylistPolicy.test.ets`（5 例：force 镜像、顺序/随机 peek 精确预测、不变更引擎、五门禁）+ `PlaybackCacheLedger.test.ets`（6 例：命中 touch、LRU 驱逐、刷新不驱逐、remove、JSON 往返、损坏降级），编入本地套件。
+- 设备探针（ohosTest，待真机/Windows 跑）：`ActsNativePlaylistProbeTest`（2 例：API 可达性+advance 落点+contentChanged 回传 id、NONE 模式 5s 静默窗不自进）与 `ActsAvDownloaderProbeTest`（1 例：manager 创建→小 MP3 下载完成→getTaskCacheDirectory→目录源 prepare 全链）。
+- 验证（服务器）：entry@default assembleHap **BUILD SUCCESSFUL 0 error**；entry@ohosTest assembleHap（含两个探针）**BUILD SUCCESSFUL 0 error**；`hvigorw test` 编译级 0 error（执行挂死为 Linux 已知限制，真实计数待 Windows 工作站）；codelinter 14 个改动文件 **0 新增缺陷**（全仓仍为基线 5 error + 23 warn + 3 suggestion）。
+- 未验证（设备侧全部）：gapless 实效与 advance 是否跳过 prepare 周期（探针 1 回答）；NONE 模式是否真不自进（探针 2）；缓存目录跨进程存活与 prepare 可行性（探针 3）；B 站带 Referer 头的下载任务是否被 CDN 接受；缓存命中音频与在线流音质一致性。
 
 每次 SDK 或上游 Android 更新，都更新本文件的核验日期、版本矩阵、源码状态和测试结果。
+
 新增能力必须附官方页面 URL、适用 API、代码位置、验证设备、失败日志和降级方案。
 
 如果官方页面、工程配置和历史日志冲突，以当前官方 Release 文档、当前 DevEco Studio 生成配置和可重现设备测试为准。

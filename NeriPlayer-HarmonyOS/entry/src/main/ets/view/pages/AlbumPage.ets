@@ -117,7 +117,6 @@ export struct AlbumPage {
             ListItem() {
               SongRow({
                 songJson: song.toJson(),
-                showPlatform: true,
                 onPlay: () => this.playFrom(index)
               })
             }

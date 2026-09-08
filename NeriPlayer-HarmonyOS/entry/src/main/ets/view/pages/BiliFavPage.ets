@@ -12,9 +12,6 @@ import { EmptyState, LoadingState } from '../components/Ui';
 import { Router } from '../Router';
 import { PlaylistHeader, HeaderPill } from '../components/PlaylistHeader';
 
-/** Remote fav items store full SongItems; cap imports to keep one save sane. */
-const IMPORT_CAP: number = 500;
-
 /**
  * Bilibili favorite-folder detail: header + paged video list (loads more on
  * reach-end), play/shuffle, and one-shot full import into a local playlist.
@@ -139,18 +136,15 @@ export struct BiliFavPage {
     try {
       const mediaItems = await BiliApi.getAllFavFolderItems(this.mediaId());
       const songs = mediaItems.map((media) => biliFavMediaToSongItem(media));
-      const capped = songs.slice(0, IMPORT_CAP);
-      if (capped.length === 0) {
+      if (songs.length === 0) {
         promptAction.openToast({ message: '收藏夹没有可导入的内容' });
       } else {
         const playlist = await LocalPlaylistRepository.createPlaylistWithSongs(
           trimmed,
-          capped,
+          songs,
           MusicPlatform.LOCAL
         );
-        const skipped = songs.length - capped.length;
-        const suffix = skipped > 0 ? `（超出上限，已截取前 ${IMPORT_CAP} 首）` : '';
-        promptAction.openToast({ message: `已导入「${playlist.name}」${playlist.songKeys.length} 首${suffix}` });
+        promptAction.openToast({ message: `已导入「${playlist.name}」${playlist.songKeys.length} 首` });
         this.showImportDialog = false;
       }
     } catch (error) {
@@ -243,7 +237,6 @@ export struct BiliFavPage {
                     SongRow({
                       songJson: song.toJson(),
                       index: index,
-                      showPlatform: false,
                       onPlay: () => {
                         PlayerManager.playPlaylist(this.songs, index);
                         Router.push(Router.NOW_PLAYING);
@@ -292,7 +285,7 @@ export struct BiliFavPage {
               .fontSize(17)
               .fontWeight(FontWeight.Bold)
               .fontColor(Theme.textPrimary(Theme.isDark()))
-            Text(`将全量拉取收藏夹内容并复制到新建的本地歌单（上限 ${IMPORT_CAP} 条）`)
+            Text(`将全量拉取收藏夹内容并复制到新建的本地歌单（共 ${this.totalCount} 条）`)
               .fontSize(12)
               .fontColor(Theme.textSecondary(Theme.isDark()))
             TextInput({ placeholder: '输入歌单名称', text: this.importName })

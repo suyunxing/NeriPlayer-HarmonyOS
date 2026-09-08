@@ -96,6 +96,10 @@ export class QueueEngine {
     this.queueSize = size;
   }
 
+  getQueueSize(): number {
+    return this.queueSize;
+  }
+
   // --------------------------------------------------------------------------
   // Shuffle bag
   // --------------------------------------------------------------------------
