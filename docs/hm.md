@@ -1,6 +1,6 @@
 # NeriPlayer HarmonyOS 开发与迁移指南
 
-> 核验日期：2026-08-14；2026-08-31 复核了 §3.1/§3.2/§8.1 的源码规模、能力域状态与用例计数。本文依据华为开发者联盟文档中心、版本说明和当前工作区源码重写并复核：版本映射与官方文档核对一致；本机工具链路径按 2026-08-14 迁移后的 `D:\HarmonyOS\Tools\` 布局更新（2026-08-13 的验证记录当时基于旧布局 `D:\HarmonyOS\` 根目录）。本文面向 NeriPlayer 的 HarmonyOS 原生迁移，不是 HarmonyOS API 的完整百科。
+> 核验日期：2026-08-14；2026-08-31 复核了 §3.1/§3.2/§8.1 的源码规模、能力域状态与用例计数；2026-09-08 复核了 §1/§2.2/§3.1/§8.1/§8.3/§9 的基线、包名、规模与用例计数（API 26 迁移与 bundleName 改名后的文档对齐）。本文依据华为开发者联盟文档中心、版本说明和当前工作区源码重写并复核：版本映射与官方文档核对一致；本机工具链路径按 2026-08-14 迁移后的 `D:\HarmonyOS\Tools\` 布局更新（2026-08-13 的验证记录当时基于旧布局 `D:\HarmonyOS\` 根目录）。本文面向 NeriPlayer 的 HarmonyOS 原生迁移，不是 HarmonyOS API 的完整百科。
 
 ## 1. 先看结论
 
@@ -10,16 +10,15 @@ NeriPlayer 的主迁移路线是 HarmonyOS 普通应用：ArkTS + ArkUI + Stage 
 当前工程是可继续开发的 ArkTS 原型，不应描述为“已完成 Android 全量移植”。
 源码、配置和审计结果显示，页面骨架、基础播放、部分数据仓库和三平台搜索已存在，但功能等价性、异常恢复和设备验证仍不足。
 
-生产开发默认使用 **HarmonyOS 6.1.1(24) Release**：
+生产开发默认使用 **HarmonyOS 26.0.0（API 26）Release 工具链**：
 
-- DevEco Studio 6.1.1 Release（当前版本页列出 6.1.1.300、6.1.1.290、6.1.1.280）。
-- HarmonyOS SDK 6.1.1 Release，基于 OpenHarmony SDK `Ohos_sdk_public 6.1.1.125`。
-- API 24 Release 于 2026-05-26 发布。
+- 2026-09-07 工程从 `6.1.1(24)` 全量迁移到 `26.0.0`（版本号自 26.0.0 起改用纯 SemVer，配置中不带 `(26)` 后缀，见 §2.2 与 §7.12）。
+- 迁移前基线为 HarmonyOS 6.1.1 Release（DevEco Studio 6.1.1 Release、SDK `Ohos_sdk_public 6.1.1.125`；API 24 Release 于 2026-05-26 发布）。
+- `compatibleSdkVersion` 已随迁移抬至 `26.0.0`，26 以下设备不再可安装本应用。
 
-这是 NeriPlayer 当前工程的项目基线，不代表华为对所有应用的统一升级建议。官网“所有版本”页当前把 6.1.1(24) 标为“按需使用/按需升级”，把 6.0.0(20) 标为“推荐使用/推荐升级”；已有应用应根据目标 API、设备覆盖和新能力需求决定是否升级。
+这是 NeriPlayer 当前工程的项目基线，不代表华为对所有应用的统一升级建议；已有应用应根据目标 API、设备覆盖和新能力需求决定是否升级。
 
-**26.0.0 Beta2** 是当前官网列出的最新开发者 Beta，配套 DevEco Studio 26.0.0 Beta2（26.0.0.621）和 SDK `Ohos_sdk_public 26.0.0.32`。
-它只用于预览特性和适配验证，不作为本项目的生产默认基线。
+**26.0.0 Beta2**（配套 DevEco Studio 26.0.0 Beta2（26.0.0.621）和 SDK `Ohos_sdk_public 26.0.0.32`）等 Beta 通道工具链只用于预览特性和适配验证；本项目生产构建以 26.0.0 Release 工具链为准（§7.12 为服务器 CLT 26.0.0.105 的迁移实测记录）。
 
 ## 2. 官方版本与兼容性规则
 
@@ -60,9 +59,9 @@ compatibleSdkVersion ≤ targetSdkVersion ≤ compileSdkVersion
       {
         "name": "default",
         "signingConfig": "default",
-        "compileSdkVersion": "6.1.1(24)",
-        "targetSdkVersion": "6.1.1(24)",
-        "compatibleSdkVersion": "6.1.1(24)",
+        "compileSdkVersion": "26.0.0",
+        "targetSdkVersion": "26.0.0",
+        "compatibleSdkVersion": "26.0.0",
         "runtimeOS": "HarmonyOS"
       }
     ]
@@ -79,7 +78,7 @@ compatibleSdkVersion ≤ targetSdkVersion ≤ compileSdkVersion
 26.0.0 > 6.1.1(24) > 6.1.0(23) > 6.0.2(22) > 6.0.1(21) > 6.0.0(20)
 ```
 
-不要把 Beta2 页面中的新增 API 直接混入 API 24 生产代码。需要时建立 capability adapter，并在预览设备上单独验证。
+不要把 Beta 通道页面中的新增 API 直接混入生产代码。需要时建立 capability adapter，并在预览设备上单独验证。
 
 ### 2.3 升级适配闭环
 
@@ -105,9 +104,9 @@ compatibleSdkVersion ≤ targetSdkVersion ≤ compileSdkVersion
 | `docs/` | 审计、矩阵、路线图 | 迁移决策记录 |
 
 HarmonyOS 工程当前是单 `entry` HAP、Stage 模型、ArkTS 严格模式。
-工程声明支持 phone、tablet、2in1，包名为 `moe.ouom.neriplayer`，许可证沿用 GPL-3.0。
+工程声明支持 phone、tablet、2in1，包名为 `moe.ouom.neriplayer.hmos`（2026-09-01 由 `moe.ouom.neriplayer` 改名），许可证沿用 GPL-3.0。
 
-源码 `entry/src/main/ets` 下 239 个 `.ets` 文件、约 4.98 万行（2026-08-31 实测 49,834 行）。`entry/src/test/` 本地单元测试已随里程碑累积到 874 用例（2026-08-29 记录全绿），`entry/src/ohosTest/` 建有设备测试族；测试范围与计数沿革见 §8.1。
+源码 `entry/src/main/ets` 下 251 个 `.ets` 文件、约 5.38 万行（2026-09-08 实测 53,753 行）。`entry/src/test/` 本地单元测试已随里程碑累积到 935 用例（2026-09-08 静态清点；最近一次全量执行为 2026-08-29 的 874/874 全绿），`entry/src/ohosTest/` 建有设备测试族；测试范围与计数沿革见 §8.1。
 2026-08-13 已使用 `D:\HarmonyOS` 中的 6.1.1 Release 工具链从 `ohpm install --all`、`clean` 开始完成 Debug HAP 构建，随后执行 ArkTS 单元测试、调试签名、模拟器安装、冷启动和设置页 smoke test。构建与测试结果可从当前源码重复获得，不再依赖 2026-08-02 的历史日志。
 
 ### 3.2 已有代码与可信度
@@ -128,7 +127,7 @@ HarmonyOS 工程当前是单 `entry` HAP、Stage 模型、ArkTS 严格模式。
 | 一起听 | `listentogether/` 全链 + 房间页（M7，2026-08-21/22） | 建房/加入/同步播放/重连/邀请分享双端设备闭环；房间设置开关等增强项未做 |
 | USB 独占 | M9.1 spike 定案**不移植**（2026-08-24，`docs/USB_M91_SPIKE.md`） | API 面可行，但 ArkTS 单 JS 线程守不住等时节拍、SDK 无公开 USB DDK；系统路径 AVPlayer→USB Audio HAL 可用 |
 | 动态取色/高级模糊 | `view/theme/`（Palette/DynamicTheme 等）+ 背景模糊/玻璃子集（M8.1/M8.4，2026-08-23） | 设备实证随封面变色；AGSL 区域掩码玻璃无平台对应（D 级降级）；壁纸取色待复核 |
-| 测试 | ArkTS 本地单元测试 874/874 通过（2026-08-29 S 阶段记录；最初仅 3 个 LRC 用例，随各里程碑累积）+ `ohosTest` 设备测试族 | 已建立并持续扩充；UI/Instrument 自动化仍薄 |
+| 测试 | ArkTS 本地单元测试 874/874 通过（2026-08-29 S 阶段记录，为最近一次全量执行；2026-09-08 静态清点 935 例；最初仅 3 个 LRC 用例，随各里程碑累积）+ `ohosTest` 设备测试族 | 已建立并持续扩充；UI/Instrument 自动化仍薄 |
 
 ### 3.3 当前配置审查
 
@@ -266,8 +265,8 @@ USB 独占播放先确认目标设备 USB Host、相关 syscap、NAPI 和等时�
 
 ### 阶段 7：发布门槛
 
-发布前在 API 24 生产设备和明确声明支持的旧版本设备上执行构建、安装、升级、权限、播放、后台、网络、存储和恢复测试。
-API 26 Beta2 只作为独立预览适配矩阵，不能替代 Release 回归。
+发布前在 API 26（26.0.0）生产设备上执行构建、安装、升级、权限、播放、后台、网络、存储和恢复测试；`compatibleSdkVersion` 已抬至 26.0.0，无更低版本设备兼容负担（2026-09-07 迁移，见 §7.12）。
+Beta 通道预览矩阵不能替代 Release 回归。
 
 完成无障碍、phone/tablet/2in1 布局、启动速度、内存、功耗、隐私、权限最小化、日志脱敏和应用市场合规检查。
 
@@ -410,7 +409,7 @@ cd NeriPlayer-HarmonyOS
 $hdc = 'D:\HarmonyOS\Tools\command-line-tools\sdk\default\openharmony\toolchains\hdc.exe'
 & $hdc list targets
 & $hdc install -r '.\entry\build\default\outputs\default\entry-default-signed.hap'
-& $hdc shell aa start -a EntryAbility -b moe.ouom.neriplayer -m entry
+& $hdc shell aa start -a EntryAbility -b moe.ouom.neriplayer.hmos -m entry
 ```
 
 **双实例（2026-08-22 M7.5 验证）**：`Emulator.exe -start 'Mate X7'` 可再起第二个实例（foldable 与 phone 共享 phone_all_x86 镜像），hdc 端口自动分配（实测 5561，需 `hdc tconn 127.0.0.1:5561` 探测）；一份 HAP 用双 UDID profile 签名即可双端安装：`sign-local.ps1 -Device <A> -DeviceIds <udidA>,<udidB> -HvigorwPath ...`（`-DeviceIds` 必传，`-Device` 只是安装目标）。devecocli 的 ui 子命令在多设备下用 `--device 127.0.0.1:<port>` 区分。guest 无 root/su：`ifconfig eth0 down`、`kill -19` 均 Permission denied，无法在 guest 内断网/冻结进程。
@@ -478,7 +477,7 @@ $hdc = 'D:\HarmonyOS\Tools\command-line-tools\sdk\default\openharmony\toolchains
 
 ### 8.1 纯逻辑测试
 
-当前基线位于 `entry/src/test/`，通过 `@ohos/hypium` 和 Hvigor 本地单元测试任务执行 **874 个用例**（2026-08-29 S 阶段记录全绿，`docs/FEATURE_MATRIX.md`；此前各里程碑计数 3→42→…→809→816→848→874 递增，`hvigorw test` 默认不打印计数，结果读 `entry/.test/default/intermediates/test/coverage_data/test_result.txt`）。测试不访问设备和第三方网络。该结果不替代需要安装测试包并通过 `aa test` 执行的设备侧 JsUnit/Instrument 测试。
+当前基线位于 `entry/src/test/`，通过 `@ohos/hypium` 和 Hvigor 本地单元测试任务执行 **935 个用例**（2026-09-08 静态清点 `it(` 声明；最近一次全量执行记录为 2026-08-29 的 874/874 全绿，`docs/FEATURE_MATRIX.md`；此前各里程碑计数 3→42→…→809→816→848→874→935 递增，`hvigorw test` 默认不打印计数，结果读 `entry/.test/default/intermediates/test/coverage_data/test_result.txt`）。测试不访问设备和第三方网络。该结果不替代需要安装测试包并通过 `aa test` 执行的设备侧 JsUnit/Instrument 测试。
 
 优先为以下模块补 JsUnit：
 
@@ -500,7 +499,7 @@ $hdc = 'D:\HarmonyOS\Tools\command-line-tools\sdk\default\openharmony\toolchains
 
 | 维度 | 必测场景 |
 | --- | --- |
-| 系统 | API 24 Release；声明支持的旧 API；API 26 Beta2 预览 |
+| 系统 | API 26 Release（`compatibleSdkVersion` 已抬至 `26.0.0`，26 以下设备不再可安装，见 §7.12）；API 26 Beta2 预览 |
 | 设备 | phone、tablet、2in1；至少一台真实设备 |
 | 音频 | 扬声器、蓝牙耳机、耳机拔出、来电、导航播报、其他播放器抢占 |
 | 生命周期 | 冷启动、后台、熄屏、旋转/折叠、多窗口、进程被回收 |
@@ -511,8 +510,8 @@ $hdc = 'D:\HarmonyOS\Tools\command-line-tools\sdk\default\openharmony\toolchains
 
 - [x] 2026-08-13 已在当前 6.1.1 Release 环境完成依赖同步、干净编译、3 个单元测试、调试签名、模拟器安装和冷启动。
 - [x] 2026-08-14 迁移后全链复验通过：PATH/环境变量修复、显式三版本配置、ohosTest 骨架（设备实测 1/1）、codelinter 基线、签名口令重置（见 7.5）。
-- [x] 三个 SDK 版本显式配置且满足大小关系（compileSdkVersion/targetSdkVersion/compatibleSdkVersion = 6.1.1(24)）。
-- [ ] API 24 Release 完整功能回归通过；当前只完成构建、单测和设置页 smoke test，Beta API 未混入生产路径。
+- [x] SDK 版本显式配置且满足大小关系（targetSdkVersion/compatibleSdkVersion = `26.0.0`；compileSdkVersion 未显式配置、随工具链 SDK——2026-09-07 迁移，见 §7.12）。
+- [ ] 目标 API（26.0.0）完整功能回归通过；2026-09-07 迁移后设备侧回归未执行（见 §7.12），此前 API 24 阶段的设备实测记录见 §7.6～§7.10。Beta API 未混入生产路径。
 - [ ] Stage、UIAbility、AbilityStage 的职责和生命周期清晰。
 - [x] 新页面使用 Navigation/NavPathStack，或记录 Router 过渡原因。2026-08-26：全部 11 个全屏路由已迁到 `Navigation`/`NavDestination` + `NavPathStack`，`Router` 保留为门面（见 6.2）。
 - [ ] AVPlayer 状态监听、错误恢复、资源释放和本地 fd 生命周期经过测试。
@@ -548,7 +547,7 @@ $hdc = 'D:\HarmonyOS\Tools\command-line-tools\sdk\default\openharmony\toolchains
 
 ### API 26（HarmonyOS 7.0）差异预览
 
-预研 API 26 新能力时参考（不得混入 API 24 生产路径）：
+预研 API 26 新能力时参考（不得混入生产路径；生产基线已是 26.0.0，Beta 页面能力仍需单独验证）：
 
 - [Media Kit API 差异（26.0.0 Beta2）](https://developer.huawei.com/consumer/cn/doc/harmonyos-releases/js-apidiff-mediakit-7002)：AVPlayer 播放列表、离线缓存下载 `AVDownloaderManager`、`AVTimedMetaData`、可加载/可 seek 时间段查询等。
 - [AVSession Kit API 差异（26.0.0 Beta2）](https://developer.huawei.com/consumer/cn/doc/harmonyos-releases/js-apidiff-avsessionkit-7002)：`setSupportedPlaySpeeds`/`setSupportedLoopModes`/`setSupportedMediaCenterControlTypes` 等。

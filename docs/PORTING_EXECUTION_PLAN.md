@@ -44,7 +44,7 @@
 
 | 项 | 值 |
 | --- | --- |
-| 主力工程 | `D:\HarmonyOS\Project\Neriplayer\NeriPlayer-HarmonyOS`（API 24 = 6.1.1(24) Release 基线） |
+| 主力工程 | `D:\HarmonyOS\Project\Neriplayer\NeriPlayer-HarmonyOS`（基线 2026-09-07 已迁移为 26.0.0 / API 26，见 hm.md §7.12；本行 API 24 描述为 2026-08-14 验证时点） |
 | CLI 工具 | `D:\HarmonyOS\Tools\command-line-tools\bin\`（ohpm.bat / hvigorw.bat / codelinter.bat / Emulator.bat） |
 | 完整 API 24 SDK | `D:\HarmonyOS\Tools\command-line-tools\sdk\default`（hdc 在 `openharmony\toolchains\`） |
 | 26 Studio | `D:\HarmonyOS\Tools\devecostudio-windows-26.0.0.621\DevEco Studio`（仅贡献 jbr java 给 hap-sign-tool） |
@@ -56,14 +56,14 @@ $cli = 'D:\HarmonyOS\Tools\command-line-tools\bin'
 & "$cli\hvigorw.bat" assembleHap --mode module -p module=entry@default -p product=default -p buildMode=debug --no-daemon   # 构建
 & "$cli\hvigorw.bat" test --mode module -p product=default -p buildMode=debug --no-daemon                                   # 本地单测
 & "$cli\hvigorw.bat" assembleHap --mode module -p module=entry@ohosTest -p product=default -p buildMode=debug --no-daemon   # 设备测试 HAP
-& "$cli\codelinter.bat" .                                                                                                   # 静态检查（基线 24 warn + 2 suggestion，无 error）
+& "$cli\codelinter.bat" .                                                                                                   # 静态检查（6.1.1 CLT 基线 24 warn + 2 suggestion 无 error；2026-09-07 起 CLT 26.0.0.105 下漂移为 5 error + 23 warn + 3 suggestion，error 为存量误报，见 hm.md §7.11/§7.12）
 
 # 签名 + 安装模拟器（需用户级 NERIPLAYER_SIGNING_PASSWORD、DEVECO_SDK_HOME、DEVECO_STUDIO_HOME 已持久化）
 .\sign-local.ps1 -HvigorwPath 'D:\HarmonyOS\Tools\command-line-tools\bin\hvigorw.bat'
 
 # 模拟器：Emulator.bat 冷启动后先 tconn；ohosTest 用 aa test
 hdc tconn 127.0.0.1:5555
-hdc -t 127.0.0.1:5555 shell "aa test -b moe.ouom.neriplayer -m entry_test -s unittest OpenHarmonyTestRunner -s class ActsAbilityTest#assertContain -s timeout 15000"
+hdc -t 127.0.0.1:5555 shell "aa test -b moe.ouom.neriplayer.hmos -m entry_test -s unittest OpenHarmonyTestRunner -s class ActsAbilityTest#assertContain -s timeout 15000"
 ```
 
 **平台坑**：26 Studio 的 hvigor 不能构建 6.1.1(24) 工程（错误 00303031），构建必须用 CLT 的 hvigorw.bat；Git Bash 下调 hdc 设备路径加 `MSYS_NO_PATHCONV=1`，`hdc file recv` 本地目标用相对路径；**`aa test` 的 runner 参数 `/ets/testrunner/OpenHarmonyTestRunner` 同样会被 MSYS 改写成 Windows 路径**（2026-08-21 实证：报 `Cannot find module '…entry_testC:/Program Files/Git/ets/testrunner/…'`、ResultCode -1 App died，非代码缺陷），整条命令必须前置 `MSYS_NO_PATHCONV=1`；`hdc install` 的本地 HAP 路径给绝对路径会被拼到 cwd 之后（`…NeriPlayer-HarmonyOS\D:/…`）而 Fail，须用相对路径；读崩溃日志看 `devecocli log --crash` 的**头部**（`Error message:` 在前，尾部只有 native 栈帧）。.ps1 禁非 ASCII 字符（GBK 解析会静默吞代码行）。静态语法分析可用 `deveco-mcp` 的 `check` 工具（PROJECT_PATH 已指向主力工程）。
@@ -72,7 +72,7 @@ hdc -t 127.0.0.1:5555 shell "aa test -b moe.ouom.neriplayer -m entry_test -s uni
 - **ArkUI 渲染依赖追踪盲区（2026-08-22 设备实证，M7.4 排查三轮+双探针定位）**：`@StorageLink/@StorageProp` 字符串本身更新正常（同页探针 Text 直读属性能实时显示新 JSON），但**组件方法内部的状态读取不被依赖追踪**——`this.session()` 这类「读状态→解析→返回对象」的私有方法在 @Builder 参数或属性表达式里求值一次后固化，节点永远显示首帧值（房间页「连接」永远显示「连接中」，而 AppStorage 里早已是 connected，管理器日志/心跳均证明状态机正常）。嵌套 @Builder 的按值参数同样固化为调用时快照。**守则：动态值必须在 build()/@Builder 表达式里直读状态变量；解析逻辑走 `@StorageLink(...) @Watch('onXxx')` 回调镜像进 `@State` 对象（整组件重渲染），不要在渲染表达式里调 this.xxx() 方法链**。另：devecocli emulator start 报 `system image cannot be found` 是其包装的 Studio 26 Emulator.exe 镜像根为空所致，本机正确启动方式是 CLT 的 `Emulator.exe -start "Pura 90"`（实例端口 5559）。
 - `aa test` 的 MSYS 改写还有第二种解法，本轮实证有效：**把整条远端命令包成单个引号参数**——`hdc.exe -t 127.0.0.1:5559 shell "aa test -b <bundle> -m entry_test -s unittest /ets/testrunner/OpenHarmonyTestRunner -s class <DescribeName> -s timeout 120000"`。MSYS 只改写「看起来像独立路径」的 argv 元素，整条以 `aa` 开头的字符串不符合该形状。注意 `//ets/...` 这种写法**不管用**（双斜杠不会被折叠成一条，改走 cppcrash：`SIGSEGV@0xa2` in `panda::JSNApi::GetExportObject`）。ohosTest 的模块名取自 `entry/src/ohosTest/module.json5`，本工程为 `entry_test`。
 - `hdc.exe` 不在 CLT 的 `bin/` 里，在 `Tools/command-line-tools/sdk/default/openharmony/toolchains/hdc.exe`。
-- `codelinter.bat` **只要有发现就 exit 1**，退出码不能当成败判据；须数输出 JSON 里的 `"severity"` 出现次数（本工程基线：**24 warn + 2 suggestion + 0 error**。原基线为 1 suggestion，M8 背景模糊引入的 effectkit 性能建议使其变为 2，属有意取舍；此行曾滞留旧值，2026-08-24 M9.3 复测 `{'warn': 24, 'suggestion': 2}` 后校正）。
+- `codelinter.bat` **只要有发现就 exit 1**，退出码不能当成败判据；须数输出 JSON 里的 `"severity"` 出现次数（本工程基线：**24 warn + 2 suggestion + 0 error**。原基线为 1 suggestion，M8 背景模糊引入的 effectkit 性能建议使其变为 2，属有意取舍；此行曾滞留旧值，2026-08-24 M9.3 复测 `{'warn': 24, 'suggestion': 2}` 后校正）。**2026-09-07 补记**：CLT 26.0.0.105 下全仓漂移为 **5 error + 23 warn + 3 suggestion**（5 个 `await-thenable` error 均在 8 月存量文件，属工具版本漂移非回归，见 hm.md §7.11/§7.12），判据以「改动文件 0 error、不新增缺陷」为准。
 - `deveco-mcp` 的 `check` 在 **worktree 里不可用**（它的 PROJECT_PATH 固定指向主 checkout，检的不是你改的文件）；worktree 内的编译保障只能来自 hvigor 构建。
 - hypium 1.0.28 **没有 `assertThrowError`**；可用的是 `assertEqual/assertTrue/assertFalse/assertNull/assertUndefined/assertLargerOrEqual`，测「应当抛出」得自己写 `throwsFor()` 辅助函数。
 - **真机行为探针技巧**：hypium 断言失败信息会原样打印 actualValue（`expect <实际> equals <期望>`），所以想知道平台真实行为时，可临时把观测结果拼成字符串再 `expect(observed).assertEqual('PROBE')`，一次运行就能把真机序列/时延打出来，比翻 hilog 快。M7.2 的 divergence 3 就是这样被推翻的。
