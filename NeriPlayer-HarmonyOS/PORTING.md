@@ -6,9 +6,9 @@
 
 ## 基线 (Baseline)
 
-- **HarmonyOS 6.1.1 Release / API 24**（生产基线；本机 DevEco Studio 6.1.1.300，SDK 6.1.1.125）
-- **Stage 模型**（UIAbility + 单入口），主语言 **ArkTS**（严格模式），UI 框架 **ArkUI**
-- 包名沿用原项目：`moe.ouom.neriplayer`
+- **HarmonyOS 26.0.0 Release / API 26**（2026-09-07 从 6.1.1 Release / API 24 全量迁移，见 `../docs/hm.md` §7.12；迁移前本机 DevEco Studio 6.1.1.300，SDK 6.1.1.125）
+- **Stage 模式**（UIAbility + 单入口），主语言 **ArkTS**（严格模式），UI 框架 **ArkUI**
+- 包名：`moe.ouom.neriplayer.hmos`（2026-09-01 由原项目包名 `moe.ouom.neriplayer` 改名）
 - 许可证沿用 **GPL-3.0**
 
 ## 当前状态（2026-08-02 已在 API 24 模拟器实测）
@@ -46,7 +46,7 @@
 ```text
 NeriPlayer-HarmonyOS/
 ├── AppScope/                     # 应用级配置（bundleName、图标、label）
-├── build-profile.json5           # 工程级构建配置（compatibleSdkVersion 6.1.1(24)）
+├── build-profile.json5           # 工程级构建配置（compatibleSdkVersion 26.0.0）
 ├── hvigor/                       # Hvigor 版本配置
 ├── sign-local.ps1                # 本地构建+签名+安装脚本（命令行调试用）
 ├── signing/                      # 本地调试签名材料（自动生成，勿提交密钥）
