@@ -66,24 +66,39 @@ export class HttpHeaderParser {
       if (headerName !== 'set-cookie') {
         continue;
       }
-      const raw = line.substring(colon + 1);
-      for (const chunk of raw.split(',')) {
-        const head = chunk.split(';')[0].trim();
-        const eq = head.indexOf('=');
-        if (eq <= 0) {
-          continue;
-        }
-        const name = head.substring(0, eq).trim();
-        const value = head.substring(eq + 1).trim();
-        if (name.length === 0 || value.length === 0) {
-          continue;
-        }
-        if (RESERVED_COOKIE_ATTR_NAMES.has(name.toLowerCase())) {
-          continue;
-        }
-        out.set(name, value);
-      }
+      HttpHeaderParser.mergeLooseFragments(line.substring(colon + 1), out);
     }
     return out;
+  }
+
+  /**
+   * Parses the dedicated HttpResponse.cookies field. The stacks have shipped
+   * it as "; "-joined name=value pairs, as comma-joined full Set-Cookie lines
+   * with attributes, and sometimes with attributes mixed in; split on both
+   * separators and keep only the name=value head of each fragment.
+   */
+  static parseLooseCookiePairs(text: string): Map<string, string> {
+    const out = new Map<string, string>();
+    HttpHeaderParser.mergeLooseFragments(text, out);
+    return out;
+  }
+
+  private static mergeLooseFragments(raw: string, out: Map<string, string>): void {
+    for (const chunk of raw.split(/[,;]/)) {
+      const head = chunk.split(';')[0].trim();
+      const eq = head.indexOf('=');
+      if (eq <= 0) {
+        continue;
+      }
+      const name = head.substring(0, eq).trim();
+      const value = head.substring(eq + 1).trim();
+      if (name.length === 0 || value.length === 0) {
+        continue;
+      }
+      if (RESERVED_COOKIE_ATTR_NAMES.has(name.toLowerCase())) {
+        continue;
+      }
+      out.set(name, value);
+    }
   }
 }
