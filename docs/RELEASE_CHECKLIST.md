@@ -245,3 +245,23 @@ AppScope/resources/base/profile/configuration.json
 本轮实际执行的命令：`hvigorw.bat assembleHap` → `codelinter.bat ./entry` → `hvigorw.bat test`（本地 suite）→ `hvigorw.bat assembleHap --mode module -p module=entry@ohosTest` + `hap-sign-tool.jar sign-app` + `hdc install -r` + `aa test`（**须 `MSYS_NO_PATHCONV=1` 且屏幕已解锁**，否则 ResultCode -1/-2）→ `sign-local.ps1`（重签 default HAP 并安装）→ `aa start` → `uitest dumpLayout` + `tools/.m9/overflow.py` → `snapshot_display` + `GetPixel` 采样 → `hidumper -s WindowManagerService -a -a` / `hidumper --mem <pid>`。签名口令经 `NERIPLAYER_SIGNING_PASSWORD`、UDID 经 `NERIPLAYER_DEVICE_IDS` 传入，均不落盘不入日志。
 
 > **取证时的一个已确认误报**：`uitest` 导出 `Progress` 节点时，`bounds` 恒为 1344、`origBounds` 恒为 2880，与实际填充量无关（在 11% 与 20% 两个进度各测一次，数字不变）→ 四个 Tab 页上反复出现的「非滚动区被裁剪 1」全部落在 MiniPlayer 那条 `Progress` 上，属**导出侧的固定值**，与系统状态栏 `'100'` 重复导出造成的「文本重叠」同类。判定四类缺陷时按人工核查排除。
+
+## 8. GitHub Release 分发流程（CD 流水线，2026-09-08 起）
+
+面向「他人可直接下载」的开发者间分发通道。**产物永远是未签名 HAP**——HarmonyOS 不接受未签名应用也不存在关闭校验的开关，接收人按 Release 附件 `INSTALL.md` 用自己的调试证书签名后 `hdc install`。签名材料/口令/UDID 不进 GitHub（含 Secrets），AGC 正式发布证书属用户个人资产，未经用户操作不引入流水线。
+
+### 8.1 流程
+
+1. dev 集成完成、CI 绿后，由用户打 tag：`git tag vX.Y.Z && git push origin vX.Y.Z`（打正式 tag 属版本号/发布物变更，须用户明确发起）。
+2. `harmonyos-release.yml` 自动触发：版本号写入 `AppScope/app.json5`（versionName=tag 去 v 前缀、versionCode=三段乘权如 1.0.1→1000001，低于既有基线 1000000 会 fail 防降级安装）→ release 构建 → 上传 GitHub Release。
+3. Release 附件三个：`NeriPlayer-<tag>-unsigned.hap`、`SHA256SUMS.txt`（完整性校验）、`INSTALL.md`（签名安装指南：DevEco 自动签名 / AGC 手动申请 / hap-sign-tool 命令行三路径）。
+4. 带 `-` 预发布后缀的 tag（如 `v1.0.1-rc.1`）自动标记 prerelease。
+5. 手动补跑：workflow_dispatch 传已存在的 tag 名（用于 Release 上传步骤失败后重试，构建 artifact 保留 7 天兜底）。
+
+### 8.2 约束与注意
+
+- 最低系统要求 API 26（工程 2026-09-07 迁移），INSTALL.md 与 Release 正文均已注明。
+- tag 必须匹配 `v\d+\.\d+\.\d+`（允许预发布后缀），否则流水线直接 fail。
+- 工具链与 CI 同源：`ErBWs/setup-ohos@v2` version `26.0.0.821`（API 26），升级工具链时两个 workflow 同步改。
+- 私有仓库的 Release 仅对 collaborator 可见；若需公开分发需先转公开仓库（另涉 §5 合规评估，未决策前维持私有）。
+- 该通道与上架 AppGallery 正式发布（§5 合规清单）互不影响：前者面向开发者侧载，后者仍走 AGC 审核流程。
