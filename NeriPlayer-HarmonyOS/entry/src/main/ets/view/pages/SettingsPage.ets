@@ -71,42 +71,36 @@ export struct SettingsPage {
             title: '云端',
             subtitle: 'GitHub / WebDAV 备份与一起听服务器',
             icon: '☁',
-            tint: '#4A90D9',
             onTap: () => Router.push(Router.SETTINGS_DETAIL, SETTING_SYNC)
           })
           SettingHubRow({
             title: '播放',
             subtitle: '音质、音量与播放行为',
             icon: '▶',
-            tint: '#F0A030',
             onTap: () => Router.push(Router.SETTINGS_DETAIL, SETTING_PLAYBACK)
           })
           SettingHubRow({
             title: '歌词',
             subtitle: '歌词显示与外观样式',
             icon: '♪',
-            tint: '#58B368',
             onTap: () => Router.push(Router.SETTINGS_DETAIL, SETTING_LYRICS)
           })
           SettingHubRow({
             title: '播放器',
             subtitle: '全屏播放器与底部播放器',
             icon: '🎧',
-            tint: '#9C6ADE',
             onTap: () => Router.push(Router.SETTINGS_DETAIL, SETTING_PLAYER)
           })
           SettingHubRow({
             title: '界面与外观',
             subtitle: '应用深浅色、主题色与背景',
             icon: '🎨',
-            tint: '#E06A8A',
             onTap: () => Router.push(Router.SETTINGS_DETAIL, SETTING_APPEARANCE)
           })
           SettingHubRow({
             title: '页面与导航',
             subtitle: '默认启动页与页面内容设置',
             icon: '🧭',
-            tint: '#3AA6A0',
             onTap: () => Router.push(Router.SETTINGS_DETAIL, SETTING_NAVIGATION)
           })
         }
@@ -180,6 +174,12 @@ export struct SettingsPage {
 
         this.sectionTitle('其他')
         Column({ space: 10 }) {
+          SettingRow({
+            title: '播放历史',
+            subtitle: '最近播放的歌曲与播放次数',
+            icon: '⏱',
+            onTap: () => Router.push(Router.RECENT)
+          })
           ToggleRow({
             title: '开发者模式',
             icon: '⚙',

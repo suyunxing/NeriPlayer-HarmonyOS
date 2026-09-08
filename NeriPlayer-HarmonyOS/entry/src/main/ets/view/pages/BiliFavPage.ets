@@ -237,7 +237,6 @@ export struct BiliFavPage {
                     SongRow({
                       songJson: song.toJson(),
                       index: index,
-                      showPlatform: false,
                       onPlay: () => {
                         PlayerManager.playPlaylist(this.songs, index);
                         Router.push(Router.NOW_PLAYING);

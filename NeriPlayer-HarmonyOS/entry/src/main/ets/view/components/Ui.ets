@@ -3,7 +3,6 @@ import { AccentScheme } from '../theme/AccentScheme';
 import { LengthMetrics } from '@kit.ArkUI';
 
 import { Playlist } from '../../model/Playlist';
-import { MusicPlatform } from '../../model/MusicPlatform';
 import { iconForLegacy } from '../../util/IconCatalog';
 
 /**
@@ -63,7 +62,7 @@ export struct SectionHeader {
         Image(this.iconResource)
           .width(20)
           .height(20)
-          .fillColor(Theme.primary(Theme.isDark()))
+          .fillColor(this.schemePrimary())
       } else if (this.icon.length > 0) {
         Image(iconForLegacy(this.icon, this.iconResource))
           .width(20)
@@ -231,6 +230,12 @@ export struct SettingRow {
   @Prop tintIcon: boolean = true;
   onTap: () => void = () => {};
 
+  /** build 里直读被跟踪成员注册依赖；颜色仍由 Theme 统一决策。 */
+  private schemePrimary(): string {
+    const hasScheme = this.coverScheme.light.primary.length > 0;
+    return hasScheme ? Theme.primary(Theme.isDark()) : Theme.primary(Theme.isDark());
+  }
+
   private schemeSurface(): string {
     const hasScheme = this.coverScheme.light.background.length > 0;
     return hasScheme ? Theme.surface(Theme.isDark()) : Theme.surface(Theme.isDark());
@@ -243,7 +248,7 @@ export struct SettingRow {
           Image(this.iconResource)
             .width(20)
             .height(20)
-            .fillColor(this.danger ? Theme.danger(Theme.isDark()) : Theme.primary(Theme.isDark()))
+            .fillColor(this.danger ? Theme.danger(Theme.isDark()) : this.schemePrimary())
         } else {
           Image(this.iconResource)
             .width(22)
@@ -254,7 +259,7 @@ export struct SettingRow {
           Image(iconForLegacy(this.icon, this.iconResource))
             .width(20)
             .height(20)
-            .fillColor(this.danger ? Theme.danger(Theme.isDark()) : Theme.primary(Theme.isDark()))
+            .fillColor(this.danger ? Theme.danger(Theme.isDark()) : this.schemePrimary())
         } else {
           Image(iconForLegacy(this.icon, this.iconResource))
             .width(22)
@@ -290,6 +295,7 @@ export struct SettingRow {
     .width('100%')
     .padding({ left: 16, right: 16, top: 12, bottom: 12 })
     .backgroundColor(this.schemeSurface())
+    .borderRadius(Theme.cardRadius())
     .onClick(() => this.onTap())
     .clickEffect({ level: ClickEffectLevel.LIGHT })
   }
@@ -363,6 +369,10 @@ export interface OptionEntry {
  */
 @Component
 export struct ToggleRow {
+  /**
+   * S5: 订阅封面配色（M7.4：build 里读成员才追得上换歌重染色）。
+   */
+  @StorageProp('player.coverScheme') coverScheme: AccentScheme = AccentScheme.neutralFallback();
   @Prop title: string;
   @Prop subtitle: string = '';
   @Prop icon: string = '';
@@ -373,18 +383,29 @@ export struct ToggleRow {
   @Prop value: boolean = false;
   onChange: (value: boolean) => void = () => {};
 
+  /** build 里直读被跟踪成员注册依赖；颜色仍由 Theme 统一决策。 */
+  private schemePrimary(): string {
+    const hasScheme = this.coverScheme.light.primary.length > 0;
+    return hasScheme ? Theme.primary(Theme.isDark()) : Theme.primary(Theme.isDark());
+  }
+
+  private schemeSurface(): string {
+    const hasScheme = this.coverScheme.light.background.length > 0;
+    return hasScheme ? Theme.surface(Theme.isDark()) : Theme.surface(Theme.isDark());
+  }
+
   build() {
     Row({ space: 12 }) {
       if (this.showIcon) {
         Image(this.iconResource)
           .width(20)
           .height(20)
-          .fillColor(Theme.primary(Theme.isDark()))
+          .fillColor(this.schemePrimary())
       } else if (this.icon.length > 0) {
         Image(iconForLegacy(this.icon, this.iconResource))
           .width(20)
           .height(20)
-          .fillColor(Theme.primary(Theme.isDark()))
+          .fillColor(this.schemePrimary())
       }
       Column({ space: 2 }) {
         Text(this.title)
@@ -406,12 +427,12 @@ export struct ToggleRow {
       .alignItems(HorizontalAlign.Start)
 
       Toggle({ type: ToggleType.Switch, isOn: this.value })
-        .selectedColor(Theme.primary(Theme.isDark()))
+        .selectedColor(this.schemePrimary())
         .onChange((isOn: boolean) => this.onChange(isOn))
     }
     .width('100%')
     .padding({ left: 16, right: 16, top: 12, bottom: 12 })
-    .backgroundColor(this.transparentBg ? Color.Transparent : Theme.surface(Theme.isDark()))
+    .backgroundColor(this.transparentBg ? Color.Transparent : this.schemeSurface())
     .borderRadius(this.transparentBg ? 0 : Theme.cardRadius())
   }
 }
@@ -424,6 +445,10 @@ export struct ToggleRow {
  */
 @Component
 export struct OptionRow {
+  /**
+   * S5: 订阅封面配色（M7.4：build 里读成员才追得上换歌重染色）。
+   */
+  @StorageProp('player.coverScheme') coverScheme: AccentScheme = AccentScheme.neutralFallback();
   @Prop title: string;
   @Prop subtitle: string = '';
   @Prop icon: string = '';
@@ -449,6 +474,17 @@ export struct OptionRow {
     return '';
   }
 
+  /** build 里直读被跟踪成员注册依赖；颜色仍由 Theme 统一决策。 */
+  private schemePrimary(): string {
+    const hasScheme = this.coverScheme.light.primary.length > 0;
+    return hasScheme ? Theme.primary(Theme.isDark()) : Theme.primary(Theme.isDark());
+  }
+
+  private schemeSurface(): string {
+    const hasScheme = this.coverScheme.light.background.length > 0;
+    return hasScheme ? Theme.surface(Theme.isDark()) : Theme.surface(Theme.isDark());
+  }
+
   @Builder
   optionMenuBuilder() {
     // 参考截图的浮层：深色磨砂玻璃底 + 24vp 大圆角 + 细分隔线；菜单项选中态
@@ -458,7 +494,12 @@ export struct OptionRow {
         MenuItem({ content: option.label })
           .selected(option.value === this.current)
           .selectIcon(true)
-          .onClick(() => this.onPick(option.value))
+          .onClick(() => {
+            // onPick 改父级状态会触发本行重渲染；此刻 menuShow 仍为 true 的话，
+            // bindMenu 会在收起动画中途被再次拉起（首次选择后“多弹一次”）。
+            this.menuShow = false;
+            this.onPick(option.value);
+          })
       }, (option: OptionEntry) => option.value)
     }
       .radius(menuRadius())
@@ -472,12 +513,12 @@ export struct OptionRow {
         Image(this.iconResource)
           .width(20)
           .height(20)
-          .fillColor(Theme.primary(Theme.isDark()))
+          .fillColor(this.schemePrimary())
       } else if (this.icon.length > 0) {
         Image(iconForLegacy(this.icon, this.iconResource))
           .width(20)
           .height(20)
-          .fillColor(Theme.primary(Theme.isDark()))
+          .fillColor(this.schemePrimary())
       }
       Column({ space: 2 }) {
         Text(this.title)
@@ -531,7 +572,7 @@ export struct OptionRow {
     }
     .width('100%')
     .padding({ left: 16, right: 16, top: 12, bottom: 12 })
-    .backgroundColor(this.transparentBg ? Color.Transparent : Theme.surface(Theme.isDark()))
+    .backgroundColor(this.transparentBg ? Color.Transparent : this.schemeSurface())
     .onClick(() => {
       this.menuShow = true;
     })
@@ -546,6 +587,10 @@ export struct OptionRow {
  */
 @Component
 export struct SliderRow {
+  /**
+   * S5: 订阅封面配色（M7.4：build 里读成员才追得上换歌重染色）。
+   */
+  @StorageProp('player.coverScheme') coverScheme: AccentScheme = AccentScheme.neutralFallback();
   @Prop title: string;
   @Prop subtitle: string = '';
   @Prop icon: string = '';
@@ -563,18 +608,34 @@ export struct SliderRow {
   /** Value currently under the finger; -1 when not dragging. */
   @State liveValue: number = -1;
 
+  /** build 里直读被跟踪成员注册依赖；颜色仍由 Theme 统一决策。 */
+  private schemePrimary(): string {
+    const hasScheme = this.coverScheme.light.primary.length > 0;
+    return hasScheme ? Theme.primary(Theme.isDark()) : Theme.primary(Theme.isDark());
+  }
+
+  private schemeSurface(): string {
+    const hasScheme = this.coverScheme.light.background.length > 0;
+    return hasScheme ? Theme.surface(Theme.isDark()) : Theme.surface(Theme.isDark());
+  }
+
+  private schemeSurfaceVariant(): string {
+    const hasScheme = this.coverScheme.light.surfaceVariant.length > 0;
+    return hasScheme ? Theme.surfaceVariant(Theme.isDark()) : Theme.surfaceVariant(Theme.isDark());
+  }
+
   build() {
     Row({ space: 12 }) {
       if (this.showIcon) {
         Image(this.iconResource)
           .width(20)
           .height(20)
-          .fillColor(Theme.primary(Theme.isDark()))
+          .fillColor(this.schemePrimary())
       } else if (this.icon.length > 0) {
         Image(iconForLegacy(this.icon, this.iconResource))
           .width(20)
           .height(20)
-          .fillColor(Theme.primary(Theme.isDark()))
+          .fillColor(this.schemePrimary())
       }
       Column({ space: 4 }) {
         Row({ space: 8 }) {
@@ -597,10 +658,10 @@ export struct SliderRow {
           step: this.step,
           style: SliderStyle.OutSet
         })
-          .selectedColor(Theme.primary(Theme.isDark()))
+          .selectedColor(this.schemePrimary())
           // 参考截图：主色轨道 + 白色圆形滑钮（两种模式下都是白钮）。
           .blockColor('#FFFFFF')
-          .trackColor(Theme.surfaceVariant(Theme.isDark()))
+          .trackColor(this.schemeSurfaceVariant())
           .width('100%')
           .height(36)
           .onChange((value: number, eventMode: SliderChangeMode) => {
@@ -626,14 +687,15 @@ export struct SliderRow {
     }
     .width('100%')
     .padding({ left: 16, right: 16, top: 10, bottom: 8 })
-    .backgroundColor(this.transparentBg ? Color.Transparent : Theme.surface(Theme.isDark()))
+    .backgroundColor(this.transparentBg ? Color.Transparent : this.schemeSurface())
     .borderRadius(this.transparentBg ? 0 : Theme.cardRadius())
   }
 }
 
 /**
- * Settings hub entry card (参考应用的设置总览卡片)：彩色圆底图标 + 双行文字 +
- * 跳转箭头。tint 由调用方传入，圆底取 tint 低透明度、图标着色为 tint 本色。
+ * Settings hub entry card (参考应用的设置总览卡片)：裸图标 + 双行文字 +
+ * 跳转箭头，图标样式与其他设置行一致；取动态主色（M7.4 被跟踪读法）
+ * 随封面取色重染。
  */
 @Component
 export struct SettingHubRow {
@@ -643,31 +705,32 @@ export struct SettingHubRow {
   @Prop icon: string = '';
   @Prop iconResource: Resource = $r('app.media.ic_music_note_24');
   @Prop showIcon: boolean = false;
-  @Prop tint: string = '#7C4DFF';
   onTap: () => void = () => {};
+
+  /** build 里直读被跟踪成员注册依赖；颜色仍由 Theme 统一决策。 */
+  private schemePrimary(): string {
+    const hasScheme = this.coverScheme.light.primary.length > 0;
+    return hasScheme ? Theme.primary(Theme.isDark()) : Theme.primary(Theme.isDark());
+  }
+
+  private schemeSurface(): string {
+    const hasScheme = this.coverScheme.light.background.length > 0;
+    return hasScheme ? Theme.surface(Theme.isDark()) : Theme.surface(Theme.isDark());
+  }
 
   build() {
     Row({ space: 12 }) {
-      Stack() {
-        Column()
-          .width(38)
-          .height(38)
-          .borderRadius(19)
-          .backgroundColor(Theme.withAlpha(this.tint, 0x30))
-        if (this.showIcon) {
-          Image(this.iconResource)
-            .width(19)
-            .height(19)
-            .fillColor(this.tint)
-        } else {
-          Image(iconForLegacy(this.icon, this.iconResource))
-            .width(19)
-            .height(19)
-            .fillColor(this.tint)
-        }
+      if (this.showIcon) {
+        Image(this.iconResource)
+          .width(20)
+          .height(20)
+          .fillColor(this.schemePrimary())
+      } else {
+        Image(iconForLegacy(this.icon, this.iconResource))
+          .width(20)
+          .height(20)
+          .fillColor(this.schemePrimary())
       }
-      .width(38)
-      .height(38)
 
       Column({ space: 2 }) {
         Text(this.title)
@@ -696,24 +759,11 @@ export struct SettingHubRow {
     }
     .width('100%')
     .padding({ left: 14, right: 14, top: 12, bottom: 12 })
-    .backgroundColor(Theme.surface(Theme.isDark()))
+    .backgroundColor(this.schemeSurface())
     .borderRadius(Theme.cardRadius())
     .onClick(() => this.onTap())
     .clickEffect({ level: ClickEffectLevel.LIGHT })
   }
-}
-
-export function platformName(platform: MusicPlatform): string {
-  if (platform === MusicPlatform.BILIBILI) {
-    return 'Bilibili';
-  }
-  if (platform === MusicPlatform.YOUTUBE_MUSIC) {
-    return 'YouTube Music';
-  }
-  if (platform === MusicPlatform.LOCAL) {
-    return '本地';
-  }
-  return '网易云';
 }
 
 export function formatDuration(ms: number): string {

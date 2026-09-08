@@ -22,7 +22,7 @@ import { DownloadEngine } from '../../download/DownloadEngine';
 import { DownloadStorage } from '../../download/DownloadStorage';
 import { AlbumSongs } from '../../util/AlbumSongs';
 import { Router } from '../Router';
-import { formatDuration, platformName } from '../components/Ui';
+import { formatDuration } from '../components/Ui';
 
 const SPEED_STEPS: number[] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
 const SLEEP_OPTIONS: [string, number][] = [
@@ -634,21 +634,12 @@ export struct NowPlayingPage {
               }
               .width('100%')
 
-              Row({ space: 8 }) {
-                Text(this.song().displayArtist)
-                  .fontSize(14)
-                  .fontColor(this.im().textSecondary)
-                  .maxLines(1)
-                  .textOverflow({ overflow: TextOverflow.Ellipsis })
-                  .layoutWeight(1)
-                Text(platformName(this.song().platform))
-                  .fontSize(10)
-                  .fontColor(this.im().textPrimary)
-                  .padding({ left: 8, right: 8, top: 3, bottom: 3 })
-                  .backgroundColor(this.im().tagBg)
-                  .borderRadius(8)
-              }
-              .width('100%')
+              Text(this.song().displayArtist)
+                .fontSize(14)
+                .fontColor(this.im().textSecondary)
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+                .width('100%')
             }
             .width('100%')
             .padding({ left: 24, right: 24 })

@@ -4,7 +4,7 @@ import { DownloadEngine } from '../../download/DownloadEngine';
 import { Theme } from '../Theme';
 import { AccentScheme } from '../theme/AccentScheme';
 
-import { formatDuration, platformName } from './Ui';
+import { formatDuration } from './Ui';
 
 @Component
 export struct SongRow {
@@ -14,7 +14,6 @@ export struct SongRow {
   @StorageProp('player.coverScheme') coverScheme: AccentScheme = AccentScheme.neutralFallback();
   @Prop songJson: string;
   @Prop index: number = -1;
-  @Prop showPlatform: boolean = false;
   /** >= 0 时在行尾展示播放次数（播放历史页）。 */
   @Prop playCount: number = -1;
   /** true 时行底色透明（播放历史页参考样式：直接坐在页面背景上）。 */
@@ -92,23 +91,13 @@ export struct SongRow {
         .height(52)
 
         Column({ space: 3 }) {
-          Row({ space: 6 }) {
-            Text(this.song().displayName)
-              .fontSize(15)
-              .fontWeight(FontWeight.Medium)
-              .fontColor(Theme.textPrimary(Theme.isDark()))
-              .maxLines(1)
-              .textOverflow({ overflow: TextOverflow.Ellipsis })
-            if (this.showPlatform) {
-              Text(platformName(this.song().platform))
-                .fontSize(10)
-                .fontColor(Theme.primary(Theme.isDark()))
-                .padding({ left: 6, right: 6, top: 2, bottom: 2 })
-                .backgroundColor(Theme.primaryContainer(Theme.isDark()))
-                .borderRadius(6)
-            }
-          }
-          .width('100%')
+          Text(this.song().displayName)
+            .fontSize(15)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(Theme.textPrimary(Theme.isDark()))
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .width('100%')
 
           Text(this.song().displayArtist)
             .fontSize(12)

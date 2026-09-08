@@ -183,7 +183,6 @@ export struct NeteasePlaylistPage {
                     SongRow({
                       songJson: song.toJson(),
                       index: index,
-                      showPlatform: false,
                       onPlay: () => {
                         if (this.overview !== null) {
                           PlayerManager.playPlaylist(this.overview.songs, index);
