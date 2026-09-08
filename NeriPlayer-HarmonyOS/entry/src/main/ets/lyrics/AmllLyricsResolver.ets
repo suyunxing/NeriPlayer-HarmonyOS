@@ -175,12 +175,12 @@ export class AmllLyricsResolver {
     fetchRaw: AmllRawFetcher,
     requireDurationMatch: boolean
   ): Promise<LyricLine[] | null> {
-    const results = await search(trackName);
+    const results = await Promise.resolve(search(trackName));
     const candidates = AmllLyricsResolver.rankCandidates(trackName, artistName, results).slice(0, AMLL_CANDIDATE_LIMIT);
     for (const candidate of candidates) {
       let raw = '';
       try {
-        raw = await fetchRaw(candidate.file);
+        raw = await Promise.resolve(fetchRaw(candidate.file));
       } catch (error) {
         void error;
         continue;
