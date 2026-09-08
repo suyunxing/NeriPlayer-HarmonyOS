@@ -37,7 +37,9 @@ jobs:
       run:
         working-directory: NeriPlayer-HarmonyOS
     steps:
+      # 该步运行于 checkout 之前，工程子目录尚不存在，必须显式回到 workspace
       - name: Resolve release tag
+        working-directory: ${{ github.workspace }}
         run: |
           echo "TAG=$TAG" >> "$GITHUB_ENV"
           # tag 必须已存在（dispatch 传名、push 天然存在）
