@@ -21,6 +21,7 @@ import {
   NETEASE_QR_SCANNED,
   NETEASE_QR_WAITING
 } from '../../network/NeteaseQrLogin';
+import { NeteaseApi } from '../../network/NeteaseApi';
 import {
   BiliQrLoginClient,
   BiliQrSession,
@@ -302,10 +303,11 @@ export struct SettingsDetailPage {
     return outcome;
   }
 
-  private onNeteaseConfirmed(): boolean {
-    const saved = NeteaseCookieRepository.saveFromQrLogin(NeteaseQrLoginClient.currentCookies());
+  private async onNeteaseConfirmed(): Promise<boolean> {
+    const saved = await NeteaseCookieRepository.saveFromQrLogin(NeteaseQrLoginClient.currentCookies());
     if (saved) {
       this.neteaseLogged = true;
+      NeteaseApi.resetSession();
       promptAction.openToast({ message: '网易云登录成功' });
     }
     return saved;
@@ -324,9 +326,12 @@ export struct SettingsDetailPage {
         value: '退出',
         fontColor: Theme.danger(Theme.isDark()),
         action: () => {
-          NeteaseCookieRepository.clear();
+          NeteaseCookieRepository.clear()
+            .then(() => {
+              NeteaseApi.resetSession();
+              promptAction.openToast({ message: '已退出网易云登录' });
+            });
           this.neteaseLogged = false;
-          promptAction.openToast({ message: '已退出网易云登录' });
         }
       }
     });
@@ -340,13 +345,16 @@ export struct SettingsDetailPage {
           hint: '从浏览器或 Android 端导出的 Cookie 文本，需包含 MUSIC_U。格式：k1=v1; k2=v2',
           placeholder: 'MUSIC_U=...; __csrf=...; os=pc',
           onConfirm: (text: string) => {
-            const saved = NeteaseCookieRepository.saveFromPastedText(text);
-            if (saved) {
-              this.neteaseLogged = true;
-              promptAction.openToast({ message: 'Cookie 导入成功' });
-            } else {
-              promptAction.openToast({ message: '导入失败：需要包含有效的 MUSIC_U' });
-            }
+            NeteaseCookieRepository.saveFromPastedText(text)
+              .then((saved: boolean) => {
+                if (saved) {
+                  this.neteaseLogged = true;
+                  NeteaseApi.resetSession();
+                  promptAction.openToast({ message: 'Cookie 导入成功' });
+                } else {
+                  promptAction.openToast({ message: '导入失败：需要包含有效的 MUSIC_U' });
+                }
+              });
           }
         }),
         autoCancel: true,
@@ -384,8 +392,8 @@ export struct SettingsDetailPage {
     return outcome;
   }
 
-  private onBiliConfirmed(): boolean {
-    const saved = BiliCookieRepository.saveFromQrLogin(BiliQrLoginClient.currentCookies());
+  private async onBiliConfirmed(): Promise<boolean> {
+    const saved = await BiliCookieRepository.saveFromQrLogin(BiliQrLoginClient.currentCookies());
     if (saved) {
       this.biliLogged = true;
       promptAction.openToast({ message: 'Bilibili 登录成功' });
@@ -406,9 +414,11 @@ export struct SettingsDetailPage {
         value: '退出',
         fontColor: Theme.danger(Theme.isDark()),
         action: () => {
-          BiliCookieRepository.clear();
+          BiliCookieRepository.clear()
+            .then(() => {
+              promptAction.openToast({ message: '已退出 Bilibili 登录' });
+            });
           this.biliLogged = false;
-          promptAction.openToast({ message: '已退出 Bilibili 登录' });
         }
       }
     });
@@ -422,13 +432,15 @@ export struct SettingsDetailPage {
           hint: '从浏览器导出的 Cookie 文本，需包含 SESSDATA。格式：k1=v1; k2=v2',
           placeholder: 'SESSDATA=...; bili_jct=...; DedeUserID=...',
           onConfirm: (text: string) => {
-            const saved = BiliCookieRepository.saveFromPastedText(text);
-            if (saved) {
-              this.biliLogged = true;
-              promptAction.openToast({ message: 'Cookie 导入成功' });
-            } else {
-              promptAction.openToast({ message: '导入失败：需要包含有效的 SESSDATA' });
-            }
+            BiliCookieRepository.saveFromPastedText(text)
+              .then((saved: boolean) => {
+                if (saved) {
+                  this.biliLogged = true;
+                  promptAction.openToast({ message: 'Cookie 导入成功' });
+                } else {
+                  promptAction.openToast({ message: '导入失败：需要包含有效的 SESSDATA' });
+                }
+              });
           }
         }),
         autoCancel: true,
@@ -1201,7 +1213,7 @@ export struct SettingsDetailPage {
               controller: this.neteaseQrController,
               createSession: (): Promise<QrLoginSessionRef> => this.createNeteaseQrSession(),
               pollSession: (session: QrLoginSessionRef): Promise<QrPollOutcome> => this.pollNeteaseQr(session),
-              onConfirmed: (): boolean => this.onNeteaseConfirmed(),
+              onConfirmed: (): Promise<boolean> => this.onNeteaseConfirmed(),
               scanHint: '请用网易云音乐 App 扫码',
               pollIntervalMs: NETEASE_QR_POLL_INTERVAL_MS
             })
@@ -1229,7 +1241,7 @@ export struct SettingsDetailPage {
               controller: this.biliQrController,
               createSession: (): Promise<QrLoginSessionRef> => this.createBiliQrSession(),
               pollSession: (session: QrLoginSessionRef): Promise<QrPollOutcome> => this.pollBiliQr(session),
-              onConfirmed: (): boolean => this.onBiliConfirmed(),
+              onConfirmed: (): Promise<boolean> => this.onBiliConfirmed(),
               scanHint: '请用哔哩哔哩客户端扫码',
               pollIntervalMs: BILI_QR_POLL_INTERVAL_MS
             })

@@ -3,6 +3,7 @@ import { Constants } from '../../app/Constants';
 import { SettingsRepository } from '../SettingsRepository';
 import { HttpClient } from '../../network/HttpClient';
 import { CredentialStore } from './CredentialStore';
+import { NeteaseApi } from '../../network/NeteaseApi';
 import {
   NeteaseAuthBundle,
   validateAndSanitizeNeteaseCookies,
@@ -41,16 +42,24 @@ export class NeteaseCookieRepository {
         Logger.info(`netease auth restored: keys=${cookieKeysForLog(NeteaseCookieRepository.bundle.cookies)}`);
       }
     }
-    if (NeteaseCookieRepository.bundle.hasLoginCookies()) {
+    const restored = NeteaseCookieRepository.bundle.hasLoginCookies();
+    if (restored) {
       NeteaseCookieRepository.seedHttpClient();
     }
-    // Sync the settings flag with the actually-restored bundle so the UI
-    // reflects reality after a cold start (a failed credential restore also
-    // clears a stale logged-in flag instead of showing a logged-out backend).
+    // Re-derive the settings flag from the restored bundle. The in-memory
+    // CredentialStore fallback is by design process-lifetime-only, so a cold
+    // start always re-reads from the real backend: a false flag here reflects
+    // an actually-missing bundle (logged out, expired, or cleared) and must
+    // overwrite a stale true, never the other way round.
     SettingsRepository.setBoolean(
       SettingsRepository.KEY_NETEASE_LOGGED,
-      NeteaseCookieRepository.bundle.hasLoginCookies()
+      restored
     );
+    if (restored) {
+      // The restored MUSIC_U must be part of the next weapi session; if an
+      // anonymous session somehow started before this point, discard it.
+      NeteaseApi.resetSession();
+    }
   }
 
   static isLoggedIn(): boolean {
@@ -70,16 +79,21 @@ export class NeteaseCookieRepository {
    * response Set-Cookie headers). Returns false when validation rejects the
    * set (no usable MUSIC_U etc.).
    */
-  static saveFromQrLogin(cookies: Map<string, string>): boolean {
+  static async saveFromQrLogin(cookies: Map<string, string>): Promise<boolean> {
     return NeteaseCookieRepository.saveInternal(cookies);
   }
 
   /** Saves cookies parsed from user-pasted text (backup import path). */
-  static saveFromPastedText(raw: string): boolean {
+  static async saveFromPastedText(raw: string): Promise<boolean> {
     return NeteaseCookieRepository.saveInternal(parseRawCookieText(raw));
   }
 
-  private static saveInternal(cookies: Map<string, string>): boolean {
+  /**
+   * Validation is synchronous, but the credential write must be awaited:
+   * returning before `putString` settles is exactly how a process kill right
+   * after login lost the bundle (login toast shown, nothing on disk).
+   */
+  private static async saveInternal(cookies: Map<string, string>): Promise<boolean> {
     const validation = validateAndSanitizeNeteaseCookies(cookies);
     if (!validation.isAccepted) {
       Logger.warn(`netease cookie save rejected: rejectedKeys=${validation.rejectedKeys.join(',')} hasMusicU=${validation.hasLoginCookie}`);
@@ -89,12 +103,13 @@ export class NeteaseCookieRepository {
     next.cookies = validation.sanitizedCookies;
     next.savedAt = Date.now();
     NeteaseCookieRepository.bundle = next.normalized(next.savedAt);
-    CredentialStore.putString(NeteaseCookieRepository.ALIAS, NeteaseCookieRepository.bundle.toJson())
-      .then((ok: boolean) => {
-        if (!ok) {
-          Logger.warn('netease auth bundle not persisted (credential backend failed)');
-        }
-      });
+    const persisted = await CredentialStore.putString(NeteaseCookieRepository.ALIAS, NeteaseCookieRepository.bundle.toJson());
+    if (!persisted) {
+      // Refuse to report success: the bundle would vanish on process death.
+      NeteaseCookieRepository.bundle = new NeteaseAuthBundle();
+      Logger.error('netease login not saved: credential backend rejected the write');
+      return false;
+    }
     NeteaseCookieRepository.seedHttpClient();
     SettingsRepository.setBoolean(SettingsRepository.KEY_NETEASE_LOGGED, true);
     Logger.info(`netease login saved: keys=${cookieKeysForLog(NeteaseCookieRepository.bundle.cookies)}`);

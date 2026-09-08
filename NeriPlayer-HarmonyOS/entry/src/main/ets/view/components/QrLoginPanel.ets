@@ -46,8 +46,11 @@ export struct QrLoginPanel {
   createSession: () => Promise<QrLoginSessionRef> = async (): Promise<QrLoginSessionRef> => new QrLoginSessionRef();
   pollSession: (session: QrLoginSessionRef) => Promise<QrPollOutcome> =
     async (_session: QrLoginSessionRef): Promise<QrPollOutcome> => new QrPollOutcome();
-  /** Called on CONFIRMED; return true when the cookies were saved (closes the panel). */
-  onConfirmed: () => boolean = (): boolean => false;
+  /**
+   * Called on CONFIRMED; resolve true when the cookies were saved (closes the
+   * panel). Async because persistence must settle before success is reported.
+   */
+  onConfirmed: () => Promise<boolean> = async (): Promise<boolean> => false;
   scanHint: string = '请扫码';
   scannedHint: string = '已扫码，请在手机上确认';
   confirmFailedText: string = '登录校验失败，请重试';
@@ -123,7 +126,7 @@ export struct QrLoginPanel {
       } else if (outcome.code === QrPollOutcomeCode.CONFIRMED) {
         this.stopPolling();
         this.session = null;
-        if (this.onConfirmed()) {
+        if (await this.onConfirmed()) {
           this.panelOpen = false;
           this.status = '';
         } else {

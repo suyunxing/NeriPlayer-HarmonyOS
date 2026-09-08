@@ -108,6 +108,12 @@ export class NeteaseApi {
   }
 
   private static async doEnsureSession(): Promise<void> {
+    // The credential restore (EntryAbility.onCreate -> repository.init()) is
+    // async and un-awaited by the UI: without this await the cold-start
+    // homepage request runs with an empty jar, the server issues an anonymous
+    // __csrf, and sessionReady then pins that anonymous session for the whole
+    // process even after MUSIC_U is restored.
+    await NeteaseCookieRepository.init();
     // Login cookies (MUSIC_U etc.) go into the jar before the homepage GET so
     // the server sees the authenticated session and re-issues __csrf.
     NeteaseCookieRepository.seedHttpClient();

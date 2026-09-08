@@ -66,13 +66,21 @@ export default class EntryAbility extends UIAbility {
     // 必须在 loadContent 之前：首帧就要拿到断点与真实避让区，否则大屏设备会先
     // 按窄屏画一帧底部 Tab 栏再跳成侧边栏，而跨断点重建会白丢一次页面状态。
     WindowMetrics.start(windowStage);
-    windowStage.loadContent('pages/Index', (error) => {
-      if (error.code) {
-        hilog.error(DOMAIN, TAG, 'Failed to load content: %{public}s', JSON.stringify(error));
-        return;
-      }
-      hilog.info(DOMAIN, TAG, 'Content loaded');
-    });
+    // 同样在 loadContent 之前等待登录凭据恢复：每个页面的 aboutToAppear 都在
+    // loadContent 之后执行，凭据先就位才能保证首屏请求带上 MUSIC_U（否则
+    // 冷启动首个 weapi 请求以匿名会话发出，杀进程重启后表现为掉登录）。
+    // onCreate 里的 init() 调用已让恢复在本阶段并行推进，这里通常只等余下尾延。
+    NeteaseCookieRepository.init()
+      .then(() => BiliCookieRepository.init())
+      .then(() => {
+        windowStage.loadContent('pages/Index', (error) => {
+          if (error.code) {
+            hilog.error(DOMAIN, TAG, 'Failed to load content: %{public}s', JSON.stringify(error));
+            return;
+          }
+          hilog.info(DOMAIN, TAG, 'Content loaded');
+        });
+      });
   }
 
   onWindowStageDestroy(): void {
