@@ -67,5 +67,36 @@ export default function httpHeaderParserTest(): void {
       expect(HttpHeaderParser.toHeaderText('raw')).assertEqual('raw');
       expect(HttpHeaderParser.extractCookiePairs('content-type: text/html').size).assertEqual(0);
     });
+
+    // parseLooseCookiePairs covers the dedicated HttpResponse.cookies field,
+    // shipped by different stacks as "; "-joined pairs or comma-joined full
+    // Set-Cookie lines; both must yield the same name=value map.
+    it('parsesSemicolonJoinedCookiePairsFromCookiesField', 0, () => {
+      const pairs = HttpHeaderParser.parseLooseCookiePairs('MUSIC_U=tok789; __csrf=csrf012; NMTID=n1');
+      expect(pairs.size).assertEqual(3);
+      expect(pairs.get('MUSIC_U')).assertEqual('tok789');
+      expect(pairs.get('__csrf')).assertEqual('csrf012');
+      expect(pairs.get('NMTID')).assertEqual('n1');
+    });
+
+    it('parsesCommaJoinedSetCookieLinesFromCookiesField', 0, () => {
+      const pairs = HttpHeaderParser.parseLooseCookiePairs('MUSIC_U=tok; Path=/, __csrf=abc; Path=/');
+      expect(pairs.size).assertEqual(2);
+      expect(pairs.get('MUSIC_U')).assertEqual('tok');
+      expect(pairs.get('__csrf')).assertEqual('abc');
+    });
+
+    it('dropsAttributeAndExpiresDebrisFromCookiesField', 0, () => {
+      const pairs = HttpHeaderParser.parseLooseCookiePairs('v=1; Expires=Wed, 21 Oct 2015 07:28:00 GMT; Domain=.music.163.com');
+      expect(pairs.size).assertEqual(1);
+      expect(pairs.get('v')).assertEqual('1');
+      expect(pairs.get('Expires')).assertUndefined();
+      expect(pairs.get('Domain')).assertUndefined();
+    });
+
+    it('returnsEmptyForEmptyOrGarbageCookiesField', 0, () => {
+      expect(HttpHeaderParser.parseLooseCookiePairs('').size).assertEqual(0);
+      expect(HttpHeaderParser.parseLooseCookiePairs('[object Object]').size).assertEqual(0);
+    });
   });
 }

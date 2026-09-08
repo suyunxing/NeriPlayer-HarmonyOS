@@ -520,3 +520,43 @@ eport-m61-recheck.json）：IOS 直出窗口仍开——fbvvS8e1KgI playability 
   后同一套件全过，勿把锁屏假失败当成代码回归。codelinter 0 error。
 - 遗留（如实记录）：`doInit` 无条件覆盖 logged 标志的语义保留（内存降级后端重启
   本就该显示未登录），依赖第 1 层修复保证「落盘成功才有 true」。
+
+## 缺陷修复：网易云真机扫码 803 后仍提示「登录校验失败，请重试」（2026-09-08，三次修复）
+
+- 背景：用户真机实测扫码确认（803）后仍提示「登录校验失败，请重试」。前两轮修复
+  （08f9f18 Set-Cookie 解析归一化、bd4d9c0 凭据落盘等待）后，真机扫码路径始终未复测
+  通过（矩阵行长期标注「真机扫码确认仍待复核」）。
+- 协议事实（2026-09-08 外部调研，来源 NeteaseCloudMusicApiEnhanced issue #6 /
+  PR #201、NeteaseCloudMusicApi login_qr_check 源码、知乎 HarmonyOS netstack
+  set-cookie 形态实证）：
+  1. 803 的 `MUSIC_U` **只通过 HTTP Set-Cookie 响应头**下发；body 无 `cookie` 字段
+     （NeteaseCloudMusicApi 的 body.cookie 是其中间件人为拼接的，非官方原生）。
+  2. `x-refresh-token` 响应头 ≠ MUSIC_U（SSO 刷新凭据，注入后 account/get 校验几乎
+     必然失败）——现有兜底实际救不了场，仅保留与 Android 基线对称。
+  3. 2025+ 风控要求（scanlogin 新二维码 URL、chainId、x-login-chain-id/x-loginmethod
+     请求头、weapi 加密）本实现均已满足。
+- 服务器直连取证（2026-09-08，Node weapi 等价实现实测 music.163.com）：unikey 创建
+  返回 200+key、fresh key 轮询返回 801「等待扫码」（`ydDeviceToken:""` + unknown 随机
+  chainId 可用）；匿名 account/get 返回 `{"code":200,"account":null}`——证实加密移植、
+  端点行为与 `hasAccount` 判定语义均正确，服务端在 803 时确实会下发 Set-Cookie。
+- 推定根因（真机无日志，未直接取证）：MUSIC_U 捕获仅依赖单一来源（`HttpResponse.header`
+  的 set-cookie 归一化），真机 netstack 的 803 响应头上报形态与解析假设不符时无任何
+  冗余路径。HarmonyOS SDK 自 API 8 起提供独立的 `HttpResponse.cookies` 字段（服务器
+  原样 Cookie 字符串），本实现此前完全未消费。
+- 修复（3 文件 + 测试）：
+  - `HttpHeaderParser` 新增 `parseLooseCookiePairs`：`;`/`,` 混合分隔、属性碎片
+    （Expires 日期/Path/Domain 等）过滤的宽松 Cookie 文本解析，与 `extractCookiePairs`
+    共享碎片归一逻辑。
+  - `HttpClient.captureCookies` 合并**双来源**：response.header 的 set-cookie 行
+    （原路径）+ `response.cookies` 字段（新增；运行时 `String()` 归一防个别栈违反
+    d.ts 返回数组）；`getText/postForm/postFormDetailed` 三个捕获点全部接入。
+  - `NeteaseQrLogin.checkLogin` 在 803 后：输出诊断日志（响应头**名**清单、jar Cookie
+    **键名**清单、refreshToken 有无，不落任何值）；若 jar 仍无 MUSIC_U，**同 key 单次
+    补轮询**（803 幂等重读，Set-Cookie 有机会重发）再捕获一次。postCheck 抽取复用。
+  - 新增 4 个 HttpHeaderParser 单测（分号/逗号拼接、属性与 Expires 碎片、空与垃圾输入）。
+- 验证（2026-09-08 服务器）：codelinter 4 文件 0 error；entry@default debug 构建
+  BUILD SUCCESSFUL；hvigorw test 编译（Unit 类型检查）0 error（执行阶段挂死属本机
+  平台限制，用例计数待 Windows 工作站）。
+- 遗留：真机 803 复测待用户执行；若仍失败，hilog 过滤 `netease qr` 三条日志即可定位
+  断点（confirm 响应头名是否含 set-cookie → re-poll 后 jarKeys 是否出现 MUSIC_U →
+  save rejected/backend rejected 哪个分支）。

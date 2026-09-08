@@ -88,7 +88,7 @@ export class HttpClient {
       const code = response.responseCode;
       const text = response.result as string;
       if (useCookies) {
-        HttpClient.captureCookies(url, HttpHeaderParser.toHeaderText(response.header));
+        HttpClient.captureCookies(url, HttpHeaderParser.toHeaderText(response.header), response.cookies);
       }
       if (code < 200 || code >= 300) {
         throw new Error(`HTTP ${code} for GET ${url}`);
@@ -134,7 +134,7 @@ export class HttpClient {
       const code = response.responseCode;
       const text = response.result as string;
       if (useCookies) {
-        HttpClient.captureCookies(url, HttpHeaderParser.toHeaderText(response.header));
+        HttpClient.captureCookies(url, HttpHeaderParser.toHeaderText(response.header), response.cookies);
       }
       if (code < 200 || code >= 300) {
         throw new Error(`HTTP ${code} for POST ${url}`);
@@ -227,7 +227,7 @@ export class HttpClient {
       // capture, NetEase x-refresh-token lookup) can parse it uniformly.
       const headerText = HttpHeaderParser.toHeaderText(response.header);
       if (useCookies) {
-        HttpClient.captureCookies(url, headerText);
+        HttpClient.captureCookies(url, headerText, response.cookies);
       }
       if (code < 200 || code >= 300) {
         throw new Error(`HTTP ${code} for POST ${url}`);
@@ -340,7 +340,7 @@ export class HttpClient {
     }
   }
 
-  private static captureCookies(url: string, responseHeader: string): void {
+  private static captureCookies(url: string, responseHeader: string, responseCookies: string = ''): void {
     const host = HttpClient.hostOf(url);
     const existing = HttpClient.cookies[host] ?? '';
     const merged: Record<string, string> = {};
@@ -357,6 +357,16 @@ export class HttpClient {
       .forEach((value: string, key: string) => {
         merged[key] = value;
       });
+    // Second, stack-native source: some HarmonyOS netstack builds do not
+    // surface set-cookie in HttpResponse.header (or fold it into a shape the
+    // header walk misses) while still filling HttpResponse.cookies; merging
+    // both keeps the login flow alive when either one drops the values.
+    if (responseCookies !== null && responseCookies !== undefined && String(responseCookies).length > 0) {
+      HttpHeaderParser.parseLooseCookiePairs(String(responseCookies))
+        .forEach((value: string, key: string) => {
+          merged[key] = value;
+        });
+    }
     const parts: string[] = [];
     for (const key of Object.keys(merged)) {
       parts.push(`${key}=${merged[key]}`);
