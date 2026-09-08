@@ -970,6 +970,13 @@ export class PlayerManager {
     PlayerManager.publishStatus(PlaybackStatus.PAUSED);
     const song = PlayerManager.getCurrentSong();
     if (song !== null) {
+      // Seed the catalog-declared length before the first play(): without it
+      // durationMs stayed 0 until loadSong, and sliders rendered a full bar
+      // against the restored position (0:N / 0:00).
+      if (song.durationMs > 0) {
+        PlayerManager.durationMs = song.durationMs;
+        PlayerManager.publishDuration();
+      }
       PlayerManager.publishCurrentSong(song);
     }
     Logger.info(`PlayerManager restored queue: ${state.songs.length} songs at index ${state.queueIndex}`);
