@@ -212,6 +212,11 @@ jobs:
         with:
           repository: ${{ github.repository }}
           token: ${{ github.token }}
+          # action 是 uses: 步骤，files glob 相对 workspace 根解析（不随 job 的
+          # defaults.working-directory 走，v2.4.2 实测：不指定则三个 pattern 全
+          # unmatched，Release 空附件假成功）。显式指向工程子目录。
+          working_directory: NeriPlayer-HarmonyOS
+          fail_on_unmatched_files: true
           tag_name: ${{ env.TAG }}
           name: NeriPlayer ${{ env.TAG }}
           draft: false
