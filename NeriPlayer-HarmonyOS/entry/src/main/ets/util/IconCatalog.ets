@@ -90,6 +90,21 @@ export function iconForLegacy(icon: string, fallback: Resource): Resource {
   if (icon === '📴') {
     return $r('app.media.ic_cloud_off_24');
   }
+  if (icon === '☁') {
+    return $r('app.media.ic_cloud_24');
+  }
+  if (icon === '🎧') {
+    return $r('app.media.ic_headset_24');
+  }
+  if (icon === '🧭') {
+    return $r('app.media.ic_explore_24');
+  }
+  if (icon === '🔒') {
+    return $r('app.media.ic_lock_24');
+  }
+  if (icon === '📄') {
+    return $r('app.media.ic_description_24');
+  }
   if (icon === '!') {
     return $r('app.media.ic_error_outline_24');
   }

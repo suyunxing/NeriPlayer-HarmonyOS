@@ -7,7 +7,6 @@ import { Router } from '../Router';
 import { Theme } from '../Theme';
 import { AccentScheme, SchemeMode } from '../theme/AccentScheme';
 import { HdsLight } from '../theme/HdsLight';
-import { platformName } from './Ui';
 
 @Component
 export struct MiniPlayer {
@@ -191,7 +190,6 @@ export struct MiniPlayer {
           .clip(true)
           .blendMode(BlendMode.SRC_OVER, BlendApplyType.OFFSCREEN)
 
-          // 来源标识挂在作者行末尾（用户决策）：标题行只留标题，避免长标题顶按钮。
           // np.mini_show_lyric 开启且正在播放时，这一行优先显示当前歌词行。
           if (this.showLyricLine()) {
             Text(this.lyricLineText)
@@ -201,22 +199,12 @@ export struct MiniPlayer {
               .textOverflow({ overflow: TextOverflow.Ellipsis })
               .width('100%')
           } else {
-            Row({ space: 6 }) {
-              Text(this.song().displayArtist)
-                .fontSize(11)
-                .fontColor(Theme.textSecondary(Theme.isDark()))
-                .maxLines(1)
-                .textOverflow({ overflow: TextOverflow.Ellipsis })
-                .flexShrink(1)
-              Text(platformName(this.song().platform))
-                .fontSize(9)
-                .fontColor(Theme.primary(Theme.isDark()))
-                .padding({ left: 5, right: 5, top: 1, bottom: 1 })
-                .backgroundColor(Theme.primaryContainer(Theme.isDark()))
-                .borderRadius(5)
-                .flexShrink(0)
-            }
-            .width('100%')
+            Text(this.song().displayArtist)
+              .fontSize(11)
+              .fontColor(Theme.textSecondary(Theme.isDark()))
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+              .width('100%')
           }
         }
         .layoutWeight(1)

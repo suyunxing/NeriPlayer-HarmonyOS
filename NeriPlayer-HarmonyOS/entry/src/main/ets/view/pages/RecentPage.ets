@@ -362,7 +362,6 @@ export struct RecentPage {
               SongRow({
                 songJson: song.toJson(),
                 index: index,
-                showPlatform: true,
                 playCount: this.playCountOf(song),
                 transparentBg: true,
                 onPlay: () => this.play(index)
