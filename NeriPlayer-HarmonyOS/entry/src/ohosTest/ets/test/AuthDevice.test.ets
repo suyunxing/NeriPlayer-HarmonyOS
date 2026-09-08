@@ -44,11 +44,12 @@ export default function authDeviceTest(): void {
 
   describe('ActsNeteaseCookieRepositoryTest', () => {
     it('savePastedCookiesAndClear', 0, async () => {
-      const saved = NeteaseCookieRepository.saveFromPastedText('MUSIC_U=device-test-token; __csrf=csrf1; os=pc');
+      const saved = await NeteaseCookieRepository.saveFromPastedText('MUSIC_U=device-test-token; __csrf=csrf1; os=pc');
       expect(saved).assertTrue();
       expect(NeteaseCookieRepository.isLoggedIn()).assertTrue();
 
-      // The bundle must be persisted through the credential backend.
+      // The bundle must be persisted through the credential backend; the
+      // awaited save only reports success once the write settled.
       const raw = await CredentialStore.getString(NeteaseCookieRepository.ALIAS);
       expect(raw.length > 0).assertTrue();
       expect(raw.indexOf('MUSIC_U') >= 0).assertTrue();
@@ -60,8 +61,8 @@ export default function authDeviceTest(): void {
       expect(rawAfter).assertEqual('');
     });
 
-    it('rejectsPasteWithoutMusicU', 0, () => {
-      const saved = NeteaseCookieRepository.saveFromPastedText('__csrf=only; os=pc');
+    it('rejectsPasteWithoutMusicU', 0, async () => {
+      const saved = await NeteaseCookieRepository.saveFromPastedText('__csrf=only; os=pc');
       expect(saved).assertFalse();
       expect(NeteaseCookieRepository.isLoggedIn()).assertFalse();
     });
@@ -84,7 +85,7 @@ export default function authDeviceTest(): void {
 
   describe('ActsBiliCookieRepositoryTest', () => {
     it('savePastedCookiesAndClear', 0, async () => {
-      const saved = BiliCookieRepository.saveFromPastedText(
+      const saved = await BiliCookieRepository.saveFromPastedText(
         'SESSDATA=device-test-sess; bili_jct=jct1; DedeUserID=425555; buvid3=XY123'
       );
       expect(saved).assertTrue();
@@ -105,8 +106,8 @@ export default function authDeviceTest(): void {
       expect(rawAfter).assertEqual('');
     });
 
-    it('rejectsPasteWithoutSessdata', 0, () => {
-      const saved = BiliCookieRepository.saveFromPastedText('buvid3=only; sid=zz');
+    it('rejectsPasteWithoutSessdata', 0, async () => {
+      const saved = await BiliCookieRepository.saveFromPastedText('buvid3=only; sid=zz');
       expect(saved).assertFalse();
       expect(BiliCookieRepository.isLoggedIn()).assertFalse();
     });

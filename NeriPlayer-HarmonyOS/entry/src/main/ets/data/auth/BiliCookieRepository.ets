@@ -44,14 +44,16 @@ export class BiliCookieRepository {
         Logger.info(`bili auth restored: keys=${biliCookieKeysForLog(BiliCookieRepository.bundle.cookies)}`);
       }
     }
-    if (BiliCookieRepository.bundle.hasLoginCookies()) {
+    const restored = BiliCookieRepository.bundle.hasLoginCookies();
+    if (restored) {
       BiliCookieRepository.seedHttpClient();
     }
-    // Sync the settings flag with the actually-restored bundle (mirrors
-    // NeteaseCookieRepository.doInit) so the UI matches reality on cold start.
+    // Re-derive the settings flag from the restored bundle (mirrors
+    // NeteaseCookieRepository.doInit; see the note there on why a stale true
+    // must be overwritten but a memory-backend false must not leak out).
     SettingsRepository.setBoolean(
       SettingsRepository.KEY_BILIBILI_LOGGED,
-      BiliCookieRepository.bundle.hasLoginCookies()
+      restored
     );
   }
 
@@ -77,16 +79,21 @@ export class BiliCookieRepository {
    * Set-Cookie responses). Returns false when validation rejects the set
    * (no usable SESSDATA).
    */
-  static saveFromQrLogin(cookies: Map<string, string>): boolean {
+  static async saveFromQrLogin(cookies: Map<string, string>): Promise<boolean> {
     return BiliCookieRepository.saveInternal(cookies);
   }
 
   /** Saves cookies parsed from user-pasted text (backup import path). */
-  static saveFromPastedText(raw: string): boolean {
+  static async saveFromPastedText(raw: string): Promise<boolean> {
     return BiliCookieRepository.saveInternal(parseRawCookieText(raw));
   }
 
-  private static saveInternal(cookies: Map<string, string>): boolean {
+  /**
+   * Validation is synchronous, but the credential write must be awaited:
+   * returning before `putString` settles is exactly how a process kill right
+   * after login lost the bundle (login toast shown, nothing on disk).
+   */
+  private static async saveInternal(cookies: Map<string, string>): Promise<boolean> {
     const validation = validateAndSanitizeBiliCookies(cookies);
     if (!validation.isAccepted) {
       Logger.warn(`bili cookie save rejected: rejectedKeys=${validation.rejectedKeys.join(',')} hasSessdata=${validation.hasLoginCookie}`);
@@ -96,12 +103,13 @@ export class BiliCookieRepository {
     next.cookies = validation.sanitizedCookies;
     next.savedAt = Date.now();
     BiliCookieRepository.bundle = next.normalized(next.savedAt);
-    CredentialStore.putString(BiliCookieRepository.ALIAS, BiliCookieRepository.bundle.toJson())
-      .then((ok: boolean) => {
-        if (!ok) {
-          Logger.warn('bili auth bundle not persisted (credential backend failed)');
-        }
-      });
+    const persisted = await CredentialStore.putString(BiliCookieRepository.ALIAS, BiliCookieRepository.bundle.toJson());
+    if (!persisted) {
+      // Refuse to report success: the bundle would vanish on process death.
+      BiliCookieRepository.bundle = new BiliAuthBundle();
+      Logger.error('bili login not saved: credential backend rejected the write');
+      return false;
+    }
     BiliCookieRepository.seedHttpClient();
     SettingsRepository.setBoolean(SettingsRepository.KEY_BILIBILI_LOGGED, true);
     Logger.info(`bili login saved: keys=${biliCookieKeysForLog(BiliCookieRepository.bundle.cookies)}`);
