@@ -1,0 +1,234 @@
+# 发布流水线：tag 驱动自动出包 GitHub Release。
+# 打 tag（v1.2.3 格式）→ 写版本号进 AppScope/app.json5 → release 构建 →
+# 未签名 HAP + SHA256SUMS + INSTALL.md（自行签名安装指南）上传到 GitHub Release。
+#
+# 红线：产物为 unsigned HAP。签名材料/口令/UDID 永远不进 GitHub
+# （仓库约定见 AGENTS.md 与 docs/RELEASE_CHECKLIST.md），接收人按 INSTALL.md
+# 用自己的调试证书签名后安装。工具链与 harmonyos-ci.yml 同源：
+# ErBWs/ohos-sdk 镜像 CLT 26.0.0.821（SDK 26.0.0.105 / API 26）。
+name: HarmonyOS Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '要发布的已存在 tag（vX.Y.Z 格式，须已 push）'
+        required: true
+        type: string
+
+permissions:
+  contents: write # 仅为创建 Release 与上传附件
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: package & release (unsigned HAP)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+    defaults:
+      run:
+        working-directory: NeriPlayer-HarmonyOS
+    steps:
+      - name: Resolve release tag
+        run: |
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          # tag 必须已存在（dispatch 传名、push 天然存在）
+          git init -q /tmp/tagcheck
+          if ! git ls-remote --tags origin "refs/tags/$TAG" | grep -q "$TAG"; then
+            echo "::error::tag $TAG 不存在于远端，先 git push origin $TAG"
+            exit 1
+          fi
+          # 版本格式校验：vX.Y.Z（允许 -rc.1 等预发布后缀，versionName 保留后缀）
+          if ! echo "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::tag $TAG 不符合 vX.Y.Z 格式"
+            exit 1
+          fi
+
+      - name: Checkout (full history for release notes)
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      # OpenHarmony SDK 部分工具链依赖 libGL
+      - name: Install SDK runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1-mesa-dev
+
+      - name: Set up HarmonyOS CLI tools 26.0.0.821 (SDK 26.0.0.105, API 26)
+        id: ohos
+        uses: ErBWs/setup-ohos@v2
+        with:
+          version: 26.0.0.821
+          cache: true
+
+      - name: Cache ohpm / hvigor user packages
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.ohpm
+            ~/.hvigor
+          key: ohpm-hvigor-${{ runner.os }}-${{ hashFiles('NeriPlayer-HarmonyOS/oh-package.json5', 'NeriPlayer-HarmonyOS/oh-package-lock.json5', 'NeriPlayer-HarmonyOS/hvigor/hvigor-config.json5') }}
+          restore-keys: |
+            ohpm-hvigor-${{ runner.os }}-
+
+      - name: Install project dependencies
+        run: ohpm install --all
+
+      - name: Stamp version into AppScope/app.json5
+        run: |
+          python3 - <<'PYEOF'
+          import os, re, sys
+
+          tag = os.environ['TAG']
+          version = tag[1:]  # strip leading 'v'
+
+          # versionCode: 三段数字乘权（major*1000000 + minor*1000 + patch），
+          # 预发布后缀不参与。1.0.1 -> 1000001，与既有基线 1000000 兼容递增。
+          base = version.split('-')[0]
+          major, minor, patch = (int(x) for x in base.split('.'))
+          code = major * 1000000 + minor * 1000 + patch
+          if code < 1000000:
+              print(f'::error::versionCode {code} 低于既有基线 1000000，会触发降级安装失败')
+              sys.exit(1)
+
+          path = 'AppScope/app.json5'
+          with open(path, encoding='utf-8') as f:
+              src = f.read()
+          # app.json5 含行注释，逐行正则替换而非 JSON 解析，避免破坏注释
+          src, n1 = re.subn(r'"versionName"\s*:\s*"[^"]*"',
+                            f'"versionName": "{version}"', src)
+          src, n2 = re.subn(r'"versionCode"\s*:\s*\d+',
+                            f'"versionCode": {code}', src)
+          if n1 != 1 or n2 != 1:
+              print(f'::error::app.json5 替换计数异常 versionName={n1} versionCode={n2}')
+              sys.exit(1)
+          with open(path, 'w', encoding='utf-8') as f:
+              f.write(src)
+          print(f'stamped versionName={version} versionCode={code}')
+          PYEOF
+
+      - name: Build release HAP (unsigned)
+        run: |
+          hvigorw assembleHap --mode module -p module=entry@default -p product=default -p buildMode=release --no-daemon
+
+      - name: Collect release assets
+        run: |
+          HAP="NeriPlayer-${TAG}-unsigned.hap"
+          cp entry/build/default/outputs/default/entry-default-unsigned.hap "$HAP"
+          sha256sum "$HAP" > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Write INSTALL.md
+        run: |
+          cat > INSTALL.md <<'MDEOF'
+          # NeriPlayer 未签名 HAP 安装指南
+
+          本 Release 提供 **未签名** 的 HAP 安装包（`NeriPlayer-*-unsigned.hap`）。
+          HarmonyOS 出于安全设计不接受未签名应用，也不存在「关闭签名校验」的系统开关；
+          请先校验完整性，再用**你自己的签名证书**完成签名后安装。
+
+          > 最低系统要求：HarmonyOS API 26（更低版本无法安装）。
+
+          ## 0. 校验完整性
+
+          ```bash
+          sha256sum -c SHA256SUMS.txt
+          ```
+
+          ## 1. 获取签名材料（二选一）
+
+          **方式 A（最简单，需 DevEco Studio）**：DevEco Studio 打开任意工程 →
+          `File > Project Structure > Project > Signing Configs` 勾选
+          `Automatically generate signature` 并登录华为账号，IDE 会自动生成
+          本机调试证书（`~/.ohos/config/` 下）。
+
+          **方式 B（AGC 手动申请）**：登录 [AppGallery Connect](https://developer.huawei.com/consumer/cn/service/josp/agc/index.html)
+          → 我的项目 → 新建项目/应用 → `常规 > 证书、APP ID 与 Profile` 申请
+          调试证书（.cer）、调试 Profile（.p7b）与密钥库（.p12）。
+
+          ## 2. 用 hap-sign-tool 签名
+
+          `hap-sign-tool.jar` 位于 SDK 的
+          `sdk/default/openharmony/toolchains/lib/hap-sign-tool.jar`（随
+          command-line-tools / DevEco Studio 分发），需要本机装有 Java：
+
+          ```bash
+          java -jar hap-sign-tool.jar sign-app \
+            -mode localSign \
+            -keyAlias <你的密钥别名> \
+            -signAlg SHA256withECDSA \
+            -appCertFile <你的证书.cer> \
+            -profileFile <你的Profile.p7b> \
+            -keystoreFile <你的密钥库.p12> \
+            -keyPwd <密钥口令> \
+            -keystorePwd <密钥库口令> \
+            -inFile NeriPlayer-*-unsigned.hap \
+            -outFile NeriPlayer-signed.hap
+          ```
+
+          ## 3. 安装到设备
+
+          设备开启 `设置 > 系统和更新 > 开发者选项 > USB 调试` 后：
+
+          ```bash
+          hdc install -r NeriPlayer-signed.hap
+          ```
+
+          ## 替代方案：直接从源码构建
+
+          若已装 DevEco Studio，也可以 clone 本仓库后用 `Build > Build Hap(s)`
+          （配置自动签名）直接得到已签名包，版本与 Release 一致。
+
+          ## 常见问题
+
+          - **安装报 profile 校验失败 / source not trusted**：调试 Profile 绑定
+            设备 UDID。AGC 申请调试证书时需把目标设备的 UDID 填入调试设备列表；
+            自己的常用设备用方式 A 自动签名即可覆盖。
+          - **versionCode 低于已装版本**：先 `hdc uninstall <bundleName>` 再安装，
+            或等待更高的版本号 Release。
+          MDEOF
+
+      - name: Upload Release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG }}
+          name: NeriPlayer ${{ env.TAG }}
+          draft: false
+          prerelease: ${{ contains(env.TAG, '-') }}
+          body: |
+            ## NeriPlayer ${{ env.TAG }}
+
+            - 构建模式：release（未签名）
+            - 最低系统：HarmonyOS API 26
+            - 版本号：tag 已写入 app.json5（versionName = ${{ env.TAG }} 去掉 v 前缀）
+
+            **安装方法见附件 `INSTALL.md`**——未签名 HAP 需用你自己的证书签名后安装；
+            附件 `SHA256SUMS.txt` 用于完整性校验。
+
+            > 本应用为个人开源项目，内置网易云/B站/YouTube Music 等平台音源能力，
+            > 仅供学习研究，请遵守各平台服务条款。
+          files: |
+            NeriPlayer-${{ env.TAG }}-unsigned.hap
+            SHA256SUMS.txt
+            INSTALL.md
+
+      # Release 步骤失败时的兜底下载通道（7 天）
+      - name: Upload build artifact (fallback)
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: hap-unsigned-release-${{ github.run_id }}-${{ github.run_attempt }}
+          path: NeriPlayer-HarmonyOS/NeriPlayer-*-unsigned.hap
+          retention-days: 7
+          if-no-files-found: warn
