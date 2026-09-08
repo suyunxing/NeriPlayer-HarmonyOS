@@ -1,6 +1,8 @@
-# HarmonyOS 工程持续集成：安装依赖 -> API 24 debug 构建 ->（push/手动）release 构建 -> Linux 单测诊断（不签名）。
-# 工具链：ErBWs/ohos-sdk 镜像的 HarmonyOS Command Line Tools 6.1.1.280
-#        （SDK 6.1.1.125 / API 24，与本机 CLT 6.1.1.300 同基线，构建命令与 docs/hm.md 一致）。
+# HarmonyOS 工程持续集成：安装依赖 -> API 26 debug 构建 ->（push/手动）release 构建 -> Linux 单测诊断（不签名）。
+# 工具链：ErBWs/ohos-sdk 镜像的 HarmonyOS Command Line Tools 26.0.0.821
+#        （SDK 26.0.0.105 Release / API 26，与本机 CLT 26.0.0.821 同基线，构建命令与 docs/hm.md 一致）。
+# 2026-09-08 升级：59b65d65 起工程全量迁移 API 26（compatibleSdkVersion "26.0.0"），
+# 旧 6.1.1.280 工具链直接报 00306042（版本值校验失败），必须配套 API 26 工具链。
 # 产物为 unsigned HAP；签名仅在本地通过 sign-local.ps1 完成（证书与口令不入库）。
 name: HarmonyOS CI
 
@@ -32,7 +34,7 @@ concurrency:
 
 jobs:
   build:
-    name: build & test (API 24)
+    name: build & test (API 26)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     defaults:
@@ -55,11 +57,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libgl1-mesa-dev
 
-      - name: Set up HarmonyOS CLI tools 6.1.1.280 (SDK 6.1.1.125, API 24)
+      - name: Set up HarmonyOS CLI tools 26.0.0.821 (SDK 26.0.0.105, API 26)
         id: ohos
         uses: ErBWs/setup-ohos@v2
         with:
-          version: 6.1.1.280
+          version: 26.0.0.821
           cache: true
 
       - name: Show toolchain versions
