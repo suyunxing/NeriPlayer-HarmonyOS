@@ -132,6 +132,10 @@ jobs:
           cp entry/build/default/outputs/default/entry-default-unsigned.hap "$HAP"
           sha256sum "$HAP" > SHA256SUMS.txt
           cat SHA256SUMS.txt
+          ls -la "$HAP" SHA256SUMS.txt
+          # 产物落在工程子目录；softprops/action-gh-release 在 job 的
+          # defaults.working-directory 下解析 files 通配，这里显式确认相对路径可解析
+          test -f "$HAP" && test -f SHA256SUMS.txt
 
       - name: Write INSTALL.md
         run: |
@@ -206,6 +210,13 @@ jobs:
       - name: Upload Release assets
         uses: softprops/action-gh-release@v2
         with:
+          repository: ${{ github.repository }}
+          token: ${{ github.token }}
+          # action 是 uses: 步骤，files glob 相对 workspace 根解析（不随 job 的
+          # defaults.working-directory 走，v2.4.2 实测：不指定则三个 pattern 全
+          # unmatched，Release 空附件假成功）。显式指向工程子目录。
+          working_directory: NeriPlayer-HarmonyOS
+          fail_on_unmatched_files: true
           tag_name: ${{ env.TAG }}
           name: NeriPlayer ${{ env.TAG }}
           draft: false
