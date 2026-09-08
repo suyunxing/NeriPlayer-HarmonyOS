@@ -6,7 +6,10 @@ import { ROUTE_MAIN, RoutePushAction, routePushAction } from './RouteStack';
  * 一镜到底（NOW_PLAYING）的转场弹簧：push/pop 共用同一条曲线，封面沿
  * geometryTransition('np.cover') 往返的节奏才对称。该路由的系统转场是
  * NavigationSystemTransitionType.NONE，动画完全靠把栈操作包进 animateTo
- * 闭包驱动（MiniPlayer S6 引入，现收敛到 Router 统一提供）。
+ * 闭包驱动（MiniPlayer S6 引入，现收敛到 Router 统一提供）。闭包内的路由
+ * 操作必须带 animated=false（官方共享元素范式，见 Navigation 转场指南与
+ * faqs-arkui-991）：系统转场管线一旦参与（NONE = 零时长），会在第 0 帧同步
+ * 结束并卸载退场页，把 animateTo 的共享元素动画掐死。
  */
 const NOW_PLAYING_SPRING: AnimateParam = { curve: curves.interpolatingSpring(0, 1, 328, 36) };
 
@@ -75,20 +78,25 @@ export class Router {
       stack.replacePathByName(name, param);
       return;
     }
-    const mutate = (): void => {
+    const evict = (): void => {
       if (action === RoutePushAction.EVICT_THEN_PUSH) {
         stack.removeByIndexes([0]);
       }
-      stack.pushPathByName(name, param);
     };
     if (name === Router.NOW_PLAYING && Router.uiContext !== null) {
       // 一镜到底 push 半程：该路由系统转场为 NONE，动画由这个 animateTo 闭包
       // 提供，geometryTransition 才能把封面从迷你条飞到播放页。所有入口统一
       // 在这里包 —— 此前只有 MiniPlayer 自己包了，其余入口 push 是硬切。
-      Router.uiContext.animateTo(NOW_PLAYING_SPRING, mutate);
+      // pushPathByName 带 animated=false，关掉系统 push 管线，转场完全交给
+      // animateTo（pop 方向不这么做会硬切，见 pop() 内注释）。
+      Router.uiContext.animateTo(NOW_PLAYING_SPRING, () => {
+        evict();
+        stack.pushPathByName(name, param, false);
+      });
       return;
     }
-    mutate();
+    evict();
+    stack.pushPathByName(name, param);
   }
 
   static pop(): void {
@@ -99,11 +107,15 @@ export class Router {
     const names = stack.getAllPathName();
     const top = names.length > 0 ? names[names.length - 1] : '';
     if (top === Router.NOW_PLAYING && Router.uiContext !== null) {
-      // 一镜到底 pop 半程：页内返回键、系统返回键此前都是裸 pop，系统转场又
-      // 是 NONE，返回退化为硬切消失。包进对称的 animateTo，封面才会沿共享
+      // 一镜到底 pop 半程。仅包 animateTo 还不够（b404c3f 实测真机仍硬切）：
+      // pop 默认 animated=true，系统 pop 管线（NONE = 零时长）同步结束后立即
+      // 卸载退场的 NavDestination，组件级 .transition() 保得住自身、保不住父
+      // 容器，geometryTransition('np.cover') 的 out 端在第 0 帧就被销毁。官方
+      // 共享元素范式要求路由操作本身 animated=false（Navigation 转场指南 /
+      // faqs-arkui-991），退场页存活到 animateTo 闭包动画结束，封面才沿共享
       // 元素飞回迷你条；侧滑手势由 MainShell 的 onBackPressed 拦截后也汇入这里。
       Router.uiContext.animateTo(NOW_PLAYING_SPRING, () => {
-        stack.pop();
+        stack.pop(false);
       });
       return;
     }
