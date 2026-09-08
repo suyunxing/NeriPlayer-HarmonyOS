@@ -177,7 +177,6 @@ export struct PlaylistDetailPage {
                       SongRow({
                         songJson: song.toJson(),
                         index: index,
-                        showPlatform: true,
                         onPlay: () => {
                           if (this.playlist !== null) {
                             PlayerManager.playPlaylist(this.playlist.songs, index);

@@ -78,6 +78,11 @@ export struct LibraryPage {
     const listenMs = await PlaybackStatsRepository.getTotalListenMs();
     this.listenHours = Math.floor(listenMs / 3600000);
     this.listenMinutes = Math.floor((listenMs % 3600000) / 60000);
+    // Credential restore is fired un-awaited in EntryAbility.onCreate; wait
+    // for it so a cold start never reads isLoggedIn() before the asset-backed
+    // bundles have loaded (init() is idempotent and resolves once done).
+    await NeteaseCookieRepository.init();
+    await BiliCookieRepository.init();
     this.neteaseLogged = NeteaseCookieRepository.isLoggedIn();
     if (this.neteaseLogged) {
       this.refreshNeteasePlaylists();

@@ -479,3 +479,44 @@ eport-m61-recheck.json）：IOS 直出窗口仍开——fbvvS8e1KgI playability 
 - 待续：字号 1.75x 布局复测（新字阶更大，上架硬性项）、真机 HDS 复核
   （材质能力/IMMERSIVE 档位/流光调参/WithTheme 整树重绘确认）、探针面板移除
   （真机复核后再删）。
+
+## 缺陷修复：网易云/B站杀进程重启后掉登录（2026-09-08，二次修复）
+
+- 背景：`3f4dea0f`（fix(登录): 修复冷启动凭据恢复竞态）未生效——用户实测删除后台
+  重启后登录态仍丢失。本轮重新取证定位出**四层叠加缺陷**，其中第一层是根因：
+  1. **凭据从未落盘（根因）**：`NeteaseCookieRepository/BiliCookieRepository.saveInternal`
+     把 `CredentialStore.putString`（跨进程 IPC 写 AssetStore）fire-and-forget 挂在
+     后台、同步返回成功——UI 弹「登录成功」时写入尚未完成；且 Asset 真实写失败时
+     仅 warn 日志、`np.*_logged` 仍被置 true。模拟器实测（NeriP26R）证伪了
+     「Asset 服务降级」假设：冷启动无任何 FALLBACK 日志、Asset 查询无报错，但
+     `netease_auth_bundle` 在存储中**根本不存在**——历次登录从未成功落盘。
+  2. **冷启动首屏请求先于凭据恢复**：`EntryAbility.onCreate` 的 `init()` 未被等待，
+     `onWindowStageCreate` 立即 `loadContent`，首页 `aboutToAppear` 即发 weapi 请求，
+     `doEnsureSession` 以空 jar 访问网易云首页 → 服务端发匿名 `__csrf` →
+     `sessionReady=true` 把匿名会话钉死整个进程，MUSIC_U 恢复后也不再进会话。
+  3. **首次修复引入的倒洗**：`doInit` 无条件 `setBoolean(KEY_*_LOGGED,
+     bundle.hasLoginCookies())`，恢复竞态期间把 preferences 里已存的 true 洗成 false。
+  4. **调用点全是同步签名**：QrLoginPanel `onConfirmed: () => boolean`、粘贴导入
+     回调、退出登录 `clear()` 均不等持久化结果。
+- 修复（7 文件）：
+  - `saveFromQrLogin/saveFromPastedText/saveInternal` 改 `async`，**await 落盘**；
+    写失败时回滚内存 bundle 并返回 false（toast「登录校验失败」而非假成功）。
+  - `NeteaseApi.doEnsureSession` 开头 `await NeteaseCookieRepository.init()`；
+    `doInit` 恢复成功时 `resetSession()` 丢弃可能已飞的匿名会话。
+  - `EntryAbility.onWindowStageCreate` 改为 `NeteaseCookieRepository.init() →
+    BiliCookieRepository.init() → loadContent` 链——凭据先于一切页面 aboutToAppear
+    就位（实测 restored 12:52:32.894 < Content loaded 12:52:33.032）；onCreate 的
+    init() 保留让恢复与窗口创建并行，该链通常只等余下尾延。
+  - QrLoginPanel `onConfirmed` 异步化（await 后才关面板/报失败）；SettingsDetailPage
+    网易云确认/粘贴导入后补 `NeteaseApi.resetSession()`；退出登录 `.then()` 等
+    clear 完成再 toast。
+- 验证（NeriP26R，API 26 Release 镜像）：粘贴导入测试凭据 → 日志
+  `netease login saved: keys=MUSIC_U,__csrf,os,appver` + UI「已登录 · 凭据存储：
+  asset」→ **两次 force-stop 杀进程冷启动**，均恢复 `netease auth restored` +
+  UI 已登录；首页推荐接口正常返回。ohosTest：ActsCredentialStoreTest 3/3、
+  ActsNeteaseCookieRepositoryTest 2/2、ActsBiliCookieRepositoryTest 2/2。
+  过程坑：模拟器重启后停在**锁屏**会让 aa test 的 TestAbility 窗口被切后台、
+  Delegator 以 -2「TestAbility onDestroy unexpectedly」终止——解锁（uinput 上滑）
+  后同一套件全过，勿把锁屏假失败当成代码回归。codelinter 0 error。
+- 遗留（如实记录）：`doInit` 无条件覆盖 logged 标志的语义保留（内存降级后端重启
+  本就该显示未登录），依赖第 1 层修复保证「落盘成功才有 true」。

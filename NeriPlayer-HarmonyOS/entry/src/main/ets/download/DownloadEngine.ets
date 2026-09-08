@@ -18,6 +18,7 @@ import {
 import { DownloadTaskStore } from './DownloadTaskStore';
 import { DownloadRetryPolicy } from './DownloadSupport';
 import { DownloadStorage, ResumeFingerprint, HlsResumeState } from './DownloadStorage';
+import { DownloadDirectoryManager } from './DownloadDirectoryManager';
 
 export interface DownloadEngineListener {
   onTasksChanged(): void;
@@ -79,6 +80,7 @@ export class DownloadEngine {
     DownloadEngine.initialized = true;
     DownloadEngine.context = context;
     DownloadStorage.init(context);
+    DownloadDirectoryManager.activatePersisted();
     DownloadEngine.registerNetworkListener();
     DownloadEngine.recoverPendingForStartup();
   }

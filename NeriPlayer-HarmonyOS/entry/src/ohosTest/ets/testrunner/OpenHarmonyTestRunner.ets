@@ -62,7 +62,7 @@ async function checkMock(abilityDelegator: abilityDelegatorRegistry.AbilityDeleg
   try {
     rawFile = resourceManager.getRawFileContentSync(jsonPath);
     hilog.info(0x0000, tag, 'MockList file exists');
-    let mockStr: string = util.TextDecoder.create('utf-8', { ignoreBOM: true }).decodeWithStream(rawFile);
+    let mockStr: string = util.TextDecoder.create('utf-8', { ignoreBOM: true }).decodeToString(rawFile);
     let mockMap: Record<string, string> = getMockList(mockStr);
     try {
       abilityDelegator.setMockList(mockMap)

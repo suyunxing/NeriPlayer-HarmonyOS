@@ -37,6 +37,11 @@ export class InterruptValues {
  * playback was active; permanent loss never auto-resumes; ducking is handled
  * by the system. Device unplug maps to a hard pause without auto-resume
  * (becoming-noisy semantics).
+ *
+ * mixWithOthers ("允许与其他应用同时播放") opts out of cooperative pauses:
+ * SHARE-type pause hints from other apps are ignored so both streams keep
+ * playing. FORCED interruptions still pause — those report that the system
+ * has already acted on the stream and cannot be refused.
  */
 export class AudioInterruptPolicy {
   /**
@@ -46,12 +51,14 @@ export class AudioInterruptPolicy {
    * @param forceType force/share (InterruptForceType numeric value)
    * @param wasPlaying whether playback was active before the interruption
    * @param resumeOnFocusRegain current auto-resume intent
+   * @param mixWithOthers whether the user allowed playing alongside other apps
    */
   static decide(
     hintType: number,
     forceType: number,
     wasPlaying: boolean,
-    resumeOnFocusRegain: boolean
+    resumeOnFocusRegain: boolean,
+    mixWithOthers: boolean = false
   ): InterruptAction {
     if (forceType === InterruptValues.FORCE) {
       if (hintType === InterruptValues.HINT_PAUSE) {
@@ -62,6 +69,14 @@ export class AudioInterruptPolicy {
       }
       // DUCK / UNDUCK / NONE: the system already adjusted the stream.
       return InterruptAction.NONE;
+    }
+    if (mixWithOthers && hintType === InterruptValues.HINT_PAUSE) {
+      // 允许同时播放：无视其他应用的协作暂停请求，两边一起响。
+      return InterruptAction.NONE;
+    }
+    if (!mixWithOthers && hintType === InterruptValues.HINT_PAUSE) {
+      // 独占模式：配合协作暂停请求（暂停并等待焦点回归后自动续播）。
+      return wasPlaying ? InterruptAction.PAUSE_TRANSIENT : InterruptAction.NONE;
     }
     if (hintType === InterruptValues.HINT_RESUME && resumeOnFocusRegain) {
       return InterruptAction.RESUME;

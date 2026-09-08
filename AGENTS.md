@@ -183,6 +183,14 @@ git push
 - 创建 PR、修改版本号、生成发布产物仍需用户明确要求。
 - `signing/`、`local.properties`、构建产物严禁入库（.gitignore 已排除）。
 
+## GitHub CI/CD（.github/workflows/）
+
+- `harmonyos-ci.yml`：push/PR 到 main/dev/su 时跑构建与单测诊断（API 26 工具链 `ErBWs/setup-ohos@v2` version `26.0.0.821`）。工程 2026-09-07 起全量迁移 API 26（`compatibleSdkVersion: "26.0.0"`），CI 工具链必须与之一致，低于 26.0.0.821 会在 hvigor 配置校验报 00306042。
+- `harmonyos-release.yml`：**发布流水线（2026-09-08 新增）**。push `vX.Y.Z` 格式 tag（或 workflow_dispatch 指定已存在 tag）→ 把版本号写入 `AppScope/app.json5`（versionName=tag 去 v，versionCode=三段乘权，如 1.0.1→1000001）→ release 构建 → 未签名 HAP + `SHA256SUMS.txt` + `INSTALL.md`（自行签名安装指南）上传为 GitHub Release。
+- **发布红线**：Release 产物永远是 **unsigned** HAP；签名材料、口令、设备 UDID 不得进 GitHub（含 Secrets）。接收人按 `INSTALL.md` 用自己的调试证书签名安装。AGC 正式发布证书属用户个人资产，未经用户明确操作不引入流水线。
+- 打正式 tag 属「修改版本号/生成发布产物」级别操作，须用户明确要求；测试验证用 `-rc` 后缀 tag 且事后清理。
+
+
 ## 服务器开发环境（Azure Linux，2026-09-06 起可用）
 
 服务器为 Ubuntu 24.04 + 中文 XFCE 桌面，经 Tailscale 内网 `100.73.184.27` RDP 访问，ZCode 已装在服务器上可直接开发本仓库。

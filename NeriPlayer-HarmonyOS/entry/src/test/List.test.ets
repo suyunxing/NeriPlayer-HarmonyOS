@@ -5,6 +5,7 @@ import audioInterruptPolicyTest from './ets/test/AudioInterruptPolicy.test';
 import sleepTimerTest from './ets/test/SleepTimer.test';
 import androidDataParserTest from './ets/test/AndroidDataParser.test';
 import downloadTaskStoreTest from './ets/test/DownloadTaskStore.test';
+import downloadDirectoryTest from './ets/test/DownloadDirectory.test';
 import qrEncoderTest from './ets/test/QrEncoder.test';
 import neteaseAuthTest from './ets/test/NeteaseAuth.test';
 import neteasePlaylistParserTest from './ets/test/NeteasePlaylistParser.test';
@@ -74,6 +75,10 @@ import qqMusicLyricCodecTest from './ets/test/QQMusicLyricCodec.test';
 import songTitleExtractorTest from './ets/test/SongTitleExtractor.test';
 import songMatchScorerTest from './ets/test/SongMatchScorer.test';
 import autoMatchPolicyTest from './ets/test/AutoMatchPolicy.test';
+import avPlaylistPolicyTest from './ets/test/AvPlaylistPolicy.test';
+import playbackCacheLedgerTest from './ets/test/PlaybackCacheLedger.test';
+import audioQualityPolicyTest from './ets/test/AudioQualityPolicy.test';
+import historyRepositoryTest from './ets/test/HistoryRepository.test';
 
 export default function testsuite(): void {
   lrcParserTest();
@@ -83,6 +88,7 @@ export default function testsuite(): void {
   sleepTimerTest();
   androidDataParserTest();
   downloadTaskStoreTest();
+  downloadDirectoryTest();
   qrEncoderTest();
   neteaseAuthTest();
   neteasePlaylistParserTest();
@@ -152,4 +158,8 @@ export default function testsuite(): void {
   songTitleExtractorTest();
   songMatchScorerTest();
   autoMatchPolicyTest();
+  avPlaylistPolicyTest();
+  playbackCacheLedgerTest();
+  audioQualityPolicyTest();
+  historyRepositoryTest();
 }

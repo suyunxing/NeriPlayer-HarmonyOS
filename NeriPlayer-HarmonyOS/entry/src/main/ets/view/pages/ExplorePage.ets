@@ -250,7 +250,6 @@ export struct ExplorePage {
               SongRow({
                 songJson: item.toJson(),
                 index: index,
-                showPlatform: true,
                 onPlay: () => this.play(index)
               })
             }

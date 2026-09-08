@@ -1,7 +1,15 @@
 import { promptAction } from '@kit.ArkUI';
+import { common } from '@kit.AbilityKit';
 import { SettingsRepository } from '../../data/SettingsRepository';
+import { AppColorMode } from '../../util/AppColorMode';
+import { SystemBars } from '../../util/SystemBars';
 import { DownloadStorage } from '../../download/DownloadStorage';
 import { DownloadEngine } from '../../download/DownloadEngine';
+import { DownloadDirectory } from '../../download/DownloadDirectory';
+import {
+  DownloadDirectoryManager,
+  DownloadDirectoryPickCode
+} from '../../download/DownloadDirectoryManager';
 import { PlayerManager } from '../../player/PlayerManager';
 import { NeteaseCookieRepository } from '../../data/auth/NeteaseCookieRepository';
 import { BiliCookieRepository } from '../../data/auth/BiliCookieRepository';
@@ -13,6 +21,7 @@ import {
   NETEASE_QR_SCANNED,
   NETEASE_QR_WAITING
 } from '../../network/NeteaseQrLogin';
+import { NeteaseApi } from '../../network/NeteaseApi';
 import {
   BiliQrLoginClient,
   BiliQrSession,
@@ -31,11 +40,11 @@ import {
 import { Theme } from '../Theme';
 import { AccentScheme } from '../theme/AccentScheme';
 import { BAND_LIST_VP } from '../../util/Breakpoint';
-import { OptionEntry, OptionRow, SettingRow, ToggleRow } from '../components/Ui';
-import { LyricSettingsRows } from '../components/LyricSettingsRows';
-import { SETTING_PLAYBACK, SETTING_DOWNLOAD, SETTING_LYRICS, SETTING_APPEARANCE,
-  SETTING_TRAFFIC, SETTING_STORAGE, SETTING_ACCOUNTS, SETTING_SYNC, SETTING_DEBUG,
-  SETTING_ABOUT } from './SettingsPage';
+import { OptionEntry, OptionRow, SettingRow, SliderRow, ToggleRow } from '../components/Ui';
+import { LyricSettingsRows, LyricStylePreview } from '../components/LyricSettingsRows';
+import { SETTING_PLAYBACK, SETTING_DOWNLOAD, SETTING_LYRICS, SETTING_PLAYER,
+  SETTING_APPEARANCE, SETTING_NAVIGATION, SETTING_TRAFFIC, SETTING_STORAGE,
+  SETTING_ACCOUNTS, SETTING_SYNC, SETTING_DEBUG, SETTING_ABOUT } from './SettingsPage';
 import { Router } from '../Router';
 import { GitHubConfigRepository } from '../../sync/github/GitHubConfigRepository';
 import { GitHubTransport, isValidGitHubName } from '../../sync/github/GitHubTransport';
@@ -83,6 +92,21 @@ export struct SettingsDetailPage {
 
   @StorageProp('np.playback_speed') speed: number = 1.0;
   @StorageProp('np.audio_quality') quality: string = 'standard';
+  @StorageProp('np.audio_quality_wifi') qualityWifi: string = '';
+  @StorageProp('np.audio_quality_cellular') qualityCellular: string = '';
+  @StorageProp('np.mix_audio') mixAudio: boolean = true;
+  @StorageProp('np.playback_volume') playbackVolume: number = 1.0;
+  @StorageProp('np.autoplay_on_launch') autoplayOnLaunch: boolean = false;
+  @StorageProp('np.nowplaying_bg_style') nowplayingBgStyle: string = 'blur';
+  @StorageProp('np.keep_screen_on') keepScreenOn: boolean = false;
+  @StorageProp('np.dynamic_color') dynamicColor: boolean = true;
+  @StorageProp('np.circular_cover') circularCover: boolean = false;
+  @StorageProp('np.lyric_page_controls') lyricPageControls: boolean = true;
+  @StorageProp('np.mini_next_button') miniNextButton: boolean = true;
+  @StorageProp('np.mini_show_lyric') miniShowLyric: boolean = true;
+  @StorageProp('np.mini_expand_autoplay') miniExpandAutoplay: boolean = false;
+  @StorageProp('np.start_page') startPage: string = 'last';
+  @StorageProp('np.dark_mode') darkMode: string = 'auto';
   @StorageProp('np.lyric_font_size') lyricFontSize: number = 16;
   @StorageProp('np.lyric_offset_ms') lyricOffsetMs: number = 0;
   @StorageProp('np.lyric_translation') lyricTranslation: boolean = true;
@@ -95,6 +119,9 @@ export struct SettingsDetailPage {
   @StorageProp('np.lyric_blur') lyricBlur: boolean = true;
   @StorageProp('np.download_concurrency') downloadConcurrency: number = 6;
   @StorageProp('np.download_match_lyrics') downloadMatchLyrics: boolean = true;
+  @StorageProp('np.playback_cache') playbackCache: boolean = false;
+  @StorageProp('np.download_directory_uri') downloadDirectoryUri: string = '';
+  @StorageProp('np.download_directory_label') downloadDirectoryLabel: string = '';
   @StorageProp('np.save_traffic') saveTraffic: boolean = false;
   @StorageProp('np.netease_auto_fallback') neteaseAutoFallback: boolean = true;
   @StorageProp('np.cover_policy') coverPolicy: string = 'always';
@@ -138,8 +165,14 @@ export struct SettingsDetailPage {
     if (this.section === SETTING_LYRICS) {
       return '歌词设置';
     }
+    if (this.section === SETTING_PLAYER) {
+      return '播放器设置';
+    }
     if (this.section === SETTING_APPEARANCE) {
       return '外观与动效';
+    }
+    if (this.section === SETTING_NAVIGATION) {
+      return '页面与导航';
     }
     if (this.section === SETTING_TRAFFIC) {
       return '流量与封面';
@@ -162,6 +195,30 @@ export struct SettingsDetailPage {
     return '设置';
   }
 
+  private darkModeOptions(): OptionEntry[] {
+    const options: OptionEntry[] = [
+      { value: 'auto', label: '跟随系统' },
+      { value: 'light', label: '浅色' },
+      { value: 'dark', label: '深色' }
+    ];
+    return options;
+  }
+
+  private applyDarkMode(mode: string): void {
+    if (mode === this.darkMode) {
+      return;
+    }
+    SettingsRepository.setString(SettingsRepository.KEY_DARK_MODE, mode);
+    const context = AppStorage.get<common.UIAbilityContext>('abilityContext');
+    if (context !== undefined) {
+      // setColorMode 触发配置变更、重建整棵组件树，否则本页与 MainShell 的
+      // 颜色表达式不引用可观察状态，切换后不会重绘（见 AppColorMode 注释）。
+      AppColorMode.apply(context, mode);
+      // 系统栏内容色仍显式跟一次：setColorMode 抛错时这里是兜底。
+      SystemBars.apply(context, Theme.isDark());
+    }
+  }
+
   async aboutToAppear(): Promise<void> {
     const catalog = await DownloadStorage.getCatalog();
     let bytes = 0;
@@ -173,6 +230,46 @@ export struct SettingsDetailPage {
     this.githubTokenSaved = GitHubConfigRepository.tokenPreview().length > 0;
     await WebDavConfigRepository.init();
     this.webdavCredentialsSaved = WebDavConfigRepository.isConfigured();
+  }
+
+  // ---- Download directory (picker + persisted URI grant) ------------------
+
+  private async pickDownloadDirectory(): Promise<void> {
+    if (!DownloadDirectoryManager.folderPickerSupported()) {
+      promptAction.openToast({ message: '当前系统版本不支持选择下载目录' });
+      return;
+    }
+    const context = AppStorage.get<common.UIAbilityContext>('abilityContext');
+    if (context === undefined) {
+      promptAction.openToast({ message: '应用上下文未就绪' });
+      return;
+    }
+    const result = await DownloadDirectoryManager.pickAndApply(context);
+    if (result.code === DownloadDirectoryPickCode.APPLIED) {
+      promptAction.openToast({ message: `下载目录已切换为「${result.label}」` });
+    } else if (result.code === DownloadDirectoryPickCode.FAILED) {
+      promptAction.openToast({ message: result.message });
+    }
+    // CANCELLED: 用户在选择器中退出，保持原目录，无需提示。
+  }
+
+  private confirmResetDownloadDirectory(): void {
+    this.getUIContext().showAlertDialog({
+      title: '恢复默认目录',
+      message: '之后的下载将保存到应用内部 Download/NeriPlayer 目录；已下载文件保留在原目录，仍可播放。',
+      primaryButton: {
+        value: '取消',
+        action: () => {
+        }
+      },
+      secondaryButton: {
+        value: '恢复',
+        action: () => {
+          DownloadDirectoryManager.resetToDefault();
+          promptAction.openToast({ message: '已恢复默认下载目录' });
+        }
+      }
+    });
   }
 
   // ---- NetEase QR login (state machine lives in QrLoginPanel) ------------
@@ -206,17 +303,18 @@ export struct SettingsDetailPage {
     return outcome;
   }
 
-  private onNeteaseConfirmed(): boolean {
-    const saved = NeteaseCookieRepository.saveFromQrLogin(NeteaseQrLoginClient.currentCookies());
+  private async onNeteaseConfirmed(): Promise<boolean> {
+    const saved = await NeteaseCookieRepository.saveFromQrLogin(NeteaseQrLoginClient.currentCookies());
     if (saved) {
       this.neteaseLogged = true;
+      NeteaseApi.resetSession();
       promptAction.openToast({ message: '网易云登录成功' });
     }
     return saved;
   }
 
   private confirmNeteaseLogout(): void {
-    AlertDialog.show({
+    this.getUIContext().showAlertDialog({
       title: '退出登录',
       message: '确定退出网易云音乐登录？',
       primaryButton: {
@@ -228,9 +326,12 @@ export struct SettingsDetailPage {
         value: '退出',
         fontColor: Theme.danger(Theme.isDark()),
         action: () => {
-          NeteaseCookieRepository.clear();
+          NeteaseCookieRepository.clear()
+            .then(() => {
+              NeteaseApi.resetSession();
+              promptAction.openToast({ message: '已退出网易云登录' });
+            });
           this.neteaseLogged = false;
-          promptAction.openToast({ message: '已退出网易云登录' });
         }
       }
     });
@@ -244,13 +345,16 @@ export struct SettingsDetailPage {
           hint: '从浏览器或 Android 端导出的 Cookie 文本，需包含 MUSIC_U。格式：k1=v1; k2=v2',
           placeholder: 'MUSIC_U=...; __csrf=...; os=pc',
           onConfirm: (text: string) => {
-            const saved = NeteaseCookieRepository.saveFromPastedText(text);
-            if (saved) {
-              this.neteaseLogged = true;
-              promptAction.openToast({ message: 'Cookie 导入成功' });
-            } else {
-              promptAction.openToast({ message: '导入失败：需要包含有效的 MUSIC_U' });
-            }
+            NeteaseCookieRepository.saveFromPastedText(text)
+              .then((saved: boolean) => {
+                if (saved) {
+                  this.neteaseLogged = true;
+                  NeteaseApi.resetSession();
+                  promptAction.openToast({ message: 'Cookie 导入成功' });
+                } else {
+                  promptAction.openToast({ message: '导入失败：需要包含有效的 MUSIC_U' });
+                }
+              });
           }
         }),
         autoCancel: true,
@@ -288,8 +392,8 @@ export struct SettingsDetailPage {
     return outcome;
   }
 
-  private onBiliConfirmed(): boolean {
-    const saved = BiliCookieRepository.saveFromQrLogin(BiliQrLoginClient.currentCookies());
+  private async onBiliConfirmed(): Promise<boolean> {
+    const saved = await BiliCookieRepository.saveFromQrLogin(BiliQrLoginClient.currentCookies());
     if (saved) {
       this.biliLogged = true;
       promptAction.openToast({ message: 'Bilibili 登录成功' });
@@ -298,7 +402,7 @@ export struct SettingsDetailPage {
   }
 
   private confirmBiliLogout(): void {
-    AlertDialog.show({
+    this.getUIContext().showAlertDialog({
       title: '退出登录',
       message: '确定退出 Bilibili 登录？',
       primaryButton: {
@@ -310,9 +414,11 @@ export struct SettingsDetailPage {
         value: '退出',
         fontColor: Theme.danger(Theme.isDark()),
         action: () => {
-          BiliCookieRepository.clear();
+          BiliCookieRepository.clear()
+            .then(() => {
+              promptAction.openToast({ message: '已退出 Bilibili 登录' });
+            });
           this.biliLogged = false;
-          promptAction.openToast({ message: '已退出 Bilibili 登录' });
         }
       }
     });
@@ -326,13 +432,15 @@ export struct SettingsDetailPage {
           hint: '从浏览器导出的 Cookie 文本，需包含 SESSDATA。格式：k1=v1; k2=v2',
           placeholder: 'SESSDATA=...; bili_jct=...; DedeUserID=...',
           onConfirm: (text: string) => {
-            const saved = BiliCookieRepository.saveFromPastedText(text);
-            if (saved) {
-              this.biliLogged = true;
-              promptAction.openToast({ message: 'Cookie 导入成功' });
-            } else {
-              promptAction.openToast({ message: '导入失败：需要包含有效的 SESSDATA' });
-            }
+            BiliCookieRepository.saveFromPastedText(text)
+              .then((saved: boolean) => {
+                if (saved) {
+                  this.biliLogged = true;
+                  promptAction.openToast({ message: 'Cookie 导入成功' });
+                } else {
+                  promptAction.openToast({ message: '导入失败：需要包含有效的 SESSDATA' });
+                }
+              });
           }
         }),
         autoCancel: true,
@@ -476,7 +584,7 @@ export struct SettingsDetailPage {
   }
 
   private confirmGithubClear(): void {
-    AlertDialog.show({
+    this.getUIContext().showAlertDialog({
       title: '清除 GitHub 配置',
       message: '将移除令牌与仓库设置，不影响本地数据。确定继续？',
       primaryButton: {
@@ -649,7 +757,7 @@ export struct SettingsDetailPage {
     for (const conflict of report.conflicts) {
       message += `\n\n${conflict.description}（${conflict.resolution}）`;
     }
-    AlertDialog.show({
+    this.getUIContext().showAlertDialog({
       title: report.success ? title : `${title}失败`,
       message,
       confirm: {
@@ -661,7 +769,7 @@ export struct SettingsDetailPage {
   }
 
   private confirmWebDavClear(): void {
-    AlertDialog.show({
+    this.getUIContext().showAlertDialog({
       title: '清除 WebDAV 配置',
       message: '将移除服务器地址、用户名和密码，不影响本地或远端数据。确定继续？',
       primaryButton: {
@@ -723,6 +831,26 @@ export struct SettingsDetailPage {
     return options;
   }
 
+  private bgStyleOptions(): OptionEntry[] {
+    const options: OptionEntry[] = [
+      { value: 'blur', label: '封面模糊' },
+      { value: 'solid', label: '纯色' },
+      { value: 'gradient', label: '流光' }
+    ];
+    return options;
+  }
+
+  private startPageOptions(): OptionEntry[] {
+    const options: OptionEntry[] = [
+      { value: 'last', label: '跟随上次' },
+      { value: '0', label: '首页' },
+      { value: '1', label: '探索' },
+      { value: '2', label: '资料库' },
+      { value: '3', label: '设置' }
+    ];
+    return options;
+  }
+
   private coverPolicyOptions(): OptionEntry[] {
     const options: OptionEntry[] = [
       { value: 'always', label: '始终加载' },
@@ -741,7 +869,7 @@ export struct SettingsDetailPage {
         // '‹' is punctuation to a screen reader; name the action.
         .accessibilityText('返回')
         .type(ButtonType.Circle)
-        .backgroundColor(Color.Transparent)
+        .backgroundColor(Theme.surface(Theme.isDark()))
         .fontColor(Theme.textPrimary(Theme.isDark()))
         .fontSize(20)
         .onClick(() => Router.pop())
@@ -775,7 +903,7 @@ export struct SettingsDetailPage {
       this.header()
 
       Scroll() {
-        Column({ space: 1 }) {
+        Column({ space: 10 }) {
           if (this.section === SETTING_PLAYBACK) {
             OptionRow({
               title: '播放速度',
@@ -786,11 +914,51 @@ export struct SettingsDetailPage {
             })
 
             OptionRow({
-              title: '默认音质',
-              icon: '🎵',
+              title: 'Wi-Fi 网络音质',
+              icon: '📶',
               options: this.qualityOptions(),
-              current: this.quality,
-              onPick: (value: string) => SettingsRepository.setString(SettingsRepository.KEY_AUDIO_QUALITY, value)
+              current: this.qualityWifi.length > 0 ? this.qualityWifi : this.quality,
+              onPick: (value: string) =>
+                SettingsRepository.setString(SettingsRepository.KEY_AUDIO_QUALITY_WIFI, value)
+            })
+
+            OptionRow({
+              title: '非 Wi-Fi 网络音质',
+              subtitle: '蜂窝网络下请求的音质档位',
+              icon: '📡',
+              options: this.qualityOptions(),
+              current: this.qualityCellular.length > 0 ? this.qualityCellular : this.quality,
+              onPick: (value: string) =>
+                SettingsRepository.setString(SettingsRepository.KEY_AUDIO_QUALITY_CELLULAR, value)
+            })
+
+            ToggleRow({
+              title: '允许与其他应用同时播放',
+              subtitle: '其他应用开始播放时尽量不暂停本应用（系统强制抢占除外）',
+              icon: '🔀',
+              value: this.mixAudio,
+              onChange: (on: boolean) =>
+                SettingsRepository.setBoolean(SettingsRepository.KEY_MIX_AUDIO, on)
+            })
+
+            SliderRow({
+              title: '播放音量',
+              icon: '🔊',
+              min: 0,
+              max: 1,
+              step: 0.05,
+              value: this.playbackVolume,
+              format: (value: number) => `${Math.round(value * 100)}%`,
+              onPick: (value: number) => PlayerManager.setVolume(value)
+            })
+
+            ToggleRow({
+              title: '启动应用时自动播放',
+              subtitle: '启动后自动继续播放上次的歌曲',
+              icon: '▷',
+              value: this.autoplayOnLaunch,
+              onChange: (on: boolean) =>
+                SettingsRepository.setBoolean(SettingsRepository.KEY_AUTOPLAY_ON_LAUNCH, on)
             })
 
             ToggleRow({
@@ -799,6 +967,15 @@ export struct SettingsDetailPage {
               icon: '🔀',
               value: this.shuffle,
               onChange: (on: boolean) => PlayerManager.setShuffle(on)
+            })
+
+            ToggleRow({
+              title: '播放缓存（实验）',
+              subtitle: 'Wi-Fi 下缓存在线歌曲，重播秒开且不重复请求',
+              icon: '⤓',
+              value: this.playbackCache,
+              onChange: (on: boolean) =>
+                SettingsRepository.setBoolean(SettingsRepository.KEY_PLAYBACK_CACHE, on)
             })
           } else if (this.section === SETTING_DOWNLOAD) {
             OptionRow({
@@ -819,14 +996,131 @@ export struct SettingsDetailPage {
             })
             SettingRow({
               title: '下载目录',
-              subtitle: '应用沙箱 Download 目录（当前版本）',
+              subtitle: DownloadDirectory.describeDirectory(this.downloadDirectoryUri, this.downloadDirectoryLabel),
               icon: '📁',
-              onTap: () => promptAction.openToast({ message: '目录选择待移植' })
+              onTap: () => this.pickDownloadDirectory()
             })
+            if (this.downloadDirectoryUri.length > 0) {
+              SettingRow({
+                title: '恢复默认目录',
+                subtitle: '之后的下载存回应用内部目录，已下载文件保留原处',
+                icon: '↩',
+                onTap: () => this.confirmResetDownloadDirectory()
+              })
+            }
           } else if (this.section === SETTING_LYRICS) {
             // 行组已抽成共享组件：播放页「词」面板展示同一组设置（LyricSettingsRows）。
             LyricSettingsRows()
+            LyricStylePreview()
+          } else if (this.section === SETTING_PLAYER) {
+            Text('全屏播放器')
+              .fontSize(13)
+              .fontColor(Theme.textSecondary(Theme.isDark()))
+              .width('100%')
+              .margin({ left: 6, top: 10, bottom: 6 })
+            Column({ space: 10 }) {
+              OptionRow({
+                title: '背景样式',
+                icon: '🖼',
+                options: this.bgStyleOptions(),
+                current: this.nowplayingBgStyle,
+                onPick: (value: string) =>
+                  SettingsRepository.setString(SettingsRepository.KEY_NOWPLAYING_BG_STYLE, value)
+              })
+              ToggleRow({
+                title: '保持屏幕常亮',
+                subtitle: '全屏播放时屏幕不会自动熄灭',
+                icon: '☀',
+                value: this.keepScreenOn,
+                onChange: (on: boolean) =>
+                  SettingsRepository.setBoolean(SettingsRepository.KEY_KEEP_SCREEN_ON, on)
+              })
+              ToggleRow({
+                title: '沉浸式取色',
+                subtitle: '播放器背景随封面自动取色',
+                icon: '🎨',
+                value: this.dynamicColor,
+                onChange: (on: boolean) => {
+                  SettingsRepository.setBoolean(SettingsRepository.KEY_DYNAMIC_COLOR, on);
+                  promptAction.openToast({
+                    message: on
+                      ? '已开启：主题色跟随当前歌曲封面'
+                      : '已关闭：主题与播放页使用默认配色'
+                  });
+                }
+              })
+              ToggleRow({
+                title: '圆形封面',
+                subtitle: '封面以圆形唱片样式展示，播放时旋转',
+                icon: '💿',
+                value: this.circularCover,
+                onChange: (on: boolean) =>
+                  SettingsRepository.setBoolean(SettingsRepository.KEY_CIRCULAR_COVER, on)
+              })
+              ToggleRow({
+                title: '歌词页显示播控按钮',
+                subtitle: '在歌词页底部展示播放控制按钮',
+                icon: '🎛',
+                value: this.lyricPageControls,
+                onChange: (on: boolean) =>
+                  SettingsRepository.setBoolean(SettingsRepository.KEY_LYRIC_PAGE_CONTROLS, on)
+              })
+            }
+            .width('100%')
+
+            Text('底部 Mini 播放器')
+              .fontSize(13)
+              .fontColor(Theme.textSecondary(Theme.isDark()))
+              .width('100%')
+              .margin({ left: 6, top: 14, bottom: 6 })
+            Column({ space: 10 }) {
+              ToggleRow({
+                title: '下一首按钮',
+                icon: '⏭',
+                value: this.miniNextButton,
+                onChange: (on: boolean) =>
+                  SettingsRepository.setBoolean(SettingsRepository.KEY_MINI_NEXT_BUTTON, on)
+              })
+              ToggleRow({
+                title: '展示歌词',
+                subtitle: '在 Mini 播放器上显示当前歌词行',
+                icon: '♪',
+                value: this.miniShowLyric,
+                onChange: (on: boolean) =>
+                  SettingsRepository.setBoolean(SettingsRepository.KEY_MINI_SHOW_LYRIC, on)
+              })
+              ToggleRow({
+                title: '展开时自动播放',
+                subtitle: '从底部播放器展开到全屏播放页时自动续播',
+                icon: '▷',
+                value: this.miniExpandAutoplay,
+                onChange: (on: boolean) =>
+                  SettingsRepository.setBoolean(SettingsRepository.KEY_MINI_EXPAND_AUTOPLAY, on)
+              })
+            }
+            .width('100%')
+
+            // 参考截图底部的 (i) 脚注：交代开关的生效边界。
+            Row({ space: 6 }) {
+              Text('ⓘ')
+                .fontSize(13)
+                .fontColor(Theme.danger(Theme.isDark()))
+              Text('“展开时自动播放”在从底部 Mini 播放器展开到全屏播放页时触发；播放中展开不重复操作')
+                .fontSize(12)
+                .fontColor(Theme.textSecondary(Theme.isDark()))
+                .layoutWeight(1)
+            }
+            .width('100%')
+            .padding({ left: 6, right: 6, top: 6 })
+            .alignItems(VerticalAlign.Top)
           } else if (this.section === SETTING_APPEARANCE) {
+            OptionRow({
+              title: '深色模式',
+              icon: '◐',
+              options: this.darkModeOptions(),
+              current: this.darkMode,
+              onPick: (mode: string) => this.applyDarkMode(mode)
+            })
             OptionRow({
               title: '语言',
               icon: '🌐',
@@ -848,6 +1142,16 @@ export struct SettingsDetailPage {
               current: `${this.nowplayingBlurStrength}`,
               onPick: (value: string) =>
                 SettingsRepository.setNumber(SettingsRepository.KEY_NOWPLAYING_BLUR_STRENGTH, Number(value))
+            })
+          } else if (this.section === SETTING_NAVIGATION) {
+            OptionRow({
+              title: '默认启动页',
+              subtitle: '冷启动后首先展示的页面',
+              icon: '🧭',
+              options: this.startPageOptions(),
+              current: this.startPage,
+              onPick: (value: string) =>
+                SettingsRepository.setString(SettingsRepository.KEY_START_PAGE, value)
             })
           } else if (this.section === SETTING_TRAFFIC) {
             ToggleRow({
@@ -909,7 +1213,7 @@ export struct SettingsDetailPage {
               controller: this.neteaseQrController,
               createSession: (): Promise<QrLoginSessionRef> => this.createNeteaseQrSession(),
               pollSession: (session: QrLoginSessionRef): Promise<QrPollOutcome> => this.pollNeteaseQr(session),
-              onConfirmed: (): boolean => this.onNeteaseConfirmed(),
+              onConfirmed: (): Promise<boolean> => this.onNeteaseConfirmed(),
               scanHint: '请用网易云音乐 App 扫码',
               pollIntervalMs: NETEASE_QR_POLL_INTERVAL_MS
             })
@@ -937,7 +1241,7 @@ export struct SettingsDetailPage {
               controller: this.biliQrController,
               createSession: (): Promise<QrLoginSessionRef> => this.createBiliQrSession(),
               pollSession: (session: QrLoginSessionRef): Promise<QrPollOutcome> => this.pollBiliQr(session),
-              onConfirmed: (): boolean => this.onBiliConfirmed(),
+              onConfirmed: (): Promise<boolean> => this.onBiliConfirmed(),
               scanHint: '请用哔哩哔哩客户端扫码',
               pollIntervalMs: BILI_QR_POLL_INTERVAL_MS
             })
@@ -959,7 +1263,7 @@ export struct SettingsDetailPage {
               .fontColor(Theme.textSecondary(Theme.isDark()))
               .width('100%')
               .margin({ left: 6, top: 10, bottom: 6 })
-            Column({ space: 1 }) {
+            Column({ space: 10 }) {
               SettingRow({
                 title: 'GitHub 仓库与令牌',
                 subtitle: this.githubTokenSaved && this.githubOwner.length > 0 && this.githubRepo.length > 0 ?
@@ -997,16 +1301,13 @@ export struct SettingsDetailPage {
               })
             }
             .width('100%')
-            .backgroundColor(Theme.surface(Theme.isDark()))
-            .borderRadius(Theme.cardRadius())
-            .clip(true)
 
             Text('数据格式')
               .fontSize(13)
               .fontColor(Theme.textSecondary(Theme.isDark()))
               .width('100%')
               .margin({ left: 6, top: 14, bottom: 6 })
-            Column({ space: 1 }) {
+            Column({ space: 10 }) {
               ToggleRow({
                 title: '省流格式',
                 subtitle: '读取兼容全部格式；上传仍为 JSON',
@@ -1024,16 +1325,13 @@ export struct SettingsDetailPage {
               })
             }
             .width('100%')
-            .backgroundColor(Theme.surface(Theme.isDark()))
-            .borderRadius(Theme.cardRadius())
-            .clip(true)
 
             Text('WebDAV 备份')
               .fontSize(13)
               .fontColor(Theme.textSecondary(Theme.isDark()))
               .width('100%')
               .margin({ left: 6, top: 14, bottom: 6 })
-            Column({ space: 1 }) {
+            Column({ space: 10 }) {
               SettingRow({
                 title: '服务器与凭据',
                 subtitle: this.webdavCredentialsSaved && this.webdavServerUrl.length > 0 ?
@@ -1072,9 +1370,6 @@ export struct SettingsDetailPage {
               })
             }
             .width('100%')
-            .backgroundColor(Theme.surface(Theme.isDark()))
-            .borderRadius(Theme.cardRadius())
-            .clip(true)
 
             Text('其他同步方式')
               .fontSize(13)

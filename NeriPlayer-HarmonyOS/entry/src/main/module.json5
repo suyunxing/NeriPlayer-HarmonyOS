@@ -45,6 +45,9 @@
         "name": "ohos.permission.GET_NETWORK_INFO"
       },
       {
+        "name": "ohos.permission.FILE_ACCESS_PERSIST"
+      },
+      {
         "name": "ohos.permission.KEEP_BACKGROUND_RUNNING",
         "reason": "$string:keep_background_running_reason",
         "usedScene": {
