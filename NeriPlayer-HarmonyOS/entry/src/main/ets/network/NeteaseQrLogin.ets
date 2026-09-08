@@ -81,6 +81,24 @@ function csrfFromJar(): string {
   return csrf === undefined ? '' : csrf;
 }
 
+/** Cookie names only (never values) so logs stay credential-free. */
+function cookieKeyList(): string {
+  const keys = Array.from(jarCookies().keys());
+  return keys.length > 0 ? keys.join(',') : '<empty>';
+}
+
+/** Response header names only, to verify the stack exposed set-cookie at all. */
+function headerNameList(headerText: string): string {
+  const names: string[] = [];
+  for (const line of headerText.split('\n')) {
+    const colon = line.indexOf(':');
+    if (colon > 0) {
+      names.push(line.substring(0, colon).trim().toLowerCase());
+    }
+  }
+  return names.length > 0 ? names.join(',') : '<empty>';
+}
+
 export class NeteaseQrLoginClient {
   private static headers(): Record<string, string> {
     const header: Record<string, string> = {};
@@ -130,6 +148,36 @@ export class NeteaseQrLoginClient {
   }
 
   static async checkLogin(session: NeteaseQrSession): Promise<NeteaseQrCheckResult> {
+    const result = await NeteaseQrLoginClient.postCheck(session);
+    const parsed = parseQrJson(result.text);
+    const out = new NeteaseQrCheckResult();
+    out.code = parsed.code;
+    out.message = parsed.message;
+    if (parsed.code === NETEASE_QR_CONFIRMED) {
+      const refreshToken = NeteaseQrLoginClient.readRefreshToken(result.headerText);
+      Logger.info(`netease qr confirmed: headers=${headerNameList(result.headerText)} jarKeys=${cookieKeyList()} refreshToken=${refreshToken.length > 0 ? 'present' : 'absent'}`);
+      if (!NeteaseQrLoginClient.jarHasLoginCookie()) {
+        // MUSIC_U arrives on the 803 response only via Set-Cookie; when the
+        // stack dropped it (header shape or cookies field gap) polling the
+        // same key again still answers 803 and re-delivers the cookies.
+        Logger.warn('netease qr confirmed without MUSIC_U, re-polling once for cookie re-delivery');
+        try {
+          const retry = await NeteaseQrLoginClient.postCheck(session);
+          Logger.info(`netease qr re-poll: code=${parseQrJson(retry.text).code} jarKeys=${cookieKeyList()}`);
+        } catch (error) {
+          const e = error as Error;
+          Logger.warn(`netease qr re-poll failed: ${e.message}`);
+        }
+      }
+      out.cookies = await NeteaseQrLoginClient.verifyConfirmedLogin(refreshToken);
+      if (out.cookies.size === 0) {
+        out.cookies = jarCookies();
+      }
+    }
+    return out;
+  }
+
+  private static async postCheck(session: NeteaseQrSession): Promise<HttpFormResult> {
     const payload: Record<string, Object> = {};
     payload['type'] = 1;
     payload['noCheckToken'] = true;
@@ -139,25 +187,18 @@ export class NeteaseQrLoginClient {
     const extraHeaders: Record<string, string> = NeteaseQrLoginClient.headers();
     extraHeaders['x-loginmethod'] = 'QrCode';
     extraHeaders['x-login-chain-id'] = session.chainId;
-    const result = await HttpClient.postFormDetailed(
+    return HttpClient.postFormDetailed(
       `${Constants.NETEASE_BASE}${QR_CHECK_PATH}?csrf_token=${csrfFromJar()}`,
       params,
       15000,
       extraHeaders,
       true
     );
-    const parsed = parseQrJson(result.text);
-    const out = new NeteaseQrCheckResult();
-    out.code = parsed.code;
-    out.message = parsed.message;
-    if (parsed.code === NETEASE_QR_CONFIRMED) {
-      const refreshToken = NeteaseQrLoginClient.readRefreshToken(result.headerText);
-      out.cookies = await NeteaseQrLoginClient.verifyConfirmedLogin(refreshToken);
-      if (out.cookies.size === 0) {
-        out.cookies = jarCookies();
-      }
-    }
-    return out;
+  }
+
+  private static jarHasLoginCookie(): boolean {
+    const musicU = jarCookies().get('MUSIC_U');
+    return musicU !== undefined && musicU.length > 0;
   }
 
   static currentCookies(): Map<string, string> {
