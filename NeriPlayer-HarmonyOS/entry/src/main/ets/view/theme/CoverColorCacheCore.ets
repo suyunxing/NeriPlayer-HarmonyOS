@@ -51,7 +51,7 @@ export class CoverColorCacheCore {
   private async load(key: string): Promise<string | null> {
     let outcome: string | null = null;
     try {
-      outcome = await this.loader(key);
+      outcome = await Promise.resolve(this.loader(key));
     } catch (error) {
       // Android runCatching { ... }.getOrNull(): failures degrade to null,
       // callers fall back to their stock theme colors.
