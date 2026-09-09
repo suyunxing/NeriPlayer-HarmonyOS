@@ -25,8 +25,13 @@ import { SETTING_ACCOUNTS } from './SettingsPage';
 /** 本页在 MainShell 的 Tabs 里的下标，用于过滤刷新信号。 */
 const TAB_INDEX: number = 2;
 
+/** MINI 标题栏标准高度（MainShell 同名常量）：内容顶部让位。 */
+const TITLEBAR_SPACE_VP: number = 56;
+
 @Component
 export struct LibraryPage {
+  /** 滚动控制器：实例由 MainShell 下发，壳层标题栏 bindToScrollable 绑定当前 Tab 的它。 */
+  scroller: Scroller = new Scroller();
   /**
    * S5: 订阅封面配色。Theme.*() 读 AppStorage 是无跟踪调用（M7.4），换歌后
    * 坐在本页的组件不会重建；有了这个成员并在 build 里经 schemeBg() 直读，
@@ -179,17 +184,13 @@ export struct LibraryPage {
 
   build() {
     Stack() {
-      Scroll() {
+      // 标题「资料库」由 MainShell 的 HdsNavigation MINI 标题栏承载，页内不再
+      // 重复；列表顶部让位标题栏高度，滚动时从标题栏背后滚过。
+      Scroll(this.scroller) {
         // 840vp 栏宽约束：tablet 1440vp 下这些设置行的文本原本被拉到 1300vp 以上，
         // 一行要横扫整块屏。窄屏不触发约束，布局与改造前逐像素一致。
         ContentBand({ maxWidth: BAND_LIST_VP }) {
         Column({ space: 12 }) {
-        Text('资料库')
-          .fontSize(26)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(Theme.textPrimary(Theme.isDark()))
-          .width('100%')
-          .margin({ top: 12 })
 
         Row({ space: 10 }) {
           StatCard({
@@ -558,7 +559,7 @@ export struct LibraryPage {
         .clip(true)
       }
           .width('100%')
-          .padding({ left: 14, right: 14, bottom: 24 + FLOAT_TAB_CLEARANCE })
+          .padding({ top: TITLEBAR_SPACE_VP, left: 14, right: 14, bottom: 24 + FLOAT_TAB_CLEARANCE })
         }
       }
       .layoutWeight(1)

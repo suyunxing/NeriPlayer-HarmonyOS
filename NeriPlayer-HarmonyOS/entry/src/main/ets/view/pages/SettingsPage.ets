@@ -11,12 +11,9 @@ import {
 import { BAND_LIST_VP } from '../../util/Breakpoint';
 import { LEGAL_AGREEMENT, LEGAL_PRIVACY } from './LegalDocPage';
 import { Router } from '../Router';
-import { TitleBarBlurBackdrop } from '../components/TitleBarBlurBackdrop';
 
-/** 标题行高：上 10 + 26fp 行高约 34 + 下 8。滚动内容顶部留同高，首屏位置不变。 */
-const HEADER_HEIGHT_VP: number = 52;
-/** 渐变模糊背板总高：标题行 + 底部 30vp 渐隐延伸区。 */
-const HEADER_BLUR_HEIGHT_VP: number = 82;
+/** MINI 标题栏标准高度（MainShell 同名常量）：内容顶部让位，滚动时从标题栏背后滚过。 */
+const TITLEBAR_SPACE_VP: number = 56;
 
 export const SETTING_PLAYBACK: string = 'playback';
 export const SETTING_DOWNLOAD: string = 'download';
@@ -33,6 +30,8 @@ export const SETTING_ABOUT: string = 'about';
 
 @Component
 export struct SettingsPage {
+  /** 滚动控制器：实例由 MainShell 下发，壳层标题栏 bindToScrollable 绑定当前 Tab 的它。 */
+  scroller: Scroller = new Scroller();
   /**
    * S5: 订阅封面配色。Theme.*() 读 AppStorage 是无跟踪调用（M7.4），换歌后
    * 坐在本页的组件不会重建；有了这个成员并在 build 里经 schemeBg() 直读，
@@ -58,15 +57,14 @@ export struct SettingsPage {
   }
 
   build() {
-    // 标题栏与渐变模糊背板作为常驻浮层压在滚动列表之上，列表从标题栏背后
-    // 滚过（HDS 沉浸式标题栏范式）；大标题不再随内容滚出视口。
-    Stack({ alignContent: Alignment.Top }) {
-      Scroll() {
-        // 840vp 列表栏宽：tablet 1440vp 下设置行的图标贴左边缘、箭头贴右边缘，中间
-        // 是一大片空白，一屏只读到七八个标题（审计 §8.2 第 2 条）。
-        ContentBand({ maxWidth: BAND_LIST_VP }) {
-        Column() {
-
+    // 页内不再自绘标题栏：标题由 MainShell 的 HdsNavigation MINI 标题栏
+    // （GRADIENT_BLUR 渐变模糊）承载，本页只做列表 + 顶部让位，滚动时列表
+    // 从标题栏背后滚过。
+    Scroll(this.scroller) {
+      // 840vp 列表栏宽：tablet 1440vp 下设置行的图标贴左边缘、箭头贴右边缘，中间
+      // 是一大片空白，一屏只读到七八个标题（审计 §8.2 第 2 条）。
+      ContentBand({ maxWidth: BAND_LIST_VP }) {
+      Column() {
         // 设置总览（参考应用的设置中心）：六大分类入口一屏直达，其余分组
         // （网络与存储、平台、隐私、其他）保留在下方。
         Column({ space: 10 }) {
@@ -208,7 +206,7 @@ export struct SettingsPage {
         .width('100%')
               }
         .width('100%')
-      .padding({ top: HEADER_HEIGHT_VP, left: 14, right: 14, bottom: 24 + FLOAT_TAB_CLEARANCE })
+      .padding({ top: TITLEBAR_SPACE_VP, left: 14, right: 14, bottom: 24 + FLOAT_TAB_CLEARANCE })
       }
       }
       .scrollBar(BarState.Off)
@@ -218,22 +216,6 @@ export struct SettingsPage {
       .align(Alignment.Top)
       .width('100%')
       .height('100%')
-
-      // 渐变模糊背板垫底、标题行盖在最上；标题行同样走 840vp 栏宽，与列表
-      // 左右缘逐像素对齐。
-      TitleBarBlurBackdrop({ barHeight: HEADER_BLUR_HEIGHT_VP })
-
-      ContentBand({ maxWidth: BAND_LIST_VP }) {
-        Text('设置')
-          .fontSize(26)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(Theme.textPrimary(Theme.isDark()))
-          .width('100%')
-          .padding({ left: 14, right: 14, top: 10, bottom: 8 })
-      }
-    }
-    .width('100%')
-    .height('100%')
-    .backgroundColor(this.schemeBg(Theme.isDark()))
+      .backgroundColor(this.schemeBg(Theme.isDark()))
   }
 }

@@ -2,6 +2,8 @@ import { Router } from '../Router';
 import { Theme } from '../Theme';
 import { HdsTabs, HdsBarLayoutMode, hdsMaterial, SystemMaterialParams } from '@kit.UIDesignKit';
 import { HdsTabsAttribute } from '@kit.UIDesignKit';
+import { HdsNavigation, HdsNavigationTitleMode, ScrollEffectType, BlurStrategy, HdsNavigationMenuItemOptions } from '@kit.UIDesignKit';
+import { LengthMetrics } from '@kit.ArkUI';
 import { HdsLight } from '../theme/HdsLight';
 import { AccentScheme } from '../theme/AccentScheme';
 import { BP_LG } from '../../util/Breakpoint';
@@ -30,6 +32,11 @@ const TAB_BAR_CONTENT_VP: number = 62;
 const SIDE_BAR_WIDTH_VP: number = 96;
 /** 侧边栏单项高度：22vp 图标 + 10fp 文字，纵向排列后的舒适高度。 */
 const SIDE_BAR_ITEM_VP: number = 64;
+/** HdsNavigationTitleMode.MINI 标题栏标准高度：四个 Tab 页内容顶部让位同高。 */
+const TITLEBAR_SPACE_VP: number = 56;
+/** 各 Tab 在壳层标题栏的标题；首页随刷新在品牌语之间轮换（原页内彩蛋保留）。 */
+const TAB_TITLES: string[] = ['NeriPlayer', '探索', '资料库', '设置'];
+const HOME_BRAND_TITLES: string[] = ['NeriPlayer', '欢迎回来', 'NeriPlayer', '继续听歌'];
 
 @Component
 export struct MainShell {
@@ -52,6 +59,13 @@ export struct MainShell {
   // 封面 scheme 驱动悬浮 Tab 栏的 lightColor（光晕色）与系统材质档位。
   @StorageProp('player.coverScheme') coverScheme: AccentScheme = AccentScheme.neutralFallback();
   @State currentTab: number = 0;
+  /** 首页标题轮换下标：刷新按钮从页内迁入标题栏 menu 后，状态随按钮上移到壳层。 */
+  @State homeTitleIndex: number = 0;
+  /**
+   * 官方 FAQ 对 HdsNavigation + HdsTabs 组合的要求：每个 Tab 的滚动容器持独立
+   * Scroller，标题栏只绑定当前可见 Tab 的那一个；实例经构造参数下发给各 Tab 页。
+   */
+  private tabScrollers: Scroller[] = [new Scroller(), new Scroller(), new Scroller(), new Scroller()];
 
   /** 官方 HdsTabsMiniBar 槽位：无歌时留空，有歌渲染紧凑 MiniPlayer。 */
   @Builder
@@ -106,6 +120,32 @@ export struct MainShell {
 
   private paramText(param: Object): string {
     return typeof param === 'string' ? param as string : '';
+  }
+
+  /** 标题栏标题：首页随刷新轮换品牌语，其余 Tab 用固定页名。 */
+  private activeTabTitle(): string {
+    return this.currentTab === 0 ? HOME_BRAND_TITLES[this.homeTitleIndex] : TAB_TITLES[this.currentTab];
+  }
+
+  /** 标题栏右侧动作：仅首页 Tab 给「刷新推荐」，随 Tab 切换增减。 */
+  private activeTabMenus(): Array<HdsNavigationMenuItemOptions> {
+    if (this.currentTab !== 0) {
+      return [];
+    }
+    return [{
+      content: {
+        icon: $r('app.media.outline_refresh_24'),
+        label: '刷新推荐',
+        isEnabled: true,
+        action: (): void => this.refreshHome()
+      }
+    }];
+  }
+
+  /** 原 HomePage 刷新按钮动作：轮换品牌标题 + 复用刷新信号让可见 Tab 页重拉数据。 */
+  private refreshHome(): void {
+    this.homeTitleIndex = (this.homeTitleIndex + 1) % HOME_BRAND_TITLES.length;
+    Router.notifyReturned();
   }
 
   aboutToAppear(): void {
@@ -172,28 +212,28 @@ export struct MainShell {
   @Builder
   tabPages() {
     TabContent() {
-      HomePage()
+      HomePage({ scroller: this.tabScrollers[0] })
     }
     .tabBar(this.wide()
       ? this.sideTabBar(0, '首页', $r('app.media.ic_tab_home_24'))
       : this.bottomTabBar(0, '首页', $r('app.media.ic_tab_home_24')))
 
     TabContent() {
-      ExplorePage()
+      ExplorePage({ scroller: this.tabScrollers[1] })
     }
     .tabBar(this.wide()
       ? this.sideTabBar(1, '探索', $r('app.media.ic_tab_search_24'))
       : this.bottomTabBar(1, '探索', $r('app.media.ic_tab_search_24')))
 
     TabContent() {
-      LibraryPage()
+      LibraryPage({ scroller: this.tabScrollers[2] })
     }
     .tabBar(this.wide()
       ? this.sideTabBar(2, '资料库', $r('app.media.ic_tab_library_24'))
       : this.bottomTabBar(2, '资料库', $r('app.media.ic_tab_library_24')))
 
     TabContent() {
-      SettingsPage()
+      SettingsPage({ scroller: this.tabScrollers[3] })
     }
     .tabBar(this.wide()
       ? this.sideTabBar(3, '设置', $r('app.media.ic_tab_settings_24'))
@@ -268,10 +308,11 @@ export struct MainShell {
   }
 
   build() {
-    // S4 实测：HdsNavigation 的 navDestination 内容子树在模拟器上不挂载
-    // （spike S7 与 NowPlayingPage 空白均同症状），外壳回退标准 Navigation，
-    // HdsNavigation 等真机/后续 SDK 版本再启用。
-    Navigation(this.pageStack) {
+    // S4 曾因「模拟器上 navDestination 内容子树不挂载」回退标准 Navigation；
+    // 真机复测无此问题（2026-09-10 用户确认），外壳按官方标准启用 HdsNavigation：
+    // MINI 标题栏统一承载四个 Tab 的标题（各 Tab 页内大标题随之移除，避免双标题），
+    // GRADIENT_BLUR 渐变模糊随内容滚过标题栏生效，滚动绑定按官方 FAQ 只挂当前 Tab。
+    HdsNavigation(this.pageStack) {
       Stack({ alignContent: Alignment.Top }) {
         Column() {
           if (this.wide()) {
@@ -335,9 +376,10 @@ export struct MainShell {
         .height('100%')
         .backgroundColor(Theme.background(this.resolveDark()))
 
-        // In-app floating lyric overlay (D4 fallback), floats above content.
+        // In-app floating lyric overlay (D4 fallback), floats above content;
+        // 顶部让位 MINI 标题栏（56vp），不再压进标题栏材质区。
         FloatingLyricBar()
-          .margin({ top: 46 })
+          .margin({ top: TITLEBAR_SPACE_VP + 4 })
 
         // MiniPlayer 回归官方 HdsTabsMiniBar 槽位（用户决策）：槽位高度
         // 系统固定，以缩小播放按钮视觉圆（30vp，触控热区仍 40vp）适配。
@@ -345,7 +387,42 @@ export struct MainShell {
       .width('100%')
       .height('100%')
     }
-    .hideTitleBar(true)
+    // 标题栏只绑当前可见 Tab 的 Scroller（官方 FAQ：多 Tab 共用外壳时动态换绑，
+    // 避免多滚动容器手势冲突导致模糊失效或抖动）。
+    .bindToScrollable([this.tabScrollers[this.currentTab]])
+    .titleMode(HdsNavigationTitleMode.MINI)
+    .titleBar({
+      content: {
+        title: { mainTitle: this.activeTabTitle() },
+        menu: { value: this.activeTabMenus() }
+      },
+      style: {
+        scrollEffectOpts: {
+          enableScrollEffect: true,
+          scrollEffectType: ScrollEffectType.GRADIENT_BLUR,
+          blurEffectiveStartOffset: LengthMetrics.vp(0),
+          blurEffectiveEndOffset: LengthMetrics.vp(8)
+        },
+        blurStrategy: BlurStrategy.ADAPTIVE,
+        // 静止态背板与页面底色同色（无接缝），滚动后过渡为透出系统渐变
+        // 模糊材质的透明背板；标题与菜单图标色跟随应用主题，不取系统默认。
+        originalStyle: {
+          backgroundStyle: { backgroundColor: Theme.background(this.resolveDark()) },
+          contentStyle: {
+            titleStyle: { mainTitleColor: Theme.textPrimary(this.resolveDark()) },
+            menuStyle: { iconColor: Theme.textPrimary(this.resolveDark()) }
+          }
+        },
+        scrollEffectStyle: {
+          backgroundStyle: { backgroundColor: Color.Transparent },
+          contentStyle: {
+            titleStyle: { mainTitleColor: Theme.textPrimary(this.resolveDark()) },
+            menuStyle: { iconColor: Theme.textPrimary(this.resolveDark()) }
+          }
+        },
+        systemMaterialEffect: this.systemMaterialEffect()
+      }
+    })
     // 显式 Stack：Auto 会在 ≥600vp 时切分栏，把 navBar 压进 240vp 侧栏，
     // 而这里的 navBar 内容是整个 Tab 骨架（完整页面），结构不匹配。大屏适配
     // 由 Tabs.vertical(true) 与各页的 GridRow 承担。
