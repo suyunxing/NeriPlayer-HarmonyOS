@@ -560,3 +560,40 @@ eport-m61-recheck.json）：IOS 直出窗口仍开——fbvvS8e1KgI playability 
 - 遗留：真机 803 复测待用户执行；若仍失败，hilog 过滤 `netease qr` 三条日志即可定位
   断点（confirm 响应头名是否含 set-cookie → re-poll 后 jarKeys 是否出现 MUSIC_U →
   save rejected/backend rejected 哪个分支）。
+
+## 缺陷修复：网易云真机扫码 803 凭据落盘被 Asset 401 拒绝（2026-09-09，四次修复）
+
+- 背景：v1.0.2 真机复测。用户诊断日志证实三次修复的扫码链路已全部生效：803 响应
+  头含 27 个 set-cookie，jar 捕获到 `os,appver,NMTID,MUSIC_R_T,MUSIC_A_T,__csrf,
+  MUSIC_R_U,MUSIC_U`，refreshToken present——**网络侧闭环成功**。失败点后移到落盘：
+  `CredentialStore.putString(netease_auth_bundle) failed: AssetError(401)` →
+  `netease login not saved: credential backend rejected the write` → 仍提示
+  「登录校验失败，请重试」。
+- 根因（官方文档实证，Asset Store Kit「新增关键资产」属性约束表）：
+  **`ASSET_TAG_SECRET` 单条上限 1024 字节**（ALIAS 上限 256 字节），超长即抛 401
+  参数校验失败。现代网易 803 下发的完整 cookie 集（`MUSIC_U` ~176B + `MUSIC_R_U` +
+  新式长 token `MUSIC_A_T`/`MUSIC_R_T` 各数百字节 + `__csrf`/`NMTID`/`os`/`appver`）
+  序列化后 ~1.5-2.5KB，超限被拒。bd4d9c0 模拟器验证用的是精简测试凭据
+  （`MUSIC_U,__csrf,os,appver`，<1KB）所以能过——凭据大小差异掩盖了该缺陷。
+- 修复（2 文件 + 测试）：
+  - 新增纯逻辑 `data/auth/AssetChunking.ets`：UTF-8 字节按 1000B 切片（≤64 块）、
+    `#CHUNKED#{"count":N,"bytes":T}` 文本清单（前缀与旧 JSON 值无歧义）、块别名
+    `alias#i`；分块在**字节边界**切、拼装后再 UTF-8 解码，多字节字符跨块安全。
+  - `CredentialStore` 重构：>1024B 自动分块——先写块（alias#1..#N，OVERWRITE）、
+    后写清单（撕裂写只会留下「旧状态或无清单」，绝不会出现清单指向半新半旧数据；
+    覆盖旧分块数据前先删旧清单；块数减少时清理多余旧块；任一失败回滚已写块）。
+    读侧：基础别名内容可解析为清单 → 按序拼块并校验总字节数；否则视为旧单条值
+    原样返回（前分块数据完全兼容）。remove 清单化清理所有块。FALLBACK 降级语义
+    不变（切内存后本条仍报成功入内存）；因 ArkTS 控制流收窄（早返回守卫把静态
+    backend 收窄为 ASSET，异步写中再比较 MEMORY 报 no-overlap 编译错），降级判定
+    改走 `backendName()` 不透明调用。
+  - 测试：本地新增 `AssetChunking.test.ets` 6 用例（别名/清单往返与校验、1024
+    边界、切片拼装、多字节跨块、空与小值）；ohosTest `ActsCredentialStoreTest`
+    新增 `putGetOversizeStringRoundtrip`（~2.1KB 模拟现代 bundle 往返+清除，待
+    设备执行）。
+- 验证（2026-09-09 服务器）：codelinter 改动文件 0 error；entry@default 与
+  entry@ohosTest debug 构建 BUILD SUCCESSFUL；hvigorw test 编译
+  （Unit 类型检查）0 error。真机复测待用户执行（预期扫码确认后 toast 登录成功，
+  杀进程冷启动恢复）。
+- 连带效应：B 站 bundle（SESSDATA 等 ~500B）当前未超限，行为不变；未来超限同样
+  自动分块，无需改动。
