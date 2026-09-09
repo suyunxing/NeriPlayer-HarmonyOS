@@ -29,6 +29,23 @@ export default function authDeviceTest(): void {
       expect(value).assertEqual('');
     });
 
+    it('putGetOversizeStringRoundtrip', 0, async () => {
+      // Real-device regression (AssetError 401): the full NetEase QR cookie
+      // bundle exceeds the 1024-byte ASSET_TAG_SECRET cap, so oversize values
+      // must transparently chunk and reassemble. Payload mimics the modern
+      // bundle scale (~2.6KB) and must not equal any single record.
+      const big = `{"cookies":{"MUSIC_U":"${'u'.repeat(200)}","MUSIC_A_T":"${'a'.repeat(900)}",`
+        + `"MUSIC_R_T":"${'r'.repeat(900)}","__csrf":"${'c'.repeat(32)}"},"savedAt":1234567890}`;
+      expect(big.length > 1024).assertTrue();
+      const putOk = await CredentialStore.putString(`${alias}_big`, big);
+      expect(putOk).assertTrue();
+      const value = await CredentialStore.getString(`${alias}_big`);
+      expect(value).assertEqual(big);
+      const removed = await CredentialStore.remove(`${alias}_big`);
+      expect(removed).assertTrue();
+      expect(await CredentialStore.getString(`${alias}_big`)).assertEqual('');
+    });
+
     it('backendIsReported', 0, async () => {
       // Either 'asset' (persistent) or 'memory' (degraded session-only).
       // Both must round-trip values; only persistence differs.
