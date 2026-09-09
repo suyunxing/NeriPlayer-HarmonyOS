@@ -538,12 +538,16 @@ export class PlayerManager {
       PlayerManager.loadGeneration++;
       AvPlaylistBridge.abandon();
       PlayerManager.volumeFader.cancel();
-      // Paused audio is silent anyway, so arming 0 here is inaudible and the
-      // fade-in starts the sound from true silence.
-      PlayerManager.volumeFader.snapTo(0);
+      const fadeInMs = PlayerManager.getFadeInMs();
+      // With a fade armed: paused audio is silent anyway, so snapping to 0 is
+      // inaudible and playback starts from true silence. Without one, land
+      // directly on the set volume.
+      PlayerManager.volumeFader.snapTo(fadeInMs > 0 ? 0 : PlayerManager.getTargetVolume());
       try {
         await player.play();
-        PlayerManager.volumeFader.fadeTo(PlayerManager.getTargetVolume(), FADE_IN_DURATION_MS);
+        if (fadeInMs > 0) {
+          PlayerManager.volumeFader.fadeTo(PlayerManager.getTargetVolume(), fadeInMs);
+        }
         // Publish immediately so the UI toggles without waiting for the
         // async AVPlayer stateChange event (which may lag on some streams).
         PlayerManager.publishStatus(PlaybackStatus.PLAYING);
@@ -588,12 +592,13 @@ export class PlayerManager {
     if (player === null) {
       return;
     }
-    if (PlayerManager.isAudiblyPlaying()) {
+    const fadeOutMs = PlayerManager.getFadeOutMs();
+    if (PlayerManager.isAudiblyPlaying() && fadeOutMs > 0) {
       // Fade to silence first; the real pause lands when the fade completes.
       // Status stays PLAYING until then so the surfaces keep describing the
       // audio that is still audible (the stateChange event confirms later).
       const generation = ++PlayerManager.pauseGeneration;
-      PlayerManager.volumeFader.fadeTo(0, FADE_OUT_DURATION_MS, (completed: boolean) => {
+      PlayerManager.volumeFader.fadeTo(0, fadeOutMs, (completed: boolean) => {
         if (!completed || generation !== PlayerManager.pauseGeneration ||
           PlayerManager.player !== player) {
           return;
@@ -913,6 +918,33 @@ export class PlayerManager {
     return Math.min(1, Math.max(0, SettingsRepository.getNumber(SettingsRepository.KEY_PLAYBACK_VOLUME, 1.0)));
   }
 
+  /** Volume fade master switch (np.playback_fade, Android playback_fade_in). */
+  private static isFadeEnabled(): boolean {
+    return SettingsRepository.getBoolean(SettingsRepository.KEY_PLAYBACK_FADE, true);
+  }
+
+  /**
+   * Effective fade-in length. A 0ms duration (or master off) disables the
+   * fade entirely, mirroring Android's shouldFade* duration gate.
+   */
+  private static getFadeInMs(): number {
+    if (!PlayerManager.isFadeEnabled()) {
+      return 0;
+    }
+    return Math.max(0, Math.round(
+      SettingsRepository.getNumber(SettingsRepository.KEY_PLAYBACK_FADE_IN_MS, FADE_IN_DURATION_MS)
+    ));
+  }
+
+  private static getFadeOutMs(): number {
+    if (!PlayerManager.isFadeEnabled()) {
+      return 0;
+    }
+    return Math.max(0, Math.round(
+      SettingsRepository.getNumber(SettingsRepository.KEY_PLAYBACK_FADE_OUT_MS, FADE_OUT_DURATION_MS)
+    ));
+  }
+
   /**
    * True only when audio is actually sounding: the published PLAYING status
    * alone is stale between the 'completed' event and the next track's start
@@ -1080,10 +1112,11 @@ export class PlayerManager {
     // Manual/natural switch while audible: fade the current track out before
     // the load chain's reset() cuts it. A superseding play()/load bumps the
     // generations, which both aborts this fade and discards this chain.
-    if (PlayerManager.isAudiblyPlaying()) {
+    const switchFadeOutMs = PlayerManager.getFadeOutMs();
+    if (switchFadeOutMs > 0 && PlayerManager.isAudiblyPlaying()) {
       PlayerManager.pauseGeneration++;
       await new Promise<void>((resolve) => {
-        PlayerManager.volumeFader.fadeTo(0, FADE_OUT_DURATION_MS, () => resolve());
+        PlayerManager.volumeFader.fadeTo(0, switchFadeOutMs, () => resolve());
       });
       if (generation !== PlayerManager.loadGeneration) {
         return;
@@ -1180,7 +1213,8 @@ export class PlayerManager {
       // Re-apply the app-level soft volume to every freshly prepared source:
       // an auto-played start begins silent and fades in; anything else (e.g.
       // a pause that landed mid-switch) restores the set volume directly.
-      PlayerManager.volumeFader.snapTo(PlayerManager.playWhenReady
+      const fadeInMs = PlayerManager.getFadeInMs();
+      PlayerManager.volumeFader.snapTo(PlayerManager.playWhenReady && fadeInMs > 0
         ? 0
         : PlayerManager.getTargetVolume());
       // First correction point for the catalog-declared duration; playing and
@@ -1211,7 +1245,9 @@ export class PlayerManager {
         return;
       }
       await player.play();
-      PlayerManager.volumeFader.fadeTo(PlayerManager.getTargetVolume(), FADE_IN_DURATION_MS);
+      if (fadeInMs > 0) {
+        PlayerManager.volumeFader.fadeTo(PlayerManager.getTargetVolume(), fadeInMs);
+      }
       Logger.info(`PlayerManager playback started: ${song.displayName}`);
       if (generation === PlayerManager.loadGeneration) {
         // Both accelerators are strictly fire-and-forget: playback already

@@ -60,6 +60,12 @@ export class SettingsRepository {
   static readonly KEY_MIX_AUDIO: string = 'np.mix_audio';
   // App-level soft volume applied to AVPlayer (0.0..1.0).
   static readonly KEY_PLAYBACK_VOLUME: string = 'np.playback_volume';
+  // Volume fade behind play/pause/track-switch (Android playback_fade_in).
+  // The master switch covers both directions; a 0ms duration disables one
+  // side individually (Android parity).
+  static readonly KEY_PLAYBACK_FADE: string = 'np.playback_fade';
+  static readonly KEY_PLAYBACK_FADE_IN_MS: string = 'np.playback_fade_in_ms';
+  static readonly KEY_PLAYBACK_FADE_OUT_MS: string = 'np.playback_fade_out_ms';
   // Resume playback automatically after cold start once the queue is restored.
   static readonly KEY_AUTOPLAY_ON_LAUNCH: string = 'np.autoplay_on_launch';
   // NowPlaying backdrop style: 'blur' (blurred cover), 'solid', 'gradient'
@@ -150,6 +156,9 @@ export class SettingsRepository {
     [SettingsRepository.KEY_AUDIO_QUALITY_CELLULAR, ''],
     [SettingsRepository.KEY_MIX_AUDIO, true],
     [SettingsRepository.KEY_PLAYBACK_VOLUME, 1.0],
+    [SettingsRepository.KEY_PLAYBACK_FADE, true],
+    [SettingsRepository.KEY_PLAYBACK_FADE_IN_MS, 500],
+    [SettingsRepository.KEY_PLAYBACK_FADE_OUT_MS, 500],
     [SettingsRepository.KEY_AUTOPLAY_ON_LAUNCH, false],
     [SettingsRepository.KEY_NOWPLAYING_BG_STYLE, 'blur'],
     [SettingsRepository.KEY_KEEP_SCREEN_ON, false],
