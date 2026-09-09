@@ -17,8 +17,13 @@ import { EmptyState, LoadingState, FLOAT_TAB_CLEARANCE } from '../components/Ui'
 /** 本页在 MainShell 的 Tabs 里的下标，用于过滤刷新信号。 */
 const TAB_INDEX: number = 1;
 
+/** MINI 标题栏标准高度（MainShell 同名常量）：内容顶部让位。 */
+const TITLEBAR_SPACE_VP: number = 56;
+
 @Component
 export struct ExplorePage {
+  /** 滚动控制器：实例由 MainShell 下发，绑定结果列表，壳层标题栏按当前 Tab 取用。 */
+  scroller: Scroller = new Scroller();
   /**
    * S5: 订阅封面配色。Theme.*() 读 AppStorage 是无跟踪调用（M7.4），换歌后
    * 坐在本页的组件不会重建；有了这个成员并在 build 里经 schemeBg() 直读，
@@ -149,14 +154,9 @@ export struct ExplorePage {
     // 高度，需要 height('100%') 一路传到被约束的那一层，而 ContentBand 是按内容
     // 自适应高度的。Row 只负责把这条内容带在宽屏上居中。
     Row() {
+    // 页内大标题「探索」由 MainShell 的 HdsNavigation MINI 标题栏承载，不再重复；
+    // 内容顶部让位见下方 Column 的 padding({ top })。
     Column({ space: 10 }) {
-      Text('探索')
-        .fontSize(32)
-        .fontWeight(FontWeight.Bold)
-        .fontColor(Theme.textPrimary(Theme.isDark()))
-        .width('100%')
-        .margin({ top: 12 })
-
       // S5: 参考图搜索条——胶囊输入框 + 重点色圆形搜索键（触达 44vp）。
       Row({ space: 10 }) {
         Row({ space: 8 }) {
@@ -244,7 +244,7 @@ export struct ExplorePage {
       } else if (this.error.length > 0) {
         EmptyState({ icon: '!', title: this.error })
       } else if (this.searched && this.results.length > 0) {
-        List() {
+        List({ scroller: this.scroller }) {
           ForEach(this.results, (item: SongItem, index: number) => {
             ListItem() {
               SongRow({
@@ -320,7 +320,7 @@ export struct ExplorePage {
     .width('100%')
     .height('100%')
     .constraintSize({ maxWidth: BAND_LIST_VP })
-    .padding({ left: 16, right: 16 })
+    .padding({ top: TITLEBAR_SPACE_VP, left: 16, right: 16 })
     }
     .width('100%')
     .height('100%')
