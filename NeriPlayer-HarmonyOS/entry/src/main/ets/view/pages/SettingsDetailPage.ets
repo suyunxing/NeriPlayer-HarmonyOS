@@ -96,6 +96,9 @@ export struct SettingsDetailPage {
   @StorageProp('np.audio_quality_cellular') qualityCellular: string = '';
   @StorageProp('np.mix_audio') mixAudio: boolean = true;
   @StorageProp('np.playback_volume') playbackVolume: number = 1.0;
+  @StorageProp('np.playback_fade') playbackFade: boolean = true;
+  @StorageProp('np.playback_fade_in_ms') playbackFadeInMs: number = 500;
+  @StorageProp('np.playback_fade_out_ms') playbackFadeOutMs: number = 500;
   @StorageProp('np.autoplay_on_launch') autoplayOnLaunch: boolean = false;
   @StorageProp('np.nowplaying_bg_style') nowplayingBgStyle: string = 'blur';
   @StorageProp('np.keep_screen_on') keepScreenOn: boolean = false;
@@ -951,6 +954,43 @@ export struct SettingsDetailPage {
               format: (value: number) => `${Math.round(value * 100)}%`,
               onPick: (value: number) => PlayerManager.setVolume(value)
             })
+
+            ToggleRow({
+              title: '播放淡入淡出',
+              subtitle: '开始播放时淡入，暂停与切歌时淡出',
+              icon: '🎚',
+              value: this.playbackFade,
+              onChange: (on: boolean) =>
+                SettingsRepository.setBoolean(SettingsRepository.KEY_PLAYBACK_FADE, on)
+            })
+
+            if (this.playbackFade) {
+              SliderRow({
+                title: '播放淡入时长',
+                icon: '🎚',
+                min: 0,
+                max: 3,
+                step: 0.1,
+                value: this.playbackFadeInMs / 1000,
+                format: (value: number) => `当前：${value.toFixed(1)} 秒${value <= 0 ? '（禁用）' : ''}`,
+                onPick: (value: number) =>
+                  SettingsRepository.setNumber(SettingsRepository.KEY_PLAYBACK_FADE_IN_MS,
+                    Math.round(value * 1000))
+              })
+
+              SliderRow({
+                title: '播放淡出时长',
+                icon: '🎚',
+                min: 0,
+                max: 3,
+                step: 0.1,
+                value: this.playbackFadeOutMs / 1000,
+                format: (value: number) => `当前：${value.toFixed(1)} 秒${value <= 0 ? '（禁用）' : ''}`,
+                onPick: (value: number) =>
+                  SettingsRepository.setNumber(SettingsRepository.KEY_PLAYBACK_FADE_OUT_MS,
+                    Math.round(value * 1000))
+              })
+            }
 
             ToggleRow({
               title: '启动应用时自动播放',
