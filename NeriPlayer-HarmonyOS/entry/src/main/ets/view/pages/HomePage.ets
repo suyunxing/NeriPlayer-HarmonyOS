@@ -13,11 +13,16 @@ import { Theme } from '../Theme';
 import { AccentScheme } from '../theme/AccentScheme';
 import { BAND_LIST_VP, BP_LG, BP_MD } from '../../util/Breakpoint';
 import { SectionHeader, EmptyState, LoadingState, PlaylistCard, ContentBand , FLOAT_TAB_CLEARANCE } from '../components/Ui';
+import { TitleBarBlurBackdrop } from '../components/TitleBarBlurBackdrop';
 import { promptAction } from '@kit.ArkUI';
 
 const BRAND_TITLES: string[] = ['NeriPlayer', '欢迎回来', 'NeriPlayer', '继续听歌'];
 /** 本页在 MainShell 的 Tabs 里的下标，用于过滤刷新信号。 */
 const TAB_INDEX: number = 0;
+/** 标题行高：上 10 + 内容 40 + 下 8。滚动内容顶部留同高，首屏位置与改造前一致。 */
+const HEADER_HEIGHT_VP: number = 58;
+/** 渐变模糊背板总高：标题行 + 底部 30vp 渐隐延伸区。 */
+const HEADER_BLUR_HEIGHT_VP: number = 88;
 
 @Component
 export struct HomePage {
@@ -260,29 +265,9 @@ export struct HomePage {
   }
 
   build() {
-    Column() {
-      Row() {
-        Text(BRAND_TITLES[this.titleIndex])
-          .fontSize(32)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(Theme.textPrimary(Theme.isDark()))
-          .layoutWeight(1)
-        Button() {
-          Image($r('app.media.outline_refresh_24'))
-            .width(22)
-            .height(22)
-            .fillColor(Theme.textPrimary(Theme.isDark()))
-        }
-        .width(40)
-        .height(40)
-        .type(ButtonType.Circle)
-        .backgroundColor(Theme.surface(Theme.isDark()))
-        .accessibilityText('刷新推荐')
-        .onClick(() => this.refresh())
-      }
-      .width('100%')
-      .padding({ left: 16, right: 16, top: 10, bottom: 8 })
-
+    // 标题栏与渐变模糊背板作为常驻浮层压在滚动内容之上，内容从标题栏背后
+    // 滚过（HDS 沉浸式标题栏范式）；Stack 同层顺序即 z 序：Scroll 最底。
+    Stack({ alignContent: Alignment.Top }) {
       Scroll() {
         Column() {
           if (this.loading) {
@@ -499,12 +484,38 @@ export struct HomePage {
           }
         }
         .width('100%')
-        .padding({ left: 14, right: 14, bottom: 24 + FLOAT_TAB_CLEARANCE })
+        .padding({ top: HEADER_HEIGHT_VP, left: 14, right: 14, bottom: 24 + FLOAT_TAB_CLEARANCE })
       }
-      .layoutWeight(1)
       .scrollBar(BarState.Off)
       .align(Alignment.Top)
       .width('100%')
+      .height('100%')
+
+      // 渐变模糊背板垫底、标题行盖在最上：背板只负责材质与渐隐，标题文字
+      // 不参与模糊（整节点挂 blur 会把文字一起糊掉）。
+      TitleBarBlurBackdrop({ barHeight: HEADER_BLUR_HEIGHT_VP })
+
+      Row() {
+        Text(BRAND_TITLES[this.titleIndex])
+          .fontSize(32)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(Theme.textPrimary(Theme.isDark()))
+          .layoutWeight(1)
+        Button() {
+          Image($r('app.media.outline_refresh_24'))
+            .width(22)
+            .height(22)
+            .fillColor(Theme.textPrimary(Theme.isDark()))
+        }
+        .width(40)
+        .height(40)
+        .type(ButtonType.Circle)
+        .backgroundColor(Theme.surface(Theme.isDark()))
+        .accessibilityText('刷新推荐')
+        .onClick(() => this.refresh())
+      }
+      .width('100%')
+      .padding({ left: 16, right: 16, top: 10, bottom: 8 })
     }
     .width('100%')
     .height('100%')

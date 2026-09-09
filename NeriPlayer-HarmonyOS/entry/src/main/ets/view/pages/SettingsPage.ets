@@ -11,6 +11,12 @@ import {
 import { BAND_LIST_VP } from '../../util/Breakpoint';
 import { LEGAL_AGREEMENT, LEGAL_PRIVACY } from './LegalDocPage';
 import { Router } from '../Router';
+import { TitleBarBlurBackdrop } from '../components/TitleBarBlurBackdrop';
+
+/** 标题行高：上 10 + 26fp 行高约 34 + 下 8。滚动内容顶部留同高，首屏位置不变。 */
+const HEADER_HEIGHT_VP: number = 52;
+/** 渐变模糊背板总高：标题行 + 底部 30vp 渐隐延伸区。 */
+const HEADER_BLUR_HEIGHT_VP: number = 82;
 
 export const SETTING_PLAYBACK: string = 'playback';
 export const SETTING_DOWNLOAD: string = 'download';
@@ -52,17 +58,14 @@ export struct SettingsPage {
   }
 
   build() {
-    Scroll() {
-      // 840vp 列表栏宽：tablet 1440vp 下设置行的图标贴左边缘、箭头贴右边缘，中间
-      // 是一大片空白，一屏只读到七八个标题（审计 §8.2 第 2 条）。
-      ContentBand({ maxWidth: BAND_LIST_VP }) {
-      Column() {
-        Text('设置')
-          .fontSize(26)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(Theme.textPrimary(Theme.isDark()))
-          .width('100%')
-          .margin({ top: 12, bottom: 4 })
+    // 标题栏与渐变模糊背板作为常驻浮层压在滚动列表之上，列表从标题栏背后
+    // 滚过（HDS 沉浸式标题栏范式）；大标题不再随内容滚出视口。
+    Stack({ alignContent: Alignment.Top }) {
+      Scroll() {
+        // 840vp 列表栏宽：tablet 1440vp 下设置行的图标贴左边缘、箭头贴右边缘，中间
+        // 是一大片空白，一屏只读到七八个标题（审计 §8.2 第 2 条）。
+        ContentBand({ maxWidth: BAND_LIST_VP }) {
+        Column() {
 
         // 设置总览（参考应用的设置中心）：六大分类入口一屏直达，其余分组
         // （网络与存储、平台、隐私、其他）保留在下方。
@@ -204,16 +207,31 @@ export struct SettingsPage {
         }
         .width('100%')
               }
+        .width('100%')
+      .padding({ top: HEADER_HEIGHT_VP, left: 14, right: 14, bottom: 24 + FLOAT_TAB_CLEARANCE })
+      }
+      }
+      .scrollBar(BarState.Off)
+      // Scroll 的 align 默认是 Alignment.Center：内容短于视口时（大屏、或字号最小
+      // 档）整份设置项会被甩到屏幕竖向正中，标题留在顶上，读起来是断开的两块。
+      // 设置类页面必须自上而下读，这里显式钉到顶部。
+      .align(Alignment.Top)
       .width('100%')
-      .padding({ left: 14, right: 14, bottom: 24 + FLOAT_TAB_CLEARANCE })
+      .height('100%')
+
+      // 渐变模糊背板垫底、标题行盖在最上；标题行同样走 840vp 栏宽，与列表
+      // 左右缘逐像素对齐。
+      TitleBarBlurBackdrop({ barHeight: HEADER_BLUR_HEIGHT_VP })
+
+      ContentBand({ maxWidth: BAND_LIST_VP }) {
+        Text('设置')
+          .fontSize(26)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(Theme.textPrimary(Theme.isDark()))
+          .width('100%')
+          .padding({ left: 14, right: 14, top: 10, bottom: 8 })
       }
     }
-    .layoutWeight(1)
-    .scrollBar(BarState.Off)
-    // Scroll 的 align 默认是 Alignment.Center：内容短于视口时（大屏、或字号最小
-    // 档）整份设置项会被甩到屏幕竖向正中，标题留在顶上，读起来是断开的两块。
-    // 设置类页面必须自上而下读，这里显式钉到顶部。
-    .align(Alignment.Top)
     .width('100%')
     .height('100%')
     .backgroundColor(this.schemeBg(Theme.isDark()))
