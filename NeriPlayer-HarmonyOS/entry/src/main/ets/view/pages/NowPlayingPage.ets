@@ -1024,7 +1024,10 @@ export struct NowPlayingPage {
     // 一镜到底：模态的 modalTransition 是 NONE，页面根节点自己挂 OPACITY
     // 转场让正文随开关淡入淡出（否则硬切）；封面由 geometryTransition 飞行，
     // 飞行主体是常驻迷你条端（follow: true，不在本页淡入淡出的影响范围内）。
-    .transition(TransitionEffect.OPACITY)
+    // animation 优先级高于 Router.animateTo 的弹簧（官方转场规则）：弹簧收敛
+    // 尾巴约 800ms，不锁时长时整页毛玻璃背景会比约 300ms 落位的封面多残留
+    // 约半秒，与页面内控件淡出（280ms Friction）对齐。
+    .transition(TransitionEffect.OPACITY.animation({ duration: 280, curve: Curve.Friction }))
     // S4: 播放列表走原生半模态（官方手势关闭与档位吸附），替代手工覆盖层。
     .bindSheet($$this.showQueue, this.queueSheetBuilder(), {
       detents: [SheetSize.MEDIUM, SheetSize.LARGE],
