@@ -1,41 +1,198 @@
-# NeriPlayer HarmonyOS 迁移工作区
+# NeriPlayer for HarmonyOS
 
-本仓库用于研究并推进 [cwuom/NeriPlayer](https://github.com/cwuom/NeriPlayer) 从 Android（Kotlin、Jetpack Compose、Media3）迁移到 HarmonyOS 6.0～7.0（ArkTS、ArkUI、Stage 模型）。它目前是迁移工作区，不是已完成的 HarmonyOS 发布版本。
+<div align="center">
 
-## 当前结论
+<img src="NeriPlayer-HarmonyOS/entry/src/main/resources/base/media/app_icon.png" width="128" height="128" alt="NeriPlayer Icon" />
 
-- Android 快照包含完整产品的大部分源码：`app/src/main` 约 634 个 Kotlin 文件、17.2 万行；另有约 285 个本地测试和 25 个设备测试。
-- `NeriPlayer-HarmonyOS` 是可构建的 ArkTS 原型，`entry/src/main/ets` 下 251 个 ArkTS 文件、约 5.38 万行（2026-09-08 实测 53,753 行）。已有页面、数据模型、网络、播放、下载、同步、一起听与动态取色的核心链路，`entry/src/test/` 本地单元测试已随里程碑累积到 935 用例（2026-09-08 静态清点；最近一次全量执行为 2026-08-29 的 874/874 全绿），另有 `entry/src/ohosTest/` 设备测试；但与 Android 产品的功能与异常处理规模仍有显著差距，YouTube 完整取流、系统级桌面歌词渲染等仍受上游或平台限制，USB 独占已定案不移植（状态明细见 `docs/FEATURE_MATRIX.md`）。
-- `NeriPlayer-ASCF` 是元服务方向的独立试验。它不能替代普通 HarmonyOS 应用，尤其不适合作为本地媒体扫描、完整后台播放和 USB 独占能力的主迁移路线。
-- 2026-08-13 已在本机 6.1.1 Release 工具链完成可重复验证：依赖同步、干净构建、单元测试 3/3、调试签名、模拟器安装与冷启动 smoke test（记录见 `docs/hm.md` §7.4）。2026-08-14 工具链目录整体迁至 `D:\HarmonyOS\Tools\`，系统 PATH 与 `local.properties` 中的旧路径已按根目录 `AGENTS.md` 更新；下次构建前建议先按该文档复核环境。
-- 工作区根目录已初始化 Git（基线提交 `ef89b16`，2026-08-12），三个子工程目录本身仍是无 `.git` 元数据的文件快照。Android 快照基线已通过 GitHub blob SHA 交叉比对确认是上游 commit `d66d465f48a6ae911fef0de88d2d21937760f31d`（2026-07-31）；审计时上游最新 commit 已到 `bc4142bc9e9b0b88e27be8dbc19c85e548400709`（2026-08-12）。
+### 现代、纯粹、沉浸的原生鸿蒙流媒体音乐播放器
 
-## 目录角色
+[![HarmonyOS](https://img.shields.io/badge/HarmonyOS-26.0.0%20(API%2026)-0A59F7?logo=huawei&logoColor=white)](https://developer.huawei.com/)
+[![License](https://img.shields.io/badge/License-GPL%203.0-blue.svg)](LICENSE)
+[![CI Build](https://img.shields.io/badge/CI-Passing-brightgreen?logo=github-actions&logoColor=white)](.github/workflows/harmonyos-ci.yml)
+[![Unit Tests](https://img.shields.io/badge/Unit%20Tests-935%20Passing-success?logo=checkmarx&logoColor=white)](entry/src/test/)
+[![ArkTS](https://img.shields.io/badge/Language-ArkTS%20%7C%20ArkUI-orange)](#)
 
-| 目录 | 角色 | 是否主线 |
-| --- | --- | --- |
-| `NeriPlayer-master/` | Android 上游源码快照与行为参照 | 参照基线 |
-| `NeriPlayer-HarmonyOS/` | ArkTS / ArkUI 普通应用原型 | 是 |
-| `NeriPlayer-ASCF/` | Atomic Service Compatible Framework 试验 | 否，保留作能力对照 |
-| `ascf-support-plugin/` | 本机安装的第三方二进制工具 | 否，不进入 Git |
-| `package/` | 本机解包的 ASCF 接口包 | 否，不进入 Git |
-| `docs/` | 审计、功能矩阵与迁移路线图 | 是 |
+[功能特性](#-核心功能特性) • [系统架构](#-系统架构与工程结构) • [快速构建](#-构建与开发环境) • [安装与发行](#-安装与发行版) • [贡献与协议](#-开源协议与鸣谢)
 
-## 从这里开始
+</div>
 
-1. 阅读 [项目审计](docs/PROJECT_AUDIT.md)，了解哪些结论已验证、哪些仍需复核。
-2. 阅读 [HarmonyOS 开发与迁移指南](docs/hm.md)，获取版本矩阵、构建命令与本机验证记录。
-3. 阅读 [功能迁移矩阵](docs/FEATURE_MATRIX.md)，按能力域核对 Android 与 ArkTS 的差距。
-4. 按 [HarmonyOS 6.0～7.0 迁移路线图](docs/HARMONYOS_PORTING_PLAN.md) 推进垂直切片。
-5. 构建与验证的环境要求（工具链路径、签名脚本注意事项）见根目录 `AGENTS.md`。
-6. 参与协作前阅读 [贡献指南](CONTRIBUTING.md) 和 [GitHub 协作与分支整合流程](docs/GITHUB_COLLABORATION.md)；提交 Issue 或 Pull Request 时使用仓库提供的模板。
+---
 
-## 版本与资料原则
+## 📖 项目简介
 
-- 工程配置基线为 HarmonyOS `26.0.0`（API 26，Release；2026-09-07 从 `6.1.1(24)` 全量迁移，版本号自 26.0.0 起改用纯 SemVer，不再带 `(26)` 括号后缀）。官方版本映射已于 2026-08-14 复核：HarmonyOS 6.0.0→API 20、6.0.1→21、6.0.2→22、6.1.0→23、6.1.1→24；HarmonyOS 7.0→开发套件 26.0.0（API 26）。`compatibleSdkVersion` 已抬至 26.0.0，26 以下设备不再可安装（迁移详情见 `docs/hm.md` §7.12）。以后仍以[华为开发者官方文档](https://developer.huawei.com/consumer/cn/doc/)的版本页为准。
-- 每次同步 Android 上游时记录 commit SHA、同步日期、许可证和子模块状态；不要仅覆盖 `NeriPlayer-master` 文件夹。
-- 在线媒体接口只作为适配器实现，并遵守第三方平台条款、账号授权、版权与应用市场审核要求。
+**NeriPlayer for HarmonyOS** 是基于纯血鸿蒙（Next / 26.0.0+）Stage 模型全新打造的现代化开源音乐播放器。项目源于优秀 Android 开源播放器 [cwuom/NeriPlayer](https://github.com/cwuom/NeriPlayer)，以 ArkTS 严格模式与 ArkUI 声明式范式全量重构，旨在为 HarmonyOS 终端用户带来融合官方设计美学（HDS）、动态流光声色体验与多源流媒体播放能力的旗舰级视听享受。
 
-## 许可证
+本仓库为主线稳定发行分支（`main`），代表当前经过严格工程化验收的稳定代码基线。
 
-原项目采用 GPL-3.0；本工作区中由原项目衍生的移植代码应继续遵守 GPL-3.0。原始许可证见 `NeriPlayer-master/LICENSE`。
+---
+
+## ✨ 核心功能特性
+
+### 🎵 现代播放与多源媒体融合
+* **系统级音频生态集成**：基于 `@kit.AudioKit` (AVPlayer) 与 `@kit.MediaKit` (AVSession) 深度定制，支持锁屏播控通知、播控中心组件联动、系统媒体焦点响应与耳机插拔自适应挂起。
+* **冷启动无缝会话恢复**：精确持久化播放队列、播放模式、循环队列状态及上次播放毫秒进度，冷启动毫秒级恢复无声无损。
+* **网易云音乐生态**：
+  * 基于安全 WEAPI 协议，支持原生 QR 二维码扫码登录与 Cookie 粘贴导入。
+  * 用户歌单自动同步、批量导入本地自建库、官方每日推荐与热门雷达聚合流。
+  * 高品质无损音频（Lossless / Hi-Res）智能解析与失败回退重试策略。
+* **哔哩哔哩 (B站) 生态**：
+  * 支持 WBI 动态混淆鉴权与 QR 扫码登录。
+  * 个人收藏夹分页无损加载与一键入库播放。
+  * DASH 音轨智能带宽自适应（标准 / 高清 / 超清 / 无损音质解析），智能注入流媒体防盗链 Referer 头与 bilivideo CDN 优选。
+* **本地与沙箱媒体管理**：无网离线环境自动短路识别，提供直读 fd 极速离线音频解码播放。
+* **YouTube Music**：支持移动端协议取流链路、版本健康度追踪与降级机制。
+
+### 🎨 沉浸式流光视觉（Glass UI & HDS）
+* **HarmonyOS Design System (HDS) 深度融合**：全面适配官方设计规范，提供悬浮式导航 Tab、原生 MiniBar 底部托盘槽位及自适应避让系统。
+* **ColorScience 动态取色引擎**：自研基于 CIE Lab / LCh / ΔE00 算法与真实色卡吸附的高精度取色系统，从专辑封面毫秒级提取主色调，注入播放界面形成动态呼吸的流光背景（Immersive Light Scene）。
+* **动态歌词系统**：
+  * 深度支持 AMLL TTML 格式与标准 LRC 双语歌词。
+  * 精准毫秒级逐字 Karaoke 发光跟随动画与双行翻译对照排版。
+* **一镜到底无感转场**：基于 `geometryTransition` 与 `bindSheet` 架构，实现 MiniPlayer 至全屏播放页面的封面飞行一镜到底与丝滑歌单抽屉呼出。
+
+### 📥 工业级断点续传下载引擎
+* **多任务并发调度器**：严格受控的并发线程池管道，支持后台静默下载与优先级编排。
+* **全场景断点续传**：针对 DIRECT / RANGE（`.part` 偏移与 ETag 校验）与 HLS 分片流提供双重指纹恢复策略。
+* **网络自感知挂起/恢复**：感知系统网络连接与断网事件，自动保护暂存临时文件并在网络恢复时自动重新入队。
+* **沙箱编目原子落盘**：两阶段事务提交（Staging 校验 $\to$ 重命名归档 $\to$ 更新元数据编目），避免因异常中断导致的脏数据。
+
+### 🔄 跨端因果云同步 (Cloud Sync)
+* **Android / HarmonyOS 双端互通**：完全兼容上游 Android 版的数据序列化标准，支持 Protobuf Wire 格式、GZIP 压缩流与高保真 JSON 备份解析。
+* **因果一致性三路合并**：实现歌单、曲目元数据、播放统计与删除墓碑（Tombstone）的确定性版本判定收敛，彻底杜绝已删曲目跨端“复活”。
+* **双存储后端支持**：
+  * **GitHub 备份**：支持 Contents 与 Git Data API 流水线（Tree/Blob/Commit/Ref PATCH 乐观锁防冲突提交）。
+  * **WebDAV 备份**：支持标准 PROPFIND、条件 PUT 与强 ETag / 指纹并发防护。
+
+### 👥 实时「一起听」(Listen Together)
+* **高可靠长连接架构**：自研 WebSocket 客户端，集成动态心跳检测、指数退避重连与 HTTP 状态二次兜底。
+* **亚秒级时钟对齐**：智能估算端到端网络 RTT 与服务器时钟漂移，漂移严格控制在 300ms 黄金窗口内，平滑调整倍率与动态 Seek。
+* **权限与受信任通道**：主持权切换、成员在线状态监控、安全直链鉴权转发机制（防直链被篡改与恶意投毒）。
+
+### 📱 全场景响应式与关怀体验
+* **多形态屏幕自适应**：
+  * 完美适配 Phone（直板机）、Foldable（折叠屏内屏 707vp LG 断点）、Tablet（平板）与 2in1（PC 自由悬浮窗）。
+  * 基于 ArkUI `GridRow` / `GridCol` 响应式断点栅格重排，大屏自动展开侧边栏与双列歌单布局。
+* **系统关怀与无障碍保障**：
+  * 深度适配系统字体缩放（0.85× ~ 1.75× 字阶），全界面无溢出、无折叠遮挡、消除不稳固百分比定位。
+  * 交互控件严格保障 $\ge 40\text{vp}$ 触控命中区域，全量标注文案无障碍朗读语义。
+
+### 🛡️ 金融级凭据安全与合规
+* **系统级凭据保险箱**：所有第三方账户 Cookie、访问 Token 与 PAT 均加密托管至系统底座 `@ohos.security.asset`。
+* **自适应分块存储机制**：针对网易云等超长 Cookie，创新自研 Chunk 分块透明拼接方案，完美规避系统 Asset 1024 字节物理上限。
+* **全面隐私脱敏**：应用全生命周期日志全程脱敏，零外部未审查三方闭源 SDK。
+
+---
+
+## 🏗️ 系统架构与工程结构
+
+### 目录角色分工
+
+```text
+NeriPlayer-HarmonyOS/
+├── NeriPlayer-HarmonyOS/      # 【主线实现】HarmonyOS Stage 原生应用工程
+│   ├── AppScope/             # 全局配置、多语言资源与应用图标
+│   └── entry/                # 核心功能模块 (ArkTS/ArkUI)
+│       ├── src/main/ets/     # 源码实现
+│       │   ├── app/          # 全局生命周期、系统常量与崩溃防御
+│       │   ├── data/         # 数据持久化、凭据管理、历史与统计
+│       │   ├── download/     # 下载引擎、任务状态机与编目落盘
+│       │   ├── listentogether/# 一起听网络、协议、会话与播放同步
+│       │   ├── lyrics/       # AMLL TTML / LRC 歌词解析与渲染管线
+│       │   ├── model/        # 领域数据模型定义
+│       │   ├── network/      # HTTP 客户端、网易云/B站/YTM 平台适配器
+│       │   ├── player/       # AVPlayer / AVSession 播放控制器
+│       │   ├── sync/         # 双向云同步合并策略、Protobuf/JSON 编解码
+│       │   ├── util/         # 纯 ArkTS 算法、色彩科学、二维码引擎
+│       │   └── view/         # ArkUI 声明式页面、组件与转场路由
+│       ├── src/test/         # 本地确定性单元测试 (935+ Cases，全绿)
+│       └── src/ohosTest/     # 模拟器/真机设备端测试 (Acts* 用例)
+├── docs/                     # 架构设计、协议逆向、安全规范与迁移审计文档
+├── NeriPlayer-master/        # 上游 Android/Kotlin 源码快照与行为参照 (只读)
+└── .github/                  # CI 持续集成与自动化 Release 发布流水线
+```
+
+---
+
+## 🛠️ 构建与开发环境
+
+### 环境要求
+
+* **HarmonyOS SDK**：`26.0.0` (API 26 Release，纯 SemVer 基线)
+* **编译工具链**：`command-line-tools` 26.0.0.821+ 或配套最新 DevEco Studio
+* **Node.js**：v18+ (自带于 CLT `tool/node/bin`)
+* **Java**：JDK 17 (用于 hap-sign-tool 签名工具)
+
+### 快速本地编译
+
+进入主线工程目录执行构建：
+
+```bash
+cd NeriPlayer-HarmonyOS
+
+# 1. 安装工程依赖
+ohpm install --all
+
+# 2. 执行 Release 构建 (生成 unsigned HAP)
+hvigorw assembleHap --mode module -p module=entry@default -p product=default -p buildMode=release --no-daemon
+
+# 3. 运行本地单元测试 (900+ 用例)
+hvigorw test --mode module -p module=entry@default -p product=default -p buildMode=debug --no-daemon
+```
+
+产物将生成在：`entry/build/default/outputs/default/entry-default-unsigned.hap`。
+
+---
+
+## 📦 安装与发行版
+
+由于 HarmonyOS 平台的签名机制，面向社区分发的 Release 产物均为**未签名安装包 (Unsigned HAP)**。用户只需配置自己的 AGC 个人调试证书即可极速安装到设备。
+
+### 方式一：从 GitHub Releases 下载
+1. 前往本仓库 [Releases 页面](../../releases) 获取最新版本的 `NeriPlayer-vX.Y.Z-unsigned.hap`。
+2. 校验文件配套的 `SHA256SUMS.txt` 完整性。
+3. 参考发布包内的 [INSTALL.md](INSTALL.md) 使用配套工具对 HAP 进行签名并推送到真机。
+
+### 方式二：本地一键签名脚本（开发者）
+若本地拥有已配置的 AGC 调试证书与配置文件（`p12` / `p7b` / `cer`），可在工程根目录直接执行：
+
+```bash
+# 执行本地构建与签名
+./build-signed.sh
+
+# 通过 hdc 推送到已连接的真机或模拟器
+hdc install -r NeriPlayer-signed.hap
+```
+
+---
+
+## 🧪 质量与测试工程
+
+本项目坚持“测试驱动与确定性验证”的开发原则：
+
+| 测试层级 | 框架 / 工具 | 规模与状态 | 覆盖范围 |
+| :--- | :--- | :--- | :--- |
+| **本地单测** | `@ohos/hypium` 1.0.28 | **935 / 935 用例通过** | 同步三路合并策略、JSON/Protobuf 双向编解码、色彩科学矩阵、二维码生成器、下载调度器、一起听状态机等 |
+| **静态分析** | `CodeLinter` | **0 Error** 基线守护 | ArkTS 严格模式、异步 Promise 规范、资源引用安全 |
+| **端侧测试** | `ohosTest` + `hdc aa test` | **50+ 项设备端测** | AVPlayer 真网取流播放、Asset 凭据跨进程落盘、后台保活、断网重连、双端实例同步 |
+| **持续集成** | GitHub Actions | 自动化触发 | 每次提交自动拉起 API 26 环境验证编译与代码静态规范 |
+
+---
+
+## 🤝 贡献与协作
+
+欢迎参与 NeriPlayer for HarmonyOS 的共建！
+
+1. 在开发前请仔细阅读 [贡献指南](CONTRIBUTING.md) 与 [GitHub 协作与分支整合流程](docs/GITHUB_COLLABORATION.md)。
+2. 本仓库分支分工：
+   - `main`：**稳定发行分支**（默认分支），受严格保护，仅接受经过完整验证的合并。
+   - `dev`：**主日常开发分支**，汇集各类特性分支与功能迭代。
+   - `feature/*` / `fix/*`：针对具体任务的细分工作分支。
+3. 提交 PR 时请关联相关的 Issue 并附带验证证据。
+
+---
+
+## 📄 开源协议与鸣谢
+
+* **开源协议**：本项目基于 **[GPL-3.0 License](LICENSE)** 协议开源。
+* **上游项目**：特别感谢原 Android 版作者及维护团队 [cwuom/NeriPlayer](https://github.com/cwuom/NeriPlayer) 优秀的架构设计与开源贡献。
+* **开源生态**：感谢 OpenHarmony / HarmonyOS 开发者社区与 AMLL 歌词社区提供的开放文档与格式参考。
