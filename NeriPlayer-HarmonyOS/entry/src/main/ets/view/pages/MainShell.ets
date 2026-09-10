@@ -2,7 +2,7 @@ import { Router } from '../Router';
 import { Theme } from '../Theme';
 import { HdsTabs, HdsBarLayoutMode, hdsMaterial, SystemMaterialParams } from '@kit.UIDesignKit';
 import { HdsTabsAttribute } from '@kit.UIDesignKit';
-import { HdsNavigation, HdsNavigationTitleMode, ScrollEffectType, BlurStrategy, HdsNavigationMenuItemOptions } from '@kit.UIDesignKit';
+import { HdsNavigation, HdsNavigationTitleMode, ScrollEffectType, BlurStrategy } from '@kit.UIDesignKit';
 import { LengthMetrics } from '@kit.ArkUI';
 import { HdsLight } from '../theme/HdsLight';
 import { AccentScheme } from '../theme/AccentScheme';
@@ -34,9 +34,8 @@ const SIDE_BAR_WIDTH_VP: number = 96;
 const SIDE_BAR_ITEM_VP: number = 64;
 /** HdsNavigationTitleMode.MINI 标题栏标准高度：四个 Tab 页内容顶部让位同高。 */
 const TITLEBAR_SPACE_VP: number = 56;
-/** 各 Tab 在壳层标题栏的标题；首页随刷新在品牌语之间轮换（原页内彩蛋保留）。 */
+/** 各 Tab 在壳层标题栏的标题。 */
 const TAB_TITLES: string[] = ['NeriPlayer', '探索', '资料库', '设置'];
-const HOME_BRAND_TITLES: string[] = ['NeriPlayer', '欢迎回来', 'NeriPlayer', '继续听歌'];
 
 @Component
 export struct MainShell {
@@ -59,8 +58,6 @@ export struct MainShell {
   // 封面 scheme 驱动悬浮 Tab 栏的 lightColor（光晕色）与系统材质档位。
   @StorageProp('player.coverScheme') coverScheme: AccentScheme = AccentScheme.neutralFallback();
   @State currentTab: number = 0;
-  /** 首页标题轮换下标：刷新按钮从页内迁入标题栏 menu 后，状态随按钮上移到壳层。 */
-  @State homeTitleIndex: number = 0;
   /**
    * 官方 FAQ 对 HdsNavigation + HdsTabs 组合的要求：每个 Tab 的滚动容器持独立
    * Scroller，标题栏只绑定当前可见 Tab 的那一个；实例经构造参数下发给各 Tab 页。
@@ -120,32 +117,6 @@ export struct MainShell {
 
   private paramText(param: Object): string {
     return typeof param === 'string' ? param as string : '';
-  }
-
-  /** 标题栏标题：首页随刷新轮换品牌语，其余 Tab 用固定页名。 */
-  private activeTabTitle(): string {
-    return this.currentTab === 0 ? HOME_BRAND_TITLES[this.homeTitleIndex] : TAB_TITLES[this.currentTab];
-  }
-
-  /** 标题栏右侧动作：仅首页 Tab 给「刷新推荐」，随 Tab 切换增减。 */
-  private activeTabMenus(): Array<HdsNavigationMenuItemOptions> {
-    if (this.currentTab !== 0) {
-      return [];
-    }
-    return [{
-      content: {
-        icon: $r('app.media.outline_refresh_24'),
-        label: '刷新推荐',
-        isEnabled: true,
-        action: (): void => this.refreshHome()
-      }
-    }];
-  }
-
-  /** 原 HomePage 刷新按钮动作：轮换品牌标题 + 复用刷新信号让可见 Tab 页重拉数据。 */
-  private refreshHome(): void {
-    this.homeTitleIndex = (this.homeTitleIndex + 1) % HOME_BRAND_TITLES.length;
-    Router.notifyReturned();
   }
 
   aboutToAppear(): void {
@@ -391,10 +362,11 @@ export struct MainShell {
     // 避免多滚动容器手势冲突导致模糊失效或抖动）。
     .bindToScrollable([this.tabScrollers[this.currentTab]])
     .titleMode(HdsNavigationTitleMode.MINI)
+    // 壳层是 Tab 骨架的根，自身无可返回的上级路由：隐藏系统默认返回按钮。
+    .hideBackButton(true)
     .titleBar({
       content: {
-        title: { mainTitle: this.activeTabTitle() },
-        menu: { value: this.activeTabMenus() }
+        title: { mainTitle: TAB_TITLES[this.currentTab] }
       },
       style: {
         scrollEffectOpts: {
@@ -405,19 +377,17 @@ export struct MainShell {
         },
         blurStrategy: BlurStrategy.ADAPTIVE,
         // 静止态背板与页面底色同色（无接缝），滚动后过渡为透出系统渐变
-        // 模糊材质的透明背板；标题与菜单图标色跟随应用主题，不取系统默认。
+        // 模糊材质的透明背板；标题色跟随应用主题，不取系统默认。
         originalStyle: {
           backgroundStyle: { backgroundColor: Theme.background(this.resolveDark()) },
           contentStyle: {
-            titleStyle: { mainTitleColor: Theme.textPrimary(this.resolveDark()) },
-            menuStyle: { iconColor: Theme.textPrimary(this.resolveDark()) }
+            titleStyle: { mainTitleColor: Theme.textPrimary(this.resolveDark()) }
           }
         },
         scrollEffectStyle: {
           backgroundStyle: { backgroundColor: Color.Transparent },
           contentStyle: {
-            titleStyle: { mainTitleColor: Theme.textPrimary(this.resolveDark()) },
-            menuStyle: { iconColor: Theme.textPrimary(this.resolveDark()) }
+            titleStyle: { mainTitleColor: Theme.textPrimary(this.resolveDark()) }
           }
         },
         systemMaterialEffect: this.systemMaterialEffect()
