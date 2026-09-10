@@ -292,8 +292,9 @@ export struct MiniPlayer {
         // 一镜到底淡出分组：播放页展开时条内文字与下一首键渐隐避让，播放键
         // 不在此列——它是 np.play 共享元素的常驻端，跟着几何飞行走；把它也
         // 压成 0 会让飞行主体中途消失（几何插值的是透明度为 0 的残影）。
+        // 时长适度延长至 320ms（EaseOut），与放缓后的弹簧平滑交叠。
         .opacity(this.nowPlayingShown ? 0 : 1)
-        .animation({ duration: 240, curve: Curve.EaseOut })
+        .animation({ duration: 320, curve: Curve.EaseOut })
       }
       .width('100%')
       .height(this.compact ? 40 : 60)
