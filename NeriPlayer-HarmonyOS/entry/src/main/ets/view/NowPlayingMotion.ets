@@ -7,7 +7,7 @@ export interface NowPlayingRect {
 }
 
 export class NowPlayingMotion {
-  static readonly DURATION_MS: number = 1000;
+  static readonly DURATION_MS: number = 800;
 
   static clamp(value: number): number {
     return Math.max(0, Math.min(1, value));
@@ -56,5 +56,13 @@ export class NowPlayingMotion {
   static miniReturnOpacity(panelTop: number, windowHeight: number, miniTop: number): number {
     const threshold = Math.min(windowHeight * 0.8, miniTop);
     return NowPlayingMotion.clamp((panelTop - threshold) / Math.max(1, (miniTop - threshold) * 0.5));
+  }
+
+  // Corners match the bar pill (20) at both endpoints for a seamless handoff,
+  // swell to 34 through the first quarter of the flight, then vanish to 0 as
+  // the panel settles full-screen. Symmetric on the way back down.
+  static panelRadius(progress: number): number {
+    const swell = 20 + 14 * NowPlayingMotion.segment(progress, 0, 0.25);
+    return swell * (1 - NowPlayingMotion.segment(progress, 0.3, 0.7));
   }
 }

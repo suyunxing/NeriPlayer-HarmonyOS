@@ -67,5 +67,15 @@ export default function nowPlayingMotionTest(): void {
       // Interrupted reversals never overshoot the [0, 1] progress domain.
       expect(NowPlayingMotion.clamp(NowPlayingMotion.spring(0.5)) <= 1).assertTrue();
     });
+
+    it('panelRadiusMatchesBarAtEndpointsAndSwellMidFlight', 0, () => {
+      // Both endpoints must equal the bar pill radius for a seamless handoff.
+      expect(NowPlayingMotion.panelRadius(0)).assertEqual(20);
+      expect(NowPlayingMotion.panelRadius(1)).assertEqual(0);
+      // Corners swell beyond the bar radius through the first quarter...
+      expect(NowPlayingMotion.panelRadius(0.28) > 20).assertTrue();
+      // ...and are already below it by mid-flight.
+      expect(NowPlayingMotion.panelRadius(0.5) < 20).assertTrue();
+    });
   });
 }

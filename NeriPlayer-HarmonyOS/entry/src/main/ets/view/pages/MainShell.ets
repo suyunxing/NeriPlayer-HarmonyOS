@@ -73,7 +73,14 @@ export struct MainShell {
   @State motionProgress: number = 0;
   @State miniRect: NowPlayingRect = { x: 16, y: 640, width: 328, height: 40 };
   @State originRect: NowPlayingRect = { x: 16, y: 640, width: 328, height: 40 };
+  // 模态内容区的窗口坐标原点：面板/迷你条副本用窗口坐标（globalPosition 实测
+  // 的 mini 矩形）计算，但 position() 相对模态内容区原点——若模态因安全区有
+  // 偏移，直接套用会整体错位（展开起点/收起终点与迷你条不符）。在模态根节点
+  // 实测原点后做自校正，模态铺满窗口时该值为 (0,0)，两种布局下都成立。
+  @State modalOriginX: number = 0;
+  @State modalOriginY: number = 0;
   private motionTimer: number = -1;
+  private startDelayTimer: number = -1;
   private lastMotionTime: number = 0;
   private modalReady: boolean = false;
   private pendingDismiss: DismissContentCoverAction | undefined = undefined;
@@ -101,6 +108,14 @@ export struct MainShell {
   }
 
   private startMotion(): void {
+    // 模态挂载后立即启动会把首帧跳过（挂建 NowPlayingPage 耗时 > 1 tick，
+    // 起始帧直接从进度 > 0 画出，看起来像从错误位置起跳）；onAppear 延迟约
+    // 两帧再启动，保证第一帧画在迷你条原位。任何后续 startMotion 都取消
+    // 这个待触发的延迟。
+    if (this.startDelayTimer >= 0) {
+      clearTimeout(this.startDelayTimer);
+      this.startDelayTimer = -1;
+    }
     this.stopMotion();
     this.lastMotionTime = Date.now();
     this.motionTimer = setInterval(() => {
@@ -119,6 +134,29 @@ export struct MainShell {
         dismiss?.dismiss();
       }
     }, 16);
+  }
+
+  private scheduleStart(): void {
+    if (this.startDelayTimer >= 0) {
+      clearTimeout(this.startDelayTimer);
+    }
+    this.startDelayTimer = setTimeout(() => {
+      this.startDelayTimer = -1;
+      this.startMotion();
+    }, 32);
+  }
+
+  private static validRect(area: Area): NowPlayingRect | undefined {
+    const x = Number(area.globalPosition.x);
+    const y = Number(area.globalPosition.y);
+    const width = Number(area.width);
+    const height = Number(area.height);
+    // Number(undefined) 为 NaN：初次布局回调或异常度量直接丢弃，保留上一
+    // 次有效矩形，避免 NaN 传播到 position() 后组件落到 0,0。
+    if (Number.isFinite(x) && Number.isFinite(y) && width > 0 && height > 0) {
+      return { x: x, y: y, width: width, height: height };
+    }
+    return undefined;
   }
 
   private panelRect(): NowPlayingRect {
@@ -151,10 +189,10 @@ export struct MainShell {
   miniBarBuilder() {
     if (this.currentSongJson.length > 0) {
       MiniPlayer({ compact: true, onMeasured: (area: Area): void => {
-        this.miniRect = {
-          x: Number(area.globalPosition.x), y: Number(area.globalPosition.y),
-          width: Number(area.width), height: Number(area.height)
-        };
+        const rect = MainShell.validRect(area);
+        if (rect !== undefined) {
+          this.miniRect = rect;
+        }
       } })
     }
   }
@@ -215,6 +253,10 @@ export struct MainShell {
   }
 
   aboutToDisappear(): void {
+    if (this.startDelayTimer >= 0) {
+      clearTimeout(this.startDelayTimer);
+      this.startDelayTimer = -1;
+    }
     this.stopMotion();
     this.modalReady = false;
     this.pendingDismiss = undefined;
@@ -365,21 +407,28 @@ export struct MainShell {
       }
       .width(this.panelRect().width)
       .height(this.panelRect().height)
-      .borderRadius(20 * (1 - NowPlayingMotion.segment(this.motionProgress, 0, 0.68)))
+      .borderRadius(NowPlayingMotion.panelRadius(this.motionProgress))
       .clip(true)
-      .position({ x: this.panelRect().x, y: this.panelRect().y })
+      .position({ x: this.panelRect().x - this.modalOriginX, y: this.panelRect().y - this.modalOriginY })
 
       if (this.currentSongJson.length > 0) {
         MiniPlayer({ compact: true, presentationOnly: true })
           .width(this.originRect.width)
           .height(this.originRect.height)
-          .position({ x: this.originRect.x, y: this.miniY() })
+          .position({ x: this.originRect.x - this.modalOriginX, y: this.miniY() - this.modalOriginY })
           .opacity(this.miniOpacity())
           .hitTestBehavior(HitTestMode.None)
       }
     }
     .width('100%')
     .height('100%')
+    .onAreaChange((_oldArea: Area, area: Area) => {
+      const rect = MainShell.validRect(area);
+      if (rect !== undefined) {
+        this.modalOriginX = rect.x;
+        this.modalOriginY = rect.y;
+      }
+    })
   }
 
   build() {
@@ -542,14 +591,16 @@ export struct MainShell {
       enableSafeArea: false,
       onAppear: () => {
         this.modalReady = true;
-        this.startMotion();
+        this.scheduleStart();
       },
       onDisappear: () => {
         // A new open request may arrive while the previous modal is unmounting.
         if (this.modalMounted || this.nowPlayingShown) {
           return;
         }
-        Router.notifyReturned();
+        // 注意：这里不能发 Router.notifyReturned()——普通收起播放页不改变
+        // 任何 Tab 页数据，触发刷新会让首页列表重载、出现「重新加载式闪屏」。
+        // 路由级返回的刷新仍由各 NavDestination 自身的 onDisappear 覆盖。
         // 播放页按封面取色改写过系统栏图标颜色，收起动画结束后交回主页
         // 主题配色；立即恢复会让飞行半程的图标压在错误的背景上。
         const context = this.getUIContext().getHostContext();
