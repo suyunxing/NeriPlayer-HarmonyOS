@@ -71,8 +71,9 @@ export struct MainShell {
   @StorageProp('ui.windowWidthVp') windowWidth: number = 360;
   @StorageProp('ui.windowHeightVp') windowHeight: number = 800;
   @State motionProgress: number = 0;
-  @State miniRect: NowPlayingRect = { x: 16, y: 640, width: 328, height: 40 };
-  @State originRect: NowPlayingRect = { x: 16, y: 640, width: 328, height: 40 };
+  // 默认兜底值 = 360vp 宽窗口下的药丸典型位置（窗口度量发布后按实测覆盖）。
+  @State miniRect: NowPlayingRect = { x: 23, y: 626, width: 314, height: 40 };
+  @State originRect: NowPlayingRect = { x: 23, y: 626, width: 314, height: 40 };
   // 模态内容区的窗口坐标原点：面板/迷你条副本用窗口坐标（globalPosition 实测
   // 的 mini 矩形）计算，但 position() 相对模态内容区原点——若模态因安全区有
   // 偏移，直接套用会整体错位（展开起点/收起终点与迷你条不符）。在模态根节点
@@ -117,10 +118,13 @@ export struct MainShell {
       this.startDelayTimer = -1;
     }
     this.stopMotion();
+    const duration = this.nowPlayingShown
+      ? NowPlayingMotion.EXPAND_MS
+      : NowPlayingMotion.COLLAPSE_MS;
     this.lastMotionTime = Date.now();
     this.motionTimer = setInterval(() => {
       const now = Date.now();
-      const step = Math.max(0, now - this.lastMotionTime) / NowPlayingMotion.DURATION_MS;
+      const step = Math.max(0, now - this.lastMotionTime) / duration;
       this.lastMotionTime = now;
       this.motionProgress = NowPlayingMotion.clamp(this.motionProgress + (this.nowPlayingShown ? step : -step));
       if (this.motionProgress === 1 && this.nowPlayingShown) {
@@ -143,7 +147,7 @@ export struct MainShell {
     this.startDelayTimer = setTimeout(() => {
       this.startDelayTimer = -1;
       this.startMotion();
-    }, 32);
+    }, 16);
   }
 
   private static validRect(area: Area): NowPlayingRect | undefined {
@@ -157,6 +161,27 @@ export struct MainShell {
       return { x: x, y: y, width: width, height: height };
     }
     return undefined;
+  }
+
+  /**
+   * HdsTabs 迷你条槽位的坐标标定。槽位内 builder 的 onAreaChange 返回的是
+   * 槽位布局矩形（全宽、贴在悬浮栏底部，2026-09-10 真机录屏逐帧实测约为
+   * (0, 窗口高-72, 窗口宽-13, 40)），而可见的迷你条药丸被 HdsTabs 内部位移/
+   * 裁剪到悬浮栏上部（(23, 626, 314, 40) @360vp 宽）——这类变换不触发
+   * onAreaChange，所以测量值永远偏左下。下面三个偏移把槽位矩形换算成药丸
+   * 视觉矩形，按当前 Hds 版本标定；若 Hds 调整悬浮栏内部布局需重标。
+   */
+  private static readonly PILL_OFFSET_X: number = 23;
+  private static readonly PILL_OFFSET_Y: number = -74;
+  private static readonly PILL_SHRINK_W: number = 29;
+
+  private static toPillRect(slot: NowPlayingRect): NowPlayingRect {
+    return {
+      x: slot.x + MainShell.PILL_OFFSET_X,
+      y: slot.y + MainShell.PILL_OFFSET_Y,
+      width: Math.max(40, slot.width - MainShell.PILL_SHRINK_W),
+      height: slot.height
+    };
   }
 
   private panelRect(): NowPlayingRect {
@@ -191,7 +216,7 @@ export struct MainShell {
       MiniPlayer({ compact: true, onMeasured: (area: Area): void => {
         const rect = MainShell.validRect(area);
         if (rect !== undefined) {
-          this.miniRect = rect;
+          this.miniRect = MainShell.toPillRect(rect);
         }
       } })
     }

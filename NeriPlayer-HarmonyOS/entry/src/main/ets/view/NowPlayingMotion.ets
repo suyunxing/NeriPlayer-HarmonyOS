@@ -7,7 +7,9 @@ export interface NowPlayingRect {
 }
 
 export class NowPlayingMotion {
-  static readonly DURATION_MS: number = 800;
+  // 展开 300ms、收起 400ms（用户指定节奏）。
+  static readonly EXPAND_MS: number = 300;
+  static readonly COLLAPSE_MS: number = 400;
 
   static clamp(value: number): number {
     return Math.max(0, Math.min(1, value));
