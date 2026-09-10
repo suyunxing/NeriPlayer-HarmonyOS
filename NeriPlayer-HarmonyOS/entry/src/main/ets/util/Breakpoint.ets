@@ -27,6 +27,7 @@ export const BP_LG: string = 'lg';
 export const KEY_WIDTH_VP: string = 'ui.widthVp';
 export const KEY_BREAKPOINT: string = 'ui.breakpoint';
 export const KEY_BOTTOM_LIFT_VP: string = 'ui.bottomLiftVp';
+export const KEY_TOP_INSET_VP: string = 'ui.topInsetVp';
 export const KEY_REFRESH_TICK: string = 'ui.refreshTick';
 
 /** 指南硬性值：应用内底部固定控件相对系统导航条上抬 28vp。 */
@@ -68,6 +69,20 @@ export function breakpointFor(widthVp: number): string {
 /** 大屏形态判据：顶层导航切侧边栏、正文分栏都以此为界。 */
 export function isWide(breakpoint: string): boolean {
   return breakpoint === BP_LG;
+}
+
+/**
+ * 顶部状态栏避让高度（vp）。TYPE_SYSTEM.topRect.height 即状态栏像素高
+ * （官方 FAQ「如何获取状态栏和导航栏高度」），按屏幕密度换算成 vp 后供
+ * 全屏模态（enableSafeArea:false 的播放页）给头部控件让位。取不到有效的
+ * 像素值或密度时归零 —— 宁可头部贴顶也不凭空垫一截死区。
+ */
+export function topInsetFor(statusBarHeightPx: number, density: number): number {
+  if (!Number.isFinite(statusBarHeightPx) || statusBarHeightPx <= 0
+    || !Number.isFinite(density) || density <= 0) {
+    return 0;
+  }
+  return Math.round(statusBarHeightPx / density);
 }
 
 /**

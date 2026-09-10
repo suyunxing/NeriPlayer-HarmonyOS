@@ -10,6 +10,7 @@ import { PlaybackStatus, RepeatMode } from '../../player/PlaybackConstants';
 import { Theme } from '../Theme';
 import { DynamicTheme } from '../theme/DynamicTheme';
 import { AccentScheme, SchemeMode } from '../theme/AccentScheme';
+import { ColorScience } from '../theme/ColorScience';
 import { LyricView } from '../components/LyricView';
 import { WaveformSlider } from '../components/WaveformSlider';
 import { LyricShareSheet } from '../components/LyricShareSheet';
@@ -75,6 +76,11 @@ export struct NowPlayingPage {
   @StorageLink('player.sleepRemainingMin') sleepRemainingMin: number = 0;
   /** 底部控件行的上抬量，由 util/WindowMetrics.ets 按真实避让区发布。 */
   @StorageProp('ui.bottomLiftVp') bottomLift: number = Theme.bottomBarLift();
+  /**
+   * 状态栏高度（vp），由 WindowMetrics 按 TYPE_SYSTEM.topRect 发布。模态
+   * enableSafeArea:false 后页面铺满窗口，头部控件行用它自行避让状态栏。
+   */
+  @StorageProp('ui.topInsetVp') topInset: number = 0;
   @State previewMs: number = -1;
   // Cover-seed backdrop (Android NowPlayingAccentBackdrop). The raw seed is
   // mirrored into a @State accent computed via @Watch because minimal-update
@@ -129,6 +135,7 @@ export struct NowPlayingPage {
     this.bgOverOpacity = 0;
     this.startGradientFlow();
     this.syncCoverSpinTimer();
+    this.applySystemBarContentColor();
     await this.applyKeepScreenOn();
     await this.reloadSongData();
   }
@@ -259,9 +266,34 @@ export struct NowPlayingPage {
 
   private onCoverSeedChanged(): void {
     this.recomputeAccent();
+    this.applySystemBarContentColor();
   }
 
   private onCoverSchemeChanged(): void {
+    this.applySystemBarContentColor();
+  }
+
+  /**
+   * 播放页是「背景铺满窗口 + 透明系统栏」的沉浸结构，状态栏/导航条图标直接
+   * 叠在封面取色背景上：深底配浅色图标、浅底配深色图标，按背景基本色亮度
+   * 判定。恢复回主页配色由 MainShell 的模态 onDisappear 在收起动画结束后
+   * 执行（立即恢复会让飞行半程的图标压在错误背景上）。
+   */
+  private applySystemBarContentColor(): void {
+    const context = this.getUIContext().getHostContext();
+    if (context === undefined) {
+      return;
+    }
+    const base = this.accentHex.length > 0 ? this.accentHex : this.im().background;
+    const content = ColorScience.relativeLuminance(base) > 0.5 ? '#000000' : '#FFFFFF';
+    window.getLastWindow(context).then((win: window.Window) => {
+      win.setWindowSystemBarProperties({
+        statusBarContentColor: content,
+        navigationBarContentColor: content
+      }).catch(() => {
+      });
+    }).catch(() => {
+    });
   }
 
   /** The automatic「匹配歌曲信息」landed on the current song: reload lyrics. */
@@ -526,10 +558,16 @@ export struct NowPlayingPage {
       // 一镜到底：整屏背景与迷你条根容器共享元素，几何/圆角随弹簧补间（常驻
       // 端 follow 侧在 MiniPlayer，见该文件根节点注释）。背景组包这一层容器
       // 承载 np.bar 并叠加上层动态毛玻璃与高斯模糊弥散，平滑展开横向条形 UI；
-      // .id() 防打断重影，OPACITY 兜底无配对端时的硬切。
+      // .id() 防打断重影。转场显式指定参数，不继承 Router 弹簧（默认 OPACITY
+      // 跟随 animateTo 会淡满整个 ~800ms 飞行）：出现端 280ms 快速实体化，
+      // 消失端 650ms EaseIn 前半程保持不透明、随卡片收缩自然透出主页——
+      // 离场必须有 transition，否则组件被立即析构、几何飞行直接丢失。
       .geometryTransition('np.bar')
       .id('np_bar_full')
-      .transition(TransitionEffect.OPACITY)
+      .transition(TransitionEffect.asymmetric(
+        TransitionEffect.OPACITY.animation({ duration: 280, curve: Curve.EaseOut }),
+        TransitionEffect.OPACITY.animation({ duration: 650, curve: Curve.EaseIn })
+      ))
 
       Column() {
         Row() {
@@ -620,10 +658,13 @@ export struct NowPlayingPage {
                   .objectFit(ImageFit.Cover)
                   .shadow({ radius: 24, color: '#66000000', offsetY: 8 })
                   // 一镜到底：与迷你条封面共享元素（模态 mount/unmount 时配对
-                  // 飞行）；.id() 防打断重影。
+                  // 飞行）；.id() 防打断重影。非对称转场参数与 np.bar 同理。
                   .geometryTransition('np.cover')
                   .id('np_cover_full')
-                  .transition(TransitionEffect.OPACITY)
+                  .transition(TransitionEffect.asymmetric(
+                    TransitionEffect.OPACITY.animation({ duration: 280, curve: Curve.EaseOut }),
+                    TransitionEffect.OPACITY.animation({ duration: 650, curve: Curve.EaseIn })
+                  ))
               } else {
                 Image($r('app.media.ic_music_note_24'))
                   .width('78%')
@@ -647,6 +688,15 @@ export struct NowPlayingPage {
                   .maxLines(1)
                   .textOverflow({ overflow: TextOverflow.Ellipsis })
                   .layoutWeight(1)
+                  // 一镜到底：与迷你条标题共享元素，歌名从条内原位放大飞入
+                  // （参考实现的文字形变）。非对称转场参数与 np.bar 同理；
+                  // .id() 防打断重影。
+                  .geometryTransition('np.title')
+                  .id('np_title_full')
+                  .transition(TransitionEffect.asymmetric(
+                    TransitionEffect.OPACITY.animation({ duration: 280, curve: Curve.EaseOut }),
+                    TransitionEffect.OPACITY.animation({ duration: 650, curve: Curve.EaseIn })
+                  ))
                 Image(this.favorite
                   ? $r('app.media.ic_baseline_favorite_24')
                   : $r('app.media.ic_outline_favorite_24'))
@@ -655,6 +705,16 @@ export struct NowPlayingPage {
                   .fillColor(this.favorite ? Theme.danger(false) : this.im().textSecondary)
                   .padding(6)
                   .onClick(() => this.toggleFavorite())
+                  .transition(
+                    TransitionEffect.asymmetric(
+                      TransitionEffect.OPACITY
+                        .combine(TransitionEffect.translate({ y: 32 }))
+                        .animation({ duration: 400, curve: Curve.EaseOut }),
+                      TransitionEffect.OPACITY
+                        .combine(TransitionEffect.translate({ y: 44 }))
+                        .animation({ duration: 320, curve: Curve.Friction })
+                    )
+                  )
               }
               .width('100%')
 
@@ -664,19 +724,19 @@ export struct NowPlayingPage {
                 .maxLines(1)
                 .textOverflow({ overflow: TextOverflow.Ellipsis })
                 .width('100%')
+                .transition(
+                  TransitionEffect.asymmetric(
+                    TransitionEffect.OPACITY
+                      .combine(TransitionEffect.translate({ y: 32 }))
+                      .animation({ duration: 400, curve: Curve.EaseOut }),
+                    TransitionEffect.OPACITY
+                      .combine(TransitionEffect.translate({ y: 44 }))
+                      .animation({ duration: 320, curve: Curve.Friction })
+                  )
+                )
             }
             .width('100%')
             .padding({ left: 24, right: 24 })
-            .transition(
-              TransitionEffect.asymmetric(
-                TransitionEffect.OPACITY
-                  .combine(TransitionEffect.translate({ y: 32 }))
-                  .animation({ duration: 400, curve: Curve.EaseOut }),
-                TransitionEffect.OPACITY
-                  .combine(TransitionEffect.translate({ y: 44 }))
-                  .animation({ duration: 320, curve: Curve.Friction })
-              )
-            )
           }
           .width('100%')
           .height('100%')
@@ -731,10 +791,14 @@ export struct NowPlayingPage {
                 }
               })
               // 一镜到底：与迷你条进度指示（紧凑形态=播放键外圈细环，独立
-              // 形态=顶部 2vp 细条）共享元素；.id() 防打断重影。
+              // 形态=顶部 2vp 细条）共享元素；.id() 防打断重影。非对称转场
+              // 参数与 np.bar 同理。
               .geometryTransition('np.progress')
               .id('np_progress_full')
-              .transition(TransitionEffect.OPACITY)
+              .transition(TransitionEffect.asymmetric(
+                TransitionEffect.OPACITY.animation({ duration: 280, curve: Curve.EaseOut }),
+                TransitionEffect.OPACITY.animation({ duration: 650, curve: Curve.EaseIn })
+              ))
 
               Row() {
                 Text(formatDuration(this.previewMs >= 0 ? this.previewMs : this.positionMs))
@@ -771,10 +835,13 @@ export struct NowPlayingPage {
                   onTap: () => PlayerManager.togglePlayPause()
                 })
                 // 一镜到底：与迷你条播放键共享元素（常驻端 follow 侧在
-                // MiniPlayer）；.id() 防打断重影。
+                // MiniPlayer）；.id() 防打断重影。非对称转场参数与 np.bar 同理。
                 .geometryTransition('np.play')
                 .id('np_play_full')
-                .transition(TransitionEffect.OPACITY)
+                .transition(TransitionEffect.asymmetric(
+                  TransitionEffect.OPACITY.animation({ duration: 280, curve: Curve.EaseOut }),
+                  TransitionEffect.OPACITY.animation({ duration: 650, curve: Curve.EaseIn })
+                ))
                 PlayerControlButton({
                   icon: $r('app.media.round_skip_next_24'),
                   tintOn: this.im().textPrimary,
@@ -784,6 +851,16 @@ export struct NowPlayingPage {
                   label: '下一首',
                   onTap: () => PlayerManager.next(false)
                 })
+                // 一镜到底：与迷你条下一首键共享元素——横向条形 UI 的每个
+                // 图形元素都参与过渡（参考实现）。挂法与 np.play 相同
+                // （自定义组件同样支持通用属性）；miniNextButton 关闭时无
+                // 配对端，退化为普通淡入。非对称转场参数同 np.bar。
+                .geometryTransition('np.next')
+                .id('np_next_full')
+                .transition(TransitionEffect.asymmetric(
+                  TransitionEffect.OPACITY.animation({ duration: 280, curve: Curve.EaseOut }),
+                  TransitionEffect.OPACITY.animation({ duration: 650, curve: Curve.EaseIn })
+                ))
               }
               .width('100%')
               .padding({ top: 6 })
@@ -981,6 +1058,9 @@ export struct NowPlayingPage {
       }
       .width('100%')
       .height('100%')
+      // 模态全屏铺满窗口（enableSafeArea:false），头部控件行以真实状态栏
+      // 高度避让；底部由控件行自身的 bottomLift 处理。
+      .padding({ top: this.topInset })
 
 
       if (this.showShare) {
@@ -1081,11 +1161,16 @@ export struct NowPlayingPage {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor(Theme.background(Theme.isDark()))
-    // 一镜到底：模态的 modalTransition 是 NONE，根 Stack 只做满屏布局，
-    // 几何过渡由上方背景组包容器（np.bar）承担，整页内容层的淡入淡出收拢到
-    // 根节点（360ms Friction 避免背景与文字残留，与放缓后的弹簧平滑对齐）。
-    .transition(TransitionEffect.OPACITY.animation({ duration: 360, curve: Curve.Friction }))
+    // 根节点不再铺不透明底色：铺满窗口的背景由 np.bar 背景组包层承担（展开
+    // 完成后即整页沉浸背景）。旧的不透明底 + 整页淡出会在收起时把主页和
+    // 系统栏条带一起洗白（参考实现里主页始终从卡片边缘可见），也是「沉浸
+    // 丢失」的直接来源。
+    // 根节点自身仍要挂 transition：它是离场子树的根，决定整棵树被析构前的
+    // 转场窗口（官方规范：无 transition 时默认加 OPACITY 并继承 animateTo
+    // 的弹簧，整页会淡满整个飞行）。这里用 opacity(0.999)——值非默认所以
+    // 转场窗口真实存在（700ms ≥ 弹簧飞行时长），但视觉上全程不透明，淡出
+    // 节奏完全交给各内容层与 np.bar 共享元素自己的转场参数。
+    .transition(TransitionEffect.opacity(0.999).animation({ duration: 700 }))
     // S4: 播放列表走原生半模态（官方手势关闭与档位吸附），替代手工覆盖层。
     .bindSheet($$this.showQueue, this.queueSheetBuilder(), {
       detents: [SheetSize.MEDIUM, SheetSize.LARGE],
