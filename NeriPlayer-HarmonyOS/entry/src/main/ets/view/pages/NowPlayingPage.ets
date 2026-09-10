@@ -538,7 +538,7 @@ export struct NowPlayingPage {
           .backgroundColor(Theme.tagBg(Theme.isDark()))
           .accessibilityText(this.lyricsMode ? '收起歌词' : '返回')
           .onClick(() => {
-            // 歌词页的返回先滑回封面页；系统返回键/侧滑才 pop 路由。
+            // 歌词页的返回先滑回封面页；系统返回键/侧滑才收起播放页模态。
             if (this.lyricsMode) {
               this.paneSwiper.showPrevious();
             } else {
@@ -596,7 +596,8 @@ export struct NowPlayingPage {
                   .rotate({ angle: this.coverSpinAngle })
                   .objectFit(ImageFit.Cover)
                   .shadow({ radius: 24, color: '#66000000', offsetY: 8 })
-                  // S6 一镜到底：与迷你条封面共享元素；.id() 防打断重影。
+                  // 一镜到底：与迷你条封面共享元素（模态 mount/unmount 时配对
+                  // 飞行）；.id() 防打断重影。
                   .geometryTransition('np.cover')
                   .id('np_cover_full')
                   .transition(TransitionEffect.OPACITY)
@@ -1020,6 +1021,10 @@ export struct NowPlayingPage {
     .width('100%')
     .height('100%')
     .backgroundColor(Theme.background(Theme.isDark()))
+    // 一镜到底：模态的 modalTransition 是 NONE，页面根节点自己挂 OPACITY
+    // 转场让正文随开关淡入淡出（否则硬切）；封面由 geometryTransition 飞行，
+    // 飞行主体是常驻迷你条端（follow: true，不在本页淡入淡出的影响范围内）。
+    .transition(TransitionEffect.OPACITY)
     // S4: 播放列表走原生半模态（官方手势关闭与档位吸附），替代手工覆盖层。
     .bindSheet($$this.showQueue, this.queueSheetBuilder(), {
       detents: [SheetSize.MEDIUM, SheetSize.LARGE],
