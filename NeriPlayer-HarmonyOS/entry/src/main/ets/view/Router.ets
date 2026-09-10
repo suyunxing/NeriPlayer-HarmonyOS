@@ -12,7 +12,7 @@ import { ROUTE_MAIN, RoutePushAction, routePushAction } from './RouteStack';
  * 组件树，同 id 两端从不构成一进一出，共享元素无法配对，是该方案被替换的
  * 原因（迷你条端现以 follow: true 让常驻组件参与转场）。
  */
-const NOW_PLAYING_SPRING: AnimateParam = { curve: curves.interpolatingSpring(0, 1, 328, 36) };
+const NOW_PLAYING_SPRING: AnimateParam = { curve: curves.interpolatingSpring(0, 1, 340, 34) };
 
 /**
  * Full-screen route stack for detail overlays.
