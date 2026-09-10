@@ -91,6 +91,8 @@ export class WindowMetrics {
       // 供 enableSafeArea:false 的全屏播放页模态做头部避让。
       const systemArea = win.getWindowAvoidArea(window.AvoidAreaType.TYPE_SYSTEM);
       const topInset = topInsetFor(systemArea.topRect.height, density);
+      AppStorage.setOrCreate('ui.windowWidthVp', widthVp);
+      AppStorage.setOrCreate('ui.windowHeightVp', density > 0 ? rect.height / density : rect.height);
       AppStorage.setOrCreate(KEY_WIDTH_VP, Math.round(widthVp));
       AppStorage.setOrCreate(KEY_BREAKPOINT, breakpointFor(widthVp));
       AppStorage.setOrCreate(KEY_BOTTOM_LIFT_VP, lift);

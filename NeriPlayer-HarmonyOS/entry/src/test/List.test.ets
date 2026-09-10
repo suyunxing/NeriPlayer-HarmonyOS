@@ -81,6 +81,7 @@ import playbackCacheLedgerTest from './ets/test/PlaybackCacheLedger.test';
 import audioQualityPolicyTest from './ets/test/AudioQualityPolicy.test';
 import historyRepositoryTest from './ets/test/HistoryRepository.test';
 import volumeFaderTest from './ets/test/VolumeFader.test';
+import nowPlayingMotionTest from './ets/test/NowPlayingMotion.test';
 
 export default function testsuite(): void {
   lrcParserTest();
@@ -166,4 +167,5 @@ export default function testsuite(): void {
   audioQualityPolicyTest();
   historyRepositoryTest();
   volumeFaderTest();
+  nowPlayingMotionTest();
 }

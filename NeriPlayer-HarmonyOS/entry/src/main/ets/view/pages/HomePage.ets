@@ -48,6 +48,8 @@ export struct HomePage {
    */
   @StorageProp('np.default_start_tab') activeTab: number = 0;
   @StorageProp('ui.refreshTick') @Watch('onRefreshTick') refreshTick: number = 0;
+  // 手势条避让：Scroll 延伸进底部安全区后，列表尾部的额外让位高度。
+  @StorageProp('ui.bottomLiftVp') bottomLift: number = 0;
 
   private onRefreshTick(): void {
     if (this.activeTab === TAB_INDEX) {
@@ -476,12 +478,15 @@ export struct HomePage {
           }
         }
         .width('100%')
-        .padding({ top: TITLEBAR_SPACE_VP, left: 14, right: 14, bottom: 24 + FLOAT_TAB_CLEARANCE })
+        .padding({ top: TITLEBAR_SPACE_VP, left: 14, right: 14, bottom: 24 + FLOAT_TAB_CLEARANCE + this.bottomLift })
       }
       .scrollBar(BarState.Off)
       .align(Alignment.Top)
       .width('100%')
       .height('100%')
+      // 视口延伸进底部手势条区域：滚动内容真实透到系统指示条后面，配
+      // MainShell 底部渐变遮罩保证可读性（不再垫纯色带）。
+      .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM])
       .backgroundColor(this.schemeBg(Theme.isDark()))
   }
 }

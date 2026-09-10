@@ -23,6 +23,7 @@ import { DownloadEngine } from '../../download/DownloadEngine';
 import { DownloadStorage } from '../../download/DownloadStorage';
 import { AlbumSongs } from '../../util/AlbumSongs';
 import { Router } from '../Router';
+import { NowPlayingMotion } from '../NowPlayingMotion';
 import { formatDuration } from '../components/Ui';
 
 const SPEED_STEPS: number[] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
@@ -41,6 +42,7 @@ const IMMERSIVE_EDGES: SafeAreaEdge[] = [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM];
 
 @Component
 export struct NowPlayingPage {
+  @Prop transitionProgress: number = 1;
   @StorageLink('player.currentSong') @Watch('onSongJsonChanged') currentSongJson: string = '';
   @StorageLink('player.status') @Watch('onSpinStatusChanged') status: number = PlaybackStatus.IDLE;
   @StorageLink('player.positionMs') positionMs: number = 0;
@@ -557,9 +559,6 @@ export struct NowPlayingPage {
       // Blur the cover itself, never sample the home page behind this panel.
       .backgroundColor(this.im().background)
       .expandSafeArea(IMMERSIVE_TYPES, IMMERSIVE_EDGES)
-      .geometryTransition('np.bar')
-      .id('np_bar_full')
-      .transition(TransitionEffect.opacity(0.999))
 
       Column() {
         Row() {
@@ -623,16 +622,8 @@ export struct NowPlayingPage {
         }
         .width('100%')
         .padding({ left: 10, right: 10, top: 8 })
-        .transition(
-          TransitionEffect.asymmetric(
-            TransitionEffect.OPACITY
-              .combine(TransitionEffect.translate({ y: -16 }))
-              .animation({ duration: 380, curve: Curve.EaseOut }),
-            TransitionEffect.OPACITY
-              .combine(TransitionEffect.translate({ y: -16 }))
-              .animation({ duration: 300, curve: Curve.EaseIn })
-          )
-        )
+        .translate({ y: NowPlayingMotion.rowOffset(this.transitionProgress, 0) })
+        .opacity(NowPlayingMotion.rowOpacity(this.transitionProgress, 0))
 
         // 播放页↔歌词页横向分页。LyricView 的根节点是 layoutWeight(1) 的
         // Scroll，在 Swiper item 里必须包一层定高 Column，否则高度塌 0。
@@ -649,11 +640,6 @@ export struct NowPlayingPage {
                   .rotate({ angle: this.coverSpinAngle })
                   .objectFit(ImageFit.Cover)
                   .shadow({ radius: 24, color: '#66000000', offsetY: 8 })
-                  // 一镜到底：与迷你条封面共享元素（模态 mount/unmount 时配对
-                  // 飞行）；.id() 防打断重影。非对称转场参数与 np.bar 同理。
-                  .geometryTransition('np.cover')
-                  .id('np_cover_full')
-                  .transition(TransitionEffect.opacity(0.999))
               } else {
                 Image($r('app.media.ic_music_note_24'))
                   .width('78%')
@@ -677,12 +663,6 @@ export struct NowPlayingPage {
                   .maxLines(1)
                   .textOverflow({ overflow: TextOverflow.Ellipsis })
                   .layoutWeight(1)
-                  // 一镜到底：与迷你条标题共享元素，歌名从条内原位放大飞入
-                  // （参考实现的文字形变）。非对称转场参数与 np.bar 同理；
-                  // .id() 防打断重影。
-                  .geometryTransition('np.title')
-                  .id('np_title_full')
-                  .transition(TransitionEffect.opacity(0.999))
                 Image(this.favorite
                   ? $r('app.media.ic_baseline_favorite_24')
                   : $r('app.media.ic_outline_favorite_24'))
@@ -691,16 +671,6 @@ export struct NowPlayingPage {
                   .fillColor(this.favorite ? Theme.danger(false) : this.im().textSecondary)
                   .padding(6)
                   .onClick(() => this.toggleFavorite())
-                  .transition(
-                    TransitionEffect.asymmetric(
-                      TransitionEffect.OPACITY
-                        .combine(TransitionEffect.translate({ y: 32 }))
-                        .animation({ duration: 400, curve: Curve.EaseOut }),
-                      TransitionEffect.OPACITY
-                        .combine(TransitionEffect.translate({ y: 44 }))
-                        .animation({ duration: 320, curve: Curve.Friction })
-                    )
-                  )
               }
               .width('100%')
 
@@ -710,19 +680,11 @@ export struct NowPlayingPage {
                 .maxLines(1)
                 .textOverflow({ overflow: TextOverflow.Ellipsis })
                 .width('100%')
-                .transition(
-                  TransitionEffect.asymmetric(
-                    TransitionEffect.OPACITY
-                      .combine(TransitionEffect.translate({ y: 32 }))
-                      .animation({ duration: 400, curve: Curve.EaseOut }),
-                    TransitionEffect.OPACITY
-                      .combine(TransitionEffect.translate({ y: 44 }))
-                      .animation({ duration: 320, curve: Curve.Friction })
-                  )
-                )
             }
             .width('100%')
             .padding({ left: 24, right: 24 })
+            .translate({ y: NowPlayingMotion.rowOffset(this.transitionProgress, 2) })
+            .opacity(NowPlayingMotion.rowOpacity(this.transitionProgress, 2))
           }
           .width('100%')
           .height('100%')
@@ -754,6 +716,8 @@ export struct NowPlayingPage {
         .layoutWeight(1)
         .width('100%')
         .onChange((index: number) => this.switchPane(index))
+        .translate({ y: NowPlayingMotion.rowOffset(this.transitionProgress, 1) })
+        .opacity(NowPlayingMotion.rowOpacity(this.transitionProgress, 1))
 
         // 控制区只有一个（在 Swiper 外），歌词页通过 lyricsMode 收拢成
         // 无底控件行：传输键不重复实现，单一数据源。控件直接叠在毛玻璃
@@ -776,12 +740,8 @@ export struct NowPlayingPage {
                   this.previewMs = fraction >= 0 ? Math.round(fraction * Math.max(1, this.durationMs)) : -1;
                 }
               })
-              // 一镜到底：与迷你条进度指示（紧凑形态=播放键外圈细环，独立
-              // 形态=顶部 2vp 细条）共享元素；.id() 防打断重影。非对称转场
-              // 参数与 np.bar 同理。
-              .geometryTransition('np.progress')
-              .id('np_progress_full')
-              .transition(TransitionEffect.opacity(0.999))
+              .translate({ y: NowPlayingMotion.rowOffset(this.transitionProgress, 3) })
+              .opacity(NowPlayingMotion.rowOpacity(this.transitionProgress, 3))
 
               Row() {
                 Text(formatDuration(this.previewMs >= 0 ? this.previewMs : this.positionMs))
@@ -793,6 +753,8 @@ export struct NowPlayingPage {
                   .fontColor(this.im().textSecondary)
               }
               .width('100%')
+              .translate({ y: NowPlayingMotion.rowOffset(this.transitionProgress, 3) })
+              .opacity(NowPlayingMotion.rowOpacity(this.transitionProgress, 3))
 
               // 传输行只保留上一曲/播放暂停/下一曲；播放模式收进下方控件行。
               // 上一曲/下一曲放大到 58/30，与 64/34 的主播放键形成尺寸梯度。
@@ -817,11 +779,6 @@ export struct NowPlayingPage {
                   label: this.status === PlaybackStatus.PLAYING ? '暂停' : '播放',
                   onTap: () => PlayerManager.togglePlayPause()
                 })
-                // 一镜到底：与迷你条播放键共享元素（常驻端 follow 侧在
-                // MiniPlayer）；.id() 防打断重影。非对称转场参数与 np.bar 同理。
-                .geometryTransition('np.play')
-                .id('np_play_full')
-                .transition(TransitionEffect.opacity(0.999))
                 PlayerControlButton({
                   icon: $r('app.media.round_skip_next_24'),
                   tintOn: this.im().textPrimary,
@@ -831,17 +788,12 @@ export struct NowPlayingPage {
                   label: '下一首',
                   onTap: () => PlayerManager.next(false)
                 })
-                // 一镜到底：与迷你条下一首键共享元素——横向条形 UI 的每个
-                // 图形元素都参与过渡（参考实现）。挂法与 np.play 相同
-                // （自定义组件同样支持通用属性）；miniNextButton 关闭时无
-                // 配对端，退化为普通淡入。非对称转场参数同 np.bar。
-                .geometryTransition('np.next')
-                .id('np_next_full')
-                .transition(TransitionEffect.opacity(0.999))
               }
               .width('100%')
               .padding({ top: 6 })
               .justifyContent(FlexAlign.SpaceEvenly)
+              .translate({ y: NowPlayingMotion.rowOffset(this.transitionProgress, 4) })
+              .opacity(NowPlayingMotion.rowOpacity(this.transitionProgress, 4))
 
               // 无背景裸图标行（鸿蒙标准符号）；去背景后状态靠颜色区分，
               // 文字信息（1.0x、剩余分钟）由无障碍文案补偿。
@@ -916,9 +868,10 @@ export struct NowPlayingPage {
               // 页面最底部的固定控件行：相对系统导航指示器上抬，抬升量取自真实
               // 避让区（见 util/WindowMetrics.ets），无指示器的形态为 0。
               .padding({ top: 12, bottom: this.bottomLift })
+              .translate({ y: NowPlayingMotion.rowOffset(this.transitionProgress, 5) })
+              .opacity(NowPlayingMotion.rowOpacity(this.transitionProgress, 5))
             }
             .width('100%')
-            .transition(TransitionEffect.opacity(0.999))
           } else if (this.lyricPageControls) {
             // 歌词页控件行（np.lyric_page_controls 关闭时整行隐藏）：歌词 / 上一首 /
             // 播放暂停 / 下一首 / 收藏。The reference uses one outlined, translucent
@@ -1009,16 +962,8 @@ export struct NowPlayingPage {
             .border({ width: 1, color: '#52FFFFFF', radius: 32 })
             .borderRadius(32)
             .margin({ bottom: 8 })
-            .transition(
-              TransitionEffect.asymmetric(
-                TransitionEffect.OPACITY
-                  .combine(TransitionEffect.translate({ y: 24 }))
-                  .animation({ duration: 280, curve: Curve.EaseOut }),
-                TransitionEffect.OPACITY
-                  .combine(TransitionEffect.translate({ y: 36 }))
-                  .animation({ duration: 240, curve: Curve.Friction })
-              )
-            )
+            .translate({ y: NowPlayingMotion.rowOffset(this.transitionProgress, 4) })
+            .opacity(NowPlayingMotion.rowOpacity(this.transitionProgress, 4))
           }
         }
         .width('100%')
@@ -1130,7 +1075,6 @@ export struct NowPlayingPage {
     .width('100%')
     .height('100%')
     // Keep the subtree alive on the same timeline as its shared geometry.
-    .transition(TransitionEffect.opacity(0.999))
     // S4: 播放列表走原生半模态（官方手势关闭与档位吸附），替代手工覆盖层。
     .bindSheet($$this.showQueue, this.queueSheetBuilder(), {
       detents: [SheetSize.MEDIUM, SheetSize.LARGE],

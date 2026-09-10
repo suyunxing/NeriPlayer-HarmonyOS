@@ -1,9 +1,6 @@
 import { KEY_REFRESH_TICK } from '../util/Breakpoint';
 import { ROUTE_MAIN, RoutePushAction, routePushAction } from './RouteStack';
 
-/** Shared geometry and modal lifetime use one bounded animation. */
-export const NOW_PLAYING_TRANSITION: AnimateParam = { duration: 480, curve: Curve.Friction };
-
 /**
  * Full-screen route stack for detail overlays.
  *
@@ -60,19 +57,8 @@ export class Router {
 
   static push(name: string, param: string = ''): void {
     if (name === Router.NOW_PLAYING) {
-      // 播放页 = 壳层全屏模态：开关写给 AppStorage，由 MainShell 的
-      // bindContentCover 消费。所有入口统一在这里包 animateTo，封面才能沿
-      // 共享元素飞进模态；已展开时幂等返回（对齐旧的栈顶同名去重）。
-      if (Router.nowPlayingShown()) {
-        return;
-      }
-      if (Router.uiContext === null) {
-        AppStorage.setOrCreate(Router.KEY_NOW_PLAYING_SHOWN, true);
-        return;
-      }
-      Router.uiContext.animateTo(NOW_PLAYING_TRANSITION, () => {
-        AppStorage.setOrCreate(Router.KEY_NOW_PLAYING_SHOWN, true);
-      });
+      // The shell owns visual progress and keeps the modal mounted through exit.
+      AppStorage.setOrCreate(Router.KEY_NOW_PLAYING_SHOWN, true);
       return;
     }
     const stack = Router.pathStack;
@@ -112,17 +98,9 @@ export class Router {
   }
 
   static pop(): void {
-    // 模态打开时「返回」永远指收起播放页：模态盖住整个 Navigation，用户感知
-    // 不到底下的栈顶。收起走 animateTo，封面沿共享元素飞回迷你条；返回键/
-    // 侧滑由模态的 onWillDismiss 汇入这里，播放页返回按钮也直接调用。
-    if (Router.nowPlayingShown()) {
-      if (Router.uiContext === null) {
-        AppStorage.setOrCreate(Router.KEY_NOW_PLAYING_SHOWN, false);
-        return;
-      }
-      Router.uiContext.animateTo(NOW_PLAYING_TRANSITION, () => {
-        AppStorage.setOrCreate(Router.KEY_NOW_PLAYING_SHOWN, false);
-      });
+    // Repeated back presses during exit must not pop the route underneath.
+    if (Router.nowPlayingShown() || AppStorage.get<boolean>('ui.nowPlayingMounted') === true) {
+      AppStorage.setOrCreate(Router.KEY_NOW_PLAYING_SHOWN, false);
       return;
     }
     const stack = Router.pathStack;
@@ -134,7 +112,7 @@ export class Router {
 
   /** True while a full-screen route or the now-playing modal is showing, i.e. back has something to close. */
   static canPop(): boolean {
-    if (Router.nowPlayingShown()) {
+    if (Router.nowPlayingShown() || AppStorage.get<boolean>('ui.nowPlayingMounted') === true) {
       return true;
     }
     const stack = Router.pathStack;

@@ -1,4 +1,5 @@
-import { Router, NOW_PLAYING_TRANSITION } from '../Router';
+import { Router } from '../Router';
+import { NowPlayingMotion, NowPlayingRect } from '../NowPlayingMotion';
 import { Theme } from '../Theme';
 import { common } from '@kit.AbilityKit';
 import { SystemBars } from '../../util/SystemBars';
@@ -65,7 +66,80 @@ export struct MainShell {
    * key），下方 bindContentCover 消费。字面量须与 Router.KEY_NOW_PLAYING_SHOWN
    * 一致（装饰器参数只收字面量）。
    */
-  @StorageLink('ui.nowPlayingShown') nowPlayingShown: boolean = false;
+  @StorageLink('ui.nowPlayingShown') @Watch('onNowPlayingRequested') nowPlayingShown: boolean = false;
+  @StorageLink('ui.nowPlayingMounted') modalMounted: boolean = false;
+  @StorageProp('ui.windowWidthVp') windowWidth: number = 360;
+  @StorageProp('ui.windowHeightVp') windowHeight: number = 800;
+  @State motionProgress: number = 0;
+  @State miniRect: NowPlayingRect = { x: 16, y: 640, width: 328, height: 40 };
+  @State originRect: NowPlayingRect = { x: 16, y: 640, width: 328, height: 40 };
+  private motionTimer: number = -1;
+  private lastMotionTime: number = 0;
+  private modalReady: boolean = false;
+  private pendingDismiss: DismissContentCoverAction | undefined = undefined;
+
+  private stopMotion(): void {
+    if (this.motionTimer >= 0) {
+      clearInterval(this.motionTimer);
+      this.motionTimer = -1;
+    }
+  }
+
+  private onNowPlayingRequested(): void {
+    if (this.nowPlayingShown && !this.modalMounted) {
+      this.originRect = this.miniRect;
+      this.motionProgress = 0;
+      this.modalMounted = true;
+      return;
+    }
+    if (this.nowPlayingShown) {
+      this.pendingDismiss = undefined;
+    }
+    if (this.modalReady) {
+      this.startMotion();
+    }
+  }
+
+  private startMotion(): void {
+    this.stopMotion();
+    this.lastMotionTime = Date.now();
+    this.motionTimer = setInterval(() => {
+      const now = Date.now();
+      const step = Math.max(0, now - this.lastMotionTime) / NowPlayingMotion.DURATION_MS;
+      this.lastMotionTime = now;
+      this.motionProgress = NowPlayingMotion.clamp(this.motionProgress + (this.nowPlayingShown ? step : -step));
+      if (this.motionProgress === 1 && this.nowPlayingShown) {
+        this.stopMotion();
+      } else if (this.motionProgress === 0 && !this.nowPlayingShown) {
+        this.stopMotion();
+        this.modalReady = false;
+        this.modalMounted = false;
+        const dismiss = this.pendingDismiss;
+        this.pendingDismiss = undefined;
+        dismiss?.dismiss();
+      }
+    }, 16);
+  }
+
+  private panelRect(): NowPlayingRect {
+    return NowPlayingMotion.panel(this.motionProgress, this.originRect, this.windowWidth, this.windowHeight);
+  }
+
+  private miniOpacity(): number {
+    if (this.nowPlayingShown) {
+      return 1 - NowPlayingMotion.segment(this.motionProgress, 0.035, 0.16);
+    }
+    return NowPlayingMotion.miniReturnOpacity(this.panelRect().y, this.windowHeight, this.originRect.y);
+  }
+
+  private miniY(): number {
+    // On return the compact row remains at the panel's original internal top
+    // inset (0vp row, 4vp cover). No independent translation can detach it.
+    return this.nowPlayingShown
+      ? this.originRect.y - 22 * NowPlayingMotion.spring(NowPlayingMotion.segment(this.motionProgress, 0, 0.16))
+      : this.panelRect().y;
+  }
+
   /**
    * 官方 FAQ 对 HdsNavigation + HdsTabs 组合的要求：每个 Tab 的滚动容器持独立
    * Scroller，标题栏只绑定当前可见 Tab 的那一个；实例经构造参数下发给各 Tab 页。
@@ -76,7 +150,12 @@ export struct MainShell {
   @Builder
   miniBarBuilder() {
     if (this.currentSongJson.length > 0) {
-      MiniPlayer({ compact: true })
+      MiniPlayer({ compact: true, onMeasured: (area: Area): void => {
+        this.miniRect = {
+          x: Number(area.globalPosition.x), y: Number(area.globalPosition.y),
+          width: Number(area.width), height: Number(area.height)
+        };
+      } })
     }
   }
 
@@ -114,11 +193,6 @@ export struct MainShell {
     return this.breakpoint === BP_LG;
   }
 
-  /** Match Index's background beneath the floating tab bar and system indicator. */
-  private bandColor(): string {
-    return Theme.background(this.resolveDark());
-  }
-
   private paramText(param: Object): string {
     return typeof param === 'string' ? param as string : '';
   }
@@ -141,6 +215,10 @@ export struct MainShell {
   }
 
   aboutToDisappear(): void {
+    this.stopMotion();
+    this.modalReady = false;
+    this.pendingDismiss = undefined;
+    this.modalMounted = false;
     Router.detach();
   }
 
@@ -189,6 +267,7 @@ export struct MainShell {
     TabContent() {
       HomePage({ scroller: this.tabScrollers[0] })
     }
+    .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM])
     .tabBar(this.wide()
       ? this.sideTabBar(0, '首页', $r('app.media.ic_tab_home_24'))
       : this.bottomTabBar(0, '首页', $r('app.media.ic_tab_home_24')))
@@ -270,13 +349,37 @@ export struct MainShell {
   }
 
   /**
-   * 一镜到底播放页的模态内容。动画分工：modalTransition NONE 关掉系统推拉，
-   * 封面几何飞行由 Router 的 animateTo + geometryTransition('np.cover') 提供，
-   * 页面正文淡入淡出由 NowPlayingPage 根节点的 OPACITY 转场提供。
+   * 一镜到底播放页的模态内容。动画分工：modalTransition NONE 关掉系统推拉；
+   * 面板几何（mini 矩形 → 全窗）由 MainShell 的 motionProgress 驱动，内容行
+   * 的分层弹入由 NowPlayingMotion 纯函数按同一进度计算（见 NowPlayingPage）。
    */
   @Builder
   nowPlayingBuilder() {
-    NowPlayingPage()
+    Stack({ alignContent: Alignment.TopStart }) {
+      Stack({ alignContent: Alignment.TopStart }) {
+        NowPlayingPage({ transitionProgress: this.motionProgress })
+          .width(this.windowWidth)
+          .height(this.windowHeight)
+          .position({ x: -this.panelRect().x, y: -this.panelRect().y })
+          .hitTestBehavior(this.motionProgress === 1 ? HitTestMode.Default : HitTestMode.None)
+      }
+      .width(this.panelRect().width)
+      .height(this.panelRect().height)
+      .borderRadius(20 * (1 - NowPlayingMotion.segment(this.motionProgress, 0, 0.68)))
+      .clip(true)
+      .position({ x: this.panelRect().x, y: this.panelRect().y })
+
+      if (this.currentSongJson.length > 0) {
+        MiniPlayer({ compact: true, presentationOnly: true })
+          .width(this.originRect.width)
+          .height(this.originRect.height)
+          .position({ x: this.originRect.x, y: this.miniY() })
+          .opacity(this.miniOpacity())
+          .hitTestBehavior(HitTestMode.None)
+      }
+    }
+    .width('100%')
+    .height('100%')
   }
 
   build() {
@@ -300,10 +403,7 @@ export struct MainShell {
             // 又变回「22vp 图标在 240vp 格子里空转」。
             .barMode(BarMode.Scrollable)
             .barBackgroundColor(Theme.surface(this.resolveDark()))
-            // Tabs 容器自身会延伸到窗口物理底边（内部安全区处理），给它
-            // 上背景色后，系统导航条那条带跟随 Tab 栏同色，不出现色差
-            // 接缝。页面根节点都不透明，surface 只在条带处可见。
-            .backgroundColor(this.bandColor())
+            .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM])
             .animationDuration(250)
             .scrollable(false)
             .layoutWeight(1)
@@ -335,7 +435,7 @@ export struct MainShell {
               },
               systemMaterialEffect: this.systemMaterialEffect()
             })
-            .backgroundColor(this.bandColor())
+            .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM])
             .animationDuration(250)
             // 不允许左右滑动切页：保持改造前的行为，也避免与首页每日推荐的
             // 横向 Scroll、播放页 WaveformSlider 争手势。
@@ -350,17 +450,36 @@ export struct MainShell {
         .width('100%')
         .height('100%')
         .backgroundColor(Theme.background(this.resolveDark()))
+        .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM])
 
         // In-app floating lyric overlay (D4 fallback), floats above content;
         // 顶部让位 MINI 标题栏（56vp），不再压进标题栏材质区。
         FloatingLyricBar()
           .margin({ top: TITLEBAR_SPACE_VP + 4 })
 
+        // 手势条渐变遮罩：内容真实延伸进底部安全区后不再垫纯色，仅叠一层
+        // 由上到下渐透明的页面底色渐变，保证导航指示条区域的可读性；不拦
+        // 截触摸，播放页模态展开时整层被模态盖住（模态自身无渐变）。
+        Column()
+          .width('100%')
+          .height(this.bottomLift + 8)
+          .linearGradient({
+            direction: GradientDirection.Bottom,
+            colors: [
+              [Theme.withAlpha(Theme.background(this.resolveDark()), 0xD9), 0],
+              [0x00000000, 1]
+            ]
+          })
+          .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM])
+          .hitTestBehavior(HitTestMode.None)
+          .position({ x: 0, y: this.windowHeight - this.bottomLift - 8 })
+
         // MiniPlayer 回归官方 HdsTabsMiniBar 槽位（用户决策）：槽位高度
         // 系统固定，以缩小播放按钮视觉圆（30vp，触控热区仍 40vp）适配。
       }
       .width('100%')
       .height('100%')
+      .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM])
     }
     // 标题栏只绑当前可见 Tab 的 Scroller（官方 FAQ：多 Tab 共用外壳时动态换绑，
     // 避免多滚动容器手势冲突导致模糊失效或抖动）。
@@ -404,11 +523,12 @@ export struct MainShell {
     .navDestination(this.pageMap)
     .width('100%')
     .height('100%')
+    .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM])
     // 一镜到底播放页：全屏模态挂在壳层根上（盖住 Tab 骨架与悬浮栏）。
-    // modalTransition NONE + 透明背板：模态自身不做系统推拉动画，动画全部
-    // 交给 Router 的 animateTo（封面 geometryTransition 飞行）与页面根节点的
-    // OPACITY 转场。返回键/侧滑先到 onWillDismiss：转交 Router.pop() 走带
-    // 动画收起，再 dismiss() 兜底（官方要求注册后必须调用才会真正关闭）。
+    // modalTransition NONE + 透明背板：模态自身不做系统推拉，动画由
+    // motionProgress 单一进度驱动（面板几何 + 内容分层 + MiniBar 衔接）。
+    // 返回键/侧滑先到 onWillDismiss：记录 dismiss 动作并请求收起，进度
+    // 归零后再 dismiss() 兜底（官方要求注册后必须调用才会真正关闭）。
     // onDisappear 收敛开关并通知常驻 Tab 页刷新，覆盖收起与 push 专辑前
     // 收起等全部关闭路径（替代原 NOW_PLAYING destination 的 onWillDisappear）。
     // enableSafeArea 保持默认 false（官方语义：内容不受安全区限制、不避让
@@ -416,12 +536,19 @@ export struct MainShell {
     // 几何转场的飞行矩形才能与最终铺满窗口的矩形一致，沉浸不被系统栏条带
     // 打断；页面正文由 NowPlayingPage 用发布的 ui.topInsetVp/ui.bottomLiftVp
     // 自行避让。
-    .bindContentCover(this.nowPlayingShown, this.nowPlayingBuilder(), {
+    .bindContentCover(this.modalMounted, this.nowPlayingBuilder(), {
       modalTransition: ModalTransition.NONE,
       backgroundColor: Color.Transparent,
       enableSafeArea: false,
+      onAppear: () => {
+        this.modalReady = true;
+        this.startMotion();
+      },
       onDisappear: () => {
-        this.nowPlayingShown = false;
+        // A new open request may arrive while the previous modal is unmounting.
+        if (this.modalMounted || this.nowPlayingShown) {
+          return;
+        }
         Router.notifyReturned();
         // 播放页按封面取色改写过系统栏图标颜色，收起动画结束后交回主页
         // 主题配色；立即恢复会让飞行半程的图标压在错误的背景上。
@@ -431,10 +558,8 @@ export struct MainShell {
         }
       },
       onWillDismiss: (action: DismissContentCoverAction) => {
-        this.getUIContext().animateTo(NOW_PLAYING_TRANSITION, () => {
-          this.nowPlayingShown = false;
-          action.dismiss();
-        });
+        this.pendingDismiss = action;
+        Router.pop();
       }
     })
 
