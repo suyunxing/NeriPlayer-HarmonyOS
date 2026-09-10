@@ -465,58 +465,69 @@ export struct NowPlayingPage {
       // 背景先铺封面取色，再以半透明模糊封面补充明暗纹理。浅色模式使用白色
       // wash 保持通透，深色模式再适度压暗；双层封面的交叉淡化仍由
       // transitionCover 维护。
-      Column()
-        .width('100%')
-        .height('100%')
-        .backgroundColor(this.accentHex.length > 0 ? this.accentHex : this.im().background)
-        .expandSafeArea(IMMERSIVE_TYPES, IMMERSIVE_EDGES)
-      // 流光（np.nowplaying_bg_style = 'gradient'）：封面取色 scheme 的三段渐变
-      // 随 gradientAngle 缓慢旋转；不支持角度动画的设备上退化为静态渐变。
-      if (this.bgStyle === 'gradient') {
+      Stack() {
         Column()
           .width('100%')
           .height('100%')
-          .linearGradient({
-            angle: this.gradientAngle,
-            colors: [
-              [this.im().primary, 0],
-              [this.im().secondary, 0.5],
-              [this.im().background, 1]
-            ]
-          })
+          .backgroundColor(this.accentHex.length > 0 ? this.accentHex : this.im().background)
           .expandSafeArea(IMMERSIVE_TYPES, IMMERSIVE_EDGES)
-      }
-      // 封面模糊（默认）：双层封面交叉淡化 + 取强度可调的高斯模糊。
-      Stack() {
-        if (this.bgUnderUrl.length > 0 && this.bgStyle === 'blur') {
-          Image(this.bgUnderUrl)
+        // 流光（np.nowplaying_bg_style = 'gradient'）：封面取色 scheme 的三段渐变
+        // 随 gradientAngle 缓慢旋转；不支持角度动画的设备上退化为静态渐变。
+        if (this.bgStyle === 'gradient') {
+          Column()
             .width('100%')
             .height('100%')
-            .objectFit(ImageFit.Cover)
-            .blur(this.blurStrength * 120 / 500)
-            .scale({ x: 1.35, y: 1.35 })
+            .linearGradient({
+              angle: this.gradientAngle,
+              colors: [
+                [this.im().primary, 0],
+                [this.im().secondary, 0.5],
+                [this.im().background, 1]
+              ]
+            })
             .expandSafeArea(IMMERSIVE_TYPES, IMMERSIVE_EDGES)
         }
-        if (this.bgOverUrl.length > 0 && this.bgStyle === 'blur') {
-          Image(this.bgOverUrl)
-            .width('100%')
-            .height('100%')
-            .objectFit(ImageFit.Cover)
-            .blur(this.blurStrength * 120 / 500)
-            .scale({ x: 1.35, y: 1.35 })
-            .opacity(this.bgOverOpacity)
-            .expandSafeArea(IMMERSIVE_TYPES, IMMERSIVE_EDGES)
+        // 封面模糊（默认）：双层封面交叉淡化 + 取强度可调的高斯模糊。
+        Stack() {
+          if (this.bgUnderUrl.length > 0 && this.bgStyle === 'blur') {
+            Image(this.bgUnderUrl)
+              .width('100%')
+              .height('100%')
+              .objectFit(ImageFit.Cover)
+              .blur(this.blurStrength * 120 / 500)
+              .scale({ x: 1.35, y: 1.35 })
+              .expandSafeArea(IMMERSIVE_TYPES, IMMERSIVE_EDGES)
+          }
+          if (this.bgOverUrl.length > 0 && this.bgStyle === 'blur') {
+            Image(this.bgOverUrl)
+              .width('100%')
+              .height('100%')
+              .objectFit(ImageFit.Cover)
+              .blur(this.blurStrength * 120 / 500)
+              .scale({ x: 1.35, y: 1.35 })
+              .opacity(this.bgOverOpacity)
+              .expandSafeArea(IMMERSIVE_TYPES, IMMERSIVE_EDGES)
+          }
         }
+        .width('100%')
+        .height('100%')
+        .opacity(this.bgStyle === 'blur' ? (Theme.isDark() ? 0.82 : 0.44) : 0)
+        .expandSafeArea(IMMERSIVE_TYPES, IMMERSIVE_EDGES)
+        Column()
+          .width('100%')
+          .height('100%')
+          .backgroundColor(Theme.isDark() ? '#52000000' : '#28FFFFFF')
+          .expandSafeArea(IMMERSIVE_TYPES, IMMERSIVE_EDGES)
       }
       .width('100%')
       .height('100%')
-      .opacity(this.bgStyle === 'blur' ? (Theme.isDark() ? 0.82 : 0.44) : 0)
-      .expandSafeArea(IMMERSIVE_TYPES, IMMERSIVE_EDGES)
-      Column()
-        .width('100%')
-        .height('100%')
-        .backgroundColor(Theme.isDark() ? '#52000000' : '#28FFFFFF')
-        .expandSafeArea(IMMERSIVE_TYPES, IMMERSIVE_EDGES)
+      // 一镜到底：整屏背景与迷你条根容器共享元素，几何/圆角随弹簧补间（常驻
+      // 端 follow 侧在 MiniPlayer，见该文件根节点注释）。背景组包这一层容器
+      // 承载 np.bar：根 Stack 不能再挂几何转场，否则内容层会一并被插值变换。
+      // .id() 防打断重影，OPACITY 兜底无配对端时的硬切。
+      .geometryTransition('np.bar')
+      .id('np_bar_full')
+      .transition(TransitionEffect.OPACITY)
 
       Column() {
         Row() {
@@ -717,6 +728,11 @@ export struct NowPlayingPage {
                   this.previewMs = fraction >= 0 ? Math.round(fraction * Math.max(1, this.durationMs)) : -1;
                 }
               })
+              // 一镜到底：与迷你条进度指示（紧凑形态=播放键外圈细环，独立
+              // 形态=顶部 2vp 细条）共享元素；.id() 防打断重影。
+              .geometryTransition('np.progress')
+              .id('np_progress_full')
+              .transition(TransitionEffect.OPACITY)
 
               Row() {
                 Text(formatDuration(this.previewMs >= 0 ? this.previewMs : this.positionMs))
@@ -752,6 +768,11 @@ export struct NowPlayingPage {
                   label: this.status === PlaybackStatus.PLAYING ? '暂停' : '播放',
                   onTap: () => PlayerManager.togglePlayPause()
                 })
+                // 一镜到底：与迷你条播放键共享元素（常驻端 follow 侧在
+                // MiniPlayer）；.id() 防打断重影。
+                .geometryTransition('np.play')
+                .id('np_play_full')
+                .transition(TransitionEffect.OPACITY)
                 PlayerControlButton({
                   icon: $r('app.media.round_skip_next_24'),
                   tintOn: this.im().textPrimary,
@@ -1059,12 +1080,9 @@ export struct NowPlayingPage {
     .width('100%')
     .height('100%')
     .backgroundColor(Theme.background(Theme.isDark()))
-    // 一镜到底：模态的 modalTransition 是 NONE，页面根节点自己挂 OPACITY
-    // 转场让正文随开关淡入淡出（否则硬切）；封面由 geometryTransition 飞行，
-    // 飞行主体是常驻迷你条端（follow: true，不在本页淡入淡出的影响范围内）。
-    // animation 优先级高于 Router.animateTo 的弹簧（官方转场规则）：弹簧收敛
-    // 尾巴约 800ms，不锁时长时整页毛玻璃背景会比约 300ms 落位的封面多残留
-    // 约半秒，与页面内控件淡出（280ms Friction）对齐。
+    // 一镜到底：模态的 modalTransition 是 NONE，根 Stack 只做满屏布局，
+    // 几何过渡由上方背景组包容器（np.bar）承担，整页内容层的淡入淡出收拢到
+    // 根节点（280ms Friction 避免背景与文字残留）。
     .transition(TransitionEffect.OPACITY.animation({ duration: 280, curve: Curve.Friction }))
     // S4: 播放列表走原生半模态（官方手势关闭与档位吸附），替代手工覆盖层。
     .bindSheet($$this.showQueue, this.queueSheetBuilder(), {

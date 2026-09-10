@@ -136,6 +136,11 @@ export struct MiniPlayer {
             ? Theme.primaryFor(this.seedHex, Theme.isDark())
             : Theme.primary(Theme.isDark()))
           .backgroundColor('#22000000')
+          // 一镜到底：独立形态顶部细条与播放页波形进度条共享元素（见根节点
+          // np.bar 的配对说明）；.id() 防打断重影。
+          .geometryTransition('np.progress', { follow: true })
+          .id('np_progress_linear_mini')
+          .transition(TransitionEffect.OPACITY)
       }
 
       Row({ space: 12 }) {
@@ -233,6 +238,11 @@ export struct MiniPlayer {
                   .style({ strokeWidth: 2 })
                   .color(this.scheme().primary)
                   .backgroundColor(this.ringTrackColor())
+                  // 一镜到底：紧凑形态没有顶部细条，改由播放键外圈进度环与
+                  // 播放页波形进度条共享元素（见根节点 np.bar 的配对说明）。
+                  .geometryTransition('np.progress', { follow: true })
+                  .id('np_progress_mini')
+                  .transition(TransitionEffect.OPACITY)
               }
               // S6: 官方符号替换动效（CROSS_FADE），播放/暂停切换不再是硬切。
               SymbolGlyph(this.status === PlaybackStatus.PLAYING
@@ -250,6 +260,12 @@ export struct MiniPlayer {
           // Icon-only control: without an explicit label a screen reader reads
           // nothing at all (device audit 2026-08-24 found 9 such buttons).
           .accessibilityText(this.status === PlaybackStatus.PLAYING ? '暂停' : '播放')
+          // 一镜到底：播放键与播放页底部大播放键共享元素，圆盘从条尾飞入
+          // 控制行正中（见根节点 np.bar 的配对说明）；.id() 防打断重影。
+          // 不随文字区整体淡出（淡出分组说明见下）。
+          .geometryTransition('np.play', { follow: true })
+          .id('np_play_mini')
+          .transition(TransitionEffect.OPACITY)
           .onClick(() => {
             PlayerManager.togglePlayPause();
           })
@@ -273,6 +289,9 @@ export struct MiniPlayer {
           }
         }
         .layoutWeight(1)
+        // 一镜到底淡出分组：播放页展开时条内文字与下一首键渐隐避让，播放键
+        // 不在此列——它是 np.play 共享元素的常驻端，跟着几何飞行走；把它也
+        // 压成 0 会让飞行主体中途消失（几何插值的是透明度为 0 的残影）。
         .opacity(this.nowPlayingShown ? 0 : 1)
         .animation({ duration: 240, curve: Curve.EaseOut })
       }
@@ -330,5 +349,13 @@ export struct MiniPlayer {
     .clip(true)
     .margin(this.compact ? { left: 0, right: 0, bottom: 0 } : { left: 10, right: 10, bottom: 8 })
     .shadow(this.compact ? { radius: 0, color: '#00000000' } : { radius: 12, color: '#22000000', offsetY: 2 })
+    // 一镜到底：整条迷你条与播放页整屏背景共享元素，圆角 16/20vp ↔ 0vp、
+    // 高度 40/60vp ↔ 全屏的几何插值都由系统补间。常驻端 follow（同 np.cover
+    // 范式）；.id() 防打断重影。条内另外三对共享元素：封面 np.cover、播放
+    // 键 np.play、进度 np.progress（紧凑形态是播放键外圈细环，独立形态是
+    // 顶部 2vp 细条）。
+    .geometryTransition('np.bar', { follow: true })
+    .id('np_bar_mini')
+    .transition(TransitionEffect.OPACITY)
   }
 }
