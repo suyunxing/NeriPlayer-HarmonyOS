@@ -1,5 +1,7 @@
 import { Router } from '../Router';
 import { Theme } from '../Theme';
+import { common } from '@kit.AbilityKit';
+import { SystemBars } from '../../util/SystemBars';
 import { HdsTabs, HdsBarLayoutMode, hdsMaterial, SystemMaterialParams } from '@kit.UIDesignKit';
 import { HdsTabsAttribute } from '@kit.UIDesignKit';
 import { HdsNavigation, HdsNavigationTitleMode, ScrollEffectType, BlurStrategy } from '@kit.UIDesignKit';
@@ -282,6 +284,9 @@ export struct MainShell {
   }
 
   build() {
+    // 外层 Stack 只为一镜到底服务：播放页模态展开/收起时把整个壳层（含
+    // HdsNavigation 标题栏）压暗，模态本身透明，主页从卡片边缘透出。
+    Stack() {
     // S4 曾因「模拟器上 navDestination 内容子树不挂载」回退标准 Navigation；
     // 真机复测无此问题（2026-09-10 用户确认），外壳按官方标准启用 HdsNavigation：
     // MINI 标题栏统一承载四个 Tab 的标题（各 Tab 页内大标题随之移除，避免双标题），
@@ -410,21 +415,44 @@ export struct MainShell {
     // 动画收起，再 dismiss() 兜底（官方要求注册后必须调用才会真正关闭）。
     // onDisappear 收敛开关并通知常驻 Tab 页刷新，覆盖收起与 push 专辑前
     // 收起等全部关闭路径（替代原 NOW_PLAYING destination 的 onWillDisappear）。
+    // enableSafeArea 保持默认 false（官方语义：内容不受安全区限制、不避让
+    // 状态栏与导航条）——状态栏/导航条区域从头到尾属于播放页自己的背景层，
+    // 几何转场的飞行矩形才能与最终铺满窗口的矩形一致，沉浸不被系统栏条带
+    // 打断；页面正文由 NowPlayingPage 用发布的 ui.topInsetVp/ui.bottomLiftVp
+    // 自行避让。
     .bindContentCover(this.nowPlayingShown, this.nowPlayingBuilder(), {
       modalTransition: ModalTransition.NONE,
       backgroundColor: Color.Transparent,
-      // 模态内容限制在安全区内（对齐原 NavDestination 的默认避让），页面
-      // 背景层自带的 expandSafeArea 仍可延伸进系统栏。
-      enableSafeArea: true,
+      enableSafeArea: false,
       onDisappear: () => {
         this.nowPlayingShown = false;
         Router.notifyReturned();
+        // 播放页按封面取色改写过系统栏图标颜色，收起动画结束后交回主页
+        // 主题配色；立即恢复会让飞行半程的图标压在错误的背景上。
+        const context = this.getUIContext().getHostContext();
+        if (context !== undefined) {
+          SystemBars.apply(context as common.UIAbilityContext, this.resolveDark());
+        }
       },
       onWillDismiss: (action: DismissContentCoverAction) => {
         Router.pop();
         action.dismiss();
       }
     })
+
+    // 一镜到底背板：模态展开/收起期间主页整体压暗（参考实现为背景色 wash，
+    // 悬浮 Tab 栏与迷你条一并压暗）。透明度绑定 nowPlayingShown，在 Router
+    // 的弹簧 animateTo 上下文里随共享元素几何飞行同步插值；不拦截命中测试，
+    // 模态收起后对主页交互零影响。
+    Column()
+      .width('100%')
+      .height('100%')
+      .backgroundColor(Theme.withAlpha(Theme.background(this.resolveDark()), 0x99))
+      .opacity(this.nowPlayingShown ? 1 : 0)
+      .hitTestBehavior(HitTestMode.None)
+    }
+    .width('100%')
+    .height('100%')
   }
 
   private selectTab(index: number): void {

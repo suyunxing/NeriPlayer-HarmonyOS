@@ -3,9 +3,11 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import {
   KEY_BOTTOM_LIFT_VP,
   KEY_BREAKPOINT,
+  KEY_TOP_INSET_VP,
   KEY_WIDTH_VP,
   bottomLiftFor,
-  breakpointFor
+  breakpointFor,
+  topInsetFor
 } from './Breakpoint';
 
 const TAG: string = 'WindowMetrics';
@@ -85,12 +87,17 @@ export class WindowMetrics {
       const widthVp = density > 0 ? rect.width / density : rect.width;
       const indicator = win.getWindowAvoidArea(window.AvoidAreaType.TYPE_NAVIGATION_INDICATOR);
       const lift = bottomLiftFor(indicator.bottomRect.height);
+      // TYPE_SYSTEM.topRect 即状态栏（官方 FAQ faqs-arkui-202/824）；换算成 vp
+      // 供 enableSafeArea:false 的全屏播放页模态做头部避让。
+      const systemArea = win.getWindowAvoidArea(window.AvoidAreaType.TYPE_SYSTEM);
+      const topInset = topInsetFor(systemArea.topRect.height, density);
       AppStorage.setOrCreate(KEY_WIDTH_VP, Math.round(widthVp));
       AppStorage.setOrCreate(KEY_BREAKPOINT, breakpointFor(widthVp));
       AppStorage.setOrCreate(KEY_BOTTOM_LIFT_VP, lift);
-      // 布局度量，无隐私内容；这三个数字是大屏适配与底部避让的取证依据。
-      hilog.info(DOMAIN, TAG, 'width=%{public}dvp bp=%{public}s lift=%{public}dvp',
-        Math.round(widthVp), breakpointFor(widthVp), lift);
+      AppStorage.setOrCreate(KEY_TOP_INSET_VP, topInset);
+      // 布局度量，无隐私内容；这些数字是大屏适配与上下避让的取证依据。
+      hilog.info(DOMAIN, TAG, 'width=%{public}dvp bp=%{public}s lift=%{public}dvp topInset=%{public}dvp',
+        Math.round(widthVp), breakpointFor(widthVp), lift, topInset);
     } catch (error) {
       const e = error as Error;
       hilog.warn(DOMAIN, TAG, 'sample failed: %{public}s', e.message);

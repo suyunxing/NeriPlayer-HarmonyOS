@@ -199,8 +199,16 @@ export struct MiniPlayer {
             .width('100%')
             .clip(true)
             .blendMode(BlendMode.SRC_OVER, BlendApplyType.OFFSCREEN)
+            // 一镜到底：整块标题（含右端渐隐蒙版后的渲染结果）与播放页大
+            // 标题共享元素，歌名从条内原位放大飞入/飞出（参考实现的文字
+            // 形变）。常驻端 follow（同 np.cover 范式）；.id() 防打断重影。
+            // 不参与淡出分组——它是 np.title 的飞行主体。
+            .geometryTransition('np.title', { follow: true })
+            .id('np_title_mini')
+            .transition(TransitionEffect.OPACITY)
 
             // np.mini_show_lyric 开启且正在播放时，这一行优先显示当前歌词行。
+            // 展开播放页时副行随淡出分组渐隐避让（无对应的共享元素端）。
             if (this.showLyricLine()) {
               Text(this.lyricLineText)
                 .fontSize(11)
@@ -208,6 +216,8 @@ export struct MiniPlayer {
                 .maxLines(1)
                 .textOverflow({ overflow: TextOverflow.Ellipsis })
                 .width('100%')
+                .opacity(this.nowPlayingShown ? 0 : 1)
+                .animation({ duration: 320, curve: Curve.EaseOut })
             } else {
               Text(this.song().displayArtist)
                 .fontSize(11)
@@ -215,6 +225,8 @@ export struct MiniPlayer {
                 .maxLines(1)
                 .textOverflow({ overflow: TextOverflow.Ellipsis })
                 .width('100%')
+                .opacity(this.nowPlayingShown ? 0 : 1)
+                .animation({ duration: 320, curve: Curve.EaseOut })
             }
           }
           .layoutWeight(1)
@@ -283,18 +295,23 @@ export struct MiniPlayer {
             .type(ButtonType.Circle)
             .backgroundColor(Color.Transparent)
             .accessibilityText('下一首')
+            // 一镜到底：下一首键与播放页传输行下一首键共享元素——横向条形
+            // UI 全量参与过渡。常驻端 follow；.id() 防打断重影；不随文字区
+            // 淡出（它是 np.next 的飞行主体）。miniNextButton 关闭时无此端，
+            // 播放页侧退化为普通淡入。
+            .geometryTransition('np.next', { follow: true })
+            .id('np_next_mini')
+            .transition(TransitionEffect.OPACITY)
             .onClick(() => {
               PlayerManager.next(false);
             })
           }
         }
         .layoutWeight(1)
-        // 一镜到底淡出分组：播放页展开时条内文字与下一首键渐隐避让，播放键
-        // 不在此列——它是 np.play 共享元素的常驻端，跟着几何飞行走；把它也
-        // 压成 0 会让飞行主体中途消失（几何插值的是透明度为 0 的残影）。
-        // 时长适度延长至 320ms（EaseOut），与放缓后的弹簧平滑交叠。
-        .opacity(this.nowPlayingShown ? 0 : 1)
-        .animation({ duration: 320, curve: Curve.EaseOut })
+        // 旧的一镜到底淡出分组（整个文字行 + 下一首键压 0）已拆散：标题与
+        // 下一首键现在是 np.title / np.next 共享元素的飞行主体，跟随几何
+        // 过渡走；只有无对应端的副行（歌词/歌手）保留淡出避让，时长 320ms
+        // （EaseOut），与放缓后的弹簧平滑交叠。
       }
       .width('100%')
       .height(this.compact ? 40 : 60)
@@ -352,9 +369,10 @@ export struct MiniPlayer {
     .shadow(this.compact ? { radius: 0, color: '#00000000' } : { radius: 12, color: '#22000000', offsetY: 2 })
     // 一镜到底：整条迷你条与播放页整屏背景共享元素，圆角 16/20vp ↔ 0vp、
     // 高度 40/60vp ↔ 全屏的几何插值都由系统补间。常驻端 follow（同 np.cover
-    // 范式）；.id() 防打断重影。条内另外三对共享元素：封面 np.cover、播放
-    // 键 np.play、进度 np.progress（紧凑形态是播放键外圈细环，独立形态是
-    // 顶部 2vp 细条）。
+    // 范式）；.id() 防打断重影。条内五对共享元素：封面 np.cover、标题
+    // np.title、播放键 np.play、下一首键 np.next、进度 np.progress（紧凑
+    // 形态是播放键外圈细环，独立形态是顶部 2vp 细条）——横向条形 UI 全量
+    // 参与平滑过渡。
     .geometryTransition('np.bar', { follow: true })
     .id('np_bar_mini')
     .transition(TransitionEffect.OPACITY)

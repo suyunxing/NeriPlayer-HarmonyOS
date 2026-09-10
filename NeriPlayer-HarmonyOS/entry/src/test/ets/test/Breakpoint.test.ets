@@ -8,7 +8,8 @@ import {
   GUIDELINE_BOTTOM_LIFT_VP,
   bottomLiftFor,
   breakpointFor,
-  isWide
+  isWide,
+  topInsetFor
 } from '../../../main/ets/util/Breakpoint';
 
 /**
@@ -65,6 +66,19 @@ export default function breakpointTest(): void {
       // 取不到避让区时同样不留死区。
       expect(bottomLiftFor(-1)).assertEqual(0);
       expect(bottomLiftFor(Number.NaN)).assertEqual(0);
+    });
+
+    it('converts status bar pixel height to a vp top inset', 0, (): void => {
+      // 手机常见档位：状态栏 76px / 2.0 密度 = 38vp；换算四舍五入取整。
+      expect(topInsetFor(76, 2.0)).assertEqual(38);
+      // 非整除时取整而不是留小数 vp。
+      expect(topInsetFor(100, 3.0)).assertEqual(33);
+      // 取不到避让区或密度异常时不垫死区。
+      expect(topInsetFor(0, 2.0)).assertEqual(0);
+      expect(topInsetFor(-1, 2.0)).assertEqual(0);
+      expect(topInsetFor(Number.NaN, 2.0)).assertEqual(0);
+      expect(topInsetFor(76, 0)).assertEqual(0);
+      expect(topInsetFor(76, Number.NaN)).assertEqual(0);
     });
   });
 }
