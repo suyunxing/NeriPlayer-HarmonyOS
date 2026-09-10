@@ -138,22 +138,12 @@ export struct LoadingState {
 
 @Component
 export struct PlaylistCard {
-  /**
-   * S5: 订阅封面配色（M7.4：build 里读成员才追得上换歌重染色）。
-   */
-  @StorageProp('player.coverScheme') coverScheme: AccentScheme = AccentScheme.neutralFallback();
-
   @Prop name: string;
   @Prop subtitle: string = '';
   @Prop coverUrl: string = '';
   @Prop trackCount: number = 0;
   @Prop isFavorite: boolean = false;
   onOpen: () => void = () => {};
-
-  private schemeSurface(): string {
-    const hasScheme = this.coverScheme.light.background.length > 0;
-    return hasScheme ? Theme.surface(Theme.isDark()) : Theme.surface(Theme.isDark());
-  }
 
   build() {
     Column({ space: 6 }) {
@@ -209,7 +199,6 @@ export struct PlaylistCard {
     }
     .onClick(() => this.onOpen())
     .clickEffect({ level: ClickEffectLevel.LIGHT })
-    .backgroundColor(this.schemeSurface())
   }
 }
 
