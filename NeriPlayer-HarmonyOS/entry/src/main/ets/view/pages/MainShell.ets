@@ -59,6 +59,12 @@ export struct MainShell {
   @StorageProp('player.coverScheme') coverScheme: AccentScheme = AccentScheme.neutralFallback();
   @State currentTab: number = 0;
   /**
+   * 全屏播放页模态开关：Router 在 animateTo 闭包里翻转（AppStorage 同名
+   * key），下方 bindContentCover 消费。字面量须与 Router.KEY_NOW_PLAYING_SHOWN
+   * 一致（装饰器参数只收字面量）。
+   */
+  @StorageLink('ui.nowPlayingShown') nowPlayingShown: boolean = false;
+  /**
    * 官方 FAQ 对 HdsNavigation + HdsTabs 组合的要求：每个 Tab 的滚动容器持独立
    * Scroller，标题栏只绑定当前可见 Tab 的那一个；实例经构造参数下发给各 Tab 页。
    */
@@ -212,8 +218,10 @@ export struct MainShell {
   }
 
   /**
-   * 全屏路由。11 个 if/else 分支从 build() 搬到这里，由 Navigation 按栈顶
+   * 全屏路由。10 个 if/else 分支从 build() 搬到这里，由 Navigation 按栈顶
    * 路由名调用；转场交给系统标准动效，不再自己拼 TransitionEffect。
+   * 播放页不在此列：一镜到底改由 build() 根上的 bindContentCover 全屏模态
+   * 承载（NOW_PLAYING 不再入栈，见 Router 注释）。
    */
   @Builder
   pageMap(name: string, param: Object) {
@@ -221,9 +229,7 @@ export struct MainShell {
     // 子树（与 S0 spike S7 探针一致），路由页回退标准 NavDestination；
     // HdsNavigation 外壳与 HdsTabs 悬浮栏保留。
     NavDestination() {
-      if (name === Router.NOW_PLAYING) {
-        NowPlayingPage()
-      } else if (name === Router.PLAYLIST_DETAIL) {
+      if (name === Router.PLAYLIST_DETAIL) {
         PlaylistDetailPage({ playlistId: this.paramText(param) })
       } else if (name === Router.NETEASE_PLAYLIST) {
         NeteasePlaylistPage({ playlistParam: this.paramText(param) })
@@ -251,21 +257,7 @@ export struct MainShell {
         Column().width('100%').height('100%')
       }
     }
-    // S6: NOW_PLAYING 用共享元素一镜到底时关闭系统默认转场，避免叠加。
-    .systemTransition(name === 'now_playing'
-      ? NavigationSystemTransitionType.NONE : NavigationSystemTransitionType.DEFAULT)
     .hideTitleBar(true)
-    // 返回键与侧滑手势先到这里。NOW_PLAYING 的系统转场是 NONE，不拦截时
-    // 默认返回同样不带动画（整页硬切消失）；拦下来转交 Router.pop()，由它
-    // 挂进共享元素动画上下文让封面飞回迷你条。其余路由返回 false，走系统
-    // 默认返回（DEFAULT 转场自带动效），行为与拦截前一致。
-    .onBackPressed(() => {
-      if (name === Router.NOW_PLAYING) {
-        Router.pop();
-        return true;
-      }
-      return false;
-    })
     // NavDestination 默认背景是不透明白：深色模式下内容区以下的系统
     // 导航条区会露出一截白边。显式置透明，条带回落到 Index 的沉浸背景
     // 层（应用底色），与改造前全屏路由的行为一致；页面正文各自的
@@ -273,9 +265,20 @@ export struct MainShell {
     .backgroundColor(Color.Transparent)
     // destination 被销毁时通知常驻的 Tab 页刷新。一处覆盖四条返回路径：
     // Router.pop()、系统返回键、侧滑返回手势、Router.reset() 的 clear()。
+    //（播放页模态的同类信号在 bindContentCover 的 onDisappear 发出。）
     .onWillDisappear(() => {
       Router.notifyReturned();
     })
+  }
+
+  /**
+   * 一镜到底播放页的模态内容。动画分工：modalTransition NONE 关掉系统推拉，
+   * 封面几何飞行由 Router 的 animateTo + geometryTransition('np.cover') 提供，
+   * 页面正文淡入淡出由 NowPlayingPage 根节点的 OPACITY 转场提供。
+   */
+  @Builder
+  nowPlayingBuilder() {
+    NowPlayingPage()
   }
 
   build() {
@@ -400,6 +403,28 @@ export struct MainShell {
     .navDestination(this.pageMap)
     .width('100%')
     .height('100%')
+    // 一镜到底播放页：全屏模态挂在壳层根上（盖住 Tab 骨架与悬浮栏）。
+    // modalTransition NONE + 透明背板：模态自身不做系统推拉动画，动画全部
+    // 交给 Router 的 animateTo（封面 geometryTransition 飞行）与页面根节点的
+    // OPACITY 转场。返回键/侧滑先到 onWillDismiss：转交 Router.pop() 走带
+    // 动画收起，再 dismiss() 兜底（官方要求注册后必须调用才会真正关闭）。
+    // onDisappear 收敛开关并通知常驻 Tab 页刷新，覆盖收起与 push 专辑前
+    // 收起等全部关闭路径（替代原 NOW_PLAYING destination 的 onWillDisappear）。
+    .bindContentCover(this.nowPlayingShown, this.nowPlayingBuilder(), {
+      modalTransition: ModalTransition.NONE,
+      backgroundColor: Color.Transparent,
+      // 模态内容限制在安全区内（对齐原 NavDestination 的默认避让），页面
+      // 背景层自带的 expandSafeArea 仍可延伸进系统栏。
+      enableSafeArea: true,
+      onDisappear: () => {
+        this.nowPlayingShown = false;
+        Router.notifyReturned();
+      },
+      onWillDismiss: (action: DismissContentCoverAction) => {
+        Router.pop();
+        action.dismiss();
+      }
+    })
   }
 
   private selectTab(index: number): void {
