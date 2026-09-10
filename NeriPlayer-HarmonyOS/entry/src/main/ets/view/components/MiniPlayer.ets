@@ -144,8 +144,10 @@ export struct MiniPlayer {
               .height(this.compact ? 32 : 44)
               .borderRadius(this.compact ? 16 : 8)
               .objectFit(ImageFit.Cover)
-              // S6 一镜到底：与播放页封面共享元素（打断保护靠 .id()）。
-              .geometryTransition('np.cover')
+              // 一镜到底：与播放页大封面共享元素。迷你条封面常驻组件树，
+              // follow 让常驻端参与几何转场（官方模态共享元素范式：同 id 两端
+              // 需一进一出才配对，常驻端必须 follow）；.id() 做打断保护。
+              .geometryTransition('np.cover', { follow: true })
               .id('np_cover_mini')
               .transition(TransitionEffect.OPACITY)
           } else {
@@ -271,9 +273,9 @@ export struct MiniPlayer {
       .height(this.compact ? 40 : 60)
       .padding({ left: this.compact ? 8 : 12, right: this.compact ? 4 : 8 })
       .onClick(() => {
-        // 一镜到底：push/pop 的动画上下文统一收在 Router（NOW_PLAYING 系统
-        // 转场为 NONE，animateTo + geometryTransition('np.cover') 接管封面过渡），
-        // 这里裸 push 即可，各入口的正反半程动画因此一致。
+        // 播放页是壳层全屏模态，打开/收起的动画上下文统一收在 Router
+        // （animateTo + geometryTransition('np.cover')），这里裸 push 即可，
+        // 各入口的正反半程动画因此一致。
         if (this.miniExpandAutoplay && this.status !== PlaybackStatus.PLAYING) {
           // np.mini_expand_autoplay：从底部播放器展开到全屏播放页时自动续播。
           PlayerManager.play().catch(() => {
