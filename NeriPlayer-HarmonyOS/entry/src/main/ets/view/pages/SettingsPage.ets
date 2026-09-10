@@ -12,6 +12,9 @@ import { BAND_LIST_VP } from '../../util/Breakpoint';
 import { LEGAL_AGREEMENT, LEGAL_PRIVACY } from './LegalDocPage';
 import { Router } from '../Router';
 
+/** MINI 标题栏标准高度（MainShell 同名常量）：内容顶部让位，滚动时从标题栏背后滚过。 */
+const TITLEBAR_SPACE_VP: number = 56;
+
 export const SETTING_PLAYBACK: string = 'playback';
 export const SETTING_DOWNLOAD: string = 'download';
 export const SETTING_LYRICS: string = 'lyrics';
@@ -27,6 +30,8 @@ export const SETTING_ABOUT: string = 'about';
 
 @Component
 export struct SettingsPage {
+  /** 滚动控制器：实例由 MainShell 下发，壳层标题栏 bindToScrollable 绑定当前 Tab 的它。 */
+  scroller: Scroller = new Scroller();
   /**
    * S5: 订阅封面配色。Theme.*() 读 AppStorage 是无跟踪调用（M7.4），换歌后
    * 坐在本页的组件不会重建；有了这个成员并在 build 里经 schemeBg() 直读，
@@ -52,18 +57,14 @@ export struct SettingsPage {
   }
 
   build() {
-    Scroll() {
+    // 页内不再自绘标题栏：标题由 MainShell 的 HdsNavigation MINI 标题栏
+    // （GRADIENT_BLUR 渐变模糊）承载，本页只做列表 + 顶部让位，滚动时列表
+    // 从标题栏背后滚过。
+    Scroll(this.scroller) {
       // 840vp 列表栏宽：tablet 1440vp 下设置行的图标贴左边缘、箭头贴右边缘，中间
       // 是一大片空白，一屏只读到七八个标题（审计 §8.2 第 2 条）。
       ContentBand({ maxWidth: BAND_LIST_VP }) {
       Column() {
-        Text('设置')
-          .fontSize(26)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(Theme.textPrimary(Theme.isDark()))
-          .width('100%')
-          .margin({ top: 12, bottom: 4 })
-
         // 设置总览（参考应用的设置中心）：六大分类入口一屏直达，其余分组
         // （网络与存储、平台、隐私、其他）保留在下方。
         Column({ space: 10 }) {
@@ -204,18 +205,17 @@ export struct SettingsPage {
         }
         .width('100%')
               }
-      .width('100%')
-      .padding({ left: 14, right: 14, bottom: 24 + FLOAT_TAB_CLEARANCE })
+        .width('100%')
+      .padding({ top: TITLEBAR_SPACE_VP, left: 14, right: 14, bottom: 24 + FLOAT_TAB_CLEARANCE })
       }
-    }
-    .layoutWeight(1)
-    .scrollBar(BarState.Off)
-    // Scroll 的 align 默认是 Alignment.Center：内容短于视口时（大屏、或字号最小
-    // 档）整份设置项会被甩到屏幕竖向正中，标题留在顶上，读起来是断开的两块。
-    // 设置类页面必须自上而下读，这里显式钉到顶部。
-    .align(Alignment.Top)
-    .width('100%')
-    .height('100%')
-    .backgroundColor(this.schemeBg(Theme.isDark()))
+      }
+      .scrollBar(BarState.Off)
+      // Scroll 的 align 默认是 Alignment.Center：内容短于视口时（大屏、或字号最小
+      // 档）整份设置项会被甩到屏幕竖向正中，标题留在顶上，读起来是断开的两块。
+      // 设置类页面必须自上而下读，这里显式钉到顶部。
+      .align(Alignment.Top)
+      .width('100%')
+      .height('100%')
+      .backgroundColor(this.schemeBg(Theme.isDark()))
   }
 }
