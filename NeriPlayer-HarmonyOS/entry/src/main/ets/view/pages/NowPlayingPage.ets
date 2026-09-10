@@ -580,6 +580,16 @@ export struct NowPlayingPage {
         }
         .width('100%')
         .padding({ left: 10, right: 10, top: 8 })
+        .transition(
+          TransitionEffect.asymmetric(
+            TransitionEffect.OPACITY
+              .combine(TransitionEffect.translate({ y: -12 }))
+              .animation({ duration: 260, curve: Curve.EaseOut }),
+            TransitionEffect.OPACITY
+              .combine(TransitionEffect.translate({ y: -12 }))
+              .animation({ duration: 200, curve: Curve.EaseIn })
+          )
+        )
 
         // 播放页↔歌词页横向分页。LyricView 的根节点是 layoutWeight(1) 的
         // Scroll，在 Swiper item 里必须包一层定高 Column，否则高度塌 0。
@@ -644,6 +654,16 @@ export struct NowPlayingPage {
             }
             .width('100%')
             .padding({ left: 24, right: 24 })
+            .transition(
+              TransitionEffect.asymmetric(
+                TransitionEffect.OPACITY
+                  .combine(TransitionEffect.translate({ y: 24 }))
+                  .animation({ duration: 280, curve: Curve.EaseOut }),
+                TransitionEffect.OPACITY
+                  .combine(TransitionEffect.translate({ y: 36 }))
+                  .animation({ duration: 240, curve: Curve.Friction })
+              )
+            )
           }
           .width('100%')
           .height('100%')
@@ -821,7 +841,16 @@ export struct NowPlayingPage {
               .padding({ top: 12, bottom: this.bottomLift })
             }
             .width('100%')
-            .transition(TransitionEffect.OPACITY.animation({ duration: 280, curve: Curve.Friction }))
+            .transition(
+              TransitionEffect.asymmetric(
+                TransitionEffect.OPACITY
+                  .combine(TransitionEffect.translate({ y: 36 }))
+                  .animation({ duration: 300, curve: Curve.EaseOut }),
+                TransitionEffect.OPACITY
+                  .combine(TransitionEffect.translate({ y: 48 }))
+                  .animation({ duration: 260, curve: Curve.Friction })
+              )
+            )
           } else if (this.lyricPageControls) {
             // 歌词页控件行（np.lyric_page_controls 关闭时整行隐藏）：歌词 / 上一首 /
             // 播放暂停 / 下一首 / 收藏。The reference uses one outlined, translucent
@@ -912,7 +941,16 @@ export struct NowPlayingPage {
             .border({ width: 1, color: '#52FFFFFF', radius: 32 })
             .borderRadius(32)
             .margin({ bottom: 8 })
-            .transition(TransitionEffect.OPACITY.animation({ duration: 280, curve: Curve.Friction }))
+            .transition(
+              TransitionEffect.asymmetric(
+                TransitionEffect.OPACITY
+                  .combine(TransitionEffect.translate({ y: 24 }))
+                  .animation({ duration: 280, curve: Curve.EaseOut }),
+                TransitionEffect.OPACITY
+                  .combine(TransitionEffect.translate({ y: 36 }))
+                  .animation({ duration: 240, curve: Curve.Friction })
+              )
+            )
           }
         }
         .width('100%')

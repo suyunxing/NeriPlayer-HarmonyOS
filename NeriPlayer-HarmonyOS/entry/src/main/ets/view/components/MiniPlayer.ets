@@ -34,6 +34,8 @@ export struct MiniPlayer {
   @StorageProp('player.coverSeedHex') @Watch('onCoverSeedChanged') coverSeedHex: string = '';
   @StorageProp('np.glass_effect') glassEffect: boolean = true;
   @State seedHex: string = '';
+  // 播放页模态显示状态：控制右侧非封面元素在展开/收起时平滑显隐。
+  @StorageProp('ui.nowPlayingShown') nowPlayingShown: boolean = false;
   // 播放器设置（np.mini_next_button / np.mini_show_lyric / np.mini_expand_autoplay）。
   @StorageProp('np.mini_next_button') miniNextButton: boolean = true;
   @StorageProp('np.mini_show_lyric') miniShowLyric: boolean = true;
@@ -163,111 +165,116 @@ export struct MiniPlayer {
           }
         }
 
-        Column({ space: 2 }) {
-          // 标题右端渐隐截断。迷你条背景是毛玻璃非纯色，不能叠一层同色渐变假装
-          // 淡出，必须做真 alpha 蒙版：Stack 先离屏（OFFSCREEN）把文字隔离进自身
-          // 缓冲，渐变层再用 DST_IN 把文字 alpha 乘上渐变 alpha——渐变不透明处
-          // 保留文字，右端透明处文字平滑淡出（Text 无原生渐隐截断，fadeout 仅
-          // 跑马灯适用）。短标题不进入渐变区，不受影响。
-          Stack() {
-            Text(this.song().displayName)
-              .fontSize(14)
-              .fontWeight(FontWeight.Medium)
-              .fontColor(Theme.textPrimary(Theme.isDark()))
-              .maxLines(1)
-              .textOverflow({ overflow: TextOverflow.Clip })
-              .width('100%')
-            Column()
-              .width('100%')
-              .height('100%')
-              .linearGradient({
-                direction: GradientDirection.Right,
-                colors: [[0xFF000000, 0], [0xFF000000, 0.8], [0x00000000, 1]]
-              })
-              // DST_IN 只取渐变的 alpha 做蒙版，颜色通道被丢弃；遮罩层不得拦截点击。
-              .blendMode(BlendMode.DST_IN)
-              .hitTestBehavior(HitTestMode.None)
-          }
-          .width('100%')
-          .clip(true)
-          .blendMode(BlendMode.SRC_OVER, BlendApplyType.OFFSCREEN)
-
-          // np.mini_show_lyric 开启且正在播放时，这一行优先显示当前歌词行。
-          if (this.showLyricLine()) {
-            Text(this.lyricLineText)
-              .fontSize(11)
-              .fontColor(Theme.primary(Theme.isDark()))
-              .maxLines(1)
-              .textOverflow({ overflow: TextOverflow.Ellipsis })
-              .width('100%')
-          } else {
-            Text(this.song().displayArtist)
-              .fontSize(11)
-              .fontColor(Theme.textSecondary(Theme.isDark()))
-              .maxLines(1)
-              .textOverflow({ overflow: TextOverflow.Ellipsis })
-              .width('100%')
-          }
-        }
-        .layoutWeight(1)
-        .alignItems(HorizontalAlign.Start)
-
-        Button() {
-          Stack({ alignContent: Alignment.Center }) {
-            // 紧凑形态：播放键改为透明圆 + 着色三角，外圈 2vp 细环作进度
-            // 显示。已播放 primary 与播放页一致；未播放用主色低透明度
-            // （secondary 明度与 primary 过近，细环上无法区分，见
-            // ringTrackColor 注释）。可见环 30vp（槽位 40vp 行内留出空余
-            // 不被圆角裁），触控热区仍是整个 40vp Button。
-            if (this.compact) {
-              Progress({
-                value: this.positionMs,
-                total: this.durationMs > 0 ? this.durationMs : 1,
-                type: ProgressType.Ring
-              })
-                .width(30)
-                .height(30)
-                .style({ strokeWidth: 2 })
-                .color(this.scheme().primary)
-                .backgroundColor(this.ringTrackColor())
+        Row() {
+          Column({ space: 2 }) {
+            // 标题右端渐隐截断。迷你条背景是毛玻璃非纯色，不能叠一层同色渐变假装
+            // 淡出，必须做真 alpha 蒙版：Stack 先离屏（OFFSCREEN）把文字隔离进自身
+            // 缓冲，渐变层再用 DST_IN 把文字 alpha 乘上渐变 alpha——渐变不透明处
+            // 保留文字，右端透明处文字平滑淡出（Text 无原生渐隐截断，fadeout 仅
+            // 跑马灯适用）。短标题不进入渐变区，不受影响。
+            Stack() {
+              Text(this.song().displayName)
+                .fontSize(14)
+                .fontWeight(FontWeight.Medium)
+                .fontColor(Theme.textPrimary(Theme.isDark()))
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Clip })
+                .width('100%')
+              Column()
+                .width('100%')
+                .height('100%')
+                .linearGradient({
+                  direction: GradientDirection.Right,
+                  colors: [[0xFF000000, 0], [0xFF000000, 0.8], [0x00000000, 1]]
+                })
+                // DST_IN 只取渐变的 alpha 做蒙版，颜色通道被丢弃；遮罩层不得拦截点击。
+                .blendMode(BlendMode.DST_IN)
+                .hitTestBehavior(HitTestMode.None)
             }
-            // S6: 官方符号替换动效（CROSS_FADE），播放/暂停切换不再是硬切。
-            SymbolGlyph(this.status === PlaybackStatus.PLAYING
-              ? $r('sys.symbol.pause_fill')
-              : $r('sys.symbol.play_fill'))
-              .fontSize(this.compact ? 15 : 22)
-              .fontColor([this.compact ? this.scheme().primary : '#FFFFFF'])
-              .symbolEffect(this.replaceEffect, this.symbolTrigger)
-          }
-        }
-        .width(40)
-        .height(40)
-        .type(ButtonType.Circle)
-        .backgroundColor(this.compact ? Color.Transparent : this.playBackground())
-        // Icon-only control: without an explicit label a screen reader reads
-        // nothing at all (device audit 2026-08-24 found 9 such buttons).
-        .accessibilityText(this.status === PlaybackStatus.PLAYING ? '暂停' : '播放')
-        .onClick(() => {
-          PlayerManager.togglePlayPause();
-        })
+            .width('100%')
+            .clip(true)
+            .blendMode(BlendMode.SRC_OVER, BlendApplyType.OFFSCREEN)
 
-        if (this.miniNextButton) {
-          Button() {
-            Image($r('app.media.round_skip_next_24'))
-              .width(this.compact ? 20 : 22)
-              .height(this.compact ? 20 : 22)
-              .fillColor(Theme.textPrimary(Theme.isDark()))
+            // np.mini_show_lyric 开启且正在播放时，这一行优先显示当前歌词行。
+            if (this.showLyricLine()) {
+              Text(this.lyricLineText)
+                .fontSize(11)
+                .fontColor(Theme.primary(Theme.isDark()))
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+                .width('100%')
+            } else {
+              Text(this.song().displayArtist)
+                .fontSize(11)
+                .fontColor(Theme.textSecondary(Theme.isDark()))
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+                .width('100%')
+            }
           }
-          // 36vp measured on device; 40vp is the touch-target floor this port holds to.
+          .layoutWeight(1)
+          .alignItems(HorizontalAlign.Start)
+
+          Button() {
+            Stack({ alignContent: Alignment.Center }) {
+              // 紧凑形态：播放键改为透明圆 + 着色三角，外圈 2vp 细环作进度
+              // 显示。已播放 primary 与播放页一致；未播放用主色低透明度
+              // （secondary 明度与 primary 过近，细环上无法区分，见
+              // ringTrackColor 注释）。可见环 30vp（槽位 40vp 行内留出空余
+              // 不被圆角裁），触控热区仍是整个 40vp Button。
+              if (this.compact) {
+                Progress({
+                  value: this.positionMs,
+                  total: this.durationMs > 0 ? this.durationMs : 1,
+                  type: ProgressType.Ring
+                })
+                  .width(30)
+                  .height(30)
+                  .style({ strokeWidth: 2 })
+                  .color(this.scheme().primary)
+                  .backgroundColor(this.ringTrackColor())
+              }
+              // S6: 官方符号替换动效（CROSS_FADE），播放/暂停切换不再是硬切。
+              SymbolGlyph(this.status === PlaybackStatus.PLAYING
+                ? $r('sys.symbol.pause_fill')
+                : $r('sys.symbol.play_fill'))
+                .fontSize(this.compact ? 15 : 22)
+                .fontColor([this.compact ? this.scheme().primary : '#FFFFFF'])
+                .symbolEffect(this.replaceEffect, this.symbolTrigger)
+            }
+          }
           .width(40)
           .height(40)
           .type(ButtonType.Circle)
-          .backgroundColor(Color.Transparent)
-          .accessibilityText('下一首')
+          .backgroundColor(this.compact ? Color.Transparent : this.playBackground())
+          // Icon-only control: without an explicit label a screen reader reads
+          // nothing at all (device audit 2026-08-24 found 9 such buttons).
+          .accessibilityText(this.status === PlaybackStatus.PLAYING ? '暂停' : '播放')
           .onClick(() => {
-            PlayerManager.next(false);
+            PlayerManager.togglePlayPause();
           })
+
+          if (this.miniNextButton) {
+            Button() {
+              Image($r('app.media.round_skip_next_24'))
+                .width(this.compact ? 20 : 22)
+                .height(this.compact ? 20 : 22)
+                .fillColor(Theme.textPrimary(Theme.isDark()))
+            }
+            // 36vp measured on device; 40vp is the touch-target floor this port holds to.
+            .width(40)
+            .height(40)
+            .type(ButtonType.Circle)
+            .backgroundColor(Color.Transparent)
+            .accessibilityText('下一首')
+            .onClick(() => {
+              PlayerManager.next(false);
+            })
+          }
         }
+        .layoutWeight(1)
+        .opacity(this.nowPlayingShown ? 0 : 1)
+        .animation({ duration: 240, curve: Curve.EaseOut })
       }
       .width('100%')
       .height(this.compact ? 40 : 60)
