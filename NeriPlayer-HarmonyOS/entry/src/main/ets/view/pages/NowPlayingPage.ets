@@ -521,9 +521,11 @@ export struct NowPlayingPage {
       }
       .width('100%')
       .height('100%')
+      .clip(true)
+      .backgroundBlurStyle(this.glassEffect ? BlurStyle.COMPONENT_THICK : BlurStyle.NONE)
       // 一镜到底：整屏背景与迷你条根容器共享元素，几何/圆角随弹簧补间（常驻
       // 端 follow 侧在 MiniPlayer，见该文件根节点注释）。背景组包这一层容器
-      // 承载 np.bar：根 Stack 不能再挂几何转场，否则内容层会一并被插值变换。
+      // 承载 np.bar 并叠加上层动态毛玻璃与高斯模糊弥散，平滑展开横向条形 UI；
       // .id() 防打断重影，OPACITY 兜底无配对端时的硬切。
       .geometryTransition('np.bar')
       .id('np_bar_full')
@@ -594,11 +596,11 @@ export struct NowPlayingPage {
         .transition(
           TransitionEffect.asymmetric(
             TransitionEffect.OPACITY
-              .combine(TransitionEffect.translate({ y: -12 }))
-              .animation({ duration: 260, curve: Curve.EaseOut }),
+              .combine(TransitionEffect.translate({ y: -16 }))
+              .animation({ duration: 380, curve: Curve.EaseOut }),
             TransitionEffect.OPACITY
-              .combine(TransitionEffect.translate({ y: -12 }))
-              .animation({ duration: 200, curve: Curve.EaseIn })
+              .combine(TransitionEffect.translate({ y: -16 }))
+              .animation({ duration: 300, curve: Curve.EaseIn })
           )
         )
 
@@ -668,11 +670,11 @@ export struct NowPlayingPage {
             .transition(
               TransitionEffect.asymmetric(
                 TransitionEffect.OPACITY
-                  .combine(TransitionEffect.translate({ y: 24 }))
-                  .animation({ duration: 280, curve: Curve.EaseOut }),
+                  .combine(TransitionEffect.translate({ y: 32 }))
+                  .animation({ duration: 400, curve: Curve.EaseOut }),
                 TransitionEffect.OPACITY
-                  .combine(TransitionEffect.translate({ y: 36 }))
-                  .animation({ duration: 240, curve: Curve.Friction })
+                  .combine(TransitionEffect.translate({ y: 44 }))
+                  .animation({ duration: 320, curve: Curve.Friction })
               )
             )
           }
@@ -865,11 +867,11 @@ export struct NowPlayingPage {
             .transition(
               TransitionEffect.asymmetric(
                 TransitionEffect.OPACITY
-                  .combine(TransitionEffect.translate({ y: 36 }))
-                  .animation({ duration: 300, curve: Curve.EaseOut }),
+                  .combine(TransitionEffect.translate({ y: 44 }))
+                  .animation({ duration: 420, curve: Curve.EaseOut }),
                 TransitionEffect.OPACITY
-                  .combine(TransitionEffect.translate({ y: 48 }))
-                  .animation({ duration: 260, curve: Curve.Friction })
+                  .combine(TransitionEffect.translate({ y: 56 }))
+                  .animation({ duration: 340, curve: Curve.Friction })
               )
             )
           } else if (this.lyricPageControls) {
@@ -1082,8 +1084,8 @@ export struct NowPlayingPage {
     .backgroundColor(Theme.background(Theme.isDark()))
     // 一镜到底：模态的 modalTransition 是 NONE，根 Stack 只做满屏布局，
     // 几何过渡由上方背景组包容器（np.bar）承担，整页内容层的淡入淡出收拢到
-    // 根节点（280ms Friction 避免背景与文字残留）。
-    .transition(TransitionEffect.OPACITY.animation({ duration: 280, curve: Curve.Friction }))
+    // 根节点（360ms Friction 避免背景与文字残留，与放缓后的弹簧平滑对齐）。
+    .transition(TransitionEffect.OPACITY.animation({ duration: 360, curve: Curve.Friction }))
     // S4: 播放列表走原生半模态（官方手势关闭与档位吸附），替代手工覆盖层。
     .bindSheet($$this.showQueue, this.queueSheetBuilder(), {
       detents: [SheetSize.MEDIUM, SheetSize.LARGE],

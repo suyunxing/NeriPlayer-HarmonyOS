@@ -3,16 +3,12 @@ import { KEY_REFRESH_TICK } from '../util/Breakpoint';
 import { ROUTE_MAIN, RoutePushAction, routePushAction } from './RouteStack';
 
 /**
- * 一镜到底（NOW_PLAYING）的转场弹簧：打开/收起共用同一条曲线，封面沿
- * geometryTransition('np.cover') 往返的节奏才对称。播放页不走 Navigation
- * 栈，而是 MainShell 上的 bindContentCover 全屏模态（modalTransition 为
- * NONE），开关经 AppStorage（KEY_NOW_PLAYING_SHOWN）交给壳层；动画完全由
- * 这里的 animateTo 闭包驱动 —— geometryTransition 只有处在 animateTo 上下文
- * 里才有插值（官方共享元素转场指南）。旧 Navigation 方案下迷你条封面常驻
- * 组件树，同 id 两端从不构成一进一出，共享元素无法配对，是该方案被替换的
- * 原因（迷你条端现以 follow: true 让常驻组件参与转场）。
+ * 一镜到底（NOW_PLAYING）的转场弹簧：打开/收起共用同一条曲线，封面与横向
+ * 卡片沿 geometryTransition('np.bar' / 'np.cover' / 'np.play' / 'np.progress')
+ * 往返的节奏才对称。放缓初动节奏（stiffness 210, damping 27），使整个横向
+ * UI 界面展开与收拢过程清晰丝滑、更具物理质感。
  */
-const NOW_PLAYING_SPRING: AnimateParam = { curve: curves.interpolatingSpring(0, 1, 340, 34) };
+const NOW_PLAYING_SPRING: AnimateParam = { curve: curves.interpolatingSpring(0, 1, 210, 27) };
 
 /**
  * Full-screen route stack for detail overlays.
