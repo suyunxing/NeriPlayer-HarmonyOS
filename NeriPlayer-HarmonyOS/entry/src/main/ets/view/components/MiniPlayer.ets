@@ -119,6 +119,28 @@ export struct MiniPlayer {
   }
 
   build() {
+    Stack() {
+      // Background and shared controls are siblings, so geometry is applied once.
+      Column()
+        .width('100%')
+        .height(this.compact ? 40 : 62)
+        .backgroundColor(this.barBackground())
+        .backgroundBlurStyle(this.followsBarMaterial() || !this.glassEffect
+          ? BlurStyle.NONE : BlurStyle.COMPONENT_THICK)
+        .borderRadius(this.compact ? 20 : 16)
+        .geometryTransition('np.bar', { follow: true })
+        .id('np_bar_mini')
+        .transition(TransitionEffect.opacity(0.999))
+        .hitTestBehavior(HitTestMode.None)
+      this.playerContent()
+    }
+    .width('100%')
+    .margin(this.compact ? { left: 0, right: 0, bottom: 0 } : { left: 10, right: 10, bottom: 8 })
+    .shadow(this.compact ? { radius: 0, color: '#00000000' } : { radius: 12, color: '#22000000', offsetY: 2 })
+  }
+
+  @Builder
+  playerContent() {
     Column() {
       if (!this.compact) {
         // Progress 的 total 不给就是 100，原来喂进去的是 0..1 的比例，播到一半也只
@@ -140,7 +162,7 @@ export struct MiniPlayer {
           // np.bar 的配对说明）；.id() 防打断重影。
           .geometryTransition('np.progress', { follow: true })
           .id('np_progress_linear_mini')
-          .transition(TransitionEffect.OPACITY)
+          .transition(TransitionEffect.opacity(0.999))
       }
 
       Row({ space: 12 }) {
@@ -156,7 +178,7 @@ export struct MiniPlayer {
               // 需一进一出才配对，常驻端必须 follow）；.id() 做打断保护。
               .geometryTransition('np.cover', { follow: true })
               .id('np_cover_mini')
-              .transition(TransitionEffect.OPACITY)
+              .transition(TransitionEffect.opacity(0.999))
           } else {
             Image($r('app.media.ic_music_note_24'))
               .width(this.compact ? 16 : 22)
@@ -205,7 +227,7 @@ export struct MiniPlayer {
             // 不参与淡出分组——它是 np.title 的飞行主体。
             .geometryTransition('np.title', { follow: true })
             .id('np_title_mini')
-            .transition(TransitionEffect.OPACITY)
+            .transition(TransitionEffect.opacity(0.999))
 
             // np.mini_show_lyric 开启且正在播放时，这一行优先显示当前歌词行。
             // 展开播放页时副行随淡出分组渐隐避让（无对应的共享元素端）。
@@ -232,30 +254,25 @@ export struct MiniPlayer {
           .layoutWeight(1)
           .alignItems(HorizontalAlign.Start)
 
+          Stack() {
+            if (this.compact) {
+              Progress({
+                value: this.positionMs,
+                total: this.durationMs > 0 ? this.durationMs : 1,
+                type: ProgressType.Ring
+              })
+                .width(30)
+                .height(30)
+                .style({ strokeWidth: 2 })
+                .color(this.scheme().primary)
+                .backgroundColor(this.ringTrackColor())
+                .geometryTransition('np.progress', { follow: true })
+                .id('np_progress_mini')
+                .transition(TransitionEffect.opacity(0.999))
+                .hitTestBehavior(HitTestMode.None)
+            }
           Button() {
             Stack({ alignContent: Alignment.Center }) {
-              // 紧凑形态：播放键改为透明圆 + 着色三角，外圈 2vp 细环作进度
-              // 显示。已播放 primary 与播放页一致；未播放用主色低透明度
-              // （secondary 明度与 primary 过近，细环上无法区分，见
-              // ringTrackColor 注释）。可见环 30vp（槽位 40vp 行内留出空余
-              // 不被圆角裁），触控热区仍是整个 40vp Button。
-              if (this.compact) {
-                Progress({
-                  value: this.positionMs,
-                  total: this.durationMs > 0 ? this.durationMs : 1,
-                  type: ProgressType.Ring
-                })
-                  .width(30)
-                  .height(30)
-                  .style({ strokeWidth: 2 })
-                  .color(this.scheme().primary)
-                  .backgroundColor(this.ringTrackColor())
-                  // 一镜到底：紧凑形态没有顶部细条，改由播放键外圈进度环与
-                  // 播放页波形进度条共享元素（见根节点 np.bar 的配对说明）。
-                  .geometryTransition('np.progress', { follow: true })
-                  .id('np_progress_mini')
-                  .transition(TransitionEffect.OPACITY)
-              }
               // S6: 官方符号替换动效（CROSS_FADE），播放/暂停切换不再是硬切。
               SymbolGlyph(this.status === PlaybackStatus.PLAYING
                 ? $r('sys.symbol.pause_fill')
@@ -272,15 +289,15 @@ export struct MiniPlayer {
           // Icon-only control: without an explicit label a screen reader reads
           // nothing at all (device audit 2026-08-24 found 9 such buttons).
           .accessibilityText(this.status === PlaybackStatus.PLAYING ? '暂停' : '播放')
-          // 一镜到底：播放键与播放页底部大播放键共享元素，圆盘从条尾飞入
-          // 控制行正中（见根节点 np.bar 的配对说明）；.id() 防打断重影。
-          // 不随文字区整体淡出（淡出分组说明见下）。
           .geometryTransition('np.play', { follow: true })
           .id('np_play_mini')
-          .transition(TransitionEffect.OPACITY)
+          .transition(TransitionEffect.opacity(0.999))
           .onClick(() => {
             PlayerManager.togglePlayPause();
           })
+          }
+          .width(40)
+          .height(40)
 
           if (this.miniNextButton) {
             Button() {
@@ -301,7 +318,7 @@ export struct MiniPlayer {
             // 播放页侧退化为普通淡入。
             .geometryTransition('np.next', { follow: true })
             .id('np_next_mini')
-            .transition(TransitionEffect.OPACITY)
+            .transition(TransitionEffect.opacity(0.999))
             .onClick(() => {
               PlayerManager.next(false);
             })
@@ -358,23 +375,5 @@ export struct MiniPlayer {
       .scale(this.swiping ? { x: 0.975, y: 0.975 } : { x: 1, y: 1 })
     }
     .width('100%')
-    .backgroundColor(this.barBackground())
-    // 槽位形态透出栏身沉浸光感材质时不得再叠组件级模糊（NONE 关掉，
-    // 否则 COMPONENT_THICK 会在透明底上自取一框内容，重新变成玻璃卡片）。
-    .backgroundBlurStyle(this.followsBarMaterial() || !this.glassEffect
-      ? BlurStyle.NONE : BlurStyle.COMPONENT_THICK)
-    .borderRadius(this.compact ? 20 : 16)
-    .clip(true)
-    .margin(this.compact ? { left: 0, right: 0, bottom: 0 } : { left: 10, right: 10, bottom: 8 })
-    .shadow(this.compact ? { radius: 0, color: '#00000000' } : { radius: 12, color: '#22000000', offsetY: 2 })
-    // 一镜到底：整条迷你条与播放页整屏背景共享元素，圆角 16/20vp ↔ 0vp、
-    // 高度 40/60vp ↔ 全屏的几何插值都由系统补间。常驻端 follow（同 np.cover
-    // 范式）；.id() 防打断重影。条内五对共享元素：封面 np.cover、标题
-    // np.title、播放键 np.play、下一首键 np.next、进度 np.progress（紧凑
-    // 形态是播放键外圈细环，独立形态是顶部 2vp 细条）——横向条形 UI 全量
-    // 参与平滑过渡。
-    .geometryTransition('np.bar', { follow: true })
-    .id('np_bar_mini')
-    .transition(TransitionEffect.OPACITY)
   }
 }
