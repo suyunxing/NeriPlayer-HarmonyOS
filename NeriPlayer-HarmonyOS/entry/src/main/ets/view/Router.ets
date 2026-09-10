@@ -1,14 +1,8 @@
-import { curves } from '@kit.ArkUI';
 import { KEY_REFRESH_TICK } from '../util/Breakpoint';
 import { ROUTE_MAIN, RoutePushAction, routePushAction } from './RouteStack';
 
-/**
- * 一镜到底（NOW_PLAYING）的转场弹簧：打开/收起共用同一条曲线，封面与横向
- * 卡片沿 geometryTransition('np.bar' / 'np.cover' / 'np.play' / 'np.progress')
- * 往返的节奏才对称。放缓初动节奏（stiffness 210, damping 27），使整个横向
- * UI 界面展开与收拢过程清晰丝滑、更具物理质感。
- */
-const NOW_PLAYING_SPRING: AnimateParam = { curve: curves.interpolatingSpring(0, 1, 210, 27) };
+/** Shared geometry and modal lifetime use one bounded animation. */
+export const NOW_PLAYING_TRANSITION: AnimateParam = { duration: 480, curve: Curve.Friction };
 
 /**
  * Full-screen route stack for detail overlays.
@@ -76,7 +70,7 @@ export class Router {
         AppStorage.setOrCreate(Router.KEY_NOW_PLAYING_SHOWN, true);
         return;
       }
-      Router.uiContext.animateTo(NOW_PLAYING_SPRING, () => {
+      Router.uiContext.animateTo(NOW_PLAYING_TRANSITION, () => {
         AppStorage.setOrCreate(Router.KEY_NOW_PLAYING_SHOWN, true);
       });
       return;
@@ -126,7 +120,7 @@ export class Router {
         AppStorage.setOrCreate(Router.KEY_NOW_PLAYING_SHOWN, false);
         return;
       }
-      Router.uiContext.animateTo(NOW_PLAYING_SPRING, () => {
+      Router.uiContext.animateTo(NOW_PLAYING_TRANSITION, () => {
         AppStorage.setOrCreate(Router.KEY_NOW_PLAYING_SHOWN, false);
       });
       return;

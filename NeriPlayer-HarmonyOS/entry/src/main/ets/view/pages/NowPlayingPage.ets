@@ -554,20 +554,12 @@ export struct NowPlayingPage {
       .width('100%')
       .height('100%')
       .clip(true)
-      .backgroundBlurStyle(this.glassEffect ? BlurStyle.COMPONENT_THICK : BlurStyle.NONE)
-      // 一镜到底：整屏背景与迷你条根容器共享元素，几何/圆角随弹簧补间（常驻
-      // 端 follow 侧在 MiniPlayer，见该文件根节点注释）。背景组包这一层容器
-      // 承载 np.bar 并叠加上层动态毛玻璃与高斯模糊弥散，平滑展开横向条形 UI；
-      // .id() 防打断重影。转场显式指定参数，不继承 Router 弹簧（默认 OPACITY
-      // 跟随 animateTo 会淡满整个 ~800ms 飞行）：出现端 280ms 快速实体化，
-      // 消失端 650ms EaseIn 前半程保持不透明、随卡片收缩自然透出主页——
-      // 离场必须有 transition，否则组件被立即析构、几何飞行直接丢失。
+      // Blur the cover itself, never sample the home page behind this panel.
+      .backgroundColor(this.im().background)
+      .expandSafeArea(IMMERSIVE_TYPES, IMMERSIVE_EDGES)
       .geometryTransition('np.bar')
       .id('np_bar_full')
-      .transition(TransitionEffect.asymmetric(
-        TransitionEffect.OPACITY.animation({ duration: 280, curve: Curve.EaseOut }),
-        TransitionEffect.OPACITY.animation({ duration: 650, curve: Curve.EaseIn })
-      ))
+      .transition(TransitionEffect.opacity(0.999))
 
       Column() {
         Row() {
@@ -661,10 +653,7 @@ export struct NowPlayingPage {
                   // 飞行）；.id() 防打断重影。非对称转场参数与 np.bar 同理。
                   .geometryTransition('np.cover')
                   .id('np_cover_full')
-                  .transition(TransitionEffect.asymmetric(
-                    TransitionEffect.OPACITY.animation({ duration: 280, curve: Curve.EaseOut }),
-                    TransitionEffect.OPACITY.animation({ duration: 650, curve: Curve.EaseIn })
-                  ))
+                  .transition(TransitionEffect.opacity(0.999))
               } else {
                 Image($r('app.media.ic_music_note_24'))
                   .width('78%')
@@ -693,10 +682,7 @@ export struct NowPlayingPage {
                   // .id() 防打断重影。
                   .geometryTransition('np.title')
                   .id('np_title_full')
-                  .transition(TransitionEffect.asymmetric(
-                    TransitionEffect.OPACITY.animation({ duration: 280, curve: Curve.EaseOut }),
-                    TransitionEffect.OPACITY.animation({ duration: 650, curve: Curve.EaseIn })
-                  ))
+                  .transition(TransitionEffect.opacity(0.999))
                 Image(this.favorite
                   ? $r('app.media.ic_baseline_favorite_24')
                   : $r('app.media.ic_outline_favorite_24'))
@@ -795,10 +781,7 @@ export struct NowPlayingPage {
               // 参数与 np.bar 同理。
               .geometryTransition('np.progress')
               .id('np_progress_full')
-              .transition(TransitionEffect.asymmetric(
-                TransitionEffect.OPACITY.animation({ duration: 280, curve: Curve.EaseOut }),
-                TransitionEffect.OPACITY.animation({ duration: 650, curve: Curve.EaseIn })
-              ))
+              .transition(TransitionEffect.opacity(0.999))
 
               Row() {
                 Text(formatDuration(this.previewMs >= 0 ? this.previewMs : this.positionMs))
@@ -838,10 +821,7 @@ export struct NowPlayingPage {
                 // MiniPlayer）；.id() 防打断重影。非对称转场参数与 np.bar 同理。
                 .geometryTransition('np.play')
                 .id('np_play_full')
-                .transition(TransitionEffect.asymmetric(
-                  TransitionEffect.OPACITY.animation({ duration: 280, curve: Curve.EaseOut }),
-                  TransitionEffect.OPACITY.animation({ duration: 650, curve: Curve.EaseIn })
-                ))
+                .transition(TransitionEffect.opacity(0.999))
                 PlayerControlButton({
                   icon: $r('app.media.round_skip_next_24'),
                   tintOn: this.im().textPrimary,
@@ -857,10 +837,7 @@ export struct NowPlayingPage {
                 // 配对端，退化为普通淡入。非对称转场参数同 np.bar。
                 .geometryTransition('np.next')
                 .id('np_next_full')
-                .transition(TransitionEffect.asymmetric(
-                  TransitionEffect.OPACITY.animation({ duration: 280, curve: Curve.EaseOut }),
-                  TransitionEffect.OPACITY.animation({ duration: 650, curve: Curve.EaseIn })
-                ))
+                .transition(TransitionEffect.opacity(0.999))
               }
               .width('100%')
               .padding({ top: 6 })
@@ -941,16 +918,7 @@ export struct NowPlayingPage {
               .padding({ top: 12, bottom: this.bottomLift })
             }
             .width('100%')
-            .transition(
-              TransitionEffect.asymmetric(
-                TransitionEffect.OPACITY
-                  .combine(TransitionEffect.translate({ y: 44 }))
-                  .animation({ duration: 420, curve: Curve.EaseOut }),
-                TransitionEffect.OPACITY
-                  .combine(TransitionEffect.translate({ y: 56 }))
-                  .animation({ duration: 340, curve: Curve.Friction })
-              )
-            )
+            .transition(TransitionEffect.opacity(0.999))
           } else if (this.lyricPageControls) {
             // 歌词页控件行（np.lyric_page_controls 关闭时整行隐藏）：歌词 / 上一首 /
             // 播放暂停 / 下一首 / 收藏。The reference uses one outlined, translucent
@@ -1161,16 +1129,8 @@ export struct NowPlayingPage {
     }
     .width('100%')
     .height('100%')
-    // 根节点不再铺不透明底色：铺满窗口的背景由 np.bar 背景组包层承担（展开
-    // 完成后即整页沉浸背景）。旧的不透明底 + 整页淡出会在收起时把主页和
-    // 系统栏条带一起洗白（参考实现里主页始终从卡片边缘可见），也是「沉浸
-    // 丢失」的直接来源。
-    // 根节点自身仍要挂 transition：它是离场子树的根，决定整棵树被析构前的
-    // 转场窗口（官方规范：无 transition 时默认加 OPACITY 并继承 animateTo
-    // 的弹簧，整页会淡满整个飞行）。这里用 opacity(0.999)——值非默认所以
-    // 转场窗口真实存在（700ms ≥ 弹簧飞行时长），但视觉上全程不透明，淡出
-    // 节奏完全交给各内容层与 np.bar 共享元素自己的转场参数。
-    .transition(TransitionEffect.opacity(0.999).animation({ duration: 700 }))
+    // Keep the subtree alive on the same timeline as its shared geometry.
+    .transition(TransitionEffect.opacity(0.999))
     // S4: 播放列表走原生半模态（官方手势关闭与档位吸附），替代手工覆盖层。
     .bindSheet($$this.showQueue, this.queueSheetBuilder(), {
       detents: [SheetSize.MEDIUM, SheetSize.LARGE],

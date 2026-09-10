@@ -1,4 +1,4 @@
-import { Router } from '../Router';
+import { Router, NOW_PLAYING_TRANSITION } from '../Router';
 import { Theme } from '../Theme';
 import { common } from '@kit.AbilityKit';
 import { SystemBars } from '../../util/SystemBars';
@@ -114,13 +114,9 @@ export struct MainShell {
     return this.breakpoint === BP_LG;
   }
 
-  /**
-   * 垫在窗口底边以下的色带。窄屏时与 Tab 栏同色，宽屏时与页面底色同色，两种
-   * 情况下系统导航条区域都不会出现色块切割。
-   */
+  /** Match Index's background beneath the floating tab bar and system indicator. */
   private bandColor(): string {
-    const dark = this.resolveDark();
-    return this.wide() ? Theme.background(dark) : Theme.surface(dark);
+    return Theme.background(this.resolveDark());
   }
 
   private paramText(param: Object): string {
@@ -435,8 +431,10 @@ export struct MainShell {
         }
       },
       onWillDismiss: (action: DismissContentCoverAction) => {
-        Router.pop();
-        action.dismiss();
+        this.getUIContext().animateTo(NOW_PLAYING_TRANSITION, () => {
+          this.nowPlayingShown = false;
+          action.dismiss();
+        });
       }
     })
 
@@ -449,6 +447,7 @@ export struct MainShell {
       .height('100%')
       .backgroundColor(Theme.withAlpha(Theme.background(this.resolveDark()), 0x99))
       .opacity(this.nowPlayingShown ? 1 : 0)
+      .expandSafeArea([SafeAreaType.SYSTEM, SafeAreaType.CUTOUT], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
       .hitTestBehavior(HitTestMode.None)
     }
     .width('100%')
