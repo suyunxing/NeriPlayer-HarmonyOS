@@ -3,6 +3,8 @@
 .agents/
 .codex/
 .claude/
+.zcode/
+**/.zcode/
 .codegenie/
 **/.codegenie/
 .hvigor/
