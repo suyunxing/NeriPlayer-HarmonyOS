@@ -17,6 +17,9 @@ export struct MiniPlayer {
    * 显示（可见环缩到 30vp 在槽位圆角内留出空余）。独立悬浮形态才用完整卡片。
    */
   @Prop compact: boolean = false;
+  @Prop presentationOnly: boolean = false;
+  @StorageProp('ui.nowPlayingMounted') nowPlayingMounted: boolean = false;
+  onMeasured: (area: Area) => void = (_area: Area): void => {};
   @StorageLink('player.currentSong') currentSongJson: string = '';
   @StorageLink('player.status') @Watch('onStatusChanged') status: number = PlaybackStatus.IDLE;
   /** ReplaceSymbolEffect 触发计数：播放/暂停切换时 +1 驱动交叉淡入。 */
@@ -120,7 +123,7 @@ export struct MiniPlayer {
 
   build() {
     Stack() {
-      // Background and shared controls are siblings, so geometry is applied once.
+      if (!this.presentationOnly) {
       Column()
         .width('100%')
         .height(this.compact ? 40 : 62)
@@ -128,14 +131,20 @@ export struct MiniPlayer {
         .backgroundBlurStyle(this.followsBarMaterial() || !this.glassEffect
           ? BlurStyle.NONE : BlurStyle.COMPONENT_THICK)
         .borderRadius(this.compact ? 20 : 16)
-        .geometryTransition('np.bar', { follow: true })
-        .id('np_bar_mini')
-        .transition(TransitionEffect.opacity(0.999))
         .hitTestBehavior(HitTestMode.None)
+      }
       this.playerContent()
     }
     .width('100%')
     .margin(this.compact ? { left: 0, right: 0, bottom: 0 } : { left: 10, right: 10, bottom: 8 })
+    .opacity(this.presentationOnly || !this.nowPlayingMounted ? 1 : 0)
+    .hitTestBehavior(this.presentationOnly || this.nowPlayingMounted ? HitTestMode.None : HitTestMode.Default)
+    .accessibilityLevel(this.presentationOnly || this.nowPlayingMounted ? 'no-hide-descendants' : 'auto')
+    .onAreaChange((_oldArea: Area, area: Area) => {
+      if (!this.presentationOnly) {
+        this.onMeasured(area);
+      }
+    })
     .shadow(this.compact ? { radius: 0, color: '#00000000' } : { radius: 12, color: '#22000000', offsetY: 2 })
   }
 
@@ -158,11 +167,6 @@ export struct MiniPlayer {
             ? Theme.primaryFor(this.seedHex, Theme.isDark())
             : Theme.primary(Theme.isDark()))
           .backgroundColor('#22000000')
-          // 一镜到底：独立形态顶部细条与播放页波形进度条共享元素（见根节点
-          // np.bar 的配对说明）；.id() 防打断重影。
-          .geometryTransition('np.progress', { follow: true })
-          .id('np_progress_linear_mini')
-          .transition(TransitionEffect.opacity(0.999))
       }
 
       Row({ space: 12 }) {
@@ -173,12 +177,6 @@ export struct MiniPlayer {
               .height(this.compact ? 32 : 44)
               .borderRadius(this.compact ? 16 : 8)
               .objectFit(ImageFit.Cover)
-              // 一镜到底：与播放页大封面共享元素。迷你条封面常驻组件树，
-              // follow 让常驻端参与几何转场（官方模态共享元素范式：同 id 两端
-              // 需一进一出才配对，常驻端必须 follow）；.id() 做打断保护。
-              .geometryTransition('np.cover', { follow: true })
-              .id('np_cover_mini')
-              .transition(TransitionEffect.opacity(0.999))
           } else {
             Image($r('app.media.ic_music_note_24'))
               .width(this.compact ? 16 : 22)
@@ -221,16 +219,8 @@ export struct MiniPlayer {
             .width('100%')
             .clip(true)
             .blendMode(BlendMode.SRC_OVER, BlendApplyType.OFFSCREEN)
-            // 一镜到底：整块标题（含右端渐隐蒙版后的渲染结果）与播放页大
-            // 标题共享元素，歌名从条内原位放大飞入/飞出（参考实现的文字
-            // 形变）。常驻端 follow（同 np.cover 范式）；.id() 防打断重影。
-            // 不参与淡出分组——它是 np.title 的飞行主体。
-            .geometryTransition('np.title', { follow: true })
-            .id('np_title_mini')
-            .transition(TransitionEffect.opacity(0.999))
 
             // np.mini_show_lyric 开启且正在播放时，这一行优先显示当前歌词行。
-            // 展开播放页时副行随淡出分组渐隐避让（无对应的共享元素端）。
             if (this.showLyricLine()) {
               Text(this.lyricLineText)
                 .fontSize(11)
@@ -238,8 +228,6 @@ export struct MiniPlayer {
                 .maxLines(1)
                 .textOverflow({ overflow: TextOverflow.Ellipsis })
                 .width('100%')
-                .opacity(this.nowPlayingShown ? 0 : 1)
-                .animation({ duration: 320, curve: Curve.EaseOut })
             } else {
               Text(this.song().displayArtist)
                 .fontSize(11)
@@ -247,8 +235,6 @@ export struct MiniPlayer {
                 .maxLines(1)
                 .textOverflow({ overflow: TextOverflow.Ellipsis })
                 .width('100%')
-                .opacity(this.nowPlayingShown ? 0 : 1)
-                .animation({ duration: 320, curve: Curve.EaseOut })
             }
           }
           .layoutWeight(1)
@@ -266,9 +252,6 @@ export struct MiniPlayer {
                 .style({ strokeWidth: 2 })
                 .color(this.scheme().primary)
                 .backgroundColor(this.ringTrackColor())
-                .geometryTransition('np.progress', { follow: true })
-                .id('np_progress_mini')
-                .transition(TransitionEffect.opacity(0.999))
                 .hitTestBehavior(HitTestMode.None)
             }
           Button() {
@@ -289,9 +272,6 @@ export struct MiniPlayer {
           // Icon-only control: without an explicit label a screen reader reads
           // nothing at all (device audit 2026-08-24 found 9 such buttons).
           .accessibilityText(this.status === PlaybackStatus.PLAYING ? '暂停' : '播放')
-          .geometryTransition('np.play', { follow: true })
-          .id('np_play_mini')
-          .transition(TransitionEffect.opacity(0.999))
           .onClick(() => {
             PlayerManager.togglePlayPause();
           })
@@ -312,31 +292,21 @@ export struct MiniPlayer {
             .type(ButtonType.Circle)
             .backgroundColor(Color.Transparent)
             .accessibilityText('下一首')
-            // 一镜到底：下一首键与播放页传输行下一首键共享元素——横向条形
-            // UI 全量参与过渡。常驻端 follow；.id() 防打断重影；不随文字区
-            // 淡出（它是 np.next 的飞行主体）。miniNextButton 关闭时无此端，
-            // 播放页侧退化为普通淡入。
-            .geometryTransition('np.next', { follow: true })
-            .id('np_next_mini')
-            .transition(TransitionEffect.opacity(0.999))
             .onClick(() => {
               PlayerManager.next(false);
             })
           }
         }
         .layoutWeight(1)
-        // 旧的一镜到底淡出分组（整个文字行 + 下一首键压 0）已拆散：标题与
-        // 下一首键现在是 np.title / np.next 共享元素的飞行主体，跟随几何
-        // 过渡走；只有无对应端的副行（歌词/歌手）保留淡出避让，时长 320ms
-        // （EaseOut），与放缓后的弹簧平滑交叠。
+        // 副行（歌词/歌手）无独立转场：模态挂载时整个迷你条随
+        // nowPlayingMounted 一起隐藏，展示由模态内的 presentation 副本接管。
       }
       .width('100%')
       .height(this.compact ? 40 : 60)
       .padding({ left: this.compact ? 8 : 12, right: this.compact ? 4 : 8 })
       .onClick(() => {
-        // 播放页是壳层全屏模态，打开/收起的动画上下文统一收在 Router
-        // （animateTo + geometryTransition('np.cover')），这里裸 push 即可，
-        // 各入口的正反半程动画因此一致。
+        // 播放页是壳层全屏模态：打开/收起的动画状态由 MainShell 的
+        // motionProgress 统一驱动，这里只翻转开关即可。
         if (this.miniExpandAutoplay && this.status !== PlaybackStatus.PLAYING) {
           // np.mini_expand_autoplay：从底部播放器展开到全屏播放页时自动续播。
           PlayerManager.play().catch(() => {

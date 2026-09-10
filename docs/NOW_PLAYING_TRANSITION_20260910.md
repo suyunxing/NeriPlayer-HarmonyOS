@@ -1,23 +1,26 @@
 # 播放页转场修复记录（2026-09-10）
 
-## 范围
+## 第二轮：分阶段动画重写（同日）
 
-根据参考录屏与当前效果对比，修正主线播放页共享元素的嵌套结构和退出时序：
+按用户四点要求替换上一轮共享元素方案（`geometryTransition` 全部移除）：
 
-- 迷你条背景与内容改为兄弟节点，避免整行与内部共享元素重复变换。
-- 播放按钮与进度环改为兄弟节点，保留背景、封面、标题、播放键、下一首与进度的独立配对。
-- 打开、按钮返回和系统关闭统一使用 480ms Friction；共享元素与根节点继承同一动画时长，不再分别使用 280/650/700ms 的淡出窗口。
-- 移除控制区父容器叠加的位移淡出；全屏背景仅模糊封面自身，不再采样主页背景。
-- 壳层底带与系统安全区底色一致，播放背景及主页遮罩扩展到系统安全区。保持窗口全屏配置、正文避让、权限与签名配置不变。
+- 单一进度驱动：`view/NowPlayingMotion.ets` 纯函数模型（0..1 进度 → 面板矩形、各行位移/透明度、MiniBar 回归时机）；MainShell 以可取消的 16ms 步进持有 `motionProgress`，反向从当前进度回退，支持中途打断折返。
+- 面板：`bindContentCover` 挂载期与显示期分离（`ui.nowPlayingMounted`）；面板为固定窗口尺寸内容 + 移动裁剪框（mini 实测矩形 → 全窗），内容不随面板缩放重排。
+- MiniBar：展开时上移 22vp 弹性跟随后淡出；收起时面板上边框降到窗口 80% 高度后，展示副本沿上边框（保持条内原顶间距 0vp）弹入淡入；真实迷你条在模态挂载期间整体隐藏。
+- 播放页各行（标题行、封面区、歌名区、波形+时间、传输行、底部控件行、歌词胶囊行）按行号 0..5 以 0.035 错峰，进场前半段淡入，退场反向（先下移、后半段淡出）。
+- 首页底部：移除 `HdsTabs` 纯色底带；`Index → HdsNavigation → Stack → Column → HdsTabs → TabContent → HomePage Scroll` 链路逐层 `expandSafeArea BOTTOM`，滚动内容真实延伸进手势条区；仅叠加一层由上到下渐透明的底色渐变（不拦截触摸）；播放页模态自身无渐变。
+- 路由：`Router.push/pop` 不再包 `animateTo`；退出期间重复返回不弹底层栈（`canPop` 同步认挂载态）。
+
+新增纯函数单测 `entry/src/test/ets/test/NowPlayingMotion.test.ets`（阈值 0.8、错峰 0.035、透明度前半段、面板插值端点）。
 
 ## 验证边界
 
-环境：Linux command-line-tools，API 26。构建命令：
+环境：Linux command-line-tools（API 26），`hdc list targets` 为空。
 
-```bash
-hvigorw assembleHap --mode module -p module=entry@default -p product=default -p buildMode=debug --no-daemon
-```
+- 已执行：debug 构建、改动文件 codelinter、`hvigorw test` 编译级检查（Linux 执行段挂死为已知平台限制，结果以本次交付说明为准）。
+- 未验证（需真机）：分阶段动画观感与参考视频的一致性、打断折返、歌词模式返回、首页内容穿透手势条的实际显示与渐变可读性。
+- 未修改数据格式、权限、第三方接口与签名配置。
 
-最终 Debug 构建通过（BUILD SUCCESSFUL）。对四个改动 ArkTS 文件运行 codelinter，结果为 0 error、0 warn、2 suggestion（封面模糊的 effectKit 建议）；`git diff --check` 通过。
+## 第一轮摘要（已被本轮替换）
 
-`hdc list targets` 返回空，未进行设备安装、动画录制或系统栏像素检查。当前仍使用系统共享元素几何插值，未实现统一进度驱动的动态面板裁剪，因此不能将本轮结构修复描述为已完整复刻参考视频。真机需复核开合时的元素连续性、圆角边界、快速反向操作、歌词模式返回及底部手势条沉浸效果。
+迷你条背景/控件兄弟化 + 统一 480ms Friction + 底色统一，构建通过；共享元素时序问题当时已缓解，但控件飞行路径与参考差异大，随后按用户反馈整层替换。
