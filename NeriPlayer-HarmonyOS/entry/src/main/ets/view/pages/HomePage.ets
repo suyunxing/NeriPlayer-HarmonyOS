@@ -15,12 +15,15 @@ import { BAND_LIST_VP, BP_LG, BP_MD } from '../../util/Breakpoint';
 import { SectionHeader, EmptyState, LoadingState, PlaylistCard, ContentBand , FLOAT_TAB_CLEARANCE } from '../components/Ui';
 import { promptAction } from '@kit.ArkUI';
 
-const BRAND_TITLES: string[] = ['NeriPlayer', '欢迎回来', 'NeriPlayer', '继续听歌'];
 /** 本页在 MainShell 的 Tabs 里的下标，用于过滤刷新信号。 */
 const TAB_INDEX: number = 0;
+/** MINI 标题栏标准高度（MainShell 同名常量）：内容顶部让位，滚动时从标题栏背后滚过。 */
+const TITLEBAR_SPACE_VP: number = 56;
 
 @Component
 export struct HomePage {
+  /** 滚动控制器：实例由 MainShell 下发，壳层标题栏 bindToScrollable 绑定当前 Tab 的它。 */
+  scroller: Scroller = new Scroller();
   /**
    * S5: 订阅封面配色。Theme.*() 读 AppStorage 是无跟踪调用（M7.4），换歌后
    * 坐在本页的组件不会重建；有了这个成员并在 build 里经 schemeBg() 直读，
@@ -35,7 +38,6 @@ export struct HomePage {
   @State offline: boolean = false;
   /** 每日推荐 FAB 开播进行中：按钮转圈并禁触，防止重复拉歌单。 */
   @State heroPlayBusy: boolean = false;
-  @State titleIndex: number = 0;
   /** 由 util/WindowMetrics.ets 发布，决定网格列数与推荐区形态。 */
   @StorageProp('ui.breakpoint') breakpoint: string = 'sm';
   /**
@@ -92,11 +94,6 @@ export struct HomePage {
       .catch(() => {
         this.neteaseRecommend = [];
       });
-  }
-
-  private refresh(): void {
-    this.titleIndex = (this.titleIndex + 1) % BRAND_TITLES.length;
-    this.reload();
   }
 
   private openEntry(entry: UsageEntry): void {
@@ -260,30 +257,10 @@ export struct HomePage {
   }
 
   build() {
-    Column() {
-      Row() {
-        Text(BRAND_TITLES[this.titleIndex])
-          .fontSize(32)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(Theme.textPrimary(Theme.isDark()))
-          .layoutWeight(1)
-        Button() {
-          Image($r('app.media.outline_refresh_24'))
-            .width(22)
-            .height(22)
-            .fillColor(Theme.textPrimary(Theme.isDark()))
-        }
-        .width(40)
-        .height(40)
-        .type(ButtonType.Circle)
-        .backgroundColor(Theme.surface(Theme.isDark()))
-        .accessibilityText('刷新推荐')
-        .onClick(() => this.refresh())
-      }
-      .width('100%')
-      .padding({ left: 16, right: 16, top: 10, bottom: 8 })
-
-      Scroll() {
+    // 页内不再自绘标题栏：标题与刷新动作由 MainShell 的 HdsNavigation MINI
+    // 标题栏（GRADIENT_BLUR 渐变模糊）承载，本页只做内容 + 顶部让位，滚动时
+    // 内容从标题栏背后滚过。
+    Scroll(this.scroller) {
         Column() {
           if (this.loading) {
             LoadingState()
@@ -499,15 +476,12 @@ export struct HomePage {
           }
         }
         .width('100%')
-        .padding({ left: 14, right: 14, bottom: 24 + FLOAT_TAB_CLEARANCE })
+        .padding({ top: TITLEBAR_SPACE_VP, left: 14, right: 14, bottom: 24 + FLOAT_TAB_CLEARANCE })
       }
-      .layoutWeight(1)
       .scrollBar(BarState.Off)
       .align(Alignment.Top)
       .width('100%')
-    }
-    .width('100%')
-    .height('100%')
-    .backgroundColor(this.schemeBg(Theme.isDark()))
+      .height('100%')
+      .backgroundColor(this.schemeBg(Theme.isDark()))
   }
 }
