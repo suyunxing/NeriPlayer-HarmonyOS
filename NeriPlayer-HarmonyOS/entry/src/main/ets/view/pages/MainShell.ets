@@ -70,7 +70,7 @@ export struct MainShell {
   @StorageLink('ui.nowPlayingMounted') modalMounted: boolean = false;
   @StorageProp('ui.windowWidthVp') windowWidth: number = 360;
   @StorageProp('ui.windowHeightVp') windowHeight: number = 800;
-  @State motionProgress: number = 0;
+  @State panelAmount: number = 0;
   // 默认兜底值 = 360vp 宽窗口下的药丸典型位置（窗口度量发布后按实测覆盖）。
   @State miniRect: NowPlayingRect = { x: 23, y: 626, width: 314, height: 40 };
   @State originRect: NowPlayingRect = { x: 23, y: 626, width: 314, height: 40 };
@@ -96,7 +96,7 @@ export struct MainShell {
   private onNowPlayingRequested(): void {
     if (this.nowPlayingShown && !this.modalMounted) {
       this.originRect = this.miniRect;
-      this.motionProgress = 0;
+      this.panelAmount = 0;
       this.modalMounted = true;
       return;
     }
@@ -111,25 +111,23 @@ export struct MainShell {
   private startMotion(): void {
     // 模态挂载后立即启动会把首帧跳过（挂建 NowPlayingPage 耗时 > 1 tick，
     // 起始帧直接从进度 > 0 画出，看起来像从错误位置起跳）；onAppear 延迟约
-    // 两帧再启动，保证第一帧画在迷你条原位。任何后续 startMotion 都取消
+    // 一帧再启动，保证第一帧画在迷你条原位。任何后续 startMotion 都取消
     // 这个待触发的延迟。
     if (this.startDelayTimer >= 0) {
       clearTimeout(this.startDelayTimer);
       this.startDelayTimer = -1;
     }
     this.stopMotion();
-    const duration = this.nowPlayingShown
-      ? NowPlayingMotion.EXPAND_MS
-      : NowPlayingMotion.COLLAPSE_MS;
     this.lastMotionTime = Date.now();
     this.motionTimer = setInterval(() => {
       const now = Date.now();
-      const step = Math.max(0, now - this.lastMotionTime) / duration;
+      const expanding = this.nowPlayingShown;
+      const duration = expanding ? NowPlayingMotion.EXPAND_MS : NowPlayingMotion.COLLAPSE_MS;
+      this.panelAmount = NowPlayingMotion.advance(this.panelAmount, now - this.lastMotionTime, expanding, duration);
       this.lastMotionTime = now;
-      this.motionProgress = NowPlayingMotion.clamp(this.motionProgress + (this.nowPlayingShown ? step : -step));
-      if (this.motionProgress === 1 && this.nowPlayingShown) {
+      if (this.panelAmount === 1 && expanding) {
         this.stopMotion();
-      } else if (this.motionProgress === 0 && !this.nowPlayingShown) {
+      } else if (this.panelAmount === 0 && !expanding) {
         this.stopMotion();
         this.modalReady = false;
         this.modalMounted = false;
@@ -185,12 +183,12 @@ export struct MainShell {
   }
 
   private panelRect(): NowPlayingRect {
-    return NowPlayingMotion.panel(this.motionProgress, this.originRect, this.windowWidth, this.windowHeight);
+    return NowPlayingMotion.panel(this.panelAmount, this.originRect, this.windowWidth, this.windowHeight);
   }
 
   private miniOpacity(): number {
     if (this.nowPlayingShown) {
-      return 1 - NowPlayingMotion.segment(this.motionProgress, 0.035, 0.16);
+      return 1 - NowPlayingMotion.segment(this.panelAmount, 0.035, 0.16);
     }
     return NowPlayingMotion.miniReturnOpacity(this.panelRect().y, this.windowHeight, this.originRect.y);
   }
@@ -198,8 +196,9 @@ export struct MainShell {
   private miniY(): number {
     // On return the compact row remains at the panel's original internal top
     // inset (0vp row, 4vp cover). No independent translation can detach it.
+    // backOut gives the follow-up move a slight elastic overshoot.
     return this.nowPlayingShown
-      ? this.originRect.y - 22 * NowPlayingMotion.spring(NowPlayingMotion.segment(this.motionProgress, 0, 0.16))
+      ? this.originRect.y - 22 * NowPlayingMotion.backOut(NowPlayingMotion.segment(this.panelAmount, 0, 0.16))
       : this.panelRect().y;
   }
 
@@ -417,22 +416,23 @@ export struct MainShell {
 
   /**
    * 一镜到底播放页的模态内容。动画分工：modalTransition NONE 关掉系统推拉；
-   * 面板几何（mini 矩形 → 全窗）由 MainShell 的 motionProgress 驱动，内容行
+   * 面板几何（mini 矩形 → 全窗）由 MainShell 的 panelAmount 驱动（advance()
+   * 的先慢后快变速），内容行
    * 的分层弹入由 NowPlayingMotion 纯函数按同一进度计算（见 NowPlayingPage）。
    */
   @Builder
   nowPlayingBuilder() {
     Stack({ alignContent: Alignment.TopStart }) {
       Stack({ alignContent: Alignment.TopStart }) {
-        NowPlayingPage({ transitionProgress: this.motionProgress })
+        NowPlayingPage({ transitionProgress: this.panelAmount })
           .width(this.windowWidth)
           .height(this.windowHeight)
           .position({ x: -this.panelRect().x, y: -this.panelRect().y })
-          .hitTestBehavior(this.motionProgress === 1 ? HitTestMode.Default : HitTestMode.None)
+          .hitTestBehavior(this.panelAmount === 1 ? HitTestMode.Default : HitTestMode.None)
       }
       .width(this.panelRect().width)
       .height(this.panelRect().height)
-      .borderRadius(NowPlayingMotion.panelRadius(this.motionProgress))
+      .borderRadius(NowPlayingMotion.panelRadius(this.panelAmount))
       .clip(true)
       .position({ x: this.panelRect().x - this.modalOriginX, y: this.panelRect().y - this.modalOriginY })
 
@@ -600,7 +600,8 @@ export struct MainShell {
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM])
     // 一镜到底播放页：全屏模态挂在壳层根上（盖住 Tab 骨架与悬浮栏）。
     // modalTransition NONE + 透明背板：模态自身不做系统推拉，动画由
-    // motionProgress 单一进度驱动（面板几何 + 内容分层 + MiniBar 衔接）。
+    // panelAmount 单一进度驱动（面板几何 + 内容分层 + MiniBar 衔接），
+    // advance() 提供先慢后快的变速手感。
     // 返回键/侧滑先到 onWillDismiss：记录 dismiss 动作并请求收起，进度
     // 归零后再 dismiss() 兜底（官方要求注册后必须调用才会真正关闭）。
     // onDisappear 收敛开关并通知常驻 Tab 页刷新，覆盖收起与 push 专辑前
