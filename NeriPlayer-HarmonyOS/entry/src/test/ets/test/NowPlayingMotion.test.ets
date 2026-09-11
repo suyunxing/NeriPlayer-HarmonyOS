@@ -52,8 +52,9 @@ export default function nowPlayingMotionTest(): void {
     });
 
     it('settleBudgetCoversRowStagger', 0, () => {
-      // 结算预算必须 ≥ 最大行时延（5×18ms），否则收起会截断最后一行。
-      expect(NowPlayingMotion.ROW_SETTLE_MS >= 5 * 18).assertTrue();
+      // 结算预算必须 ≥ 收起方向最大行时延（5×10ms）+ 行时长（100ms），
+      // 否则收起会截断最后一行。
+      expect(NowPlayingMotion.ROW_SETTLE_MS >= 5 * 10 + 100).assertTrue();
       expect(NowPlayingMotion.COLLAPSE_MS).assertEqual(400);
       expect(NowPlayingMotion.EXPAND_MS).assertEqual(300);
     });

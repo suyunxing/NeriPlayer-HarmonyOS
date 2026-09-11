@@ -17,8 +17,6 @@ export struct MiniPlayer {
    * 显示（可见环缩到 30vp 在槽位圆角内留出空余）。独立悬浮形态才用完整卡片。
    */
   @Prop compact: boolean = false;
-  @Prop presentationOnly: boolean = false;
-  @StorageProp('ui.nowPlayingMounted') nowPlayingMounted: boolean = false;
   onMeasured: (area: Area) => void = (_area: Area): void => {};
   @StorageLink('player.currentSong') currentSongJson: string = '';
   @StorageLink('player.status') @Watch('onStatusChanged') status: number = PlaybackStatus.IDLE;
@@ -123,7 +121,6 @@ export struct MiniPlayer {
 
   build() {
     Stack() {
-      if (!this.presentationOnly) {
       Column()
         .width('100%')
         .height(this.compact ? 40 : 62)
@@ -132,18 +129,15 @@ export struct MiniPlayer {
           ? BlurStyle.NONE : BlurStyle.COMPONENT_THICK)
         .borderRadius(this.compact ? 20 : 16)
         .hitTestBehavior(HitTestMode.None)
-      }
       this.playerContent()
     }
     .width('100%')
     .margin(this.compact ? { left: 0, right: 0, bottom: 0 } : { left: 10, right: 10, bottom: 8 })
-    .opacity(this.presentationOnly || !this.nowPlayingMounted ? 1 : 0)
-    .hitTestBehavior(this.presentationOnly || this.nowPlayingMounted ? HitTestMode.None : HitTestMode.Default)
-    .accessibilityLevel(this.presentationOnly || this.nowPlayingMounted ? 'no-hide-descendants' : 'auto')
+    // 显隐由使用方控制（壳层在转场期间对真实迷你条做淡入/隐藏），组件自身
+    // 不再持有 mounted/presentation 状态——展示副本已删除，收缩时直接淡入
+    // 真实迷你条，杜绝副本与真实布局不一致导致的切换闪烁。
     .onAreaChange((_oldArea: Area, area: Area) => {
-      if (!this.presentationOnly) {
-        this.onMeasured(area);
-      }
+      this.onMeasured(area);
     })
     .shadow(this.compact ? { radius: 0, color: '#00000000' } : { radius: 12, color: '#22000000', offsetY: 2 })
   }
@@ -298,8 +292,6 @@ export struct MiniPlayer {
           }
         }
         .layoutWeight(1)
-        // 副行（歌词/歌手）无独立转场：模态挂载时整个迷你条随
-        // nowPlayingMounted 一起隐藏，展示由模态内的 presentation 副本接管。
       }
       .width('100%')
       .height(this.compact ? 40 : 60)

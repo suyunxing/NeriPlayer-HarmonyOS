@@ -493,11 +493,13 @@ export struct NowPlayingPage {
   }
 
   private rowDelay(row: number): number {
-    return (this.closing ? 5 - row : row) * 18;
+    // 收起时行要在面板明显缩小前清空文字（否则行文字会从收缩窗口边缘
+    // 露出），错峰压缩到 10ms 步进、总时长 100ms；展开保持 18ms 错峰。
+    return (this.closing ? 5 - row : row) * (this.closing ? 10 : 18);
   }
 
   private rowDuration(): number {
-    return this.closing ? NowPlayingMotion.COLLAPSE_MS : NowPlayingMotion.EXPAND_MS;
+    return this.closing ? 100 : NowPlayingMotion.EXPAND_MS;
   }
 
   build() {
