@@ -77,8 +77,8 @@ export struct MainShell {
   // 转场进行中：模态内容不响应命中，结算后恢复。
   @State transitioning: boolean = false;
   // 默认兜底值 = 360vp 宽窗口下的药丸典型位置（窗口度量发布后按实测覆盖）。
-  @State miniRect: NowPlayingRect = { x: 27, y: 611, width: 323, height: 40 };
-  @State originRect: NowPlayingRect = { x: 27, y: 611, width: 323, height: 40 };
+  @State miniRect: NowPlayingRect = { x: 23, y: 611, width: 314, height: 40 };
+  @State originRect: NowPlayingRect = { x: 23, y: 611, width: 314, height: 40 };
   // 模态内容区的窗口坐标原点：面板/迷你条副本用窗口坐标（globalPosition 实测
   // 的 mini 矩形）计算，但 position() 相对模态内容区原点——若模态因安全区有
   // 偏移，直接套用会整体错位（展开起点/收起终点与迷你条不符）。在模态根节点
@@ -154,18 +154,18 @@ export struct MainShell {
    * HdsTabs 迷你条槽位的坐标标定。槽位内 builder 的 onAreaChange 返回的是
    * 槽位布局矩形（全宽、贴在悬浮栏底部），而可见的迷你条药丸被 HdsTabs 内部
    * 位移/裁剪到悬浮栏上部——这类变换不触发 onAreaChange，所以测量值永远偏左
-   * 下。偏移按 2026-09-11 真机截图像素实测标定（面板起点 (20.1, 629.5) vs 药丸
-   * (26.6, 610.6, 宽 323.6) @360vp 宽）；若 Hds 调整悬浮栏内部布局需重标。
+   * 下。Y 向偏移按真机实测标定；X/宽不依赖槽位（槽位宽度在两次会话间不稳定），
+   * 直接用药丸的对称设计值：左右边距各 23vp（barSideMargin 16 + 槽位内边距 7），
+   * 宽 = 窗口宽 − 46。若 Hds 调整悬浮栏内部布局需重标 Y 偏移。
    */
-  private static readonly PILL_OFFSET_X: number = 27;
+  private static readonly PILL_MARGIN_X: number = 23;
   private static readonly PILL_OFFSET_Y: number = -93;
-  private static readonly PILL_SHRINK_W: number = 31;
 
-  private static toPillRect(slot: NowPlayingRect): NowPlayingRect {
+  private static toPillRect(slot: NowPlayingRect, windowWidth: number): NowPlayingRect {
     return {
-      x: slot.x + MainShell.PILL_OFFSET_X,
+      x: MainShell.PILL_MARGIN_X,
       y: slot.y + MainShell.PILL_OFFSET_Y,
-      width: Math.max(40, slot.width - MainShell.PILL_SHRINK_W),
+      width: Math.max(40, windowWidth - 2 * MainShell.PILL_MARGIN_X),
       height: slot.height
     };
   }
@@ -196,7 +196,7 @@ export struct MainShell {
       MiniPlayer({ compact: true, onMeasured: (area: Area): void => {
         const rect = MainShell.validRect(area);
         if (rect !== undefined) {
-          this.miniRect = MainShell.toPillRect(rect);
+          this.miniRect = MainShell.toPillRect(rect, this.windowWidth);
         }
       } })
     }
@@ -408,7 +408,14 @@ export struct MainShell {
         NowPlayingPage({ transitionProgress: this.panelAmount, closing: this.closing })
           .width(this.windowWidth)
           .height(this.windowHeight)
+          // 内层反向位移必须与外框共用同一动画规格：收起瞬间它要从
+          // (0,0) 同步滑到 (-mini.x, -mini.y)，否则内容瞬移（外框还近乎
+          // 全屏时页面内容先跳到左上角，再随外框收缩"从上方落下"）。
           .translate({ x: -this.panelRect().x, y: -this.panelRect().y })
+          .animation({
+            duration: this.closing ? NowPlayingMotion.COLLAPSE_MS : NowPlayingMotion.EXPAND_MS,
+            curve: PANEL_CURVE
+          })
           .hitTestBehavior(!this.transitioning && this.panelAmount === 1
             ? HitTestMode.Default : HitTestMode.None)
       }
