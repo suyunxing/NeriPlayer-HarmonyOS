@@ -1,6 +1,6 @@
 import { Router } from '../Router';
 import { NowPlayingMotion, NowPlayingRect } from '../NowPlayingMotion';
-import { PANEL_CURVE, ROW_CURVE } from '../NowPlayingCurves';
+import { PANEL_CURVE } from '../NowPlayingCurves';
 import { Theme } from '../Theme';
 import { common } from '@kit.AbilityKit';
 import { SystemBars } from '../../util/SystemBars';
@@ -174,15 +174,6 @@ export struct MainShell {
     return NowPlayingMotion.panel(this.panelAmount, this.originRect, this.windowWidth, this.windowHeight);
   }
 
-  private miniOpacity(): number {
-    return this.nowPlayingShown ? 0 : 1;
-  }
-
-  private miniY(): number {
-    // 展开时上移 22vp 后随整体淡出；收起时回到药丸原位（与面板终点重合）。
-    return this.nowPlayingShown ? this.originRect.y - 22 : this.originRect.y;
-  }
-
   /**
    * 官方 FAQ 对 HdsNavigation + HdsTabs 组合的要求：每个 Tab 的滚动容器持独立
    * Scroller，标题栏只绑定当前可见 Tab 的那一个；实例经构造参数下发给各 Tab 页。
@@ -199,7 +190,23 @@ export struct MainShell {
           this.miniRect = MainShell.toPillRect(rect, this.windowWidth);
         }
       } })
+        // 模态展开期间隐藏（面板占据药丸位置）；收起后半段直接淡入真实
+        // 迷你条——它就是"正确位置"本身，模态卸载时零差异、不再闪烁。
+        .opacity(this.miniBarHidden() ? 0 : 1)
+        .animation(this.miniBarHidden()
+          ? { duration: 0 }
+          : { duration: 220, delay: Math.round(NowPlayingMotion.COLLAPSE_MS * 0.55), curve: Curve.EaseOut })
+        .accessibilityLevel(this.miniBarHidden() ? 'no-hide-descendants' : 'auto')
+        .hitTestBehavior(this.miniBarHidden() ? HitTestMode.None : HitTestMode.Default)
     }
+  }
+
+  /**
+   * 真实迷你条在转场期间的隐藏条件：模态挂载且处于展开方向（面板占位）。
+   * 收起方向（closing）时提前可见并淡入；未挂载时常态可见。
+   */
+  private miniBarHidden(): boolean {
+    return this.modalMounted && !this.closing;
   }
 
   /** 悬浮 Tab 栏的系统沉浸材质：设备不支持时保持 undefined（自绘玻璃兜底）。 */
@@ -442,23 +449,6 @@ export struct MainShell {
           duration: Math.round(NowPlayingMotion.EXPAND_MS * 0.3),
           curve: Curve.EaseOut
         })
-
-      if (this.currentSongJson.length > 0) {
-        MiniPlayer({ compact: true, presentationOnly: true })
-          .width(this.originRect.width)
-          .height(this.originRect.height)
-          .translate({ x: this.originRect.x - this.modalOriginX, y: this.miniY() - this.modalOriginY })
-          .animation({
-            duration: this.closing ? NowPlayingMotion.COLLAPSE_MS : NowPlayingMotion.EXPAND_MS,
-            curve: ROW_CURVE
-          })
-          .opacity(this.miniOpacity())
-          // 展开时快速淡出；收起时等面板上边框降到约 80% 高度再淡入。
-          .animation(this.closing
-            ? { duration: 180, delay: NowPlayingMotion.COLLAPSE_MS * 0.4, curve: Curve.EaseOut }
-            : { duration: 120, curve: Curve.EaseOut })
-          .hitTestBehavior(HitTestMode.None)
-      }
     }
     .width('100%')
     .height('100%')
