@@ -429,6 +429,19 @@ export struct MainShell {
         duration: this.closing ? NowPlayingMotion.COLLAPSE_MS : NowPlayingMotion.EXPAND_MS,
         curve: PANEL_CURVE
       })
+      // 透明度渐变挂在几何动画之后（各自捕获自己的属性段）：展开初期
+      // ~90ms 快速实体化，收缩末段 ~140ms 随落地淡出，避免生硬的出入现。
+      .opacity(this.panelAmount)
+      .animation(this.closing
+        ? {
+          duration: Math.round(NowPlayingMotion.COLLAPSE_MS * 0.35),
+          delay: Math.round(NowPlayingMotion.COLLAPSE_MS * 0.65),
+          curve: Curve.EaseIn
+        }
+        : {
+          duration: Math.round(NowPlayingMotion.EXPAND_MS * 0.3),
+          curve: Curve.EaseOut
+        })
 
       if (this.currentSongJson.length > 0) {
         MiniPlayer({ compact: true, presentationOnly: true })
