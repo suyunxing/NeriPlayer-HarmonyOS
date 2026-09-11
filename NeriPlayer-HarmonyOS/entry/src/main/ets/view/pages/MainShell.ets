@@ -1,5 +1,6 @@
 import { Router } from '../Router';
 import { NowPlayingMotion, NowPlayingRect } from '../NowPlayingMotion';
+import { PANEL_CURVE, ROW_CURVE } from '../NowPlayingCurves';
 import { Theme } from '../Theme';
 import { common } from '@kit.AbilityKit';
 import { SystemBars } from '../../util/SystemBars';
@@ -71,81 +72,69 @@ export struct MainShell {
   @StorageProp('ui.windowWidthVp') windowWidth: number = 360;
   @StorageProp('ui.windowHeightVp') windowHeight: number = 800;
   @State panelAmount: number = 0;
+  // 动画方向（false=展开）：决定各属性动画的时长/时延取向。
+  @State closing: boolean = false;
+  // 转场进行中：模态内容不响应命中，结算后恢复。
+  @State transitioning: boolean = false;
   // 默认兜底值 = 360vp 宽窗口下的药丸典型位置（窗口度量发布后按实测覆盖）。
-  @State miniRect: NowPlayingRect = { x: 23, y: 626, width: 314, height: 40 };
-  @State originRect: NowPlayingRect = { x: 23, y: 626, width: 314, height: 40 };
+  @State miniRect: NowPlayingRect = { x: 27, y: 611, width: 323, height: 40 };
+  @State originRect: NowPlayingRect = { x: 27, y: 611, width: 323, height: 40 };
   // 模态内容区的窗口坐标原点：面板/迷你条副本用窗口坐标（globalPosition 实测
   // 的 mini 矩形）计算，但 position() 相对模态内容区原点——若模态因安全区有
   // 偏移，直接套用会整体错位（展开起点/收起终点与迷你条不符）。在模态根节点
   // 实测原点后做自校正，模态铺满窗口时该值为 (0,0)，两种布局下都成立。
   @State modalOriginX: number = 0;
   @State modalOriginY: number = 0;
-  private motionTimer: number = -1;
   private startDelayTimer: number = -1;
-  private lastMotionTime: number = 0;
+  private settleTimer: number = -1;
   private modalReady: boolean = false;
   private pendingDismiss: DismissContentCoverAction | undefined = undefined;
 
-  private stopMotion(): void {
-    if (this.motionTimer >= 0) {
-      clearInterval(this.motionTimer);
-      this.motionTimer = -1;
+  private clearSettle(): void {
+    if (this.settleTimer >= 0) {
+      clearTimeout(this.settleTimer);
+      this.settleTimer = -1;
     }
   }
 
-  private onNowPlayingRequested(): void {
-    if (this.nowPlayingShown && !this.modalMounted) {
-      this.originRect = this.miniRect;
-      this.panelAmount = 0;
-      this.modalMounted = true;
-      return;
-    }
-    if (this.nowPlayingShown) {
-      this.pendingDismiss = undefined;
-    }
-    if (this.modalReady) {
-      this.startMotion();
-    }
-  }
-
-  private startMotion(): void {
-    // 模态挂载后立即启动会把首帧跳过（挂建 NowPlayingPage 耗时 > 1 tick，
-    // 起始帧直接从进度 > 0 画出，看起来像从错误位置起跳）；onAppear 延迟约
-    // 一帧再启动，保证第一帧画在迷你条原位。任何后续 startMotion 都取消
-    // 这个待触发的延迟。
-    if (this.startDelayTimer >= 0) {
-      clearTimeout(this.startDelayTimer);
-      this.startDelayTimer = -1;
-    }
-    this.stopMotion();
-    this.lastMotionTime = Date.now();
-    this.motionTimer = setInterval(() => {
-      const now = Date.now();
-      const expanding = this.nowPlayingShown;
-      const duration = expanding ? NowPlayingMotion.EXPAND_MS : NowPlayingMotion.COLLAPSE_MS;
-      this.panelAmount = NowPlayingMotion.advance(this.panelAmount, now - this.lastMotionTime, expanding, duration);
-      this.lastMotionTime = now;
-      if (this.panelAmount === 1 && expanding) {
-        this.stopMotion();
-      } else if (this.panelAmount === 0 && !expanding) {
-        this.stopMotion();
+  /**
+   * 转场结算：几何全部由原生属性动画驱动（无 JS 逐帧步进，见 NowPlayingCurves），
+   * JS 侧只需在「时长 + 行错峰 + 余量」之后收尾——展开恢复命中，收起卸载模态
+   * 并执行挂起的系统 dismiss。中途反向（重开）会重置该计时器。
+   */
+  private armSettle(durationMs: number): void {
+    this.clearSettle();
+    this.settleTimer = setTimeout(() => {
+      this.settleTimer = -1;
+      this.transitioning = false;
+      if (!this.nowPlayingShown) {
         this.modalReady = false;
         this.modalMounted = false;
         const dismiss = this.pendingDismiss;
         this.pendingDismiss = undefined;
         dismiss?.dismiss();
       }
-    }, 16);
+    }, durationMs + NowPlayingMotion.ROW_SETTLE_MS + 80);
   }
 
-  private scheduleStart(): void {
-    if (this.startDelayTimer >= 0) {
-      clearTimeout(this.startDelayTimer);
+  private onNowPlayingRequested(): void {
+    if (this.nowPlayingShown && !this.modalMounted) {
+      this.originRect = this.miniRect;
+      this.panelAmount = 0;
+      this.closing = false;
+      this.transitioning = true;
+      this.modalMounted = true;
+      // 首帧推进交给 onAppear 的延迟触发（挂建耗时 > 1 tick 时立即翻开会
+      // 跳过起始帧）；这里只负责挂载。
+      return;
     }
-    this.startDelayTimer = setTimeout(() => {
-      this.startDelayTimer = -1;
-      this.startMotion();
-    }, 16);
+    if (this.nowPlayingShown) {
+      this.pendingDismiss = undefined;
+    }
+    this.closing = !this.nowPlayingShown;
+    this.transitioning = true;
+    this.panelAmount = this.nowPlayingShown ? 1 : 0;
+    this.armSettle(this.nowPlayingShown ? NowPlayingMotion.EXPAND_MS : NowPlayingMotion.COLLAPSE_MS);
   }
 
   private static validRect(area: Area): NowPlayingRect | undefined {
@@ -163,15 +152,14 @@ export struct MainShell {
 
   /**
    * HdsTabs 迷你条槽位的坐标标定。槽位内 builder 的 onAreaChange 返回的是
-   * 槽位布局矩形（全宽、贴在悬浮栏底部，2026-09-10 真机录屏逐帧实测约为
-   * (0, 窗口高-72, 窗口宽-13, 40)），而可见的迷你条药丸被 HdsTabs 内部位移/
-   * 裁剪到悬浮栏上部（(23, 626, 314, 40) @360vp 宽）——这类变换不触发
-   * onAreaChange，所以测量值永远偏左下。下面三个偏移把槽位矩形换算成药丸
-   * 视觉矩形，按当前 Hds 版本标定；若 Hds 调整悬浮栏内部布局需重标。
+   * 槽位布局矩形（全宽、贴在悬浮栏底部），而可见的迷你条药丸被 HdsTabs 内部
+   * 位移/裁剪到悬浮栏上部——这类变换不触发 onAreaChange，所以测量值永远偏左
+   * 下。偏移按 2026-09-11 真机截图像素实测标定（面板起点 (20.1, 629.5) vs 药丸
+   * (26.6, 610.6, 宽 323.6) @360vp 宽）；若 Hds 调整悬浮栏内部布局需重标。
    */
-  private static readonly PILL_OFFSET_X: number = 23;
-  private static readonly PILL_OFFSET_Y: number = -74;
-  private static readonly PILL_SHRINK_W: number = 29;
+  private static readonly PILL_OFFSET_X: number = 27;
+  private static readonly PILL_OFFSET_Y: number = -93;
+  private static readonly PILL_SHRINK_W: number = 31;
 
   private static toPillRect(slot: NowPlayingRect): NowPlayingRect {
     return {
@@ -187,19 +175,12 @@ export struct MainShell {
   }
 
   private miniOpacity(): number {
-    if (this.nowPlayingShown) {
-      return 1 - NowPlayingMotion.segment(this.panelAmount, 0.035, 0.16);
-    }
-    return NowPlayingMotion.miniReturnOpacity(this.panelRect().y, this.windowHeight, this.originRect.y);
+    return this.nowPlayingShown ? 0 : 1;
   }
 
   private miniY(): number {
-    // On return the compact row remains at the panel's original internal top
-    // inset (0vp row, 4vp cover). No independent translation can detach it.
-    // backOut gives the follow-up move a slight elastic overshoot.
-    return this.nowPlayingShown
-      ? this.originRect.y - 22 * NowPlayingMotion.backOut(NowPlayingMotion.segment(this.panelAmount, 0, 0.16))
-      : this.panelRect().y;
+    // 展开时上移 22vp 后随整体淡出；收起时回到药丸原位（与面板终点重合）。
+    return this.nowPlayingShown ? this.originRect.y - 22 : this.originRect.y;
   }
 
   /**
@@ -281,7 +262,7 @@ export struct MainShell {
       clearTimeout(this.startDelayTimer);
       this.startDelayTimer = -1;
     }
-    this.stopMotion();
+    this.clearSettle();
     this.modalReady = false;
     this.pendingDismiss = undefined;
     this.modalMounted = false;
@@ -416,32 +397,46 @@ export struct MainShell {
 
   /**
    * 一镜到底播放页的模态内容。动画分工：modalTransition NONE 关掉系统推拉；
-   * 面板几何（mini 矩形 → 全窗）由 MainShell 的 panelAmount 驱动（advance()
-   * 的先慢后快变速），内容行
+   * 面板几何（mini 矩形 → 全窗）由 MainShell 的 panelAmount 目标值驱动
+   * （原生属性动画 + NowPlayingCurves 的先慢后快曲线），内容行
    * 的分层弹入由 NowPlayingMotion 纯函数按同一进度计算（见 NowPlayingPage）。
    */
   @Builder
   nowPlayingBuilder() {
     Stack({ alignContent: Alignment.TopStart }) {
       Stack({ alignContent: Alignment.TopStart }) {
-        NowPlayingPage({ transitionProgress: this.panelAmount })
+        NowPlayingPage({ transitionProgress: this.panelAmount, closing: this.closing })
           .width(this.windowWidth)
           .height(this.windowHeight)
-          .position({ x: -this.panelRect().x, y: -this.panelRect().y })
-          .hitTestBehavior(this.panelAmount === 1 ? HitTestMode.Default : HitTestMode.None)
+          .translate({ x: -this.panelRect().x, y: -this.panelRect().y })
+          .hitTestBehavior(!this.transitioning && this.panelAmount === 1
+            ? HitTestMode.Default : HitTestMode.None)
       }
       .width(this.panelRect().width)
       .height(this.panelRect().height)
       .borderRadius(NowPlayingMotion.panelRadius(this.panelAmount))
       .clip(true)
-      .position({ x: this.panelRect().x - this.modalOriginX, y: this.panelRect().y - this.modalOriginY })
+      .translate({ x: this.panelRect().x - this.modalOriginX, y: this.panelRect().y - this.modalOriginY })
+      // 面板几何整体走原生属性动画（先慢后快），render 管线逐帧驱动。
+      .animation({
+        duration: this.closing ? NowPlayingMotion.COLLAPSE_MS : NowPlayingMotion.EXPAND_MS,
+        curve: PANEL_CURVE
+      })
 
       if (this.currentSongJson.length > 0) {
         MiniPlayer({ compact: true, presentationOnly: true })
           .width(this.originRect.width)
           .height(this.originRect.height)
-          .position({ x: this.originRect.x - this.modalOriginX, y: this.miniY() - this.modalOriginY })
+          .translate({ x: this.originRect.x - this.modalOriginX, y: this.miniY() - this.modalOriginY })
+          .animation({
+            duration: this.closing ? NowPlayingMotion.COLLAPSE_MS : NowPlayingMotion.EXPAND_MS,
+            curve: ROW_CURVE
+          })
           .opacity(this.miniOpacity())
+          // 展开时快速淡出；收起时等面板上边框降到约 80% 高度再淡入。
+          .animation(this.closing
+            ? { duration: 180, delay: NowPlayingMotion.COLLAPSE_MS * 0.4, curve: Curve.EaseOut }
+            : { duration: 120, curve: Curve.EaseOut })
           .hitTestBehavior(HitTestMode.None)
       }
     }
@@ -600,8 +595,8 @@ export struct MainShell {
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM])
     // 一镜到底播放页：全屏模态挂在壳层根上（盖住 Tab 骨架与悬浮栏）。
     // modalTransition NONE + 透明背板：模态自身不做系统推拉，动画由
-    // panelAmount 单一进度驱动（面板几何 + 内容分层 + MiniBar 衔接），
-    // advance() 提供先慢后快的变速手感。
+    // panelAmount 目标值驱动（面板几何 + 内容分层 + MiniBar 衔接），
+    // 原生属性动画提供先慢后快与回弹手感，JS 只做结算计时。
     // 返回键/侧滑先到 onWillDismiss：记录 dismiss 动作并请求收起，进度
     // 归零后再 dismiss() 兜底（官方要求注册后必须调用才会真正关闭）。
     // onDisappear 收敛开关并通知常驻 Tab 页刷新，覆盖收起与 push 专辑前
@@ -617,7 +612,17 @@ export struct MainShell {
       enableSafeArea: false,
       onAppear: () => {
         this.modalReady = true;
-        this.scheduleStart();
+        // 延迟约一帧再翻转目标值：挂建 NowPlayingPage 耗时 > 1 tick 时立即
+        // 翻开会跳过起始帧（首帧直接从进度 > 0 画出，起点错位观感）。
+        if (this.startDelayTimer >= 0) {
+          clearTimeout(this.startDelayTimer);
+        }
+        this.startDelayTimer = setTimeout(() => {
+          this.startDelayTimer = -1;
+          this.transitioning = true;
+          this.panelAmount = 1;
+          this.armSettle(NowPlayingMotion.EXPAND_MS);
+        }, 16);
       },
       onDisappear: () => {
         // A new open request may arrive while the previous modal is unmounting.
