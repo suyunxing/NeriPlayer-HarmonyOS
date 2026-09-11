@@ -24,6 +24,7 @@ import { DownloadStorage } from '../../download/DownloadStorage';
 import { AlbumSongs } from '../../util/AlbumSongs';
 import { Router } from '../Router';
 import { NowPlayingMotion } from '../NowPlayingMotion';
+import { ROW_CURVE } from '../NowPlayingCurves';
 import { formatDuration } from '../components/Ui';
 
 const SPEED_STEPS: number[] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
@@ -43,6 +44,8 @@ const IMMERSIVE_EDGES: SafeAreaEdge[] = [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM];
 @Component
 export struct NowPlayingPage {
   @Prop transitionProgress: number = 1;
+  // 收起方向：行错峰次序反转、时长取 COLLAPSE_MS。
+  @Prop closing: boolean = false;
   @StorageLink('player.currentSong') @Watch('onSongJsonChanged') currentSongJson: string = '';
   @StorageLink('player.status') @Watch('onSpinStatusChanged') status: number = PlaybackStatus.IDLE;
   @StorageLink('player.positionMs') positionMs: number = 0;
@@ -489,6 +492,14 @@ export struct NowPlayingPage {
     }
   }
 
+  private rowDelay(row: number): number {
+    return (this.closing ? 5 - row : row) * 18;
+  }
+
+  private rowDuration(): number {
+    return this.closing ? NowPlayingMotion.COLLAPSE_MS : NowPlayingMotion.EXPAND_MS;
+  }
+
   build() {
     Stack() {
       // 背景层全部用 expandSafeArea 铺进状态栏、导航条与挖孔区：这些是纯展示
@@ -623,7 +634,9 @@ export struct NowPlayingPage {
         .width('100%')
         .padding({ left: 10, right: 10, top: 8 })
         .translate({ y: NowPlayingMotion.rowOffset(this.transitionProgress, 0) })
+        .animation({ duration: this.rowDuration(), curve: ROW_CURVE, delay: this.rowDelay(0) })
         .opacity(NowPlayingMotion.rowOpacity(this.transitionProgress, 0))
+        .animation({ duration: 130, curve: Curve.EaseOut, delay: this.rowDelay(0) })
 
         // 播放页↔歌词页横向分页。LyricView 的根节点是 layoutWeight(1) 的
         // Scroll，在 Swiper item 里必须包一层定高 Column，否则高度塌 0。
@@ -684,7 +697,9 @@ export struct NowPlayingPage {
             .width('100%')
             .padding({ left: 24, right: 24 })
             .translate({ y: NowPlayingMotion.rowOffset(this.transitionProgress, 2) })
+            .animation({ duration: this.rowDuration(), curve: ROW_CURVE, delay: this.rowDelay(2) })
             .opacity(NowPlayingMotion.rowOpacity(this.transitionProgress, 2))
+            .animation({ duration: 130, curve: Curve.EaseOut, delay: this.rowDelay(2) })
           }
           .width('100%')
           .height('100%')
@@ -717,7 +732,9 @@ export struct NowPlayingPage {
         .width('100%')
         .onChange((index: number) => this.switchPane(index))
         .translate({ y: NowPlayingMotion.rowOffset(this.transitionProgress, 1) })
+        .animation({ duration: this.rowDuration(), curve: ROW_CURVE, delay: this.rowDelay(1) })
         .opacity(NowPlayingMotion.rowOpacity(this.transitionProgress, 1))
+        .animation({ duration: 130, curve: Curve.EaseOut, delay: this.rowDelay(1) })
 
         // 控制区只有一个（在 Swiper 外），歌词页通过 lyricsMode 收拢成
         // 无底控件行：传输键不重复实现，单一数据源。控件直接叠在毛玻璃
@@ -741,7 +758,9 @@ export struct NowPlayingPage {
                 }
               })
               .translate({ y: NowPlayingMotion.rowOffset(this.transitionProgress, 3) })
+              .animation({ duration: this.rowDuration(), curve: ROW_CURVE, delay: this.rowDelay(3) })
               .opacity(NowPlayingMotion.rowOpacity(this.transitionProgress, 3))
+              .animation({ duration: 130, curve: Curve.EaseOut, delay: this.rowDelay(3) })
 
               Row() {
                 Text(formatDuration(this.previewMs >= 0 ? this.previewMs : this.positionMs))
@@ -754,7 +773,9 @@ export struct NowPlayingPage {
               }
               .width('100%')
               .translate({ y: NowPlayingMotion.rowOffset(this.transitionProgress, 3) })
+              .animation({ duration: this.rowDuration(), curve: ROW_CURVE, delay: this.rowDelay(3) })
               .opacity(NowPlayingMotion.rowOpacity(this.transitionProgress, 3))
+              .animation({ duration: 130, curve: Curve.EaseOut, delay: this.rowDelay(3) })
 
               // 传输行只保留上一曲/播放暂停/下一曲；播放模式收进下方控件行。
               // 上一曲/下一曲放大到 58/30，与 64/34 的主播放键形成尺寸梯度。
@@ -793,7 +814,9 @@ export struct NowPlayingPage {
               .padding({ top: 6 })
               .justifyContent(FlexAlign.SpaceEvenly)
               .translate({ y: NowPlayingMotion.rowOffset(this.transitionProgress, 4) })
+              .animation({ duration: this.rowDuration(), curve: ROW_CURVE, delay: this.rowDelay(4) })
               .opacity(NowPlayingMotion.rowOpacity(this.transitionProgress, 4))
+              .animation({ duration: 130, curve: Curve.EaseOut, delay: this.rowDelay(4) })
 
               // 无背景裸图标行（鸿蒙标准符号）；去背景后状态靠颜色区分，
               // 文字信息（1.0x、剩余分钟）由无障碍文案补偿。
@@ -869,7 +892,9 @@ export struct NowPlayingPage {
               // 避让区（见 util/WindowMetrics.ets），无指示器的形态为 0。
               .padding({ top: 12, bottom: this.bottomLift })
               .translate({ y: NowPlayingMotion.rowOffset(this.transitionProgress, 5) })
+              .animation({ duration: this.rowDuration(), curve: ROW_CURVE, delay: this.rowDelay(5) })
               .opacity(NowPlayingMotion.rowOpacity(this.transitionProgress, 5))
+              .animation({ duration: 130, curve: Curve.EaseOut, delay: this.rowDelay(5) })
             }
             .width('100%')
           } else if (this.lyricPageControls) {
@@ -963,7 +988,9 @@ export struct NowPlayingPage {
             .borderRadius(32)
             .margin({ bottom: 8 })
             .translate({ y: NowPlayingMotion.rowOffset(this.transitionProgress, 4) })
+            .animation({ duration: this.rowDuration(), curve: ROW_CURVE, delay: this.rowDelay(4) })
             .opacity(NowPlayingMotion.rowOpacity(this.transitionProgress, 4))
+            .animation({ duration: 130, curve: Curve.EaseOut, delay: this.rowDelay(4) })
           }
         }
         .width('100%')

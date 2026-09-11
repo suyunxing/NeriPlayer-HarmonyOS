@@ -1,5 +1,12 @@
 # 播放页转场修复记录（2026-09-10）
 
+## 第六轮：原生属性动画与剩余偏移（2026-09-11，5eaa922 之后）
+
+- 卡顿：JS `setInterval(16ms)` 逐帧驱动 width/height/position 的方案整体废弃——定时抖动 + 每帧 JS→state→diff→UI 往返是卡顿来源。改为 `panelAmount` 目标值（0/1）+ 原生 `.animation()`：面板几何（translate+width/height/radius）、行位移/透明度、MiniBar 副本全部走 render/动画管线逐帧插值；JS 只保留「挂载延迟一帧」与「结算计时器」（时长+行错峰+余量后恢复命中/卸载模态）。行错峰由每行 `.animation.delay`（展开 i×18ms、收起 (5−i)×18ms）承担。
+- 曲线：新增 `view/NowPlayingCurves.ets`（`curves.customCurve`，y 值无界可过冲）——PANEL_CURVE = fraction^2.2（先慢后快，两方向同形），ROW_CURVE = easeOutBack（冲过落点回弹）。`NowPlayingMotion` 退化为纯端点几何 + 错峰预算，`advance/backOut/miniReturnOpacity` 删除。
+- 内页位移从 `position`（布局属性）改为 `translate`（渲染属性），去掉每帧子树重排。
+- 剩余偏移：按真机截图像素实测（面板起点 (20.1, 629.5) vs 药丸 (26.6, 610.6, 宽 323.6) @360vp），标定常数修正为 PILL_OFFSET_X 27 / PILL_OFFSET_Y −93 / PILL_SHRINK_W 31。
+
 ## 第五轮：弹性手感（2026-09-11，7352e3f 之后）
 
 位置标定验证通过后，动画观感生硬。修正：
