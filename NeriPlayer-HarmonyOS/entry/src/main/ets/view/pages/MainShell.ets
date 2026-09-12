@@ -333,6 +333,8 @@ export struct MainShell {
     TabContent() {
       ExplorePage({ scroller: this.tabScrollers[1] })
     }
+    // 与首页 TabContent 同理：放行页内滚动内容向上穿透到状态栏后被渐变模糊覆盖。
+    .clip(false)
     .tabBar(this.wide()
       ? this.sideTabBar(1, '探索', $r('app.media.ic_tab_search_24'))
       : this.bottomTabBar(1, '探索', $r('app.media.ic_tab_search_24')))
@@ -340,6 +342,8 @@ export struct MainShell {
     TabContent() {
       LibraryPage({ scroller: this.tabScrollers[2] })
     }
+    // 同探索页：放行内容向上穿透。
+    .clip(false)
     .tabBar(this.wide()
       ? this.sideTabBar(2, '资料库', $r('app.media.ic_tab_library_24'))
       : this.bottomTabBar(2, '资料库', $r('app.media.ic_tab_library_24')))
@@ -347,6 +351,8 @@ export struct MainShell {
     TabContent() {
       SettingsPage({ scroller: this.tabScrollers[3] })
     }
+    // 同探索页：放行内容向上穿透。
+    .clip(false)
     .tabBar(this.wide()
       ? this.sideTabBar(3, '设置', $r('app.media.ic_tab_settings_24'))
       : this.bottomTabBar(3, '设置', $r('app.media.ic_tab_settings_24')))
