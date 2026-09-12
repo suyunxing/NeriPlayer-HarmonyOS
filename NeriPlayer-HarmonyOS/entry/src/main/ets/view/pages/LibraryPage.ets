@@ -566,6 +566,12 @@ export struct LibraryPage {
       .scrollBar(BarState.Off)
       .width('100%')
       .height('100%')
+      // 顶部沉浸：视口向上延伸进状态栏区，列表滚过标题栏后继续钻到状态栏
+      // 被渐变模糊覆盖（与首页统一）；clip(false) 放行内容画出视口上沿，
+      // expandSafeArea 只扩绘制区不改布局，首屏让位不变。新建歌单弹窗是
+      // Stack 中声明在后的兄弟，仍在列表之上。
+      .clip(false)
+      .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP])
       .backgroundColor(this.schemeBg(Theme.isDark()))
 
       if (this.showCreateDialog) {
