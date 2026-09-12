@@ -167,10 +167,11 @@ NeriPlayer-HarmonyOS/
 │       ├── src/test/             # 本地确定性单元测试 (935+ Cases，全绿)
 │       └── src/ohosTest/         # 设备端侧集成测试集 (Acts* 真实环境用例)
 ├── docs/                         # 架构规范、协议分析、安全审计与移植进展看板
-├── NeriPlayer-master/            # 上游 Android/Kotlin 参考源码快照 (只读参照)
 ├── build-signed.sh               # Linux 服务端一键构建与 hap-sign-tool 签名脚本
 └── .github/workflows/            # CI 持续集成与 Release 自动发布工作流
 ```
+
+> **注**：上游 Android 原版源码已从本仓库版本控制中完全解耦（已加入 `.gitignore` 忽略），如需对照 Android 原版实现可参阅上游独立仓库 [cwuom/NeriPlayer](https://github.com/cwuom/NeriPlayer)。
 
 ---
 
