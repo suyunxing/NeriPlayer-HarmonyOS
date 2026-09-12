@@ -265,7 +265,7 @@ export struct ExplorePage {
         // 顶部沉浸：结果列表向上穿透，滚过固定搜索区、标题栏后钻到状态栏
         // 被渐变模糊覆盖（与首页统一）；clip(false) 放行内容画出视口上沿。
         .clip(false)
-        .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP])
+        .expandSafeArea([SafeAreaType.SYSTEM, SafeAreaType.CUTOUT], [SafeAreaEdge.TOP])
         .width('100%')
       } else if (!this.searched) {
         Column({ space: 12 }) {

@@ -140,6 +140,10 @@ export struct MiniPlayer {
       this.onMeasured(area);
     })
     .shadow(this.compact ? { radius: 0, color: '#00000000' } : { radius: 12, color: '#22000000', offsetY: 2 })
+    // 滑动切歌的位移/缩放挂在 Stack 根上：玻璃背景是 playerContent 的兄弟
+    // 节点，变换若只挂内容行，滑动时文字按钮滑走而药丸壳纹丝不动。
+    .translate({ x: this.swipeOffset })
+    .scale(this.swiping ? { x: 0.975, y: 0.975 } : { x: 1, y: 1 })
   }
 
   @Builder
@@ -333,8 +337,6 @@ export struct MiniPlayer {
             });
           })
       )
-      .translate({ x: this.swipeOffset })
-      .scale(this.swiping ? { x: 0.975, y: 0.975 } : { x: 1, y: 1 })
     }
     .width('100%')
   }
