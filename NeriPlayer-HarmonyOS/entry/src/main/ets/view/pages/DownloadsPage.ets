@@ -1,10 +1,9 @@
 import { DownloadEngine, DownloadEngineListener } from '../../download/DownloadEngine';
-import { DownloadStatus, DownloadTask } from '../../download/DownloadModels';
+import { DownloadStatus, isDownloadTaskClearable } from '../../download/DownloadModels';
+import { buildDownloadRows, DownloadRow } from '../../download/DownloadRow';
 import { DownloadStorage } from '../../download/DownloadStorage';
 import { PlayerManager } from '../../player/PlayerManager';
 import { SongItem } from '../../model/SongItem';
-import { MusicPlatform } from '../../model/MusicPlatform';
-import { stableKeyOf } from '../../model/SongIdentity';
 import { Theme } from '../Theme';
 import { AccentScheme } from '../theme/AccentScheme';
 import { EmptyState } from '../components/Ui';
@@ -20,7 +19,7 @@ class DownloadsListener implements DownloadEngineListener {
   onTasksChanged(): void {
     const target = this.page !== null ? this.page.deref() : undefined;
     if (target !== undefined) {
-      target.tasks = DownloadEngine.getTasks().slice();
+      target.refreshRows();
     }
   }
 }
@@ -33,26 +32,36 @@ export struct DownloadsPage {
    * scheme 一发布本页就随新配色重染。
    */
   @StorageProp('player.coverScheme') coverScheme: AccentScheme = AccentScheme.neutralFallback();
-  @State tasks: DownloadTask[] = [];
+  @State rows: DownloadRow[] = [];
   private listener: DownloadsListener = new DownloadsListener();
 
   aboutToAppear(): void {
     this.listener.attach(this);
     DownloadEngine.addListener(this.listener);
-    this.tasks = DownloadEngine.getTasks().slice();
+    this.refreshRows();
   }
 
-  private statusLabel(task: DownloadTask): string {
-    switch (task.status) {
+  /** 任务记录与已下载目录合并渲染：清空记录后已下载条目仍可见可删。 */
+  refreshRows(): void {
+    const tasks = DownloadEngine.getTasks().slice();
+    DownloadStorage.getCatalog().then((catalog) => {
+      this.rows = buildDownloadRows(tasks, catalog);
+    }).catch(() => {
+      this.rows = buildDownloadRows(tasks, []);
+    });
+  }
+
+  private statusLabel(row: DownloadRow): string {
+    switch (row.status) {
       case DownloadStatus.QUEUED:
         return '排队中';
       case DownloadStatus.DOWNLOADING:
-        return task.progress !== null && task.progress.percentage() >= 0
-          ? `下载中 ${task.progress.percentage()}%` : '下载中';
+        return row.progress !== null && row.progress.percentage() >= 0
+          ? `下载中 ${row.progress.percentage()}%` : '下载中';
       case DownloadStatus.WAITING_NETWORK:
         return '等待网络';
       case DownloadStatus.COMPLETED:
-        return '已完成';
+        return row.entry !== null ? '已下载' : '已完成';
       case DownloadStatus.FAILED:
         return '失败';
       default:
@@ -60,37 +69,41 @@ export struct DownloadsPage {
     }
   }
 
-  private actionLabel(task: DownloadTask): string {
-    if (task.status === DownloadStatus.QUEUED || task.status === DownloadStatus.DOWNLOADING) {
+  private actionLabel(row: DownloadRow): string {
+    if (row.status === DownloadStatus.QUEUED || row.status === DownloadStatus.DOWNLOADING) {
       return '取消';
     }
-    if (task.status === DownloadStatus.WAITING_NETWORK || task.status === DownloadStatus.FAILED
-      || task.status === DownloadStatus.CANCELLED) {
+    if (row.status === DownloadStatus.WAITING_NETWORK || row.status === DownloadStatus.FAILED
+      || row.status === DownloadStatus.CANCELLED) {
       return '重试';
     }
     return '播放';
   }
 
-  private async onAction(task: DownloadTask): Promise<void> {
-    const key = stableKeyOf(task.song);
-    if (task.status === DownloadStatus.QUEUED || task.status === DownloadStatus.DOWNLOADING) {
-      DownloadEngine.cancel(key);
-      return;
-    }
-    if (task.status === DownloadStatus.COMPLETED) {
-      // Play the committed local file from the download catalog.
-      const entry = await DownloadStorage.findCatalogEntry(task.song);
-      if (entry !== null && entry.audioPath.length > 0) {
-        const local = SongItem.fromJson(task.song.toJson());
-        local.platform = MusicPlatform.LOCAL;
-        local.localFilePath = entry.audioPath;
-        PlayerManager.playPlaylist([local], 0);
-      }
-      return;
-    }
-    DownloadEngine.resume(key);
+  /** Terminal rows and committed downloads can be deleted outright. */
+  private canDelete(row: DownloadRow): boolean {
+    return row.entry !== null || isDownloadTaskClearable(row.status);
   }
 
+  private async onAction(row: DownloadRow): Promise<void> {
+    if (row.status === DownloadStatus.QUEUED || row.status === DownloadStatus.DOWNLOADING) {
+      DownloadEngine.cancel(row.stableKey);
+      return;
+    }
+    if (row.status === DownloadStatus.COMPLETED) {
+      // Play the catalog-backed song with its original platform identity so
+      // resolution prefers the local file and still falls back to streaming
+      // when the copy was removed (self-heal or delete).
+      PlayerManager.playPlaylist([SongItem.fromJson(row.song.toJson())], 0);
+      return;
+    }
+    DownloadEngine.resume(row.stableKey);
+  }
+
+  private async onDelete(row: DownloadRow): Promise<void> {
+    await DownloadEngine.deleteDownload(row.stableKey);
+    this.refreshRows();
+  }
 
   /** build 里直读被跟踪成员注册依赖；颜色本身仍由 Theme 统一决策。 */
   private schemeBg(dark: boolean): string {
@@ -126,20 +139,20 @@ export struct DownloadsPage {
       .width('100%')
       .padding({ left: 8, right: 14, top: 8, bottom: 8 })
 
-      if (this.tasks.length === 0) {
+      if (this.rows.length === 0) {
         EmptyState({
           icon: '⤓',
-          title: '暂无下载任务',
-          subtitle: '在歌曲列表点「⋯ → 下载」添加任务'
+          title: '暂无下载内容',
+          subtitle: '在歌曲列表点「⋯ → 下载」，下载的歌曲会显示在这里'
         })
       } else {
         List() {
-          ForEach(this.tasks, (task: DownloadTask) => {
+          ForEach(this.rows, (row: DownloadRow) => {
             ListItem() {
               Row({ space: 12 }) {
                 Stack() {
-                  if (task.song.effectiveCoverUrl.length > 0) {
-                    Image(task.song.effectiveCoverUrl)
+                  if (row.song.effectiveCoverUrl.length > 0) {
+                    Image(row.song.effectiveCoverUrl)
                       .width(50)
                       .height(50)
                       .borderRadius(8)
@@ -153,7 +166,7 @@ export struct DownloadsPage {
                       .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
                       .borderRadius(8)
                   }
-                  if (task.status === DownloadStatus.COMPLETED) {
+                  if (row.status === DownloadStatus.COMPLETED) {
                     Text('✓')
                       .fontSize(12)
                       .fontColor('#FFFFFF')
@@ -167,23 +180,23 @@ export struct DownloadsPage {
                 }
 
                 Column({ space: 4 }) {
-                  Text(task.song.displayName)
+                  Text(row.song.displayName)
                     .fontSize(14)
                     .fontWeight(FontWeight.Medium)
                     .fontColor(Theme.textPrimary(Theme.isDark()))
                     .maxLines(1)
                     .textOverflow({ overflow: TextOverflow.Ellipsis })
                     .width('100%')
-                  Text(this.statusLabel(task))
+                  Text(this.statusLabel(row))
                     .fontSize(11)
-                    .fontColor(task.status === DownloadStatus.FAILED
+                    .fontColor(row.status === DownloadStatus.FAILED
                       ? Theme.danger(Theme.isDark())
-                      : (task.status === DownloadStatus.COMPLETED
+                      : (row.status === DownloadStatus.COMPLETED
                         ? Theme.success(Theme.isDark())
                         : Theme.textSecondary(Theme.isDark())))
-                  if (task.status === DownloadStatus.DOWNLOADING && task.progress !== null
-                    && task.progress.percentage() >= 0) {
-                    Progress({ value: task.progress.percentage(), total: 100, type: ProgressType.Linear })
+                  if (row.status === DownloadStatus.DOWNLOADING && row.progress !== null
+                    && row.progress.percentage() >= 0) {
+                    Progress({ value: row.progress.percentage(), total: 100, type: ProgressType.Linear })
                       .height(4)
                       .width('100%')
                       .color(Theme.primary(Theme.isDark()))
@@ -192,13 +205,23 @@ export struct DownloadsPage {
                 .layoutWeight(1)
                 .alignItems(HorizontalAlign.Start)
 
-                Button(this.actionLabel(task))
+                if (this.canDelete(row)) {
+                  Button('删除')
+                    .height(40)
+                    .fontSize(12)
+                    .backgroundColor(Color.Transparent)
+                    .fontColor(Theme.danger(Theme.isDark()))
+                    .onClick(() => {
+                      this.onDelete(row);
+                    })
+                }
+                Button(this.actionLabel(row))
                   .height(40)
                   .fontSize(12)
                   .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
                   .fontColor(Theme.textPrimary(Theme.isDark()))
                   .onClick(() => {
-                    this.onAction(task);
+                    this.onAction(row);
                   })
               }
               .width('100%')
@@ -206,7 +229,7 @@ export struct DownloadsPage {
               .backgroundColor(Theme.surface(Theme.isDark()))
               .borderRadius(Theme.cardRadius())
             }
-          }, (task: DownloadTask) => `${stableKeyOf(task.song)}:${task.attemptId}`)
+          }, (row: DownloadRow) => `${row.stableKey}:${row.attemptId}:${row.entry !== null ? 'f' : 't'}`)
         }
         .layoutWeight(1)
         .scrollBar(BarState.Off)

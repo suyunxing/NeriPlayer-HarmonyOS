@@ -199,7 +199,13 @@ export class DownloadStorage {
     }
   }
 
-  /** Appends a chunk to the working file, creating it when absent. */
+  /**
+   * Appends a chunk to the working file, creating it when absent. The file
+   * must be opened with OpenMode.APPEND and written without an offset:
+   * WriteOptions.offset is an absolute file position, so passing the chunk
+   * size there pinned every chunk to the same offset and committed
+   * zero-holed containers AVPlayer rejects with 5400106.
+   */
   static appendChunk(workingPath: string, chunk: ArrayBuffer): number {
     try {
       const exists = fileIo.accessSync(workingPath);
@@ -207,8 +213,7 @@ export class DownloadStorage {
         ? fileIo.openSync(workingPath, fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.APPEND)
         : fileIo.openSync(workingPath, fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE);
       try {
-        fileIo.writeSync(file.fd, chunk, { offset: chunk.byteLength });
-        return chunk.byteLength;
+        return fileIo.writeSync(file.fd, chunk);
       } finally {
         fileIo.closeSync(file);
       }
@@ -340,11 +345,35 @@ export class DownloadStorage {
   }
 
   static async removeCatalogEntry(song: SongItem): Promise<void> {
-    const key = stableKeyOf(song);
+    await DownloadStorage.removeCatalogEntryByKey(stableKeyOf(song));
+  }
+
+  static async removeCatalogEntryByKey(stableKey: string): Promise<void> {
     const entries = await DownloadStorage.getCatalog();
-    const next = entries.filter((entry: DownloadedSongEntry) => entry.stableKey !== key);
+    const next = entries.filter((entry: DownloadedSongEntry) => entry.stableKey !== stableKey);
     const json = JSON.stringify(next);
     await SchemaStore.save('downloaded_catalog', json, (value: string) => value);
+  }
+
+  /**
+   * Deletes a committed download file, tolerating missing paths and
+   * user-picked file:// URI directories. Never throws.
+   */
+  static deleteFileQuiet(audioPath: string): void {
+    if (audioPath.length === 0) {
+      return;
+    }
+    try {
+      const target = audioPath.startsWith('file://')
+        ? new fileUri.FileUri(audioPath).path
+        : audioPath;
+      if (target.length > 0 && fileIo.accessSync(target)) {
+        fileIo.unlinkSync(target);
+      }
+    } catch (error) {
+      const e = error as Error;
+      Logger.warn(`deleteFileQuiet failed: ${e.message}`);
+    }
   }
 
   // ------------------------------------------------------------------

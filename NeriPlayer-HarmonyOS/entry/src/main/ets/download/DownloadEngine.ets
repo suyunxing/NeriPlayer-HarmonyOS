@@ -13,11 +13,12 @@ import {
   DownloadProgress,
   DownloadStage,
   DownloadStatus,
-  DownloadTask
+  DownloadTask,
+  isDownloadTaskClearable
 } from './DownloadModels';
 import { DownloadTaskStore } from './DownloadTaskStore';
 import { DownloadRetryPolicy } from './DownloadSupport';
-import { DownloadStorage, ResumeFingerprint, HlsResumeState } from './DownloadStorage';
+import { DownloadStorage, ResumeFingerprint, HlsResumeState, DownloadedSongEntry } from './DownloadStorage';
 import { DownloadDirectoryManager } from './DownloadDirectoryManager';
 
 export interface DownloadEngineListener {
@@ -127,6 +128,26 @@ export class DownloadEngine {
   static clearFinished(): void {
     DownloadEngine.store.clearCompleted();
     DownloadEngine.persistQueue();
+    DownloadEngine.notifyChanged();
+  }
+
+  /**
+   * User-facing delete of one download: removes the committed file and its
+   * catalog row (the source of the library "已下载" count) plus any terminal
+   * task record. Active attempts are untouched (cancel them first).
+   */
+  static async deleteDownload(songKey: string): Promise<void> {
+    const entries = await DownloadStorage.getCatalog();
+    const entry = entries.find((item: DownloadedSongEntry) => item.stableKey === songKey) ?? null;
+    if (entry !== null) {
+      await DownloadStorage.removeCatalogEntryByKey(songKey);
+      DownloadStorage.deleteFileQuiet(entry.audioPath);
+    }
+    const task = DownloadEngine.store.getTask(songKey);
+    if (task !== null && isDownloadTaskClearable(task.status)) {
+      DownloadEngine.store.removeTask(songKey, task.attemptId);
+      DownloadEngine.persistQueue();
+    }
     DownloadEngine.notifyChanged();
   }
 
@@ -280,8 +301,10 @@ export class DownloadEngine {
           resumeStart = 0;
           validator = '';
           failure = 'restart: range mismatch';
-        } else if (code === 416 && resumeStart > 0) {
-          // Already complete on the server side.
+        } else if (code === 416 && resumeStart > 0 && DownloadStorage.fileSize(workingPath) > 0) {
+          // Already complete on the server side. A non-empty local copy is
+          // required: 416 also fires for expired/changed URLs, and committing
+          // an empty staging file would poison the catalog.
           await DownloadEngine.completeTask(songKey, task.attemptId, task.song, workingPath, ext);
           return;
         } else if (code === 0 || code === 206 || (code >= 200 && code < 300)) {
