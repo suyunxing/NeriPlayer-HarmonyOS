@@ -28,13 +28,19 @@ export function buildDownloadRows(tasks: DownloadTask[], catalog: DownloadedSong
   for (const task of tasks) {
     const key = stableKeyOf(task.song);
     seen.add(key);
+    const entry = catalog.find((item: DownloadedSongEntry) => item.stableKey === key) ?? null;
+    // A COMPLETED task whose catalog row is gone points at a purged file
+    // (self-heal or payload purge): nothing left to play or delete offline.
+    if (task.status === DownloadStatus.COMPLETED && entry === null) {
+      continue;
+    }
     const row = new DownloadRow();
     row.stableKey = key;
     row.song = task.song;
     row.status = task.status;
     row.attemptId = task.attemptId;
     row.progress = task.progress;
-    row.entry = catalog.find((item: DownloadedSongEntry) => item.stableKey === key) ?? null;
+    row.entry = entry;
     rows.push(row);
   }
   for (const entry of catalog) {
