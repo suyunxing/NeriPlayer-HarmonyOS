@@ -321,6 +321,10 @@ export struct MainShell {
     TabContent() {
       HomePage({ scroller: this.tabScrollers[0] })
     }
+    // 首页滚动内容要钻到状态栏后被标题栏渐变模糊覆盖：TabContent 默认
+    // clip(true) 会把向上滚出视口的内容裁掉（官方 FAQ faqs-arkui-1095），
+    // 关裁剪放行子层向上延伸。
+    .clip(false)
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM])
     .tabBar(this.wide()
       ? this.sideTabBar(0, '首页', $r('app.media.ic_tab_home_24'))
@@ -482,6 +486,8 @@ export struct MainShell {
             // 又变回「22vp 图标在 240vp 格子里空转」。
             .barMode(BarMode.Scrollable)
             .barBackgroundColor(Theme.surface(this.resolveDark()))
+            // 同 TabContent：放行首页内容向上穿透到状态栏后被渐变模糊覆盖。
+            .clip(false)
             .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM])
             .animationDuration(250)
             .scrollable(false)
@@ -514,6 +520,8 @@ export struct MainShell {
               },
               systemMaterialEffect: this.systemMaterialEffect()
             })
+            // 同 TabContent：放行首页内容向上穿透到状态栏后被渐变模糊覆盖。
+            .clip(false)
             .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM])
             .animationDuration(250)
             // 不允许左右滑动切页：保持改造前的行为，也避免与首页每日推荐的
@@ -602,7 +610,11 @@ export struct MainShell {
     .navDestination(this.pageMap)
     .width('100%')
     .height('100%')
-    .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM])
+    // 顶部沉浸：标题栏背板（静止底色 + 滚动渐变模糊）向上延伸进状态栏与
+    // 挖孔区，顶到屏幕物理顶端。expandSafeArea 只扩绘制区不触发二次布局，
+    // 标题内容仍停在状态栏下方（官方「沉浸光感」模板做法），静止态背板与
+    // 页面底色同色，状态栏区域无接缝。
+    .expandSafeArea([SafeAreaType.SYSTEM, SafeAreaType.CUTOUT], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
     // 一镜到底播放页：全屏模态挂在壳层根上（盖住 Tab 骨架与悬浮栏）。
     // modalTransition NONE + 透明背板：模态自身不做系统推拉，动画由
     // panelAmount 目标值驱动（面板几何 + 内容分层 + MiniBar 衔接），
