@@ -195,6 +195,9 @@ export struct ExplorePage {
         .clickEffect({ level: ClickEffectLevel.LIGHT })
         .onClick(() => this.search())
       }
+      // 结果列表向上穿透时从这排固定控件背后滚过：列表声明在后、默认会盖住
+      // 先声明的兄弟，这里提升搜索条的绘制次序保持其可见可点。
+      .zIndex(1)
       .width('100%')
 
       // Wraps instead of a plain Row: at 1.45x system font the third chip
@@ -205,6 +208,8 @@ export struct ExplorePage {
         this.platformButton(1, 'Bilibili', $r('app.media.ic_bilibili'))
         this.platformButton(2, 'YouTube Music', $r('app.media.ic_youtube'))
       }
+      // 同搜索条：平台切换 chips 固定，需压在穿透列表之上。
+      .zIndex(1)
       .width('100%')
 
       if (!this.searched && this.history.length > 0) {
@@ -257,6 +262,10 @@ export struct ExplorePage {
         }
         .layoutWeight(1)
         .scrollBar(BarState.Off)
+        // 顶部沉浸：结果列表向上穿透，滚过固定搜索区、标题栏后钻到状态栏
+        // 被渐变模糊覆盖（与首页统一）；clip(false) 放行内容画出视口上沿。
+        .clip(false)
+        .expandSafeArea([SafeAreaType.SYSTEM, SafeAreaType.CUTOUT], [SafeAreaEdge.TOP])
         .width('100%')
       } else if (!this.searched) {
         Column({ space: 12 }) {
