@@ -485,8 +485,12 @@ export struct HomePage {
       .width('100%')
       .height('100%')
       // 视口延伸进底部手势条区域：滚动内容真实透到系统指示条后面，配
-      // MainShell 底部渐变遮罩保证可读性（不再垫纯色带）。
-      .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM])
+      // MainShell 底部渐变遮罩保证可读性（不再垫纯色带）。顶部同向延伸：
+      // 滚过标题栏的内容继续钻到状态栏后被渐变模糊覆盖（沉浸顶栏）；
+      // clip(false) 放行内容画出视口上沿，否则像素在标题栏下缘被裁掉。
+      // expandSafeArea 只扩绘制区不改布局，首屏仍从 TITLEBAR_SPACE_VP 让位。
+      .clip(false)
+      .expandSafeArea([SafeAreaType.SYSTEM, SafeAreaType.CUTOUT], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
       .backgroundColor(this.schemeBg(Theme.isDark()))
   }
 }
