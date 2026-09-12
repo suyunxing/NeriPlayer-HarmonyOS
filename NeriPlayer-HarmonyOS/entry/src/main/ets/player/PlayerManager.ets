@@ -34,6 +34,7 @@ import { effectivePlaybackRate, toPlaybackSpeedStep } from './PlaybackSpeedMap';
 import { VolumeFader, FADE_IN_DURATION_MS, FADE_OUT_DURATION_MS } from './VolumeFader';
 import { AvPlaylistBridge } from './AvPlaylistBridge';
 import { advanceForceFor, peekNextIndex, shouldPrimeNext } from './AvPlaylistPolicy';
+import { decideLoadFailureAction, LoadFailureAction } from './PlaybackFailurePolicy';
 import { PlaybackCacheManager } from './PlaybackCacheManager';
 import {
   ListenTogetherPlaybackCommand,
@@ -150,6 +151,19 @@ export class PlayerManager {
   private static positionMs: number = 0;
   private static durationMs: number = 0;
   private static errorAttempts: number = 0;
+  // Consecutive auto-skips after load failures, reset on every successful
+  // start and on user-driven queue moves; bounds the skip path in
+  // PlaybackFailurePolicy so a fully broken queue stops instead of wrapping.
+  private static autoSkipFailures: number = 0;
+  // Generation whose load failure is currently being recovered: the AVPlayer
+  // error callback and the rejected load chain both report the same failure,
+  // and handling it twice double-incremented the retry budget and raced two
+  // recovery chains onto one AVPlayer.
+  private static failureGeneration: number = -1;
+  // Catalog provenance of the currently loaded fd:// source: a failure while
+  // reading it means the local copy is broken and must be dropped (self-heal).
+  private static catalogSourceKey: string = '';
+  private static catalogSourcePath: string = '';
   /**
    * Supersession token for in-flight loads: listener state application can
    * trigger several loadSong calls in quick succession (join snapshot, then
@@ -508,6 +522,7 @@ export class PlayerManager {
     PlayerManager.queue = songs.slice();
     PlayerManager.engine.setQueueSize(songs.length);
     PlayerManager.engine.start(startIndex, PlayerManager.engine.shuffle, PlayerManager.engine.repeatMode);
+    PlayerManager.autoSkipFailures = 0;
     PlayerManager.publishQueue();
     PlayerManager.playWhenReady = true;
     const command = createListenTogetherPlaybackCommand('PLAY_PLAYLIST', source, Date.now());
@@ -645,6 +660,9 @@ export class PlayerManager {
       return;
     }
     PlayerManager.playWhenReady = true;
+    if (!auto) {
+      PlayerManager.autoSkipFailures = 0;
+    }
     const command = createListenTogetherPlaybackCommand('NEXT', source, Date.now());
     command.positionMs = Math.max(0, PlayerManager.positionMs);
     PlayerManager.emitPlaybackCommand(command);
@@ -659,6 +677,7 @@ export class PlayerManager {
       return;
     }
     PlayerManager.playWhenReady = true;
+    PlayerManager.autoSkipFailures = 0;
     const command = createListenTogetherPlaybackCommand('PREVIOUS', source, Date.now());
     command.positionMs = Math.max(0, PlayerManager.positionMs);
     PlayerManager.emitPlaybackCommand(command);
@@ -674,6 +693,7 @@ export class PlayerManager {
   ): Promise<void> {
     PlayerManager.engine.playAt(queueIndex);
     PlayerManager.playWhenReady = true;
+    PlayerManager.autoSkipFailures = 0;
     const command = createListenTogetherPlaybackCommand('PLAY_FROM_QUEUE', source, Date.now());
     command.currentIndex = queueIndex;
     PlayerManager.emitPlaybackCommand(command);
@@ -1300,6 +1320,8 @@ export class PlayerManager {
   }
 
   private static async resolveStreamUrl(song: SongItem): Promise<string> {
+    PlayerManager.catalogSourceKey = '';
+    PlayerManager.catalogSourcePath = '';
     if (song.platform !== MusicPlatform.LOCAL) {
       // A completed download short-circuits network resolution so catalog
       // tracks stay playable offline (Android offline-first semantics).
@@ -1307,6 +1329,8 @@ export class PlayerManager {
       if (downloaded !== null) {
         const localUrl = PlayerManager.openLocalFd(downloaded.audioPath);
         if (localUrl.length > 0) {
+          PlayerManager.catalogSourceKey = stableKeyOf(song);
+          PlayerManager.catalogSourcePath = downloaded.audioPath;
           return localUrl;
         }
       }
@@ -1354,18 +1378,56 @@ export class PlayerManager {
   }
 
   private static async handleLoadFailure(): Promise<void> {
+    if (PlayerManager.failureGeneration === PlayerManager.loadGeneration) {
+      return;
+    }
+    PlayerManager.failureGeneration = PlayerManager.loadGeneration;
+    // A source opened from the download catalog but rejected by the player
+    // means the local copy is broken (e.g. zero-holed staging writes). Drop
+    // the stale catalog row and file: the library count stays truthful and
+    // the engine's completed-task short-circuit no longer pins the bad file
+    // against a re-download.
+    if (PlayerManager.catalogSourceKey.length > 0) {
+      const staleKey = PlayerManager.catalogSourceKey;
+      const stalePath = PlayerManager.catalogSourcePath;
+      PlayerManager.catalogSourceKey = '';
+      PlayerManager.catalogSourcePath = '';
+      DownloadStorage.deleteFileQuiet(stalePath);
+      try {
+        await DownloadStorage.removeCatalogEntryByKey(staleKey);
+        Logger.warn('PlayerManager: dropped corrupt download from catalog');
+      } catch (error) {
+        const e = error as Error;
+        Logger.warn(`catalog self-heal failed: ${e.message}`);
+      }
+    }
     PlayerManager.errorAttempts += 1;
     const song = PlayerManager.getCurrentSong();
     if (song === null) {
       return;
     }
-    if (PlayerManager.errorAttempts < 2) {
+    const action = decideLoadFailureAction({
+      errorAttempts: PlayerManager.errorAttempts,
+      autoSkipFailures: PlayerManager.autoSkipFailures,
+      queueLength: PlayerManager.queue.length,
+      nextTarget: peekNextIndex(PlayerManager.engine, PlayerManager.engine.repeatMode === RepeatMode.ALL),
+      currentIndex: PlayerManager.engine.getCurrentQueueIndex()
+    });
+    if (action === LoadFailureAction.RETRY_SAME) {
       Logger.warn(`Retrying playback for ${song.displayName} (attempt ${PlayerManager.errorAttempts})`);
       await PlayerManager.loadSong(0, true);
       return;
     }
-    Logger.warn(`Giving up on ${song.displayName}, skipping to next`);
-    await PlayerManager.next(true);
+    if (action === LoadFailureAction.SKIP_NEXT) {
+      PlayerManager.autoSkipFailures += 1;
+      Logger.warn(`Giving up on ${song.displayName}, skipping to next`);
+      await PlayerManager.next(true);
+      return;
+    }
+    Logger.warn(`Giving up on ${song.displayName}; playback stopped`);
+    PlayerManager.playWhenReady = false;
+    PlayerManager.stopContinuousTask();
+    PlayerManager.publishStatus(PlaybackStatus.ERROR);
   }
 
   private static async ensurePlayer(): Promise<media.AVPlayer> {
@@ -1412,6 +1474,7 @@ export class PlayerManager {
     switch (state) {
       case 'playing':
         PlayerManager.publishStatus(PlaybackStatus.PLAYING);
+        PlayerManager.autoSkipFailures = 0;
         PlayerManager.reconcileStreamDuration();
         if (PlayerManager.context !== null) {
           BackgroundTaskRunner.start(PlayerManager.context);

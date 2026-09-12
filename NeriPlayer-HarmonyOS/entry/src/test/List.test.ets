@@ -6,6 +6,8 @@ import sleepTimerTest from './ets/test/SleepTimer.test';
 import androidDataParserTest from './ets/test/AndroidDataParser.test';
 import downloadTaskStoreTest from './ets/test/DownloadTaskStore.test';
 import downloadDirectoryTest from './ets/test/DownloadDirectory.test';
+import downloadRowTest from './ets/test/DownloadRow.test';
+import playbackFailurePolicyTest from './ets/test/PlaybackFailurePolicy.test';
 import qrEncoderTest from './ets/test/QrEncoder.test';
 import neteaseAuthTest from './ets/test/NeteaseAuth.test';
 import neteasePlaylistParserTest from './ets/test/NeteasePlaylistParser.test';
@@ -164,6 +166,8 @@ export default function testsuite(): void {
   autoMatchPolicyTest();
   avPlaylistPolicyTest();
   playbackCacheLedgerTest();
+  downloadRowTest();
+  playbackFailurePolicyTest();
   audioQualityPolicyTest();
   historyRepositoryTest();
   volumeFaderTest();
