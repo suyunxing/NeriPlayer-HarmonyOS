@@ -63,5 +63,15 @@ export default function downloadRowTest(): void {
       expect(rows.length).assertEqual(1);
       expect(rows[0].entry === null).assertTrue();
     });
+
+    it('completedTaskWithoutEntryIsDroppedAsStale', 0, () => {
+      // Self-heal or the payload purge removes the catalog row + file; the
+      // leftover COMPLETED task points at nothing and must not render as a
+      // playable "已下载/已完成" row (offline tap would always fail).
+      const song = neteaseSong(6, 'F');
+      const task = new DownloadTask(song, DownloadStatus.COMPLETED, 4);
+      const rows = buildDownloadRows([task], []);
+      expect(rows.length).assertEqual(0);
+    });
   });
 }

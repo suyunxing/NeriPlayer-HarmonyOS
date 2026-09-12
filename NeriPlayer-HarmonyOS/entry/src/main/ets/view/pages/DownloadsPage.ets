@@ -61,7 +61,8 @@ export struct DownloadsPage {
       case DownloadStatus.WAITING_NETWORK:
         return '等待网络';
       case DownloadStatus.COMPLETED:
-        return row.entry !== null ? '已下载' : '已完成';
+        // buildDownloadRows drops COMPLETED rows without a catalog entry.
+        return '已下载';
       case DownloadStatus.FAILED:
         return '失败';
       default:
@@ -165,17 +166,6 @@ export struct DownloadsPage {
                       .margin({ left: 14, right: 14, top: 14, bottom: 14 })
                       .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
                       .borderRadius(8)
-                  }
-                  if (row.status === DownloadStatus.COMPLETED) {
-                    Text('✓')
-                      .fontSize(12)
-                      .fontColor('#FFFFFF')
-                      .width(20)
-                      .height(20)
-                      .textAlign(TextAlign.Center)
-                      .backgroundColor(Theme.success(Theme.isDark()))
-                      .borderRadius(10)
-                      .position({ x: '70%', y: '2%' })
                   }
                 }
 

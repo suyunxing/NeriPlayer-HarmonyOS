@@ -12,6 +12,7 @@ import { StreamResolver } from '../network/StreamResolver';
 import { streamHeadersFor } from '../network/StreamHeaders';
 import { BiliCookieRepository } from '../data/auth/BiliCookieRepository';
 import { buildBiliCookieHeader } from '../data/auth/BiliAuth';
+import { DownloadEngine } from '../download/DownloadEngine';
 import { DownloadStorage } from '../download/DownloadStorage';
 import { HistoryRepository } from '../data/HistoryRepository';
 import { PlaybackStatsRepository } from '../data/PlaybackStatsRepository';
@@ -163,7 +164,6 @@ export class PlayerManager {
   // Catalog provenance of the currently loaded fd:// source: a failure while
   // reading it means the local copy is broken and must be dropped (self-heal).
   private static catalogSourceKey: string = '';
-  private static catalogSourcePath: string = '';
   /**
    * Supersession token for in-flight loads: listener state application can
    * trigger several loadSong calls in quick succession (join snapshot, then
@@ -1321,7 +1321,6 @@ export class PlayerManager {
 
   private static async resolveStreamUrl(song: SongItem): Promise<string> {
     PlayerManager.catalogSourceKey = '';
-    PlayerManager.catalogSourcePath = '';
     if (song.platform !== MusicPlatform.LOCAL) {
       // A completed download short-circuits network resolution so catalog
       // tracks stay playable offline (Android offline-first semantics).
@@ -1330,7 +1329,6 @@ export class PlayerManager {
         const localUrl = PlayerManager.openLocalFd(downloaded.audioPath);
         if (localUrl.length > 0) {
           PlayerManager.catalogSourceKey = stableKeyOf(song);
-          PlayerManager.catalogSourcePath = downloaded.audioPath;
           return localUrl;
         }
       }
@@ -1384,17 +1382,14 @@ export class PlayerManager {
     PlayerManager.failureGeneration = PlayerManager.loadGeneration;
     // A source opened from the download catalog but rejected by the player
     // means the local copy is broken (e.g. zero-holed staging writes). Drop
-    // the stale catalog row and file: the library count stays truthful and
-    // the engine's completed-task short-circuit no longer pins the bad file
-    // against a re-download.
+    // the stale catalog row, the file and the finished task record: the
+    // library count stays truthful and the engine's completed-task
+    // short-circuit no longer pins the bad file against a re-download.
     if (PlayerManager.catalogSourceKey.length > 0) {
       const staleKey = PlayerManager.catalogSourceKey;
-      const stalePath = PlayerManager.catalogSourcePath;
       PlayerManager.catalogSourceKey = '';
-      PlayerManager.catalogSourcePath = '';
-      DownloadStorage.deleteFileQuiet(stalePath);
       try {
-        await DownloadStorage.removeCatalogEntryByKey(staleKey);
+        await DownloadEngine.deleteDownload(staleKey);
         Logger.warn('PlayerManager: dropped corrupt download from catalog');
       } catch (error) {
         const e = error as Error;

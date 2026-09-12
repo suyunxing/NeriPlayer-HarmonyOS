@@ -200,13 +200,21 @@ export class DownloadEngine {
     DownloadEngine.store.registerActive(songKey, task.attemptId);
     DownloadEngine.notifyChanged();
 
-    // Already in the catalog with a readable file: skip re-transferring.
+    // Already in the catalog with a readable audio file: skip re-transferring.
+    // A size-only check once pinned a corrupt zero-holed copy forever: every
+    // re-download short-circuited to COMPLETED and offline play kept failing,
+    // so a file that fails the payload check is purged and re-transferred.
     const cached = await DownloadStorage.findCatalogEntry(task.song);
     if (cached !== null && DownloadStorage.fileSize(cached.audioPath) > 0) {
-      DownloadEngine.store.updateStatus(songKey, task.attemptId, DownloadStatus.COMPLETED);
-      DownloadEngine.persistQueue();
-      DownloadEngine.notifyChanged();
-      return;
+      if (DownloadStorage.hasPlausibleAudioHeader(cached.audioPath)) {
+        DownloadEngine.store.updateStatus(songKey, task.attemptId, DownloadStatus.COMPLETED);
+        DownloadEngine.persistQueue();
+        DownloadEngine.notifyChanged();
+        return;
+      }
+      Logger.warn('DownloadEngine: cached copy failed payload check, re-downloading');
+      DownloadStorage.deleteFileQuiet(cached.audioPath);
+      await DownloadStorage.removeCatalogEntry(task.song);
     }
 
     let url = '';
@@ -434,6 +442,15 @@ export class DownloadEngine {
     finalizing.totalBytes = finalizing.bytesRead;
     DownloadEngine.store.updateProgress(songKey, attemptId, finalizing);
     DownloadEngine.notifyChanged();
+
+    // Last integrity gate before the catalog: a transfer that "completed"
+    // with NUL-holed or error-page bytes must never become a downloadable,
+    // offline-playable catalog row (AVPlayer would reject it with 5400106).
+    if (!DownloadStorage.hasPlausibleAudioHeader(workingPath)) {
+      DownloadStorage.deleteWorkingSet(workingPath);
+      await DownloadEngine.failTask(songKey, attemptId, song, 'downloaded payload is not audio');
+      return;
+    }
 
     const finalPath = DownloadStorage.commit(song, workingPath, ext);
     if (finalPath.length === 0) {

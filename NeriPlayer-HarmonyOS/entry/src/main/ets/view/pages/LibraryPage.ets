@@ -241,12 +241,6 @@ export struct LibraryPage {
             icon: '📊',
             onTap: () => Router.push(Router.STATS)
           })
-          SettingRow({
-            title: '下载管理',
-            subtitle: this.downloadCount > 0 ? `已下载 ${this.downloadCount} 首` : '暂无下载内容',
-            icon: '⤓',
-            onTap: () => Router.push(Router.DOWNLOADS)
-          })
         }
         .width('100%')
         .backgroundColor(Theme.surface(Theme.isDark()))

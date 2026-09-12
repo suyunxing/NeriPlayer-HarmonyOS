@@ -190,6 +190,28 @@ export class DownloadStorage {
     }
   }
 
+  /**
+   * Cheap payload sanity check over the first bytes: every real audio
+   * container starts with a magic value or frame sync, never with a run of
+   * NULs or an ASCII '<'/'{'/'[' (HTML/JSON error payloads from expiring
+   * CDNs). Guards the completed-task short-circuit and the commit path
+   * against pinning or committing unplayable bytes.
+   */
+  static hasPlausibleAudioHeader(path: string): boolean {
+    try {
+      const file = fileIo.openSync(path, fileIo.OpenMode.READ_ONLY);
+      try {
+        const head = new ArrayBuffer(16);
+        const read = fileIo.readSync(file.fd, head);
+        return isPlausibleAudioHead(new Uint8Array(head, 0, read));
+      } finally {
+        fileIo.closeSync(file);
+      }
+    } catch (error) {
+      return false;
+    }
+  }
+
   /** Number of files (audio + sidecars) parked in the staging directory. */
   static stagingFileCount(): number {
     try {
@@ -425,6 +447,26 @@ export class DownloadStorage {
       Logger.warn(`writeTextFile(${path}) failed: ${e.message}`);
     }
   }
+}
+
+/**
+ * Pure byte decision behind hasPlausibleAudioHeader (unit-testable): the
+ * broken staging writer produced NUL-holed files and error responses start
+ * with '<'/'{'/'[' — none of those are audio. m4a may lead with up to three
+ * NULs (ftyp box size), so the zero-run threshold sits at 4.
+ */
+export function isPlausibleAudioHead(head: Uint8Array): boolean {
+  if (head.length < 4) {
+    return false;
+  }
+  let leadingZeros = 0;
+  while (leadingZeros < head.length && head[leadingZeros] === 0) {
+    leadingZeros += 1;
+  }
+  if (leadingZeros >= 4) {
+    return false;
+  }
+  return head[0] !== 0x3C && head[0] !== 0x7B && head[0] !== 0x5B;
 }
 
 // Re-export for callers that use the preferences-backed store directly.
