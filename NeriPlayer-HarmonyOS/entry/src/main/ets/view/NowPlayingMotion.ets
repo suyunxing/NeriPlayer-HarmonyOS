@@ -50,10 +50,12 @@ export class NowPlayingMotion {
   }
 
   // Corners match the bar pill (20) when collapsed and vanish (0) when the
-  // panel settles full-screen. The slow-start panel curve keeps the radius
-  // near 20 through the first half of the flight.
+  // panel settles full-screen. Only the 0/1 endpoints are ever evaluated:
+  // the panel's borderRadius is a native attribute animation between those
+  // endpoints, so intermediate rounding (timing included) is owned entirely
+  // by the native panel curve — its slow start keeps the radius near 20
+  // through the first half of the flight.
   static panelRadius(amount: number): number {
-    const swell = 20 + 14 * NowPlayingMotion.segment(amount, 0, 0.25);
-    return swell * (1 - NowPlayingMotion.segment(amount, 0.3, 0.7));
+    return 20 * (1 - NowPlayingMotion.clamp(amount));
   }
 }

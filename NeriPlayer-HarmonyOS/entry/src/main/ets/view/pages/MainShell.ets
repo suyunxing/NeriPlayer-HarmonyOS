@@ -119,7 +119,12 @@ export struct MainShell {
 
   private onNowPlayingRequested(): void {
     if (this.nowPlayingShown && !this.modalMounted) {
-      this.originRect = this.miniRect;
+      // lg 宽屏（侧栏模式）没有 HdsTabsMiniBar 槽位，miniRect 永远停留在手机
+      // 窗口的兜底值：改用底部整宽条带作为展开起点（底部弹出面板观感），不再
+      // 让面板从错误的手机药丸矩形飞出。
+      this.originRect = this.wide()
+        ? MainShell.wideFallbackOrigin(this.windowWidth, this.windowHeight)
+        : this.miniRect;
       this.panelAmount = 0;
       this.closing = false;
       this.transitioning = true;
@@ -130,6 +135,11 @@ export struct MainShell {
     }
     if (this.nowPlayingShown) {
       this.pendingDismiss = undefined;
+    } else if (this.startDelayTimer >= 0) {
+      // 挂起中的展开推进作废：收起已启动，不能让 onAppear 的延迟计时器再把
+      // 面板翻回展开方向（onAppear 计时器内另有二次守卫兜底）。
+      clearTimeout(this.startDelayTimer);
+      this.startDelayTimer = -1;
     }
     this.closing = !this.nowPlayingShown;
     this.transitioning = true;
@@ -168,6 +178,12 @@ export struct MainShell {
       width: Math.max(40, windowWidth - 2 * MainShell.PILL_MARGIN_X),
       height: slot.height
     };
+  }
+
+  /** lg 宽屏兜底锚点：底部 96vp 整宽条带（侧栏形态无迷你条，见 open 分支）。 */
+  private static wideFallbackOrigin(width: number, height: number): NowPlayingRect {
+    const stripHeight = Math.min(96, Math.max(0, height));
+    return { x: 0, y: height - stripHeight, width: width, height: stripHeight };
   }
 
   private panelRect(): NowPlayingRect {
@@ -647,6 +663,12 @@ export struct MainShell {
         }
         this.startDelayTimer = setTimeout(() => {
           this.startDelayTimer = -1;
+          // 挂起期间可能已被收起（挂载后立刻返回：pop 先翻转 nowPlayingShown
+          // 并进入收起分支）。此时再推进展开目标会让面板反向飞回、闪现一次
+          // 再卸载；放弃推进，收尾交给已在跑的收起动画与结算。
+          if (!this.nowPlayingShown || this.closing) {
+            return;
+          }
           this.transitioning = true;
           this.panelAmount = 1;
           this.armSettle(NowPlayingMotion.EXPAND_MS);
@@ -674,14 +696,19 @@ export struct MainShell {
     })
 
     // 一镜到底背板：模态展开/收起期间主页整体压暗（参考实现为背景色 wash，
-    // 悬浮 Tab 栏与迷你条一并压暗）。透明度绑定 nowPlayingShown，在 Router
-    // 的弹簧 animateTo 上下文里随共享元素几何飞行同步插值；不拦截命中测试，
-    // 模态收起后对主页交互零影响。
+    // 悬浮 Tab 栏与迷你条一并压暗）。透明度绑定 panelAmount（端点 0/1）并
+    // 挂与面板几何同一规格的属性动画——Router 已不包 animateTo，绑
+    // nowPlayingShown 会在开合瞬间硬跳（压暗闪变）；随几何同步插值后压暗
+    // 与飞行同节奏。不拦截命中测试，模态收起后对主页交互零影响。
     Column()
       .width('100%')
       .height('100%')
       .backgroundColor(Theme.withAlpha(Theme.background(this.resolveDark()), 0x99))
-      .opacity(this.nowPlayingShown ? 1 : 0)
+      .opacity(this.panelAmount)
+      .animation({
+        duration: this.closing ? NowPlayingMotion.COLLAPSE_MS : NowPlayingMotion.EXPAND_MS,
+        curve: PANEL_CURVE
+      })
       .expandSafeArea([SafeAreaType.SYSTEM, SafeAreaType.CUTOUT], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
       .hitTestBehavior(HitTestMode.None)
     }

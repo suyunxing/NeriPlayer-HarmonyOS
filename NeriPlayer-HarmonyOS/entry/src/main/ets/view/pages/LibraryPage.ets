@@ -571,7 +571,7 @@ export struct LibraryPage {
       // expandSafeArea 只扩绘制区不改布局，首屏让位不变。新建歌单弹窗是
       // Stack 中声明在后的兄弟，仍在列表之上。
       .clip(false)
-      .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP])
+      .expandSafeArea([SafeAreaType.SYSTEM, SafeAreaType.CUTOUT], [SafeAreaEdge.TOP])
       .backgroundColor(this.schemeBg(Theme.isDark()))
 
       if (this.showCreateDialog) {

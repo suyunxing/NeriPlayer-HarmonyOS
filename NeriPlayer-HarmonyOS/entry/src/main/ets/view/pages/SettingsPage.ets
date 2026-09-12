@@ -220,7 +220,7 @@ export struct SettingsPage {
       // 被渐变模糊覆盖（与首页统一）；clip(false) 放行内容画出视口上沿，
       // expandSafeArea 只扩绘制区不改布局，首屏让位不变。
       .clip(false)
-      .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP])
+      .expandSafeArea([SafeAreaType.SYSTEM, SafeAreaType.CUTOUT], [SafeAreaEdge.TOP])
       .backgroundColor(this.schemeBg(Theme.isDark()))
   }
 }
