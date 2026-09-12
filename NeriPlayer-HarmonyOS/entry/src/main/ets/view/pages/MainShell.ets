@@ -1,5 +1,9 @@
 import { Router } from '../Router';
+import { NowPlayingMotion, NowPlayingRect } from '../NowPlayingMotion';
+import { PANEL_CURVE } from '../NowPlayingCurves';
 import { Theme } from '../Theme';
+import { common } from '@kit.AbilityKit';
+import { SystemBars } from '../../util/SystemBars';
 import { HdsTabs, HdsBarLayoutMode, hdsMaterial, SystemMaterialParams } from '@kit.UIDesignKit';
 import { HdsTabsAttribute } from '@kit.UIDesignKit';
 import { HdsNavigation, HdsNavigationTitleMode, ScrollEffectType, BlurStrategy } from '@kit.UIDesignKit';
@@ -63,7 +67,129 @@ export struct MainShell {
    * key），下方 bindContentCover 消费。字面量须与 Router.KEY_NOW_PLAYING_SHOWN
    * 一致（装饰器参数只收字面量）。
    */
-  @StorageLink('ui.nowPlayingShown') nowPlayingShown: boolean = false;
+  @StorageLink('ui.nowPlayingShown') @Watch('onNowPlayingRequested') nowPlayingShown: boolean = false;
+  @StorageLink('ui.nowPlayingMounted') modalMounted: boolean = false;
+  @StorageProp('ui.windowWidthVp') windowWidth: number = 360;
+  @StorageProp('ui.windowHeightVp') windowHeight: number = 800;
+  @State panelAmount: number = 0;
+  // 动画方向（false=展开）：决定各属性动画的时长/时延取向。
+  @State closing: boolean = false;
+  // 转场进行中：模态内容不响应命中，结算后恢复。
+  @State transitioning: boolean = false;
+  // 默认兜底值 = 360vp 宽窗口下的药丸典型位置（窗口度量发布后按实测覆盖）。
+  @State miniRect: NowPlayingRect = { x: 23, y: 611, width: 314, height: 40 };
+  @State originRect: NowPlayingRect = { x: 23, y: 611, width: 314, height: 40 };
+  // 模态内容区的窗口坐标原点：面板/迷你条副本用窗口坐标（globalPosition 实测
+  // 的 mini 矩形）计算，但 position() 相对模态内容区原点——若模态因安全区有
+  // 偏移，直接套用会整体错位（展开起点/收起终点与迷你条不符）。在模态根节点
+  // 实测原点后做自校正，模态铺满窗口时该值为 (0,0)，两种布局下都成立。
+  @State modalOriginX: number = 0;
+  @State modalOriginY: number = 0;
+  private startDelayTimer: number = -1;
+  private settleTimer: number = -1;
+  private modalReady: boolean = false;
+  private pendingDismiss: DismissContentCoverAction | undefined = undefined;
+
+  private clearSettle(): void {
+    if (this.settleTimer >= 0) {
+      clearTimeout(this.settleTimer);
+      this.settleTimer = -1;
+    }
+  }
+
+  /**
+   * 转场结算：几何全部由原生属性动画驱动（无 JS 逐帧步进，见 NowPlayingCurves），
+   * JS 侧只需在「时长 + 行错峰 + 余量」之后收尾——展开恢复命中，收起卸载模态
+   * 并执行挂起的系统 dismiss。中途反向（重开）会重置该计时器。
+   */
+  private armSettle(durationMs: number): void {
+    this.clearSettle();
+    this.settleTimer = setTimeout(() => {
+      this.settleTimer = -1;
+      this.transitioning = false;
+      if (!this.nowPlayingShown) {
+        this.modalReady = false;
+        this.modalMounted = false;
+        const dismiss = this.pendingDismiss;
+        this.pendingDismiss = undefined;
+        dismiss?.dismiss();
+      }
+    }, durationMs + NowPlayingMotion.ROW_SETTLE_MS + 80);
+  }
+
+  private onNowPlayingRequested(): void {
+    if (this.nowPlayingShown && !this.modalMounted) {
+      // lg 宽屏（侧栏模式）没有 HdsTabsMiniBar 槽位，miniRect 永远停留在手机
+      // 窗口的兜底值：改用底部整宽条带作为展开起点（底部弹出面板观感），不再
+      // 让面板从错误的手机药丸矩形飞出。
+      this.originRect = this.wide()
+        ? MainShell.wideFallbackOrigin(this.windowWidth, this.windowHeight)
+        : this.miniRect;
+      this.panelAmount = 0;
+      this.closing = false;
+      this.transitioning = true;
+      this.modalMounted = true;
+      // 首帧推进交给 onAppear 的延迟触发（挂建耗时 > 1 tick 时立即翻开会
+      // 跳过起始帧）；这里只负责挂载。
+      return;
+    }
+    if (this.nowPlayingShown) {
+      this.pendingDismiss = undefined;
+    } else if (this.startDelayTimer >= 0) {
+      // 挂起中的展开推进作废：收起已启动，不能让 onAppear 的延迟计时器再把
+      // 面板翻回展开方向（onAppear 计时器内另有二次守卫兜底）。
+      clearTimeout(this.startDelayTimer);
+      this.startDelayTimer = -1;
+    }
+    this.closing = !this.nowPlayingShown;
+    this.transitioning = true;
+    this.panelAmount = this.nowPlayingShown ? 1 : 0;
+    this.armSettle(this.nowPlayingShown ? NowPlayingMotion.EXPAND_MS : NowPlayingMotion.COLLAPSE_MS);
+  }
+
+  private static validRect(area: Area): NowPlayingRect | undefined {
+    const x = Number(area.globalPosition.x);
+    const y = Number(area.globalPosition.y);
+    const width = Number(area.width);
+    const height = Number(area.height);
+    // Number(undefined) 为 NaN：初次布局回调或异常度量直接丢弃，保留上一
+    // 次有效矩形，避免 NaN 传播到 position() 后组件落到 0,0。
+    if (Number.isFinite(x) && Number.isFinite(y) && width > 0 && height > 0) {
+      return { x: x, y: y, width: width, height: height };
+    }
+    return undefined;
+  }
+
+  /**
+   * HdsTabs 迷你条槽位的坐标标定。槽位内 builder 的 onAreaChange 返回的是
+   * 槽位布局矩形（全宽、贴在悬浮栏底部），而可见的迷你条药丸被 HdsTabs 内部
+   * 位移/裁剪到悬浮栏上部——这类变换不触发 onAreaChange，所以测量值永远偏左
+   * 下。Y 向偏移按真机实测标定；X/宽不依赖槽位（槽位宽度在两次会话间不稳定），
+   * 直接用药丸的对称设计值：左右边距各 23vp（barSideMargin 16 + 槽位内边距 7），
+   * 宽 = 窗口宽 − 46。若 Hds 调整悬浮栏内部布局需重标 Y 偏移。
+   */
+  private static readonly PILL_MARGIN_X: number = 23;
+  private static readonly PILL_OFFSET_Y: number = -93;
+
+  private static toPillRect(slot: NowPlayingRect, windowWidth: number): NowPlayingRect {
+    return {
+      x: MainShell.PILL_MARGIN_X,
+      y: slot.y + MainShell.PILL_OFFSET_Y,
+      width: Math.max(40, windowWidth - 2 * MainShell.PILL_MARGIN_X),
+      height: slot.height
+    };
+  }
+
+  /** lg 宽屏兜底锚点：底部 96vp 整宽条带（侧栏形态无迷你条，见 open 分支）。 */
+  private static wideFallbackOrigin(width: number, height: number): NowPlayingRect {
+    const stripHeight = Math.min(96, Math.max(0, height));
+    return { x: 0, y: height - stripHeight, width: width, height: stripHeight };
+  }
+
+  private panelRect(): NowPlayingRect {
+    return NowPlayingMotion.panel(this.panelAmount, this.originRect, this.windowWidth, this.windowHeight);
+  }
+
   /**
    * 官方 FAQ 对 HdsNavigation + HdsTabs 组合的要求：每个 Tab 的滚动容器持独立
    * Scroller，标题栏只绑定当前可见 Tab 的那一个；实例经构造参数下发给各 Tab 页。
@@ -74,8 +200,29 @@ export struct MainShell {
   @Builder
   miniBarBuilder() {
     if (this.currentSongJson.length > 0) {
-      MiniPlayer({ compact: true })
+      MiniPlayer({ compact: true, onMeasured: (area: Area): void => {
+        const rect = MainShell.validRect(area);
+        if (rect !== undefined) {
+          this.miniRect = MainShell.toPillRect(rect, this.windowWidth);
+        }
+      } })
+        // 模态展开期间隐藏（面板占据药丸位置）；收起后半段直接淡入真实
+        // 迷你条——它就是"正确位置"本身，模态卸载时零差异、不再闪烁。
+        .opacity(this.miniBarHidden() ? 0 : 1)
+        .animation(this.miniBarHidden()
+          ? { duration: 0 }
+          : { duration: 220, delay: Math.round(NowPlayingMotion.COLLAPSE_MS * 0.55), curve: Curve.EaseOut })
+        .accessibilityLevel(this.miniBarHidden() ? 'no-hide-descendants' : 'auto')
+        .hitTestBehavior(this.miniBarHidden() ? HitTestMode.None : HitTestMode.Default)
     }
+  }
+
+  /**
+   * 真实迷你条在转场期间的隐藏条件：模态挂载且处于展开方向（面板占位）。
+   * 收起方向（closing）时提前可见并淡入；未挂载时常态可见。
+   */
+  private miniBarHidden(): boolean {
+    return this.modalMounted && !this.closing;
   }
 
   /** 悬浮 Tab 栏的系统沉浸材质：设备不支持时保持 undefined（自绘玻璃兜底）。 */
@@ -112,15 +259,6 @@ export struct MainShell {
     return this.breakpoint === BP_LG;
   }
 
-  /**
-   * 垫在窗口底边以下的色带。窄屏时与 Tab 栏同色，宽屏时与页面底色同色，两种
-   * 情况下系统导航条区域都不会出现色块切割。
-   */
-  private bandColor(): string {
-    const dark = this.resolveDark();
-    return this.wide() ? Theme.background(dark) : Theme.surface(dark);
-  }
-
   private paramText(param: Object): string {
     return typeof param === 'string' ? param as string : '';
   }
@@ -143,6 +281,14 @@ export struct MainShell {
   }
 
   aboutToDisappear(): void {
+    if (this.startDelayTimer >= 0) {
+      clearTimeout(this.startDelayTimer);
+      this.startDelayTimer = -1;
+    }
+    this.clearSettle();
+    this.modalReady = false;
+    this.pendingDismiss = undefined;
+    this.modalMounted = false;
     Router.detach();
   }
 
@@ -191,6 +337,11 @@ export struct MainShell {
     TabContent() {
       HomePage({ scroller: this.tabScrollers[0] })
     }
+    // 首页滚动内容要钻到状态栏后被标题栏渐变模糊覆盖：TabContent 默认
+    // clip(true) 会把向上滚出视口的内容裁掉（官方 FAQ faqs-arkui-1095），
+    // 关裁剪放行子层向上延伸。
+    .clip(false)
+    .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM])
     .tabBar(this.wide()
       ? this.sideTabBar(0, '首页', $r('app.media.ic_tab_home_24'))
       : this.bottomTabBar(0, '首页', $r('app.media.ic_tab_home_24')))
@@ -198,6 +349,8 @@ export struct MainShell {
     TabContent() {
       ExplorePage({ scroller: this.tabScrollers[1] })
     }
+    // 与首页 TabContent 同理：放行页内滚动内容向上穿透到状态栏后被渐变模糊覆盖。
+    .clip(false)
     .tabBar(this.wide()
       ? this.sideTabBar(1, '探索', $r('app.media.ic_tab_search_24'))
       : this.bottomTabBar(1, '探索', $r('app.media.ic_tab_search_24')))
@@ -205,6 +358,8 @@ export struct MainShell {
     TabContent() {
       LibraryPage({ scroller: this.tabScrollers[2] })
     }
+    // 同探索页：放行内容向上穿透。
+    .clip(false)
     .tabBar(this.wide()
       ? this.sideTabBar(2, '资料库', $r('app.media.ic_tab_library_24'))
       : this.bottomTabBar(2, '资料库', $r('app.media.ic_tab_library_24')))
@@ -212,6 +367,8 @@ export struct MainShell {
     TabContent() {
       SettingsPage({ scroller: this.tabScrollers[3] })
     }
+    // 同探索页：放行内容向上穿透。
+    .clip(false)
     .tabBar(this.wide()
       ? this.sideTabBar(3, '设置', $r('app.media.ic_tab_settings_24'))
       : this.bottomTabBar(3, '设置', $r('app.media.ic_tab_settings_24')))
@@ -272,16 +429,68 @@ export struct MainShell {
   }
 
   /**
-   * 一镜到底播放页的模态内容。动画分工：modalTransition NONE 关掉系统推拉，
-   * 封面几何飞行由 Router 的 animateTo + geometryTransition('np.cover') 提供，
-   * 页面正文淡入淡出由 NowPlayingPage 根节点的 OPACITY 转场提供。
+   * 一镜到底播放页的模态内容。动画分工：modalTransition NONE 关掉系统推拉；
+   * 面板几何（mini 矩形 → 全窗）由 MainShell 的 panelAmount 目标值驱动
+   * （原生属性动画 + NowPlayingCurves 的先慢后快曲线），内容行
+   * 的分层弹入由 NowPlayingMotion 纯函数按同一进度计算（见 NowPlayingPage）。
    */
   @Builder
   nowPlayingBuilder() {
-    NowPlayingPage()
+    Stack({ alignContent: Alignment.TopStart }) {
+      Stack({ alignContent: Alignment.TopStart }) {
+        NowPlayingPage({ transitionProgress: this.panelAmount, closing: this.closing })
+          .width(this.windowWidth)
+          .height(this.windowHeight)
+          // 内层反向位移必须与外框共用同一动画规格：收起瞬间它要从
+          // (0,0) 同步滑到 (-mini.x, -mini.y)，否则内容瞬移（外框还近乎
+          // 全屏时页面内容先跳到左上角，再随外框收缩"从上方落下"）。
+          .translate({ x: -this.panelRect().x, y: -this.panelRect().y })
+          .animation({
+            duration: this.closing ? NowPlayingMotion.COLLAPSE_MS : NowPlayingMotion.EXPAND_MS,
+            curve: PANEL_CURVE
+          })
+          .hitTestBehavior(!this.transitioning && this.panelAmount === 1
+            ? HitTestMode.Default : HitTestMode.None)
+      }
+      .width(this.panelRect().width)
+      .height(this.panelRect().height)
+      .borderRadius(NowPlayingMotion.panelRadius(this.panelAmount))
+      .clip(true)
+      .translate({ x: this.panelRect().x - this.modalOriginX, y: this.panelRect().y - this.modalOriginY })
+      // 面板几何整体走原生属性动画（先慢后快），render 管线逐帧驱动。
+      .animation({
+        duration: this.closing ? NowPlayingMotion.COLLAPSE_MS : NowPlayingMotion.EXPAND_MS,
+        curve: PANEL_CURVE
+      })
+      // 透明度渐变挂在几何动画之后（各自捕获自己的属性段）：展开初期
+      // ~90ms 快速实体化，收缩末段 ~140ms 随落地淡出，避免生硬的出入现。
+      .opacity(this.panelAmount)
+      .animation(this.closing
+        ? {
+          duration: Math.round(NowPlayingMotion.COLLAPSE_MS * 0.35),
+          delay: Math.round(NowPlayingMotion.COLLAPSE_MS * 0.65),
+          curve: Curve.EaseIn
+        }
+        : {
+          duration: Math.round(NowPlayingMotion.EXPAND_MS * 0.3),
+          curve: Curve.EaseOut
+        })
+    }
+    .width('100%')
+    .height('100%')
+    .onAreaChange((_oldArea: Area, area: Area) => {
+      const rect = MainShell.validRect(area);
+      if (rect !== undefined) {
+        this.modalOriginX = rect.x;
+        this.modalOriginY = rect.y;
+      }
+    })
   }
 
   build() {
+    // 外层 Stack 只为一镜到底服务：播放页模态展开/收起时把整个壳层（含
+    // HdsNavigation 标题栏）压暗，模态本身透明，主页从卡片边缘透出。
+    Stack() {
     // S4 曾因「模拟器上 navDestination 内容子树不挂载」回退标准 Navigation；
     // 真机复测无此问题（2026-09-10 用户确认），外壳按官方标准启用 HdsNavigation：
     // MINI 标题栏统一承载四个 Tab 的标题（各 Tab 页内大标题随之移除，避免双标题），
@@ -299,10 +508,9 @@ export struct MainShell {
             // 又变回「22vp 图标在 240vp 格子里空转」。
             .barMode(BarMode.Scrollable)
             .barBackgroundColor(Theme.surface(this.resolveDark()))
-            // Tabs 容器自身会延伸到窗口物理底边（内部安全区处理），给它
-            // 上背景色后，系统导航条那条带跟随 Tab 栏同色，不出现色差
-            // 接缝。页面根节点都不透明，surface 只在条带处可见。
-            .backgroundColor(this.bandColor())
+            // 同 TabContent：放行首页内容向上穿透到状态栏后被渐变模糊覆盖。
+            .clip(false)
+            .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM])
             .animationDuration(250)
             .scrollable(false)
             .layoutWeight(1)
@@ -334,7 +542,9 @@ export struct MainShell {
               },
               systemMaterialEffect: this.systemMaterialEffect()
             })
-            .backgroundColor(this.bandColor())
+            // 同 TabContent：放行首页内容向上穿透到状态栏后被渐变模糊覆盖。
+            .clip(false)
+            .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM])
             .animationDuration(250)
             // 不允许左右滑动切页：保持改造前的行为，也避免与首页每日推荐的
             // 横向 Scroll、播放页 WaveformSlider 争手势。
@@ -349,17 +559,36 @@ export struct MainShell {
         .width('100%')
         .height('100%')
         .backgroundColor(Theme.background(this.resolveDark()))
+        .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM])
 
         // In-app floating lyric overlay (D4 fallback), floats above content;
         // 顶部让位 MINI 标题栏（56vp），不再压进标题栏材质区。
         FloatingLyricBar()
           .margin({ top: TITLEBAR_SPACE_VP + 4 })
 
+        // 手势条渐变遮罩：内容真实延伸进底部安全区后不再垫纯色，仅叠一层
+        // 由上到下渐透明的页面底色渐变，保证导航指示条区域的可读性；不拦
+        // 截触摸，播放页模态展开时整层被模态盖住（模态自身无渐变）。
+        Column()
+          .width('100%')
+          .height(this.bottomLift + 8)
+          .linearGradient({
+            direction: GradientDirection.Bottom,
+            colors: [
+              [Theme.withAlpha(Theme.background(this.resolveDark()), 0xD9), 0],
+              [0x00000000, 1]
+            ]
+          })
+          .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM])
+          .hitTestBehavior(HitTestMode.None)
+          .position({ x: 0, y: this.windowHeight - this.bottomLift - 8 })
+
         // MiniPlayer 回归官方 HdsTabsMiniBar 槽位（用户决策）：槽位高度
         // 系统固定，以缩小播放按钮视觉圆（30vp，触控热区仍 40vp）适配。
       }
       .width('100%')
       .height('100%')
+      .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM])
     }
     // 标题栏只绑当前可见 Tab 的 Scroller（官方 FAQ：多 Tab 共用外壳时动态换绑，
     // 避免多滚动容器手势冲突导致模糊失效或抖动）。
@@ -403,28 +632,88 @@ export struct MainShell {
     .navDestination(this.pageMap)
     .width('100%')
     .height('100%')
+    // 顶部沉浸：标题栏背板（静止底色 + 滚动渐变模糊）向上延伸进状态栏与
+    // 挖孔区，顶到屏幕物理顶端。expandSafeArea 只扩绘制区不触发二次布局，
+    // 标题内容仍停在状态栏下方（官方「沉浸光感」模板做法），静止态背板与
+    // 页面底色同色，状态栏区域无接缝。
+    .expandSafeArea([SafeAreaType.SYSTEM, SafeAreaType.CUTOUT], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
     // 一镜到底播放页：全屏模态挂在壳层根上（盖住 Tab 骨架与悬浮栏）。
-    // modalTransition NONE + 透明背板：模态自身不做系统推拉动画，动画全部
-    // 交给 Router 的 animateTo（封面 geometryTransition 飞行）与页面根节点的
-    // OPACITY 转场。返回键/侧滑先到 onWillDismiss：转交 Router.pop() 走带
-    // 动画收起，再 dismiss() 兜底（官方要求注册后必须调用才会真正关闭）。
+    // modalTransition NONE + 透明背板：模态自身不做系统推拉，动画由
+    // panelAmount 目标值驱动（面板几何 + 内容分层 + MiniBar 衔接），
+    // 原生属性动画提供先慢后快与回弹手感，JS 只做结算计时。
+    // 返回键/侧滑先到 onWillDismiss：记录 dismiss 动作并请求收起，进度
+    // 归零后再 dismiss() 兜底（官方要求注册后必须调用才会真正关闭）。
     // onDisappear 收敛开关并通知常驻 Tab 页刷新，覆盖收起与 push 专辑前
     // 收起等全部关闭路径（替代原 NOW_PLAYING destination 的 onWillDisappear）。
-    .bindContentCover(this.nowPlayingShown, this.nowPlayingBuilder(), {
+    // enableSafeArea 保持默认 false（官方语义：内容不受安全区限制、不避让
+    // 状态栏与导航条）——状态栏/导航条区域从头到尾属于播放页自己的背景层，
+    // 几何转场的飞行矩形才能与最终铺满窗口的矩形一致，沉浸不被系统栏条带
+    // 打断；页面正文由 NowPlayingPage 用发布的 ui.topInsetVp/ui.bottomLiftVp
+    // 自行避让。
+    .bindContentCover(this.modalMounted, this.nowPlayingBuilder(), {
       modalTransition: ModalTransition.NONE,
       backgroundColor: Color.Transparent,
-      // 模态内容限制在安全区内（对齐原 NavDestination 的默认避让），页面
-      // 背景层自带的 expandSafeArea 仍可延伸进系统栏。
-      enableSafeArea: true,
+      enableSafeArea: false,
+      onAppear: () => {
+        this.modalReady = true;
+        // 延迟约一帧再翻转目标值：挂建 NowPlayingPage 耗时 > 1 tick 时立即
+        // 翻开会跳过起始帧（首帧直接从进度 > 0 画出，起点错位观感）。
+        if (this.startDelayTimer >= 0) {
+          clearTimeout(this.startDelayTimer);
+        }
+        this.startDelayTimer = setTimeout(() => {
+          this.startDelayTimer = -1;
+          // 挂起期间可能已被收起（挂载后立刻返回：pop 先翻转 nowPlayingShown
+          // 并进入收起分支）。此时再推进展开目标会让面板反向飞回、闪现一次
+          // 再卸载；放弃推进，收尾交给已在跑的收起动画与结算。
+          if (!this.nowPlayingShown || this.closing) {
+            return;
+          }
+          this.transitioning = true;
+          this.panelAmount = 1;
+          this.armSettle(NowPlayingMotion.EXPAND_MS);
+        }, 16);
+      },
       onDisappear: () => {
-        this.nowPlayingShown = false;
-        Router.notifyReturned();
+        // A new open request may arrive while the previous modal is unmounting.
+        if (this.modalMounted || this.nowPlayingShown) {
+          return;
+        }
+        // 注意：这里不能发 Router.notifyReturned()——普通收起播放页不改变
+        // 任何 Tab 页数据，触发刷新会让首页列表重载、出现「重新加载式闪屏」。
+        // 路由级返回的刷新仍由各 NavDestination 自身的 onDisappear 覆盖。
+        // 播放页按封面取色改写过系统栏图标颜色，收起动画结束后交回主页
+        // 主题配色；立即恢复会让飞行半程的图标压在错误的背景上。
+        const context = this.getUIContext().getHostContext();
+        if (context !== undefined) {
+          SystemBars.apply(context as common.UIAbilityContext, this.resolveDark());
+        }
       },
       onWillDismiss: (action: DismissContentCoverAction) => {
+        this.pendingDismiss = action;
         Router.pop();
-        action.dismiss();
       }
     })
+
+    // 一镜到底背板：模态展开/收起期间主页整体压暗（参考实现为背景色 wash，
+    // 悬浮 Tab 栏与迷你条一并压暗）。透明度绑定 panelAmount（端点 0/1）并
+    // 挂与面板几何同一规格的属性动画——Router 已不包 animateTo，绑
+    // nowPlayingShown 会在开合瞬间硬跳（压暗闪变）；随几何同步插值后压暗
+    // 与飞行同节奏。不拦截命中测试，模态收起后对主页交互零影响。
+    Column()
+      .width('100%')
+      .height('100%')
+      .backgroundColor(Theme.withAlpha(Theme.background(this.resolveDark()), 0x99))
+      .opacity(this.panelAmount)
+      .animation({
+        duration: this.closing ? NowPlayingMotion.COLLAPSE_MS : NowPlayingMotion.EXPAND_MS,
+        curve: PANEL_CURVE
+      })
+      .expandSafeArea([SafeAreaType.SYSTEM, SafeAreaType.CUTOUT], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
+      .hitTestBehavior(HitTestMode.None)
+    }
+    .width('100%')
+    .height('100%')
   }
 
   private selectTab(index: number): void {

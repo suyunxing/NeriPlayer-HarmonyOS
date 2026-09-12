@@ -165,6 +165,7 @@ struct Index {
           })
         } else {
           MainShell()
+            .expandSafeArea([SafeAreaType.SYSTEM, SafeAreaType.CUTOUT], [SafeAreaEdge.BOTTOM])
         }
       }
       .width('100%')

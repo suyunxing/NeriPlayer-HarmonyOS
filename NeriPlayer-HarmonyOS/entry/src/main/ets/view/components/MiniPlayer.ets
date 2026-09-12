@@ -17,6 +17,7 @@ export struct MiniPlayer {
    * 显示（可见环缩到 30vp 在槽位圆角内留出空余）。独立悬浮形态才用完整卡片。
    */
   @Prop compact: boolean = false;
+  onMeasured: (area: Area) => void = (_area: Area): void => {};
   @StorageLink('player.currentSong') currentSongJson: string = '';
   @StorageLink('player.status') @Watch('onStatusChanged') status: number = PlaybackStatus.IDLE;
   /** ReplaceSymbolEffect 触发计数：播放/暂停切换时 +1 驱动交叉淡入。 */
@@ -119,6 +120,34 @@ export struct MiniPlayer {
   }
 
   build() {
+    Stack() {
+      Column()
+        .width('100%')
+        .height(this.compact ? 40 : 62)
+        .backgroundColor(this.barBackground())
+        .backgroundBlurStyle(this.followsBarMaterial() || !this.glassEffect
+          ? BlurStyle.NONE : BlurStyle.COMPONENT_THICK)
+        .borderRadius(this.compact ? 20 : 16)
+        .hitTestBehavior(HitTestMode.None)
+      this.playerContent()
+    }
+    .width('100%')
+    .margin(this.compact ? { left: 0, right: 0, bottom: 0 } : { left: 10, right: 10, bottom: 8 })
+    // 显隐由使用方控制（壳层在转场期间对真实迷你条做淡入/隐藏），组件自身
+    // 不再持有 mounted/presentation 状态——展示副本已删除，收缩时直接淡入
+    // 真实迷你条，杜绝副本与真实布局不一致导致的切换闪烁。
+    .onAreaChange((_oldArea: Area, area: Area) => {
+      this.onMeasured(area);
+    })
+    .shadow(this.compact ? { radius: 0, color: '#00000000' } : { radius: 12, color: '#22000000', offsetY: 2 })
+    // 滑动切歌的位移/缩放挂在 Stack 根上：玻璃背景是 playerContent 的兄弟
+    // 节点，变换若只挂内容行，滑动时文字按钮滑走而药丸壳纹丝不动。
+    .translate({ x: this.swipeOffset })
+    .scale(this.swiping ? { x: 0.975, y: 0.975 } : { x: 1, y: 1 })
+  }
+
+  @Builder
+  playerContent() {
     Column() {
       if (!this.compact) {
         // Progress 的 total 不给就是 100，原来喂进去的是 0..1 的比例，播到一半也只
@@ -146,12 +175,6 @@ export struct MiniPlayer {
               .height(this.compact ? 32 : 44)
               .borderRadius(this.compact ? 16 : 8)
               .objectFit(ImageFit.Cover)
-              // 一镜到底：与播放页大封面共享元素。迷你条封面常驻组件树，
-              // follow 让常驻端参与几何转场（官方模态共享元素范式：同 id 两端
-              // 需一进一出才配对，常驻端必须 follow）；.id() 做打断保护。
-              .geometryTransition('np.cover', { follow: true })
-              .id('np_cover_mini')
-              .transition(TransitionEffect.OPACITY)
           } else {
             Image($r('app.media.ic_music_note_24'))
               .width(this.compact ? 16 : 22)
@@ -215,25 +238,22 @@ export struct MiniPlayer {
           .layoutWeight(1)
           .alignItems(HorizontalAlign.Start)
 
+          Stack() {
+            if (this.compact) {
+              Progress({
+                value: this.positionMs,
+                total: this.durationMs > 0 ? this.durationMs : 1,
+                type: ProgressType.Ring
+              })
+                .width(30)
+                .height(30)
+                .style({ strokeWidth: 2 })
+                .color(this.scheme().primary)
+                .backgroundColor(this.ringTrackColor())
+                .hitTestBehavior(HitTestMode.None)
+            }
           Button() {
             Stack({ alignContent: Alignment.Center }) {
-              // 紧凑形态：播放键改为透明圆 + 着色三角，外圈 2vp 细环作进度
-              // 显示。已播放 primary 与播放页一致；未播放用主色低透明度
-              // （secondary 明度与 primary 过近，细环上无法区分，见
-              // ringTrackColor 注释）。可见环 30vp（槽位 40vp 行内留出空余
-              // 不被圆角裁），触控热区仍是整个 40vp Button。
-              if (this.compact) {
-                Progress({
-                  value: this.positionMs,
-                  total: this.durationMs > 0 ? this.durationMs : 1,
-                  type: ProgressType.Ring
-                })
-                  .width(30)
-                  .height(30)
-                  .style({ strokeWidth: 2 })
-                  .color(this.scheme().primary)
-                  .backgroundColor(this.ringTrackColor())
-              }
               // S6: 官方符号替换动效（CROSS_FADE），播放/暂停切换不再是硬切。
               SymbolGlyph(this.status === PlaybackStatus.PLAYING
                 ? $r('sys.symbol.pause_fill')
@@ -253,6 +273,9 @@ export struct MiniPlayer {
           .onClick(() => {
             PlayerManager.togglePlayPause();
           })
+          }
+          .width(40)
+          .height(40)
 
           if (this.miniNextButton) {
             Button() {
@@ -273,16 +296,13 @@ export struct MiniPlayer {
           }
         }
         .layoutWeight(1)
-        .opacity(this.nowPlayingShown ? 0 : 1)
-        .animation({ duration: 240, curve: Curve.EaseOut })
       }
       .width('100%')
       .height(this.compact ? 40 : 60)
       .padding({ left: this.compact ? 8 : 12, right: this.compact ? 4 : 8 })
       .onClick(() => {
-        // 播放页是壳层全屏模态，打开/收起的动画上下文统一收在 Router
-        // （animateTo + geometryTransition('np.cover')），这里裸 push 即可，
-        // 各入口的正反半程动画因此一致。
+        // 播放页是壳层全屏模态：打开/收起的动画状态由 MainShell 的
+        // motionProgress 统一驱动，这里只翻转开关即可。
         if (this.miniExpandAutoplay && this.status !== PlaybackStatus.PLAYING) {
           // np.mini_expand_autoplay：从底部播放器展开到全屏播放页时自动续播。
           PlayerManager.play().catch(() => {
@@ -317,18 +337,7 @@ export struct MiniPlayer {
             });
           })
       )
-      .translate({ x: this.swipeOffset })
-      .scale(this.swiping ? { x: 0.975, y: 0.975 } : { x: 1, y: 1 })
     }
     .width('100%')
-    .backgroundColor(this.barBackground())
-    // 槽位形态透出栏身沉浸光感材质时不得再叠组件级模糊（NONE 关掉，
-    // 否则 COMPONENT_THICK 会在透明底上自取一框内容，重新变成玻璃卡片）。
-    .backgroundBlurStyle(this.followsBarMaterial() || !this.glassEffect
-      ? BlurStyle.NONE : BlurStyle.COMPONENT_THICK)
-    .borderRadius(this.compact ? 20 : 16)
-    .clip(true)
-    .margin(this.compact ? { left: 0, right: 0, bottom: 0 } : { left: 10, right: 10, bottom: 8 })
-    .shadow(this.compact ? { radius: 0, color: '#00000000' } : { radius: 12, color: '#22000000', offsetY: 2 })
   }
 }
