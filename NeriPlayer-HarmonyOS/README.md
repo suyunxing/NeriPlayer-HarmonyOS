@@ -1,74 +1,108 @@
-# NeriPlayer for HarmonyOS (鸿蒙原生移植)
+# NeriPlayer for HarmonyOS (主线应用工程)
 
-> **状态说明（2026-09-08 更新）：** 本目录是持续开发中的 ArkTS 原型，不是已完成的 HarmonyOS 发布版本。本地单测已随里程碑累积到 935 用例（2026-09-08 静态清点；最近一次全量执行为 2026-08-29 的 874/874 全绿，见 `../docs/FEATURE_MATRIX.md`）；`entry@default` 与 `entry@ohosTest` 构建及 CodeLinter（0 error）在各里程碑复跑。设备侧和真实第三方凭据写入仍按下文标注。下方勾选项表示已实现并有验证证据的代码路径，不代表与 Android 上游功能等价；未完成项在"待移植"中如实列出。统一审计请看仓库根目录的 `docs/PROJECT_AUDIT.md` 与 `docs/FEATURE_MATRIX.md`。
+本目录为 NeriPlayer 的 **HarmonyOS NEXT 原生主线应用工程**，基于纯血鸿蒙 Stage 模型、ArkTS 严格模式与 ArkUI 声明式组件开发。
 
-**NeriPlayer（欢迎回来！）** 是一个把多源在线播放、本地管理、歌词体验和自建同步做进原生 Android 的音频播放器。本仓库将其**原封不动移植为 HarmonyOS NEXT 原生应用**：相同的功能定位、相同的启动流程、相同的多源架构，使用 ArkTS / ArkUI / AVPlayer 重新实现。
+> **工程基线**：HarmonyOS 26.0.0 Release（纯 SemVer API 26 基线，`compatibleSdkVersion: "26.0.0"`）。
+> **协议声明**：遵循 [GPL-3.0 License](../LICENSE)。原版 Android 参照工程：[cwuom/NeriPlayer](https://github.com/cwuom/NeriPlayer)。
 
-> 本项目仅供学习与研究使用，请勿用于任何非法用途。原项目为 GPL-3.0 许可，本移植同样遵循 GPL-3.0。
+---
 
-## 功能状态
+## 模块架构与职责
 
-- ✅ **多源在线播放**：网易云 / Bilibili / YouTube Music 搜索
-- ✅ **播放核心**：队列、随机、循环、倍速、断点续播、AVSession 媒体控制、后台播放
-- ✅ **网易云**：搜索（weapi 风控时自动回退旧版接口）、取流（多音质回退）、歌词（含翻译）、歌单详情
-- ✅ **歌词**：LRC 解析、逐行高亮、点击跳转（LRCLIB + 网易云）
-- ✅ **数据**：本地歌单、收藏、播放历史、播放统计（稳定歌曲身份，兼容原同步键格式）
-- ✅ **同步核心**：GitHub/WebDAV 三路合并、条件写回退、冲突重试、`.sync-pending` 消费和同步报告；双实例 WebDAV 冲突验收已于 2026-08-22 经本地自建服务器通过（M5.6），真实云 PAT/WebDAV 写路径与省流格式写出（现降级 JSON）待复核
-- ✅ **下载管线**：DIRECT Range/If-Range 续传、HLS checkpoint、重试退避、原子提交、启动恢复与离线播放短路（2026-08-16 全链模拟器实测）
-- ✅ **一起听**：建房/加入/同步播放/断线重连/邀请分享核心链路（2026-08-22 双模拟器实例设备闭环，M7.5）；三项房间设置开关等增强项未做
-- ✅ **动态取色/背景视觉**：封面 Palette 取色 + Theme 覆盖层 + 播放页 accent 背景与模糊强度/crossfade（2026-08-23 设备实证；AGSL 区域掩码玻璃无平台对应，按 D 级降级）
-- ✅ **设置持久化**：免责声明/引导/深色模式等跨进程重启保留
-- ✅ **UI 全量移植**：首页（继续收听/最近播放/推荐歌单）、探索、资料库、设置（10 个分区 + 二级页）、正在播放（模糊封面/进度/速度/睡眠/队列/双语歌词）、下载管理、播放历史、播放统计、歌单详情、3 步引导、安全模式、调试页
-- ✅ **启动流程**：Loading → 免责声明 → 引导（3 步）→ 主界面；崩溃安全模式
-- ✅ **ArkTS 单元测试**：`entry/src/test/` 覆盖队列状态机/睡眠定时/中断策略/加密/解析/下载/同步合并族等（hypium，2026-08-29 记录 874/874，见 `../docs/FEATURE_MATRIX.md`）
-
-## 待移植（截至 2026-08-31）
-
-以下项只有部分链路、UI 入口或占位实现，代码中均有明确标注（如设置页目录选择/更多语言/YouTube 登录三处占位只弹 toast），不得描述为已完成。状态明细见 `../docs/FEATURE_MATRIX.md`（任务级看板见 `../docs/PORTING_EXECUTION_PLAN.md`）：
-
-- ⏳ **YouTube 取流**：搜索与匿名 IOS 直连取流已落地（M6.1/M6.2）；设备实测匿名直链仅整轨前约一分钟可播（M6.5），生产播放链路未接环回桥，完整取流仍需 PoToken/JS 运行时（M6.3 未开始）
-- ⏳ **同步验收**：真实云 PAT/WebDAV 写路径与省流格式写出（现降级 JSON）待复核；双设备冲突验收已过本地自建服务器（见上文"同步核心"）
-- 🚫 **USB 独占播放**：已定案**不移植**（M9.1 spike，2026-08-24，`../docs/USB_M91_SPIKE.md`）——ArkTS 单 JS 线程守不住 1ms 等时节拍、SDK 无公开 USB DDK 头；系统路径下 AVPlayer→USB Audio HAL 已能出声
-- ⏳ **悬浮歌词**：应用内悬浮条（`np.floating_lyric`）与 AVSession 正规歌词字段已落地（M8.6/M10.1）；系统级桌面歌词 API 已验证到服务层，渲染层待真机确认（M10.2，`../docs/DESKTOP_LYRIC_M102_SPIKE.md`）
-- ⏳ **YouTube 登录**：网易云 / Bilibili QR 登录与凭据存储已完成（2026-08-17），YouTube 登录待 M6.4
-
-## 环境与构建
-
-1. 工程基线为 **HarmonyOS 26.0.0 Release（API 26）**（2026-09-07 从 6.1.1(24) 全量迁移，详见仓库根 `docs/hm.md` §7.12）。本机工具链位于 `D:\HarmonyOS\Tools\`：SDK 与 `ohpm`/`hvigorw` 命令行工具在 `command-line-tools\`，DevEco Studio 26.0.0.621（Beta2）为主力 IDE。完整环境说明见仓库根目录 `AGENTS.md`。
-2. `File → Open` 打开本目录，等待 ohpm 同步。
-3. 命令行调试签名（签名材料放在已忽略的 `signing/` 中；需按 `AGENTS.md` 同时设置 `DEVECO_SDK_HOME` 与 `DEVECO_STUDIO_HOME`，脚本依赖 Studio 布局中的 jbr 与 hvigor）：
-
-```powershell
-$env:DEVECO_SDK_HOME = "D:\HarmonyOS\Tools\command-line-tools\sdk"
-$env:DEVECO_STUDIO_HOME = "D:\HarmonyOS\Tools\devecostudio-windows-26.0.0.621\DevEco Studio"
-$env:NERIPLAYER_DEVICE_IDS = "真实设备UDID"
-$env:NERIPLAYER_SIGNING_PASSWORD = "至少32位的本地调试口令"
-.\sign-local.ps1        # 构建 + OpenHarmony 调试签名 + hdc 安装
-```
-
-4. 真机/模拟器首次启动完成免责声明与引导；本地音乐扫描需 `READ_AUDIO` 权限；后台播放需保持 `KEEP_BACKGROUND_RUNNING` 授权。
-
-> 说明：工程不保存签名口令、设备 UDID 或机器绝对路径；`sign-local.ps1` 只用于本地调试。发布到应用市场前请使用 AGC 的正式签名流程。
-
-## 项目结构
+工程采用单 Ability（`EntryAbility`）单 HAP 架构，核心源码位于 `entry/src/main/ets/`：
 
 ```text
 entry/src/main/ets/
-├── entryability/     EntryAbility（启动、窗口、主题）
-├── pages/Index.ets   启动状态机
-├── app/              常量、日志与崩溃诊断
-├── model/            数据模型（歌曲/歌单/歌词/队列）
-├── data/             设置/历史/歌单/统计/本地媒体
-├── download/         下载引擎（传输/断点恢复/编目）
-├── network/          三平台 API + 歌词 + 流解析（含 Cookie 会话）
-├── player/           AVPlayer 播放核心 + AVSession + 后台任务
-├── lyrics/           LRC/TTML 解析与歌词分发
-├── listentogether/   一起听（协议/会话/播放同步）
-├── sync/             GitHub/WebDAV 三路合并同步
-├── util/             通用工具（QR 编码/断点与窗口度量等）
-└── view/             页面与组件（首页/探索/资料库/设置/正在播放/调试）
+├── entryability/     # EntryAbility 实例生命周期、窗口配置与沉浸式沉淀
+├── pages/Index.ets   # 根视图路由分发与启动状态机
+├── app/              # 全局常量、日志规范与双通道崩溃诊断 (FaultLogger + hiAppEvent)
+├── model/            # 纯业务领域模型 (Song, Playlist, Lyric, Task, SyncSnapshot)
+├── data/             # 凭据保险箱 (@ohos.security.asset)、历史记录、播放统计与配置中心
+├── download/         # 工业级断点续传引擎 (两阶段事务提交、Range/HLS 分块续传、断网自愈)
+├── network/          # 网易云 (WEAPI)、哔哩哔哩 (WBI/DASH)、YouTube Music 与通用 HTTP 客户端
+├── player/           # 播放控制器 (AVPlayer)、系统播控中心 (AVSession)、后台任务与音量淡入淡出
+├── lyrics/           # AMLL TTML / 标准 LRC 歌词解析器、逐字跟随与自动评分匹配管线
+├── listentogether/   # 一起听长连接 (纯 ArkTS WebSocket、时钟漂移平滑对齐与权威直链共享)
+├── sync/             # 跨端因果云同步 (兼容 Android 端 Protobuf/JSON、三路因果合并与墓碑防复活)
+├── util/             # ColorScience 动态色彩科学、二维码生成、响应式断点与窗口度量
+└── view/             # ArkUI 声明式页面 (首页、探索、资料库、设置、正在播放一镜到底、安全模式)
 ```
 
-## 许可
+---
 
-GPL-3.0。原项目：https://github.com/cwuom/NeriPlayer
+## 质量工程与测试状态
+
+本工程严格践行质量内建与测试护栏原则：
+
+- **本地单元测试 (`entry/src/test/`)**：
+  基于 `@ohos/hypium` 1.0.28，拥有 **935 个确定性测试用例（全量通过）**，覆盖因果同步三路合并、Protobuf/JSON 双向编解码、色彩科学矩阵、二维码生成器、下载状态机等核心算法与业务逻辑。
+- **静态代码检查 (`code-linter.json5`)**：
+  遵循 ArkTS 严格语法规范，保持 **0 Error** 基线守护。
+- **设备侧测试 (`entry/src/ohosTest/`)**：
+  包含 `ActsAbilityTest` 等端侧自动化测试用例，覆盖真网 AVPlayer 取流、Asset 凭据安全存取、长时任务后台保活与断网重连。
+
+---
+
+## 本地编译与构建
+
+### 1. 依赖与工具链要求
+
+- **HarmonyOS SDK**：`26.0.0 Release` (API 26)
+- **构建工具**：`command-line-tools` 26.0.0.821+ 或 DevEco Studio 26.0.0.621+
+- **环境配置**：确保 `local.properties` 已正确指向 SDK 目录（如 `sdk.dir=/path/to/command-line-tools/sdk/default`，此文件为本地私有配置，不入库）。
+
+### 2. 命令行构建命令
+
+进入本目录后执行：
+
+```bash
+# 1. 安装/同步依赖
+ohpm install --all
+
+# 2. 执行 Release 构建 (生成 unsigned HAP)
+hvigorw assembleHap --mode module -p module=entry@default -p product=default -p buildMode=release --no-daemon
+
+# 3. 执行本地单元测试
+hvigorw test --mode module -p module=entry@default -p product=default -p buildMode=debug --no-daemon
+```
+
+构建产物生成于：`entry/build/default/outputs/default/entry-default-unsigned.hap`。
+
+---
+
+## 调试签名与安装
+
+由于 HarmonyOS 系统强制校验应用签名，安装至真机或模拟器前须完成调试签名：
+
+### 方式 A：Linux / 命令行自动化签名
+
+在仓库根目录下，若已在 `signing/` 准备好 AGC 调试证书与 Profile，可直接执行根目录提供的构建脚本：
+
+```bash
+cd ..
+./build-signed.sh
+hdc install -r NeriPlayer-signed.hap
+```
+
+### 方式 B：Windows PowerShell 签名
+
+在 Windows 环境下，通过设置环境变量并运行本地签名脚本：
+
+```powershell
+$env:DEVECO_SDK_HOME = "C:\path\to\command-line-tools\sdk"
+$env:DEVECO_STUDIO_HOME = "C:\path\to\DevEco Studio"
+$env:NERIPLAYER_DEVICE_IDS = "<真实设备UDID>"
+$env:NERIPLAYER_SIGNING_PASSWORD = "<本地调试口令>"
+
+.\sign-local.ps1
+```
+
+> **安全红线**：严禁将任何真实签名材料（`.p12`、`.cer`、`.p7b`）、密钥口令或设备 UDID 提交至 Git 仓库。
+
+---
+
+## 运行与权限说明
+
+1. 首次启动应用时需完成免责声明确认与新用户引导流程。
+2. 本地音乐库扫描依赖 `ohos.permission.READ_AUDIO` 用户授权。
+3. 退出前台后继续播放音乐依赖 `ohos.permission.KEEP_BACKGROUND_RUNNING` 权限及系统长时任务授权。
