@@ -144,6 +144,9 @@ export class PlayerManager {
   private static player: media.AVPlayer | null = null;
   // Keeps the opened local audio file descriptor alive while AVPlayer reads it.
   private static localFile: fileIo.File | null = null;
+  // Descriptor for the current local source, consumed by loadSong via the
+  // player's fdSrc property (MediaSourceWithUrl cannot carry a raw fd).
+  private static pendingLocalDescriptor: media.AVFileDescriptor | null = null;
   private static listeners: PlayerListener[] = [];
   private static queue: SongItem[] = [];
   private static engine: QueueEngine = new QueueEngine();
@@ -1161,7 +1164,7 @@ export class PlayerManager {
           return;
         }
       }
-      let source: media.MediaSource;
+      let source: media.MediaSource | null = null;
       let playedUrl: string = '';
       let playedHeaders: Record<string, string> = {};
       if (cachedSource !== null) {
@@ -1181,18 +1184,27 @@ export class PlayerManager {
         if (generation !== PlayerManager.loadGeneration) {
           return;
         }
-        // Bilibili CDN hosts require a web Referer + desktop UA (plus the login
-        // cookie when present) or the player's own fetch is rejected with 403.
-        const biliCookie = BiliCookieRepository.isLoggedIn()
-          ? buildBiliCookieHeader(BiliCookieRepository.getCookies())
-          : '';
-        const headers = streamHeadersFor(uri, biliCookie);
-        playedHeaders = headers;
-        source = Object.keys(headers).length > 0
-          ? media.createMediaSourceWithUrl(uri, headers)
-          : media.createMediaSourceWithUrl(uri);
+        if (uri.startsWith('fd://') && PlayerManager.pendingLocalDescriptor !== null) {
+          // Local sources bypass MediaSource entirely: the descriptor goes
+          // through the player's fdSrc property (see openLocalFd).
+          player.fdSrc = PlayerManager.pendingLocalDescriptor;
+          PlayerManager.pendingLocalDescriptor = null;
+        } else {
+          // Bilibili CDN hosts require a web Referer + desktop UA (plus the login
+          // cookie when present) or the player's own fetch is rejected with 403.
+          const biliCookie = BiliCookieRepository.isLoggedIn()
+            ? buildBiliCookieHeader(BiliCookieRepository.getCookies())
+            : '';
+          const headers = streamHeadersFor(uri, biliCookie);
+          playedHeaders = headers;
+          source = Object.keys(headers).length > 0
+            ? media.createMediaSourceWithUrl(uri, headers)
+            : media.createMediaSourceWithUrl(uri);
+        }
       }
-      await player.setMediaSource(source);
+      if (source !== null) {
+        await player.setMediaSource(source);
+      }
       await PlayerManager.waitForState(['initialized']);
       // Pin the stream to the music usage. This is the only window the SDK
       // accepts it in: the initialized state, before the first prepare().
@@ -1355,7 +1367,13 @@ export class PlayerManager {
       PlayerManager.closeLocalFile();
       const file = fileIo.openSync(uri, fileIo.OpenMode.READ_ONLY);
       PlayerManager.localFile = file;
-      return `fd://${file.fd}`;
+      // The descriptor is applied through the player's fdSrc property, not
+      // through MediaSourceWithUrl: feeding the fd URL into a network-shaped
+      // MediaSource makes the container sniffer fail with 5400106 even for
+      // clean transfers. size pins the exact payload length for the sniffer.
+      const size = fileIo.statSync(uri).size;
+      PlayerManager.pendingLocalDescriptor = { fd: file.fd, offset: 0, length: size };
+      return `fd://${file.fd}?offset=0&size=${size}`;
     } catch (error) {
       const e = error as Error;
       Logger.warn(`open local audio fd failed: ${e.message}`);

@@ -6,6 +6,8 @@ import { stableKeyOf } from '../model/SongIdentity';
 import { SchemaStore } from '../data/schema/SchemaStore';
 import { SettingsRepository } from '../data/SettingsRepository';
 import { StreamResolver } from '../network/StreamResolver';
+import { NeteaseApi } from '../network/NeteaseApi';
+import { MusicPlatform } from '../model/MusicPlatform';
 import { BiliApi } from '../network/BiliApi';
 import { HttpClient } from '../network/HttpClient';
 import { HttpStreamDownloader, StreamDownloadHeaders } from '../network/HttpStreamDownloader';
@@ -18,7 +20,7 @@ import {
 } from './DownloadModels';
 import { DownloadTaskStore } from './DownloadTaskStore';
 import { DownloadRetryPolicy } from './DownloadSupport';
-import { DownloadStorage, ResumeFingerprint, HlsResumeState, DownloadedSongEntry } from './DownloadStorage';
+import { DownloadStorage, ResumeFingerprint, HlsResumeState, DownloadedSongEntry, findLongIdenticalRun } from './DownloadStorage';
 import { DownloadDirectoryManager } from './DownloadDirectoryManager';
 
 export interface DownloadEngineListener {
@@ -219,7 +221,18 @@ export class DownloadEngine {
 
     let url = '';
     try {
-      url = await StreamResolver.resolve(task.song);
+      if (task.song.platform === MusicPlatform.NETEASE) {
+        // Download-priority source: the weapi AAC CDN serves filler-corrupted
+        // payloads that stream fine but fail committed local playback. The
+        // anonymous legacy endpoint returns a clean 320k mp3.
+        const numericId = Number(task.song.audioId);
+        if (!Number.isNaN(numericId) && numericId > 0) {
+          url = await NeteaseApi.getSongUrlLegacy(numericId);
+        }
+      }
+      if (url.length === 0) {
+        url = await StreamResolver.resolve(task.song);
+      }
     } catch (error) {
       const e = error as Error;
       Logger.warn(`download resolve failed: ${e.message}`);
@@ -246,6 +259,7 @@ export class DownloadEngine {
     // Bilibili CDN requires Referer/UA on stream fetches (Android download
     // path sends the same headers); harmless null for other platforms.
     const streamHeaders = BiliApi.streamHeadersFor(url) ?? {};
+    Logger.info(`DownloadEngine: GET ${url}`);
 
     let resumeStart = 0;
     let validator = '';
@@ -266,6 +280,8 @@ export class DownloadEngine {
       try {
         const code = await HttpStreamDownloader.download(url, resumeStart, validator, {
           onHeaders: (headers: StreamDownloadHeaders) => {
+            Logger.info(`DownloadEngine: headers len=${headers.contentLength}`
+              + ` range=${headers.contentRangeStart} etag=${headers.etag}`);
             if (resumeStart > 0 && headers.contentRangeStart >= 0 && headers.contentRangeStart !== resumeStart) {
               // Server ignored the offset; restart from zero.
               restartRequired = true;
@@ -290,6 +306,12 @@ export class DownloadEngine {
           onData: (chunk: ArrayBuffer, received: number) => {
             if (DownloadEngine.isCancelled(songKey, task.attemptId) || restartRequired) {
               return false;
+            }
+            const bytes = new Uint8Array(chunk);
+            const garbageAt = findLongIdenticalRun(bytes, 64);
+            if (garbageAt >= 0) {
+              Logger.warn(`DownloadEngine: filler run in stream chunk at +${garbageAt}/${bytes.length}`
+                + ` byte=0x${bytes[garbageAt].toString(16)} received=${received}`);
             }
             DownloadStorage.appendChunk(workingPath, chunk);
             const progress = new DownloadProgress();
@@ -449,6 +471,14 @@ export class DownloadEngine {
     if (!DownloadStorage.hasPlausibleAudioHeader(workingPath)) {
       DownloadStorage.deleteWorkingSet(workingPath);
       await DownloadEngine.failTask(songKey, attemptId, song, 'downloaded payload is not audio');
+      return;
+    }
+    // CDN filler corruption (weapi AAC payloads carry periodic non-pad runs)
+    // passes the header check yet breaks local playback; fail instead of
+    // committing a file the offline path can never play.
+    if (await DownloadStorage.hasExcessiveFillerRuns(workingPath)) {
+      DownloadStorage.deleteWorkingSet(workingPath);
+      await DownloadEngine.failTask(songKey, attemptId, song, 'downloaded payload has filler corruption');
       return;
     }
 

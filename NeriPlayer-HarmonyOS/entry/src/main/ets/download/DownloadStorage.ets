@@ -212,6 +212,43 @@ export class DownloadStorage {
     }
   }
 
+  /**
+   * Streaming scan for filler corruption (see fillerRunCoverage): reads the
+   * file in 1 MiB blocks with a 1 KiB overlap so runs up to 1024 bytes are
+   * seen intact by at least one block. True when non-pad filler runs cover
+   * more than 0.5% of the file — clean transfers measure ~0%, the poisoned
+   * NetEase weapi AAC payloads measure ~1.2%.
+   */
+  static async hasExcessiveFillerRuns(path: string): Promise<boolean> {
+    const CHUNK = 1024 * 1024;
+    const OVERLAP = 1024;
+    try {
+      const file = fileIo.openSync(path, fileIo.OpenMode.READ_ONLY);
+      try {
+        const size = DownloadStorage.fileSize(path);
+        let covered = 0;
+        let scanned = 0;
+        let offset = 0;
+        const buffer = new ArrayBuffer(CHUNK + OVERLAP);
+        while (offset < size) {
+          const readLen = Math.min(CHUNK + OVERLAP, size - offset);
+          const read = fileIo.readSync(file.fd, buffer, { offset: offset, length: readLen });
+          if (read <= 0) {
+            break;
+          }
+          covered += Math.round(fillerRunCoverage(new Uint8Array(buffer, 0, read)) * read);
+          scanned += Math.min(read, CHUNK);
+          offset += CHUNK;
+        }
+        return scanned > 0 && covered / scanned > 0.005;
+      } finally {
+        fileIo.closeSync(file);
+      }
+    } catch (error) {
+      return false;
+    }
+  }
+
   /** Number of files (audio + sidecars) parked in the staging directory. */
   static stagingFileCount(): number {
     try {
@@ -467,6 +504,57 @@ export function isPlausibleAudioHead(head: Uint8Array): boolean {
     return false;
   }
   return head[0] !== 0x3C && head[0] !== 0x7B && head[0] !== 0x5B;
+}
+
+/**
+ * Offset of the first run of `minRun` identical bytes in the buffer, or -1.
+ * Pure and unit-testable; used to flag the periodic filler runs that poison
+ * otherwise valid-looking downloads (5400106 CONTAINER_ERR on play).
+ */
+export function findLongIdenticalRun(bytes: Uint8Array, minRun: number): number {
+  const n = bytes.length;
+  if (minRun <= 1 && n > 0) {
+    return 0;
+  }
+  let runStart = 0;
+  for (let i = 1; i < n; i++) {
+    if (bytes[i] !== bytes[runStart]) {
+      if (i - runStart >= minRun) {
+        return runStart;
+      }
+      runStart = i;
+    }
+  }
+  return n - runStart >= minRun ? runStart : -1;
+}
+
+/** Benign long runs: ID3/encoder padding and VBR filler patterns. */
+const BENIGN_PAD_BYTES: Set<number> = new Set<number>([0x00, 0xFF, 0xAA, 0x55]);
+
+/**
+ * Share of the buffer (0..1) covered by runs of >=64 identical bytes whose
+ * value is not a benign pad. Pure and unit-testable: the NetEase weapi AAC
+ * CDN injects periodic filler (~1.2% of bytes, values in a small non-pad
+ * cycle) that streams fine but breaks committed local playback, while clean
+ * mp3/m4a transfers stay at ~0% under this metric.
+ */
+export function fillerRunCoverage(bytes: Uint8Array): number {
+  const n = bytes.length;
+  if (n === 0) {
+    return 0;
+  }
+  let covered = 0;
+  let runStart = 0;
+  for (let i = 1; i <= n; i++) {
+    if (i === n || bytes[i] !== bytes[runStart]) {
+      const runLen = i - runStart;
+      if (runLen >= 64 && !BENIGN_PAD_BYTES.has(bytes[runStart])) {
+        covered += runLen;
+      }
+      runStart = i;
+    }
+  }
+  return covered / n;
 }
 
 // Re-export for callers that use the preferences-backed store directly.
