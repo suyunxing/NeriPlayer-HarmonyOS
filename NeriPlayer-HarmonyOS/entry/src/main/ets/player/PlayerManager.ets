@@ -12,6 +12,7 @@ import { StreamResolver } from '../network/StreamResolver';
 import { streamHeadersFor } from '../network/StreamHeaders';
 import { BiliCookieRepository } from '../data/auth/BiliCookieRepository';
 import { buildBiliCookieHeader } from '../data/auth/BiliAuth';
+import { DownloadEngine } from '../download/DownloadEngine';
 import { DownloadStorage } from '../download/DownloadStorage';
 import { HistoryRepository } from '../data/HistoryRepository';
 import { PlaybackStatsRepository } from '../data/PlaybackStatsRepository';
@@ -34,6 +35,7 @@ import { effectivePlaybackRate, toPlaybackSpeedStep } from './PlaybackSpeedMap';
 import { VolumeFader, FADE_IN_DURATION_MS, FADE_OUT_DURATION_MS } from './VolumeFader';
 import { AvPlaylistBridge } from './AvPlaylistBridge';
 import { advanceForceFor, peekNextIndex, shouldPrimeNext } from './AvPlaylistPolicy';
+import { decideLoadFailureAction, LoadFailureAction } from './PlaybackFailurePolicy';
 import { PlaybackCacheManager } from './PlaybackCacheManager';
 import {
   ListenTogetherPlaybackCommand,
@@ -142,6 +144,9 @@ export class PlayerManager {
   private static player: media.AVPlayer | null = null;
   // Keeps the opened local audio file descriptor alive while AVPlayer reads it.
   private static localFile: fileIo.File | null = null;
+  // Descriptor for the current local source, consumed by loadSong via the
+  // player's fdSrc property (MediaSourceWithUrl cannot carry a raw fd).
+  private static pendingLocalDescriptor: media.AVFileDescriptor | null = null;
   private static listeners: PlayerListener[] = [];
   private static queue: SongItem[] = [];
   private static engine: QueueEngine = new QueueEngine();
@@ -150,6 +155,18 @@ export class PlayerManager {
   private static positionMs: number = 0;
   private static durationMs: number = 0;
   private static errorAttempts: number = 0;
+  // Consecutive auto-skips after load failures, reset on every successful
+  // start and on user-driven queue moves; bounds the skip path in
+  // PlaybackFailurePolicy so a fully broken queue stops instead of wrapping.
+  private static autoSkipFailures: number = 0;
+  // Generation whose load failure is currently being recovered: the AVPlayer
+  // error callback and the rejected load chain both report the same failure,
+  // and handling it twice double-incremented the retry budget and raced two
+  // recovery chains onto one AVPlayer.
+  private static failureGeneration: number = -1;
+  // Catalog provenance of the currently loaded fd:// source: a failure while
+  // reading it means the local copy is broken and must be dropped (self-heal).
+  private static catalogSourceKey: string = '';
   /**
    * Supersession token for in-flight loads: listener state application can
    * trigger several loadSong calls in quick succession (join snapshot, then
@@ -508,6 +525,7 @@ export class PlayerManager {
     PlayerManager.queue = songs.slice();
     PlayerManager.engine.setQueueSize(songs.length);
     PlayerManager.engine.start(startIndex, PlayerManager.engine.shuffle, PlayerManager.engine.repeatMode);
+    PlayerManager.autoSkipFailures = 0;
     PlayerManager.publishQueue();
     PlayerManager.playWhenReady = true;
     const command = createListenTogetherPlaybackCommand('PLAY_PLAYLIST', source, Date.now());
@@ -645,6 +663,9 @@ export class PlayerManager {
       return;
     }
     PlayerManager.playWhenReady = true;
+    if (!auto) {
+      PlayerManager.autoSkipFailures = 0;
+    }
     const command = createListenTogetherPlaybackCommand('NEXT', source, Date.now());
     command.positionMs = Math.max(0, PlayerManager.positionMs);
     PlayerManager.emitPlaybackCommand(command);
@@ -659,6 +680,7 @@ export class PlayerManager {
       return;
     }
     PlayerManager.playWhenReady = true;
+    PlayerManager.autoSkipFailures = 0;
     const command = createListenTogetherPlaybackCommand('PREVIOUS', source, Date.now());
     command.positionMs = Math.max(0, PlayerManager.positionMs);
     PlayerManager.emitPlaybackCommand(command);
@@ -674,6 +696,7 @@ export class PlayerManager {
   ): Promise<void> {
     PlayerManager.engine.playAt(queueIndex);
     PlayerManager.playWhenReady = true;
+    PlayerManager.autoSkipFailures = 0;
     const command = createListenTogetherPlaybackCommand('PLAY_FROM_QUEUE', source, Date.now());
     command.currentIndex = queueIndex;
     PlayerManager.emitPlaybackCommand(command);
@@ -1141,7 +1164,7 @@ export class PlayerManager {
           return;
         }
       }
-      let source: media.MediaSource;
+      let source: media.MediaSource | null = null;
       let playedUrl: string = '';
       let playedHeaders: Record<string, string> = {};
       if (cachedSource !== null) {
@@ -1161,18 +1184,27 @@ export class PlayerManager {
         if (generation !== PlayerManager.loadGeneration) {
           return;
         }
-        // Bilibili CDN hosts require a web Referer + desktop UA (plus the login
-        // cookie when present) or the player's own fetch is rejected with 403.
-        const biliCookie = BiliCookieRepository.isLoggedIn()
-          ? buildBiliCookieHeader(BiliCookieRepository.getCookies())
-          : '';
-        const headers = streamHeadersFor(uri, biliCookie);
-        playedHeaders = headers;
-        source = Object.keys(headers).length > 0
-          ? media.createMediaSourceWithUrl(uri, headers)
-          : media.createMediaSourceWithUrl(uri);
+        if (uri.startsWith('fd://') && PlayerManager.pendingLocalDescriptor !== null) {
+          // Local sources bypass MediaSource entirely: the descriptor goes
+          // through the player's fdSrc property (see openLocalFd).
+          player.fdSrc = PlayerManager.pendingLocalDescriptor;
+          PlayerManager.pendingLocalDescriptor = null;
+        } else {
+          // Bilibili CDN hosts require a web Referer + desktop UA (plus the login
+          // cookie when present) or the player's own fetch is rejected with 403.
+          const biliCookie = BiliCookieRepository.isLoggedIn()
+            ? buildBiliCookieHeader(BiliCookieRepository.getCookies())
+            : '';
+          const headers = streamHeadersFor(uri, biliCookie);
+          playedHeaders = headers;
+          source = Object.keys(headers).length > 0
+            ? media.createMediaSourceWithUrl(uri, headers)
+            : media.createMediaSourceWithUrl(uri);
+        }
       }
-      await player.setMediaSource(source);
+      if (source !== null) {
+        await player.setMediaSource(source);
+      }
       await PlayerManager.waitForState(['initialized']);
       // Pin the stream to the music usage. This is the only window the SDK
       // accepts it in: the initialized state, before the first prepare().
@@ -1300,6 +1332,7 @@ export class PlayerManager {
   }
 
   private static async resolveStreamUrl(song: SongItem): Promise<string> {
+    PlayerManager.catalogSourceKey = '';
     if (song.platform !== MusicPlatform.LOCAL) {
       // A completed download short-circuits network resolution so catalog
       // tracks stay playable offline (Android offline-first semantics).
@@ -1307,6 +1340,7 @@ export class PlayerManager {
       if (downloaded !== null) {
         const localUrl = PlayerManager.openLocalFd(downloaded.audioPath);
         if (localUrl.length > 0) {
+          PlayerManager.catalogSourceKey = stableKeyOf(song);
           return localUrl;
         }
       }
@@ -1333,7 +1367,13 @@ export class PlayerManager {
       PlayerManager.closeLocalFile();
       const file = fileIo.openSync(uri, fileIo.OpenMode.READ_ONLY);
       PlayerManager.localFile = file;
-      return `fd://${file.fd}`;
+      // The descriptor is applied through the player's fdSrc property, not
+      // through MediaSourceWithUrl: feeding the fd URL into a network-shaped
+      // MediaSource makes the container sniffer fail with 5400106 even for
+      // clean transfers. size pins the exact payload length for the sniffer.
+      const size = fileIo.statSync(uri).size;
+      PlayerManager.pendingLocalDescriptor = { fd: file.fd, offset: 0, length: size };
+      return `fd://${file.fd}?offset=0&size=${size}`;
     } catch (error) {
       const e = error as Error;
       Logger.warn(`open local audio fd failed: ${e.message}`);
@@ -1354,18 +1394,53 @@ export class PlayerManager {
   }
 
   private static async handleLoadFailure(): Promise<void> {
+    if (PlayerManager.failureGeneration === PlayerManager.loadGeneration) {
+      return;
+    }
+    PlayerManager.failureGeneration = PlayerManager.loadGeneration;
+    // A source opened from the download catalog but rejected by the player
+    // means the local copy is broken (e.g. zero-holed staging writes). Drop
+    // the stale catalog row, the file and the finished task record: the
+    // library count stays truthful and the engine's completed-task
+    // short-circuit no longer pins the bad file against a re-download.
+    if (PlayerManager.catalogSourceKey.length > 0) {
+      const staleKey = PlayerManager.catalogSourceKey;
+      PlayerManager.catalogSourceKey = '';
+      try {
+        await DownloadEngine.deleteDownload(staleKey);
+        Logger.warn('PlayerManager: dropped corrupt download from catalog');
+      } catch (error) {
+        const e = error as Error;
+        Logger.warn(`catalog self-heal failed: ${e.message}`);
+      }
+    }
     PlayerManager.errorAttempts += 1;
     const song = PlayerManager.getCurrentSong();
     if (song === null) {
       return;
     }
-    if (PlayerManager.errorAttempts < 2) {
+    const action = decideLoadFailureAction({
+      errorAttempts: PlayerManager.errorAttempts,
+      autoSkipFailures: PlayerManager.autoSkipFailures,
+      queueLength: PlayerManager.queue.length,
+      nextTarget: peekNextIndex(PlayerManager.engine, PlayerManager.engine.repeatMode === RepeatMode.ALL),
+      currentIndex: PlayerManager.engine.getCurrentQueueIndex()
+    });
+    if (action === LoadFailureAction.RETRY_SAME) {
       Logger.warn(`Retrying playback for ${song.displayName} (attempt ${PlayerManager.errorAttempts})`);
       await PlayerManager.loadSong(0, true);
       return;
     }
-    Logger.warn(`Giving up on ${song.displayName}, skipping to next`);
-    await PlayerManager.next(true);
+    if (action === LoadFailureAction.SKIP_NEXT) {
+      PlayerManager.autoSkipFailures += 1;
+      Logger.warn(`Giving up on ${song.displayName}, skipping to next`);
+      await PlayerManager.next(true);
+      return;
+    }
+    Logger.warn(`Giving up on ${song.displayName}; playback stopped`);
+    PlayerManager.playWhenReady = false;
+    PlayerManager.stopContinuousTask();
+    PlayerManager.publishStatus(PlaybackStatus.ERROR);
   }
 
   private static async ensurePlayer(): Promise<media.AVPlayer> {
@@ -1412,6 +1487,7 @@ export class PlayerManager {
     switch (state) {
       case 'playing':
         PlayerManager.publishStatus(PlaybackStatus.PLAYING);
+        PlayerManager.autoSkipFailures = 0;
         PlayerManager.reconcileStreamDuration();
         if (PlayerManager.context !== null) {
           BackgroundTaskRunner.start(PlayerManager.context);
