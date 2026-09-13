@@ -182,6 +182,16 @@ export struct LibraryPage {
     return hasScheme ? Theme.background(dark) : Theme.background(dark);
   }
 
+  /**
+   * 同 schemeBg：强调色节点（统计卡片图标、新建/创建/重试按钮、歌单占位
+   * 图标）直接写 Theme.primary() 是无跟踪调用（M7.4），换歌后不会重染；
+   * 先摸被跟踪的 coverScheme 注册依赖，取值依旧交给 Theme 统一决策。
+   */
+  private accentPrimary(dark: boolean): string {
+    const hasScheme = this.coverScheme.light.primary.length > 0;
+    return hasScheme ? Theme.primary(dark) : Theme.primary(dark);
+  }
+
   build() {
     Stack() {
       // 标题「资料库」由 MainShell 的 HdsNavigation MINI 标题栏承载，页内不再
@@ -256,7 +266,7 @@ export struct LibraryPage {
           Button('＋ 新建')
             .height(40)
             .fontSize(13)
-            .backgroundColor(Theme.primary(Theme.isDark()))
+            .backgroundColor(this.accentPrimary(Theme.isDark()))
             .onClick(() => this.createPlaylist())
         }
         .width('100%')
@@ -275,7 +285,7 @@ export struct LibraryPage {
                 Image($r('app.media.ic_library_music_24'))
                   .width(22)
                   .height(22)
-                  .fillColor(Theme.primary(Theme.isDark()))
+                  .fillColor(this.accentPrimary(Theme.isDark()))
                   .margin({ left: 11, right: 11, top: 11, bottom: 11 })
                   .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
                   .borderRadius(8)
@@ -334,7 +344,7 @@ export struct LibraryPage {
               Button('重试')
                 .height(40)
                 .fontSize(13)
-                .backgroundColor(Theme.primary(Theme.isDark()))
+                .backgroundColor(this.accentPrimary(Theme.isDark()))
                 .onClick(() => this.refreshNeteasePlaylists())
             }
             .width('100%')
@@ -360,7 +370,7 @@ export struct LibraryPage {
                     Image($r('app.media.ic_music_note_24'))
                       .width(22)
                       .height(22)
-                      .fillColor(Theme.primary(Theme.isDark()))
+                      .fillColor(this.accentPrimary(Theme.isDark()))
                       .margin({ left: 11, right: 11, top: 11, bottom: 11 })
                       .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
                       .borderRadius(8)
@@ -421,7 +431,7 @@ export struct LibraryPage {
               Button('重试')
                 .height(40)
                 .fontSize(13)
-                .backgroundColor(Theme.primary(Theme.isDark()))
+                .backgroundColor(this.accentPrimary(Theme.isDark()))
                 .onClick(() => this.refreshBiliFavFolders())
             }
             .width('100%')
@@ -589,7 +599,7 @@ export struct LibraryPage {
                 })
               Button('创建')
                 .layoutWeight(1)
-                .backgroundColor(Theme.primary(Theme.isDark()))
+                .backgroundColor(this.accentPrimary(Theme.isDark()))
                 .onClick(() => this.confirmCreate())
             }
             .width('100%')
@@ -615,17 +625,25 @@ export struct LibraryPage {
 
 @Component
 struct StatCard {
+  /** 订阅封面配色：图标直接写 Theme.primary() 是无跟踪调用（M7.4），不订阅则换歌后停留回退色。 */
+  @StorageProp('player.coverScheme') coverScheme: AccentScheme = AccentScheme.neutralFallback();
   icon: string = '';
   value: string = '';
   label: string = '';
   onTap: () => void = () => {};
+
+  /** 同 LibraryPage.accentPrimary：先摸被跟踪成员注册依赖，取值交给 Theme。 */
+  private accentPrimary(dark: boolean): string {
+    const hasScheme = this.coverScheme.light.primary.length > 0;
+    return hasScheme ? Theme.primary(dark) : Theme.primary(dark);
+  }
 
   build() {
     Column({ space: 4 }) {
       Image(iconForLegacy(this.icon, $r('app.media.ic_music_note_24')))
         .width(22)
         .height(22)
-        .fillColor(Theme.primary(Theme.isDark()))
+        .fillColor(this.accentPrimary(Theme.isDark()))
       Text(this.value)
         .fontSize(14)
         .fontWeight(FontWeight.Bold)
