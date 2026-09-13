@@ -273,6 +273,16 @@ export class NeteaseApi {
       }
     }
     // Legacy fallback endpoint (no weapi) for resilient clients.
+    return NeteaseApi.getSongUrlLegacy(id);
+  }
+
+  /**
+   * Anonymous legacy URL endpoint (320k mp3 on the jdymusic CDN). The download
+   * path prefers this source: the weapi AAC CDN (jdyyaac) serves payloads with
+   * periodic filler runs (~1.2% of bytes) that stream fine but fail local
+   * playback with 5400106 CONTAINER_ERR once committed to disk.
+   */
+  static async getSongUrlLegacy(id: number): Promise<string> {
     try {
       const legacy = await HttpClient.getText(
         `${Constants.NETEASE_BASE}/api/song/enhance/player/url?ids=[${id}]&br=320000`,
