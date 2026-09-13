@@ -18,6 +18,11 @@ export default function downloadUrlRedactionTest(): void {
       expect(redactUrlForLog('')).assertEqual('<no-scheme:0>');
       expect(redactUrlForLog('not a url')).assertEqual('<no-scheme:9>');
       expect(redactUrlForLog('https://host.example')).assertEqual('https://host.example/<path:0>');
+      // Query-only URL: no path segment, the credential must still be cut.
+      expect(redactUrlForLog('https://host.example?authKey=SECRET'))
+        .assertEqual('https://host.example/<path:15>');
+      expect(redactUrlForLog('https://host.example#frag=1'))
+        .assertEqual('https://host.example/<path:7>');
     });
   });
 }
