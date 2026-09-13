@@ -55,6 +55,18 @@ export interface PlayerListener {
   onSnapshotChanged(): void;
 }
 
+/**
+ * Resolved stream for one load chain: the player URL plus the download
+ * catalog provenance. The caller commits `catalogKey` only after its own
+ * generation check — assigning it inside the resolver would let a superseded
+ * chain overwrite the live chain's key and make a later failure self-heal
+ * delete the wrong download.
+ */
+interface ResolvedStream {
+  url: string;
+  catalogKey: string;
+}
+
 /** Bridges AutoSongMatcher back into the queue without a circular import at
  * call sites (loadSong hands it over fire-and-forget). */
 class PlayerManagerAutoMatchEnv implements AutoMatchPlaybackEnv {
@@ -167,6 +179,11 @@ export class PlayerManager {
   // Catalog provenance of the currently loaded fd:// source: a failure while
   // reading it means the local copy is broken and must be dropped (self-heal).
   private static catalogSourceKey: string = '';
+  // The fd:// URL the key was committed with. The AVPlayer 'error' event
+  // carries no source identity, so self-heal only fires when the error
+  // surfaced against exactly this URL — a late error from a superseded load
+  // must not delete the newer song's catalog row.
+  private static catalogSourceUrl: string = '';
   /**
    * Supersession token for in-flight loads: listener state application can
    * trigger several loadSong calls in quick succession (join snapshot, then
@@ -455,9 +472,33 @@ export class PlayerManager {
         return currentUrls;
       }
     }
-    const resolved = await PlayerManager.resolveStreamUrl(song);
-    const lowered = resolved.trim().toLowerCase();
-    return lowered.startsWith('http://') || lowered.startsWith('https://') ? [resolved.trim()] : [];
+    // Share probes run outside a load chain and need http(s) only: resolve
+    // the network paths directly. A *usable* offline copy short-circuits to
+    // [] (its fd:// URLs are not shareable, and resolving would recycle the
+    // file descriptor live playback holds); a stale, deleted or corrupt row
+    // falls through to the network resolvers so sharing keeps working.
+    if (song.platform === MusicPlatform.LOCAL) {
+      return [];
+    }
+    const downloaded = await DownloadStorage.findCatalogEntry(song);
+    if (downloaded !== null) {
+      const localPath = DownloadStorage.resolveFilePath(downloaded.audioPath);
+      if (localPath.length > 0 && DownloadStorage.fileSize(localPath) > 0
+        && DownloadStorage.hasPlausibleAudioHeader(localPath)) {
+        return [];
+      }
+    }
+    const authoritativeUrls = PlayerManager.listenTogetherDelegate?.resolveAuthoritativeStreamUrls(song) ?? [];
+    if (authoritativeUrls.length > 0) {
+      return PlayerManager.httpShareableOnly(authoritativeUrls[0]);
+    }
+    return PlayerManager.httpShareableOnly(await StreamResolver.resolveWithNeteaseAutoFallback(song));
+  }
+
+  private static httpShareableOnly(url: string): string[] {
+    const trimmed = url.trim();
+    const lowered = trimmed.toLowerCase();
+    return lowered.startsWith('http://') || lowered.startsWith('https://') ? [trimmed] : [];
   }
 
   private static setCurrentMediaUrl(url: string | null): void {
@@ -1122,6 +1163,11 @@ export class PlayerManager {
     // Any explicit load invalidates a primed native-playlist entry: the
     // bridge's source was predicted for the previous queue position.
     AvPlaylistBridge.abandon();
+    // Any failure self-heal from here on belongs to this load only; the
+    // resolved provenance is committed below after the generation check, so a
+    // superseded chain can never leave a stale key behind.
+    PlayerManager.catalogSourceKey = '';
+    PlayerManager.catalogSourceUrl = '';
     const song = PlayerManager.getCurrentSong();
     if (song === null) {
       return;
@@ -1171,20 +1217,28 @@ export class PlayerManager {
         await player.reset();
         source = cachedSource;
       } else {
-        const uri = await PlayerManager.resolveStreamUrl(song);
+        const resolved = await PlayerManager.resolveStreamUrl(song);
         if (generation !== PlayerManager.loadGeneration) {
+          // Superseded mid-resolution: the fd/pending descriptor opened for
+          // this chain stays until the next openLocalFd recycles it, but no
+          // catalog provenance is committed (the failure self-heal of the
+          // *current* chain must not see this chain's key).
           return;
         }
-        if (uri.length === 0) {
+        if (resolved.url.length === 0) {
           throw new Error(`No playable stream for ${song.displayName}`);
         }
-        PlayerManager.setCurrentMediaUrl(uri);
-        playedUrl = uri;
+        PlayerManager.catalogSourceKey = resolved.catalogKey;
+        // Pair the key with the exact fd:// URL it came from: the self-heal
+        // only acts when the player's current media still is this source.
+        PlayerManager.catalogSourceUrl = resolved.catalogKey.length > 0 ? resolved.url : '';
+        PlayerManager.setCurrentMediaUrl(resolved.url);
+        playedUrl = resolved.url;
         await player.reset();
         if (generation !== PlayerManager.loadGeneration) {
           return;
         }
-        if (uri.startsWith('fd://') && PlayerManager.pendingLocalDescriptor !== null) {
+        if (resolved.url.startsWith('fd://') && PlayerManager.pendingLocalDescriptor !== null) {
           // Local sources bypass MediaSource entirely: the descriptor goes
           // through the player's fdSrc property (see openLocalFd).
           player.fdSrc = PlayerManager.pendingLocalDescriptor;
@@ -1195,11 +1249,11 @@ export class PlayerManager {
           const biliCookie = BiliCookieRepository.isLoggedIn()
             ? buildBiliCookieHeader(BiliCookieRepository.getCookies())
             : '';
-          const headers = streamHeadersFor(uri, biliCookie);
+          const headers = streamHeadersFor(resolved.url, biliCookie);
           playedHeaders = headers;
           source = Object.keys(headers).length > 0
-            ? media.createMediaSourceWithUrl(uri, headers)
-            : media.createMediaSourceWithUrl(uri);
+            ? media.createMediaSourceWithUrl(resolved.url, headers)
+            : media.createMediaSourceWithUrl(resolved.url);
         }
       }
       if (source !== null) {
@@ -1331,8 +1385,8 @@ export class PlayerManager {
     AutoSongMatcher.maybeAutoMatch(song, new PlayerManagerAutoMatchEnv());
   }
 
-  private static async resolveStreamUrl(song: SongItem): Promise<string> {
-    PlayerManager.catalogSourceKey = '';
+  private static async resolveStreamUrl(song: SongItem): Promise<ResolvedStream> {
+    const resolved: ResolvedStream = { url: '', catalogKey: '' };
     if (song.platform !== MusicPlatform.LOCAL) {
       // A completed download short-circuits network resolution so catalog
       // tracks stay playable offline (Android offline-first semantics).
@@ -1340,22 +1394,26 @@ export class PlayerManager {
       if (downloaded !== null) {
         const localUrl = PlayerManager.openLocalFd(downloaded.audioPath);
         if (localUrl.length > 0) {
-          PlayerManager.catalogSourceKey = stableKeyOf(song);
-          return localUrl;
+          resolved.url = localUrl;
+          resolved.catalogKey = stableKeyOf(song);
+          return resolved;
         }
       }
       // A listener may consume the controller's already-resolved stream after
       // the offline catalog has had a chance to satisfy the request.
       const authoritativeUrls = PlayerManager.listenTogetherDelegate?.resolveAuthoritativeStreamUrls(song) ?? [];
       if (authoritativeUrls.length > 0) {
-        return authoritativeUrls[0];
+        resolved.url = authoritativeUrls[0];
+        return resolved;
       }
       // NetEase songs fall back to a matched Bilibili source when the direct
       // stream is unavailable and the setting is on.
-      return StreamResolver.resolveWithNeteaseAutoFallback(song);
+      resolved.url = await StreamResolver.resolveWithNeteaseAutoFallback(song);
+      return resolved;
     }
     const uri = song.localFilePath.length > 0 ? song.localFilePath : song.mediaUri;
-    return PlayerManager.openLocalFd(uri);
+    resolved.url = PlayerManager.openLocalFd(uri);
+    return resolved;
   }
 
   /** Opens a sandbox audio file for AVPlayer; '' when unreadable. */
@@ -1363,15 +1421,21 @@ export class PlayerManager {
     if (uri.length === 0) {
       return '';
     }
+    // Catalog rows from a user-picked download directory hold file:// URIs;
+    // CoreFileKit needs the converted sandbox path for open/stat.
+    const path = DownloadStorage.resolveFilePath(uri);
+    if (path.length === 0) {
+      return '';
+    }
     try {
       PlayerManager.closeLocalFile();
-      const file = fileIo.openSync(uri, fileIo.OpenMode.READ_ONLY);
+      const file = fileIo.openSync(path, fileIo.OpenMode.READ_ONLY);
       PlayerManager.localFile = file;
       // The descriptor is applied through the player's fdSrc property, not
       // through MediaSourceWithUrl: feeding the fd URL into a network-shaped
       // MediaSource makes the container sniffer fail with 5400106 even for
       // clean transfers. size pins the exact payload length for the sniffer.
-      const size = fileIo.statSync(uri).size;
+      const size = fileIo.statSync(path).size;
       PlayerManager.pendingLocalDescriptor = { fd: file.fd, offset: 0, length: size };
       return `fd://${file.fd}?offset=0&size=${size}`;
     } catch (error) {
@@ -1403,9 +1467,16 @@ export class PlayerManager {
     // the stale catalog row, the file and the finished task record: the
     // library count stays truthful and the engine's completed-task
     // short-circuit no longer pins the bad file against a re-download.
-    if (PlayerManager.catalogSourceKey.length > 0) {
+    // The AVPlayer error event carries no source identity, so act only when
+    // the current media still is the exact fd:// URL the key was committed
+    // with — a late error from a superseded load must not delete the newer
+    // song's catalog row.
+    if (PlayerManager.catalogSourceKey.length > 0
+      && PlayerManager.catalogSourceUrl.length > 0
+      && PlayerManager.catalogSourceUrl === PlayerManager.currentMediaUrl) {
       const staleKey = PlayerManager.catalogSourceKey;
       PlayerManager.catalogSourceKey = '';
+      PlayerManager.catalogSourceUrl = '';
       try {
         await DownloadEngine.deleteDownload(staleKey);
         Logger.warn('PlayerManager: dropped corrupt download from catalog');
@@ -1612,6 +1683,13 @@ export class PlayerManager {
       PlayerManager.beginTrackTransition(song, 0);
       PlayerManager.setCurrentMediaUrl(mediaUrl);
     }
+    // The kernel swapped to the primed offline source; the failure self-heal
+    // must now point at THIS song's catalog row, not the previous track's
+    // (a loadSong would have reset the key, but the native advance skips it).
+    PlayerManager.catalogSourceKey = song !== null && song.platform !== MusicPlatform.LOCAL
+      ? stableKeyOf(song)
+      : '';
+    PlayerManager.catalogSourceUrl = PlayerManager.catalogSourceKey.length > 0 ? mediaUrl : '';
     // The kernel already swapped the media; nudge the transport in case it
     // parked, and re-apply the speed the new source did not inherit.
     const player = PlayerManager.player;

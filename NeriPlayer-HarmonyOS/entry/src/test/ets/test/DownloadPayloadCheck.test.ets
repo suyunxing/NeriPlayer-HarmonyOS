@@ -33,12 +33,29 @@ export default function downloadPayloadCheckTest(): void {
     it('acceptsKnownAudioContainerHeads', 0, () => {
       expect(isPlausibleAudioHead(bytesOf(0x49, 0x44, 0x33, 0x04))).assertTrue(); // ID3
       expect(isPlausibleAudioHead(bytesOf(0xFF, 0xFB, 0x90, 0x00))).assertTrue(); // mp3 frame sync
+      expect(isPlausibleAudioHead(bytesOf(0xFF, 0xF1, 0x50, 0x80))).assertTrue(); // ADTS AAC sync
       expect(isPlausibleAudioHead(bytesOf(0x66, 0x4C, 0x61, 0x43))).assertTrue(); // fLaC
       expect(isPlausibleAudioHead(bytesOf(0x4F, 0x67, 0x67, 0x53))).assertTrue(); // OggS
       expect(isPlausibleAudioHead(bytesOf(0x52, 0x49, 0x46, 0x46))).assertTrue(); // RIFF
-      expect(isPlausibleAudioHead(bytesOf(0x47, 0x40, 0x00, 0x11))).assertTrue(); // MPEG-TS sync
-      // m4a: ftyp box size may lead with up to three NULs — below threshold.
+      expect(isPlausibleAudioHead(bytesOf(0x30, 0x26, 0xB2, 0x75))).assertTrue(); // ASF/WMA
+      expect(isPlausibleAudioHead(bytesOf(0x1A, 0x45, 0xDF, 0xA3))).assertTrue(); // EBML/webm
+      // m4a: ftyp box size may lead with up to three NULs — signature at +4.
       expect(isPlausibleAudioHead(bytesOf(0x00, 0x00, 0x00, 0x20, 0x66, 0x74, 0x79, 0x70))).assertTrue();
+      // MPEG-TS: sync byte must repeat at the 188-byte packet boundary, so the
+      // sniff needs at least 189 bytes (a lone leading 0x47 also matches GIF).
+      const ts = new Uint8Array(192);
+      ts[0] = 0x47;
+      ts[188] = 0x47;
+      expect(isPlausibleAudioHead(ts)).assertTrue();
+    });
+
+    it('rejectsArbitraryBinaryAndPaddedErrorPages', 0, () => {
+      // Signatures must gate both cache reuse and completeTask: arbitrary
+      // binary and whitespace-padded error pages are not audio.
+      expect(isPlausibleAudioHead(bytesOf(0x61, 0x62, 0x63, 0x64))).assertFalse(); // abcd
+      expect(isPlausibleAudioHead(bytesOf(0x20, 0x20, 0x0A, 0x3C, 0x68, 0x74, 0x6D, 0x6C))).assertFalse(); // "  \n<html"
+      expect(isPlausibleAudioHead(bytesOf(0x47, 0x49, 0x46, 0x38))).assertFalse(); // GIF8 (0x47 lead, no TS sync)
+      expect(isPlausibleAudioHead(bytesOf(0x89, 0x50, 0x4E, 0x47))).assertFalse(); // PNG
     });
 
     it('rejectsTruncatedHeads', 0, () => {

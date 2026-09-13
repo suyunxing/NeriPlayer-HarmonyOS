@@ -1,6 +1,7 @@
 import { media } from '@kit.MediaKit';
 import { fileIo } from '@kit.CoreFileKit';
 import { Logger } from '../app/Logger';
+import { DownloadStorage } from '../download/DownloadStorage';
 
 /** Upper bound for one native-playlist call; the APIs are @since 26 and a
  * hung stub (the setLoudnessGain lesson) must never pin the player. */
@@ -66,7 +67,11 @@ export class AvPlaylistBridge {
   /**
    * Pre-adds the next (offline) source to the player's playlist. `localPath`
    * must be a readable sandbox/download file; the bridge opens and owns the
-   * fd until the entry is consumed or abandoned.
+   * fd until the entry is consumed or abandoned. The source is built with
+   * createMediaSourceWithFd — feeding an fd:// URL into
+   * createMediaSourceWithUrl makes the container sniffer fail with 5400106
+   * (the same lesson as PlayerManager.openLocalFd), and a gapless advance
+   * into that dead source would bypass every loadSong retry path.
    */
   static async prime(queueIndex: number, localPath: string): Promise<boolean> {
     const player = AvPlaylistBridge.player;
@@ -74,11 +79,22 @@ export class AvPlaylistBridge {
       return false;
     }
     AvPlaylistBridge.abandon();
+    // Catalog paths from a user-picked download directory hold file:// URIs;
+    // CoreFileKit needs the converted sandbox path for open/stat.
+    const path = DownloadStorage.resolveFilePath(localPath);
+    if (path.length === 0) {
+      AvPlaylistBridge.latchOff('prime failed: unreadable path');
+      return false;
+    }
     let fd: fileIo.File | null = null;
     try {
-      fd = fileIo.openSync(localPath, fileIo.OpenMode.READ_ONLY);
+      fd = fileIo.openSync(path, fileIo.OpenMode.READ_ONLY);
       const mediaUrl = `fd://${fd.fd}`;
-      const source = media.createMediaSourceWithUrl(mediaUrl);
+      const size = fileIo.statSync(path).size;
+      const source = media.createMediaSourceWithFd({ fd: fd.fd, offset: 0, length: size });
+      if (source === undefined) {
+        throw new Error('createMediaSourceWithFd returned undefined');
+      }
       const assignedId = await AvPlaylistBridge.call(
         player.addPlaybackMediaSource(source, `npq:${queueIndex}`)
       );
