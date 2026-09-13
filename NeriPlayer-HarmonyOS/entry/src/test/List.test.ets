@@ -8,6 +8,7 @@ import downloadTaskStoreTest from './ets/test/DownloadTaskStore.test';
 import downloadDirectoryTest from './ets/test/DownloadDirectory.test';
 import downloadRowTest from './ets/test/DownloadRow.test';
 import downloadPayloadCheckTest from './ets/test/DownloadPayloadCheck.test';
+import downloadUrlRedactionTest from './ets/test/DownloadUrlRedaction.test';
 import playbackFailurePolicyTest from './ets/test/PlaybackFailurePolicy.test';
 import qrEncoderTest from './ets/test/QrEncoder.test';
 import neteaseAuthTest from './ets/test/NeteaseAuth.test';
@@ -169,6 +170,7 @@ export default function testsuite(): void {
   playbackCacheLedgerTest();
   downloadRowTest();
   downloadPayloadCheckTest();
+  downloadUrlRedactionTest();
   playbackFailurePolicyTest();
   audioQualityPolicyTest();
   historyRepositoryTest();

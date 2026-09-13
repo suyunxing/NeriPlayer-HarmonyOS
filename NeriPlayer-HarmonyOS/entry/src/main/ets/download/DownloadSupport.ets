@@ -43,6 +43,25 @@ export class DownloadRetryPolicy {
 }
 
 /**
+ * Log-safe rendering of a resolved CDN URL: scheme and host only. Query
+ * strings carry expiring signatures/token parameters (NetEase, Bilibili),
+ * and even paths can embed opaque ticket segments, so neither may reach
+ * hilog or collected diagnostics. Pure and unit-testable.
+ */
+export function redactUrlForLog(url: string): string {
+  const schemeEnd = url.indexOf('://');
+  if (schemeEnd < 0) {
+    return `<no-scheme:${url.length}>`;
+  }
+  const authorityStart = schemeEnd + 3;
+  let authorityEnd = url.indexOf('/', authorityStart);
+  if (authorityEnd < 0) {
+    authorityEnd = url.length;
+  }
+  return `${url.substring(0, authorityEnd)}/<path:${Math.max(0, url.length - authorityEnd)}>`;
+}
+
+/**
  * Managed download file naming, mirroring ManagedDownloadNaming.kt.
  */
 export class DownloadNaming {

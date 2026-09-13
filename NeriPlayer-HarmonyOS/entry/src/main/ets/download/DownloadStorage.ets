@@ -192,16 +192,18 @@ export class DownloadStorage {
 
   /**
    * Cheap payload sanity check over the first bytes: every real audio
-   * container starts with a magic value or frame sync, never with a run of
-   * NULs or an ASCII '<'/'{'/'[' (HTML/JSON error payloads from expiring
-   * CDNs). Guards the completed-task short-circuit and the commit path
-   * against pinning or committing unplayable bytes.
+   * container starts with a known magic value or frame sync (see
+   * isPlausibleAudioHead), never with HTML/JSON error payloads from expiring
+   * CDNs or arbitrary binary. Guards the completed-task short-circuit and the
+   * commit path against pinning or committing unplayable bytes.
    */
   static hasPlausibleAudioHeader(path: string): boolean {
     try {
       const file = fileIo.openSync(path, fileIo.OpenMode.READ_ONLY);
       try {
-        const head = new ArrayBuffer(16);
+        // 192 bytes so the MPEG-TS two-packet sync check (0x47 at 0 and 188)
+        // can see both packets.
+        const head = new ArrayBuffer(192);
         const read = fileIo.readSync(file.fd, head);
         return isPlausibleAudioHead(new Uint8Array(head, 0, read));
       } finally {
@@ -218,6 +220,9 @@ export class DownloadStorage {
    * seen intact by at least one block. True when non-pad filler runs cover
    * more than 0.5% of the file — clean transfers measure ~0%, the poisoned
    * NetEase weapi AAC payloads measure ~1.2%.
+   *
+   * Fails closed: an unreadable file or an incomplete scan reports corrupted
+   * (true) rather than silently passing the integrity gate.
    */
   static async hasExcessiveFillerRuns(path: string): Promise<boolean> {
     const CHUNK = 1024 * 1024;
@@ -229,23 +234,30 @@ export class DownloadStorage {
         let covered = 0;
         let scanned = 0;
         let offset = 0;
+        let incomplete = false;
         const buffer = new ArrayBuffer(CHUNK + OVERLAP);
         while (offset < size) {
           const readLen = Math.min(CHUNK + OVERLAP, size - offset);
           const read = fileIo.readSync(file.fd, buffer, { offset: offset, length: readLen });
           if (read <= 0) {
+            incomplete = true;
             break;
           }
           covered += Math.round(fillerRunCoverage(new Uint8Array(buffer, 0, read)) * read);
           scanned += Math.min(read, CHUNK);
           offset += CHUNK;
         }
+        if (incomplete || (size > 0 && scanned < size)) {
+          return true;
+        }
         return scanned > 0 && covered / scanned > 0.005;
       } finally {
         fileIo.closeSync(file);
       }
     } catch (error) {
-      return false;
+      const e = error as Error;
+      Logger.warn(`hasExcessiveFillerRuns scan failed (fail closed): ${e.message}`);
+      return true;
     }
   }
 
@@ -487,23 +499,57 @@ export class DownloadStorage {
 }
 
 /**
- * Pure byte decision behind hasPlausibleAudioHeader (unit-testable): the
- * broken staging writer produced NUL-holed files and error responses start
- * with '<'/'{'/'[' — none of those are audio. m4a may lead with up to three
- * NULs (ftyp box size), so the zero-run threshold sits at 4.
+ * Pure byte decision behind hasPlausibleAudioHeader (unit-testable): a head
+ * counts as audio only when it carries a known container magic or frame sync.
+ * The broken staging writer produced NUL-holed files, expiring CDNs answer
+ * with HTML/JSON (leading '<'/'{'/'[', optionally after whitespace), and any
+ * other binary (e.g. 'abcd') must not pass — none carry these signatures.
  */
+const AUDIO_HEAD_MAGICS: number[][] = [
+  [0x49, 0x44, 0x33],             // ID3 (tagged mp3)
+  [0x66, 0x4C, 0x61, 0x43],       // fLaC
+  [0x4F, 0x67, 0x67, 0x53],       // OggS (ogg/opus/vorbis)
+  [0x52, 0x49, 0x46, 0x46],       // RIFF (wav)
+  [0x30, 0x26, 0xB2, 0x75],       // ASF (wma)
+  [0x23, 0x21, 0x41, 0x4D, 0x52], // #!AMR
+  [0x1A, 0x45, 0xDF, 0xA3]        // EBML (webm/mkv audio)
+];
+
+function matchesMagicAt(head: Uint8Array, offset: number, magic: number[]): boolean {
+  if (head.length < offset + magic.length) {
+    return false;
+  }
+  for (let i = 0; i < magic.length; i++) {
+    if (head[offset + i] !== magic[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export function isPlausibleAudioHead(head: Uint8Array): boolean {
   if (head.length < 4) {
     return false;
   }
-  let leadingZeros = 0;
-  while (leadingZeros < head.length && head[leadingZeros] === 0) {
-    leadingZeros += 1;
+  for (const magic of AUDIO_HEAD_MAGICS) {
+    if (matchesMagicAt(head, 0, magic)) {
+      return true;
+    }
   }
-  if (leadingZeros >= 4) {
-    return false;
+  // MPEG audio / ADTS AAC frame sync: the first 11 bits are all set.
+  if (head[0] === 0xFF && (head[1] & 0xE0) === 0xE0) {
+    return true;
   }
-  return head[0] !== 0x3C && head[0] !== 0x7B && head[0] !== 0x5B;
+  // ISO-BMFF (m4a/mp4/3gp): 4-byte box size (may lead with NULs) + 'ftyp'.
+  if (matchesMagicAt(head, 4, [0x66, 0x74, 0x79, 0x70])) {
+    return true;
+  }
+  // MPEG-TS: 0x47 sync byte at every 188-byte packet boundary; a single
+  // leading 0x47 is not enough (GIF also starts with it).
+  if (head[0] === 0x47 && head.length > 188 && head[188] === 0x47) {
+    return true;
+  }
+  return false;
 }
 
 /**
