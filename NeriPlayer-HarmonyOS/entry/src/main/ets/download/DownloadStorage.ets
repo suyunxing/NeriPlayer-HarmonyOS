@@ -230,7 +230,9 @@ export class DownloadStorage {
     try {
       const file = fileIo.openSync(path, fileIo.OpenMode.READ_ONLY);
       try {
-        const size = DownloadStorage.fileSize(path);
+        // Stat through the opened fd: a path-level statSync failure would
+        // otherwise surface as size 0 ("nothing to scan") and pass the gate.
+        const size = fileIo.statSync(file.fd).size;
         let covered = 0;
         let scanned = 0;
         let offset = 0;
@@ -427,6 +429,26 @@ export class DownloadStorage {
   }
 
   /**
+   * Resolves a catalog address into an openable sandbox path: rows committed
+   * against a user-picked download directory hold file:// URIs, which
+   * CoreFileKit open/stat calls do not accept directly. Returns '' when the
+   * URI cannot be converted; plain sandbox paths pass through unchanged.
+   */
+  static resolveFilePath(path: string): string {
+    if (!path.startsWith('file://')) {
+      return path;
+    }
+    try {
+      const converted = new fileUri.FileUri(path).path;
+      return converted.length > 0 ? converted : '';
+    } catch (error) {
+      const e = error as Error;
+      Logger.warn(`resolveFilePath failed: ${e.message}`);
+      return '';
+    }
+  }
+
+  /**
    * Deletes a committed download file, tolerating missing paths and
    * user-picked file:// URI directories. Never throws.
    */
@@ -434,11 +456,12 @@ export class DownloadStorage {
     if (audioPath.length === 0) {
       return;
     }
+    const target = DownloadStorage.resolveFilePath(audioPath);
+    if (target.length === 0) {
+      return;
+    }
     try {
-      const target = audioPath.startsWith('file://')
-        ? new fileUri.FileUri(audioPath).path
-        : audioPath;
-      if (target.length > 0 && fileIo.accessSync(target)) {
+      if (fileIo.accessSync(target)) {
         fileIo.unlinkSync(target);
       }
     } catch (error) {

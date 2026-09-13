@@ -270,6 +270,9 @@ export class DownloadEngine {
     if (existing !== null && existing.sourceUrl === url && DownloadStorage.fileSize(workingPath) > 0) {
       if (existing.expectedContentLength > 0
         && DownloadStorage.fileSize(workingPath) === existing.expectedContentLength) {
+        if (DownloadEngine.isCancelled(songKey, task.attemptId)) {
+          return;
+        }
         // Already complete per the length the server advertised when this
         // fingerprint was written: skip the resume probe (a full-length
         // request only earns a 416) and let completeTask's integrity gates
@@ -375,7 +378,17 @@ export class DownloadEngine {
         const e = error as Error;
         failure = e.message;
         if (failure === 'aborted') {
-          return;
+          if (!restartRequired) {
+            return;
+          }
+          // The onData guard rejects the stream as 'aborted' once a range
+          // mismatch is seen mid-body: fall through to the retry gate with
+          // the same restart cleanup as the post-resolve path, instead of
+          // leaving the attempt parked on the old partial file.
+          DownloadStorage.deleteWorkingSet(workingPath);
+          resumeStart = 0;
+          validator = '';
+          failure = 'restart: range mismatch';
         }
       }
       // Retryable failure: back off, or park on network loss.

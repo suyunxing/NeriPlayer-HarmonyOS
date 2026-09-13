@@ -1,6 +1,7 @@
 import { media } from '@kit.MediaKit';
 import { fileIo } from '@kit.CoreFileKit';
 import { Logger } from '../app/Logger';
+import { DownloadStorage } from '../download/DownloadStorage';
 
 /** Upper bound for one native-playlist call; the APIs are @since 26 and a
  * hung stub (the setLoudnessGain lesson) must never pin the player. */
@@ -78,11 +79,18 @@ export class AvPlaylistBridge {
       return false;
     }
     AvPlaylistBridge.abandon();
+    // Catalog paths from a user-picked download directory hold file:// URIs;
+    // CoreFileKit needs the converted sandbox path for open/stat.
+    const path = DownloadStorage.resolveFilePath(localPath);
+    if (path.length === 0) {
+      AvPlaylistBridge.latchOff('prime failed: unreadable path');
+      return false;
+    }
     let fd: fileIo.File | null = null;
     try {
-      fd = fileIo.openSync(localPath, fileIo.OpenMode.READ_ONLY);
+      fd = fileIo.openSync(path, fileIo.OpenMode.READ_ONLY);
       const mediaUrl = `fd://${fd.fd}`;
-      const size = fileIo.statSync(localPath).size;
+      const size = fileIo.statSync(path).size;
       const source = media.createMediaSourceWithFd({ fd: fd.fd, offset: 0, length: size });
       if (source === undefined) {
         throw new Error('createMediaSourceWithFd returned undefined');

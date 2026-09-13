@@ -53,12 +53,19 @@ export function redactUrlForLog(url: string): string {
   if (schemeEnd < 0) {
     return `<no-scheme:${url.length}>`;
   }
+  // The authority ends at the first '/', but also at '?'/'#': a query-only
+  // URL (https://host?authKey=SECRET) has no path, and searching for '/'
+  // alone would leak the whole query into the log.
   const authorityStart = schemeEnd + 3;
-  let authorityEnd = url.indexOf('/', authorityStart);
-  if (authorityEnd < 0) {
-    authorityEnd = url.length;
+  let authorityEnd = url.length;
+  for (let i = authorityStart; i < url.length; i++) {
+    const ch = url[i];
+    if (ch === '/' || ch === '?' || ch === '#') {
+      authorityEnd = i;
+      break;
+    }
   }
-  return `${url.substring(0, authorityEnd)}/<path:${Math.max(0, url.length - authorityEnd)}>`;
+  return `${url.substring(0, authorityEnd)}/<path:${url.length - authorityEnd}>`;
 }
 
 /**
