@@ -19,7 +19,7 @@ import {
   isDownloadTaskClearable
 } from './DownloadModels';
 import { DownloadTaskStore } from './DownloadTaskStore';
-import { DownloadRetryPolicy } from './DownloadSupport';
+import { DownloadRetryPolicy, redactUrlForLog } from './DownloadSupport';
 import { DownloadStorage, ResumeFingerprint, HlsResumeState, DownloadedSongEntry, findLongIdenticalRun } from './DownloadStorage';
 import { DownloadDirectoryManager } from './DownloadDirectoryManager';
 
@@ -205,10 +205,12 @@ export class DownloadEngine {
     // Already in the catalog with a readable audio file: skip re-transferring.
     // A size-only check once pinned a corrupt zero-holed copy forever: every
     // re-download short-circuited to COMPLETED and offline play kept failing,
-    // so a file that fails the payload check is purged and re-transferred.
+    // so a file that fails either integrity gate is purged and re-transferred.
     const cached = await DownloadStorage.findCatalogEntry(task.song);
     if (cached !== null && DownloadStorage.fileSize(cached.audioPath) > 0) {
-      if (DownloadStorage.hasPlausibleAudioHeader(cached.audioPath)) {
+      const cachedClean = DownloadStorage.hasPlausibleAudioHeader(cached.audioPath)
+        && !(await DownloadStorage.hasExcessiveFillerRuns(cached.audioPath));
+      if (cachedClean) {
         DownloadEngine.store.updateStatus(songKey, task.attemptId, DownloadStatus.COMPLETED);
         DownloadEngine.persistQueue();
         DownloadEngine.notifyChanged();
@@ -259,12 +261,23 @@ export class DownloadEngine {
     // Bilibili CDN requires Referer/UA on stream fetches (Android download
     // path sends the same headers); harmless null for other platforms.
     const streamHeaders = BiliApi.streamHeadersFor(url) ?? {};
-    Logger.info(`DownloadEngine: GET ${url}`);
+    // Redacted: resolved CDN URLs embed expiring signatures in the query.
+    Logger.info(`DownloadEngine: GET ${redactUrlForLog(url)} ext=${ext}`);
 
     let resumeStart = 0;
     let validator = '';
     const existing = DownloadStorage.readFingerprint(workingPath);
     if (existing !== null && existing.sourceUrl === url && DownloadStorage.fileSize(workingPath) > 0) {
+      if (existing.expectedContentLength > 0
+        && DownloadStorage.fileSize(workingPath) === existing.expectedContentLength) {
+        // Already complete per the length the server advertised when this
+        // fingerprint was written: skip the resume probe (a full-length
+        // request only earns a 416) and let completeTask's integrity gates
+        // decide. A partial or stale-oversized copy never matches exactly,
+        // so it still goes through the ranged resume below.
+        await DownloadEngine.completeTask(songKey, task.attemptId, task.song, workingPath, ext);
+        return;
+      }
       resumeStart = DownloadStorage.fileSize(workingPath);
       validator = existing.validator();
     } else {
@@ -282,8 +295,11 @@ export class DownloadEngine {
           onHeaders: (headers: StreamDownloadHeaders) => {
             Logger.info(`DownloadEngine: headers len=${headers.contentLength}`
               + ` range=${headers.contentRangeStart} etag=${headers.etag}`);
-            if (resumeStart > 0 && headers.contentRangeStart >= 0 && headers.contentRangeStart !== resumeStart) {
-              // Server ignored the offset; restart from zero.
+            if (resumeStart > 0 && headers.contentRangeStart !== resumeStart) {
+              // Not a 206 continuation (Range ignored -> full 200 body, or a
+              // 416/4xx error page): appending would corrupt or the fingerprint
+              // would be overwritten with error-page lengths, so restart from
+              // zero and never treat this response as authoritative.
               restartRequired = true;
               return;
             }
@@ -331,12 +347,15 @@ export class DownloadEngine {
           resumeStart = 0;
           validator = '';
           failure = 'restart: range mismatch';
-        } else if (code === 416 && resumeStart > 0 && DownloadStorage.fileSize(workingPath) > 0) {
-          // Already complete on the server side. A non-empty local copy is
-          // required: 416 also fires for expired/changed URLs, and committing
-          // an empty staging file would poison the catalog.
-          await DownloadEngine.completeTask(songKey, task.attemptId, task.song, workingPath, ext);
-          return;
+        } else if (code === 416) {
+          // Reachable only when the response carried no headers event: the
+          // onHeaders guard above already flags every 416 as a range mismatch.
+          // A local copy alone proves nothing about completeness (it may be a
+          // stale partial longer than the shrunk source), so restart.
+          DownloadStorage.deleteWorkingSet(workingPath);
+          resumeStart = 0;
+          validator = '';
+          failure = 'restart: range exhausted';
         } else if (code === 0 || code === 206 || (code >= 200 && code < 300)) {
           // code 0: the stream completed via dataEnd before the response
           // code settled — validate by received size (Android
