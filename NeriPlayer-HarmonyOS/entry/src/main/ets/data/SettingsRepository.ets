@@ -71,6 +71,9 @@ export class SettingsRepository {
   static readonly KEY_PLAYBACK_FADE_OUT_MS: string = 'np.playback_fade_out_ms';
   // Resume playback automatically after cold start once the queue is restored.
   static readonly KEY_AUTOPLAY_ON_LAUNCH: string = 'np.autoplay_on_launch';
+  // Android keep_playback_mode_state (default true): restore loop/shuffle
+  // across launches; off resets to list-loop each start (backlog §2.2).
+  static readonly KEY_KEEP_PLAYBACK_MODE_STATE: string = 'np.keep_playback_mode_state';
   // NowPlaying backdrop style: 'blur' (blurred cover), 'solid', 'gradient'
   // (flowing cover-color gradient).
   static readonly KEY_NOWPLAYING_BG_STYLE: string = 'np.nowplaying_bg_style';
@@ -170,6 +173,7 @@ export class SettingsRepository {
     [SettingsRepository.KEY_PLAYBACK_FADE_IN_MS, 500],
     [SettingsRepository.KEY_PLAYBACK_FADE_OUT_MS, 500],
     [SettingsRepository.KEY_AUTOPLAY_ON_LAUNCH, false],
+    [SettingsRepository.KEY_KEEP_PLAYBACK_MODE_STATE, true],
     [SettingsRepository.KEY_NOWPLAYING_BG_STYLE, 'blur'],
     [SettingsRepository.KEY_KEEP_SCREEN_ON, false],
     [SettingsRepository.KEY_CIRCULAR_COVER, false],

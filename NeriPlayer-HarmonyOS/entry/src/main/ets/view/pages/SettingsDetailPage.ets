@@ -103,6 +103,7 @@ export struct SettingsDetailPage {
   @StorageProp('np.playback_fade_in_ms') playbackFadeInMs: number = 500;
   @StorageProp('np.playback_fade_out_ms') playbackFadeOutMs: number = 500;
   @StorageProp('np.autoplay_on_launch') autoplayOnLaunch: boolean = false;
+  @StorageProp('np.keep_playback_mode_state') keepPlaybackMode: boolean = true;
   @StorageProp('np.nowplaying_bg_style') nowplayingBgStyle: string = 'blur';
   @StorageProp('np.keep_screen_on') keepScreenOn: boolean = false;
   @StorageProp('np.dynamic_color') dynamicColor: boolean = true;
@@ -1003,6 +1004,15 @@ export struct SettingsDetailPage {
               value: this.autoplayOnLaunch,
               onChange: (on: boolean) =>
                 SettingsRepository.setBoolean(SettingsRepository.KEY_AUTOPLAY_ON_LAUNCH, on)
+            })
+
+            ToggleRow({
+              title: '记住循环/随机模式',
+              subtitle: '开启时恢复上次的循环与随机设置；关闭则每次启动回到列表循环',
+              icon: '♻',
+              value: this.keepPlaybackMode,
+              onChange: (on: boolean) =>
+                SettingsRepository.setBoolean(SettingsRepository.KEY_KEEP_PLAYBACK_MODE_STATE, on)
             })
 
             ToggleRow({
