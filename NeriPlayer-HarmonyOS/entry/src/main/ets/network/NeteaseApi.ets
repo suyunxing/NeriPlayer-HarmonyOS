@@ -37,6 +37,8 @@ interface NeteaseLyricResponse {
   lrc?: NeteaseLyricBlock;
   tlyric?: NeteaseLyricBlock;
   romalrc?: NeteaseLyricBlock;
+  yrc?: NeteaseLyricBlock;
+  ytlrc?: NeteaseLyricBlock;
 }
 
 interface NeteaseLyricBlock {
@@ -304,13 +306,20 @@ export class NeteaseApi {
 
   static async getLyric(id: number): Promise<LyricPayload> {
     const text = await HttpClient.getText(
-      `${Constants.NETEASE_BASE}/api/song/lyric?id=${id}&lv=-1&kv=-1&tv=-1&roma=-1`,
+      `${Constants.NETEASE_BASE}/api/song/lyric?id=${id}&lv=-1&kv=-1&tv=-1&roma=-1&yv=-1&ytv=-1&yrv=-1`,
       NeteaseApi.headers()
     );
     const response = JSON.parse(text) as NeteaseLyricResponse;
+    // Android extractPreferredNeteaseLyricContent: word-timed YRC wins over
+    // plain LRC; its translation (ytlrc) wins over tlyric. LrcParser
+    // auto-detects YRC-shaped lines, so downstream stays format-agnostic.
+    const yrc = response.yrc?.lyric ?? '';
+    const ytlrc = response.ytlrc?.lyric ?? '';
+    const lrc = yrc.length > 0 ? yrc : (response.lrc?.lyric ?? '');
+    const translated = ytlrc.length > 0 ? ytlrc : (response.tlyric?.lyric ?? '');
     return new LyricPayload(
-      response.lrc?.lyric ?? '',
-      response.tlyric?.lyric ?? '',
+      lrc,
+      translated,
       response.romalrc?.lyric ?? ''
     );
   }
