@@ -151,9 +151,9 @@ export class BiliApi {
         ['b_lsid', 'b_lsid', '']
       ];
       for (const entry of wanted) {
-        const primary = data[entry[1]] ?? '';
-        const fallback = entry[2].length > 0 ? data[entry[2]] ?? '' : '';
-        const value = String(primary.length > 0 ? primary : fallback);
+        const primary = String(data[entry[1]] ?? '');
+        const fallback = entry[2].length > 0 ? String(data[entry[2]] ?? '') : '';
+        const value = primary.length > 0 ? primary : fallback;
         if (value.length > 0) {
           pairs.push(`${entry[0]}=${value}`);
         }
