@@ -2,10 +2,16 @@
 
 import { curves } from '@kit.ArkUI';
 import { LyricLine, LyricWord } from '../../model/LyricLine';
+import { MusicPlatform } from '../../model/MusicPlatform';
 import { LyricLineLayout, LyricScrollMath } from '../../lyrics/LyricScrollMath';
 import { Theme } from '../Theme';
 
 const LYRIC_OFFSET_STORAGE_KEY = 'np.lyric_offset_ms';
+// Per-platform baseline offsets (backlog §3.7/§6.2, Android
+// cloud_music/qq_music_lyric_default_offset_ms), stacked on the global one.
+const LYRIC_NETEASE_OFFSET_STORAGE_KEY = 'np.netease_lyric_offset_ms';
+const LYRIC_BILI_OFFSET_STORAGE_KEY = 'np.bili_lyric_offset_ms';
+const LYRIC_YOUTUBE_OFFSET_STORAGE_KEY = 'np.youtube_lyric_offset_ms';
 const LYRIC_TRANSLATION_STORAGE_KEY = 'np.lyric_translation';
 const LYRIC_PHONETIC_STORAGE_KEY = 'np.lyric_phonetic';
 const LYRIC_FONT_SIZE_STORAGE_KEY = 'np.lyric_font_size';
@@ -47,6 +53,26 @@ export struct LyricView {
   // Global lyric offset (np.lyric_offset_ms, ms): applied at display time,
   // positive = lyrics advance (Android lyricOffsetMs semantics).
   @StorageProp(LYRIC_OFFSET_STORAGE_KEY) @Watch('onOffsetChanged') lyricOffsetMs: number = 0;
+  // Per-platform baselines; the active song's platform picks one to stack.
+  @StorageProp(LYRIC_NETEASE_OFFSET_STORAGE_KEY) neteaseOffsetMs: number = 0;
+  @StorageProp(LYRIC_BILI_OFFSET_STORAGE_KEY) biliOffsetMs: number = 0;
+  @StorageProp(LYRIC_YOUTUBE_OFFSET_STORAGE_KEY) youtubeOffsetMs: number = 0;
+  /** Platform of the song whose lyrics are shown; 0 (=LOCAL) adds nothing. */
+  @Prop lyricPlatform: number = 0;
+
+  /** Global + platform-baseline offset for the current song (backlog §6.2). */
+  private effectiveOffsetMs(): number {
+    if (this.lyricPlatform === MusicPlatform.NETEASE) {
+      return this.lyricOffsetMs + this.neteaseOffsetMs;
+    }
+    if (this.lyricPlatform === MusicPlatform.BILIBILI) {
+      return this.lyricOffsetMs + this.biliOffsetMs;
+    }
+    if (this.lyricPlatform === MusicPlatform.YOUTUBE_MUSIC) {
+      return this.lyricOffsetMs + this.youtubeOffsetMs;
+    }
+    return this.lyricOffsetMs;
+  }
   @StorageProp(LYRIC_TRANSLATION_STORAGE_KEY) lyricTranslation: boolean = true;
   @StorageProp(LYRIC_PHONETIC_STORAGE_KEY) lyricPhonetic: boolean = false;
   @StorageProp(LYRIC_FONT_SIZE_STORAGE_KEY) lyricFontSize: number = 16;
@@ -78,7 +104,7 @@ export struct LyricView {
   }
 
   private currentIndex(): number {
-    const selectionTimeMs = this.positionMs + this.lyricOffsetMs;
+    const selectionTimeMs = this.positionMs + this.effectiveOffsetMs();
     let index = -1;
     for (let i = 0; i < this.lyrics.length; i++) {
       if (this.lyrics[i].timeMs <= selectionTimeMs) {
@@ -97,7 +123,7 @@ export struct LyricView {
 
   /** Word state for karaoke highlighting: 0 = upcoming, 1 = active, 2 = sung. */
   private wordState(word: LyricWord): number {
-    const selectionTimeMs = this.positionMs + this.lyricOffsetMs;
+    const selectionTimeMs = this.positionMs + this.effectiveOffsetMs();
     if (selectionTimeMs >= word.endMs) {
       return 2;
     }
@@ -331,7 +357,7 @@ export struct LyricView {
       this.scrubIndex = index;
       if (index >= 0 && index < this.lyrics.length) {
         // Playback-domain time of this line, same conversion as the click-to-seek.
-        this.onScrubLine(this.lyrics[index].timeMs - this.lyricOffsetMs);
+        this.onScrubLine(this.lyrics[index].timeMs - this.effectiveOffsetMs());
       }
     }
   }
@@ -366,7 +392,7 @@ export struct LyricView {
     this.scrubIndex = -1;
     this.onScrubLine(-1);
     this.lastFollowedIndex = -1;
-    this.onSeek(line.timeMs - this.lyricOffsetMs);
+    this.onSeek(line.timeMs - this.effectiveOffsetMs());
   }
 
   @Builder

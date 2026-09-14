@@ -2,6 +2,7 @@
 // Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
 
 import { SettingsRepository } from '../data/SettingsRepository';
+import { MusicPlatform } from '../model/MusicPlatform';
 
 /**
  * Per-network audio quality resolution (playback settings: Wi-Fi and cellular
@@ -46,5 +47,34 @@ export class AudioQualityPolicy {
    */
   static effective(wifi: boolean): string {
     return AudioQualityPolicy.currentOrDefault(wifi);
+  }
+
+  /**
+   * Per-platform cellular tier (backlog §7, Android mobile_data_* keys): on
+   * cellular with follow-default off, the platform-specific choice wins over
+   * the shared cellular tier. Pure over its arguments for unit-testability.
+   */
+  static resolvePlatform(isWifi: boolean, followDefault: boolean,
+    platformCellularQuality: string, sharedQuality: string): string {
+    if (!isWifi && !followDefault && platformCellularQuality.length > 0) {
+      return platformCellularQuality;
+    }
+    return sharedQuality;
+  }
+
+  /** Reactive read for a specific platform's streaming tier. */
+  static effectiveForPlatform(wifi: boolean, platform: MusicPlatform): string {
+    const shared = AudioQualityPolicy.effective(wifi);
+    if (wifi) {
+      return shared;
+    }
+    const follow = SettingsRepository.getBoolean(SettingsRepository.KEY_CELLULAR_FOLLOW_DEFAULT, true);
+    const platformKey = platform === MusicPlatform.NETEASE
+      ? SettingsRepository.KEY_CELLULAR_NETEASE_QUALITY
+      : platform === MusicPlatform.BILIBILI
+        ? SettingsRepository.KEY_CELLULAR_BILI_QUALITY
+        : SettingsRepository.KEY_CELLULAR_YOUTUBE_QUALITY;
+    const specific = SettingsRepository.getString(platformKey, '');
+    return AudioQualityPolicy.resolvePlatform(wifi, follow, specific, shared);
   }
 }

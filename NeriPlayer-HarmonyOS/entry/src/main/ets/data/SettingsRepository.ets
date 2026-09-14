@@ -57,6 +57,18 @@ export class SettingsRepository {
   static readonly KEY_AUDIO_QUALITY: string = 'np.audio_quality';
   static readonly KEY_AUDIO_QUALITY_WIFI: string = 'np.audio_quality_wifi';
   static readonly KEY_AUDIO_QUALITY_CELLULAR: string = 'np.audio_quality_cellular';
+  // Per-platform cellular tiers (backlog §7, Android mobile_data_* keys):
+  // when cellular-follow-default is off, each platform streams at its own
+  // cellular tier instead of the shared cellular choice. Empty = inherit.
+  static readonly KEY_CELLULAR_FOLLOW_DEFAULT: string = 'np.cellular_follow_default_quality';
+  static readonly KEY_CELLULAR_NETEASE_QUALITY: string = 'np.cellular_netease_quality';
+  static readonly KEY_CELLULAR_YOUTUBE_QUALITY: string = 'np.cellular_youtube_quality';
+  static readonly KEY_CELLULAR_BILI_QUALITY: string = 'np.cellular_bili_quality';
+  // Per-platform lyric baseline offsets in ms (backlog §3.7/§6.2, Android
+  // cloud_music/qq_music_lyric_default_offset_ms). 0 = no shift.
+  static readonly KEY_NETEASE_LYRIC_OFFSET_MS: string = 'np.netease_lyric_offset_ms';
+  static readonly KEY_BILI_LYRIC_OFFSET_MS: string = 'np.bili_lyric_offset_ms';
+  static readonly KEY_YOUTUBE_LYRIC_OFFSET_MS: string = 'np.youtube_lyric_offset_ms';
   // Keep playing alongside other apps' audio. Maps to the AVPlayer interrupt
   // mode plus ignoring cooperative (SHARE-type) pause hints; a system FORCED
   // interruption still wins on HarmonyOS.
@@ -167,6 +179,13 @@ export class SettingsRepository {
     [SettingsRepository.KEY_AUDIO_QUALITY, 'standard'],
     [SettingsRepository.KEY_AUDIO_QUALITY_WIFI, ''],
     [SettingsRepository.KEY_AUDIO_QUALITY_CELLULAR, ''],
+    [SettingsRepository.KEY_CELLULAR_FOLLOW_DEFAULT, true],
+    [SettingsRepository.KEY_CELLULAR_NETEASE_QUALITY, ''],
+    [SettingsRepository.KEY_CELLULAR_YOUTUBE_QUALITY, ''],
+    [SettingsRepository.KEY_CELLULAR_BILI_QUALITY, ''],
+    [SettingsRepository.KEY_NETEASE_LYRIC_OFFSET_MS, 0],
+    [SettingsRepository.KEY_BILI_LYRIC_OFFSET_MS, 0],
+    [SettingsRepository.KEY_YOUTUBE_LYRIC_OFFSET_MS, 0],
     [SettingsRepository.KEY_MIX_AUDIO, true],
     [SettingsRepository.KEY_PLAYBACK_VOLUME, 1.0],
     [SettingsRepository.KEY_PLAYBACK_FADE, true],

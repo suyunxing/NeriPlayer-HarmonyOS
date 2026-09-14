@@ -17,6 +17,9 @@ export struct LyricSettingsRows {
   @Prop transparentBg: boolean = false;
   @StorageProp('np.lyric_font_size') lyricFontSize: number = 16;
   @StorageProp('np.lyric_offset_ms') lyricOffsetMs: number = 0;
+  @StorageProp('np.netease_lyric_offset_ms') neteaseOffsetMs: number = 0;
+  @StorageProp('np.bili_lyric_offset_ms') biliOffsetMs: number = 0;
+  @StorageProp('np.youtube_lyric_offset_ms') youtubeOffsetMs: number = 0;
   @StorageProp('np.lyric_center') lyricCenter: boolean = true;
   @StorageProp('np.lyric_font_weight') lyricFontWeight: number = 500;
   @StorageProp('np.lyric_line_spacing') lyricLineSpacing: number = 1.0;
@@ -142,6 +145,42 @@ export struct LyricSettingsRows {
         format: (value: number) => this.offsetText(Math.round(value)),
         onPick: (value: number) =>
           SettingsRepository.setNumber(SettingsRepository.KEY_LYRIC_OFFSET_MS, Math.round(value))
+      })
+      SliderRow({
+        title: '网易云基准偏移',
+        icon: '🎵',
+        transparentBg: this.transparentBg,
+        min: -1000,
+        max: 1000,
+        step: 50,
+        value: this.neteaseOffsetMs,
+        format: (value: number) => this.offsetText(Math.round(value)),
+        onPick: (value: number) =>
+          SettingsRepository.setNumber(SettingsRepository.KEY_NETEASE_LYRIC_OFFSET_MS, Math.round(value))
+      })
+      SliderRow({
+        title: 'Bilibili 基准偏移',
+        icon: '📺',
+        transparentBg: this.transparentBg,
+        min: -1000,
+        max: 1000,
+        step: 50,
+        value: this.biliOffsetMs,
+        format: (value: number) => this.offsetText(Math.round(value)),
+        onPick: (value: number) =>
+          SettingsRepository.setNumber(SettingsRepository.KEY_BILI_LYRIC_OFFSET_MS, Math.round(value))
+      })
+      SliderRow({
+        title: 'YouTube Music 基准偏移',
+        icon: '▶',
+        transparentBg: this.transparentBg,
+        min: -1000,
+        max: 1000,
+        step: 50,
+        value: this.youtubeOffsetMs,
+        format: (value: number) => this.offsetText(Math.round(value)),
+        onPick: (value: number) =>
+          SettingsRepository.setNumber(SettingsRepository.KEY_YOUTUBE_LYRIC_OFFSET_MS, Math.round(value))
       })
       this.secondaryLineRow()
       ToggleRow({
