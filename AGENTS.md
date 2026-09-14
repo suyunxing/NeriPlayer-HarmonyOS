@@ -109,7 +109,7 @@
 
 - 本工程不自带项目级 hvigor wrapper；构建工具链随 DevEco Studio / command-line-tools 分发，调用入口以各机器全局配置为准。
 - 依赖同步由构建入口自动处理（ohpm 安装/同步），不要在每轮构建前重复手动 `ohpm install --all`；只有需要证明干净状态可重现时才先 clean，普通局部迭代保留增量缓存。
-- 本地单元测试：`entry/src/test/`（`@ohos/hypium` 1.0.28，随里程碑累积至 935 用例——2026-09-08 静态清点，最近一次全量执行为 2026-08-29 的 874/874 全绿，沿革见 `docs/hm.md` §8.1），经 `hvigorw test --mode module -p product=default -p buildMode=debug --no-daemon` 执行。
+- 本地单元测试：`entry/src/test/`（`@ohos/hypium` 1.0.28，随里程碑累积至 980 用例——2026-09-14 静态清点，最近一次全量执行为 2026-08-29 的 874/874 全绿，沿革见 `docs/hm.md` §8.1），经 `hvigorw test --mode module -p product=default -p buildMode=debug --no-daemon` 执行。
 - 设备侧测试：`entry/src/ohosTest/`（TestAbility + OpenHarmonyTestRunner，含播放/下载/同步/一起听/诊断等 Acts* 用例，各轮实测记录见 `docs/PORTING_EXECUTION_PLAN.md` §6）。先构建并签名 ohosTest HAP（对 `entry-ohosTest-unsigned.hap` 执行与 `sign-local.ps1` 相同的 sign-app 命令），安装后执行：
 
 ```powershell

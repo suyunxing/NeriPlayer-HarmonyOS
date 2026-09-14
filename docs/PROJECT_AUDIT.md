@@ -111,3 +111,12 @@
 - **包名**：`AppScope/app.json5` 的 `bundleName` 已于 2026-09-01 改为 `moe.ouom.neriplayer.hmos`（commit `cfe3e8e`）。
 - **源码规模**：`NeriPlayer-HarmonyOS/entry/src/main/ets` 下 251 个 `.ets` 文件、53,753 行（2026-09-08 实测）；2026-08-31 复核节的 239 文件 / 49,834 行为当时数字。
 - **测试**：`entry/src/test/` 静态清点 935 个 `it(` 用例（2026-09-08）；最近一次全量执行仍为 2026-08-29 的 874/874 全绿，此后新增用例的真实通过计数待 Windows 工作站执行 `hvigorw test` 后回填。
+
+## 勘误与进展（2026-09-14 复核）
+
+正文与此前勘误节均为当时点事实；以下按当前源码（HEAD `552df87`，分支 `dev`）与提交记录复核更新，冲突时以本节与 `FEATURE_MATRIX.md` 为准：
+
+- **源码规模**：`NeriPlayer-HarmonyOS/entry/src/main/ets` 下 257 个 `.ets` 文件、55,727 行（2026-09-14 实测）；2026-09-08 复核节的 251 文件 / 53,753 行为当时数字。
+- **测试**：`entry/src/test/` 静态清点 980 个 `it(` 用例、89 个测试文件（2026-09-14）；`entry/src/ohosTest/` 21 个测试文件。最近一次全量执行仍为 2026-08-29 的 874/874 全绿，新增用例的真实通过计数待 Windows 工作站回填。
+- **2026-09-08～09-14 波次**（54 个提交，详见 `hm.md` §7.14）：①网易云登录四连修复（落盘 await、803 Cookie 双源捕获、Asset 1024 字节上限自动分块）；②下载完整性系列修复（分块写入错位坏文件、失败重试风暴、本地播放 5400106 双根因、完整性门禁与边界加固）；③播放页一镜到底转场整层重写（`bindContentCover` + 单一进度分阶段原生属性动画，`geometryTransition` 已移除，九轮迭代记录见 `NOW_PLAYING_TRANSITION_20260910.md`）；④壳层沉浸改版（外壳换 `HdsNavigation` + GRADIENT_BLUR 渐变模糊标题栏、四页状态栏内容穿透）——S 阶段 S0「HdsNavigation 内容子树不挂载已回退」的模拟器结论被后续版本推翻；⑤音量淡入淡出及设置化；⑥Copilot 代码审查 CI 配置、README 重写、`NeriPlayer-master/` 解除 Git 追踪（磁盘保留只读快照，`NeriPlayer-ASCF/` 仍在版本控制中）。
+- **参照快照口径**：`NeriPlayer-master/` 自 2026-09-12（commit `8de4ca1`）起不再纳入 Git 版本控制，仅作为磁盘上的只读行为参照；同步上游时仍须按本审计「快照清单」的记录规则执行。

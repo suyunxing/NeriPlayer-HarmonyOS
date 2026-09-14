@@ -20,7 +20,7 @@
     <img alt="CI Build" src="https://img.shields.io/badge/CI-Passing-brightgreen?logo=github-actions&logoColor=white" />
   </a>
   <a href="NeriPlayer-HarmonyOS/entry/src/test/">
-    <img alt="Unit Tests" src="https://img.shields.io/badge/Unit%20Tests-935%20Passing-success?logo=checkmarx&logoColor=white" />
+    <img alt="Unit Tests" src="https://img.shields.io/badge/Unit%20Tests-980-success?logo=checkmarx&logoColor=white" />
   </a>
   <img alt="ArkTS" src="https://img.shields.io/badge/Language-ArkTS%20%7C%20ArkUI-orange" />
 </p>
@@ -84,7 +84,7 @@ NeriPlayer for HarmonyOS
 - **尊重隐私与账号安全**：坚决不向第三方平台上传本地播放历史和听歌统计，避免触发流媒体平台的异常登录与行为采样风控。
 - **Stage 纯血单 Ability 架构**：`EntryAbility` 作为统一入口，全界面基于 ArkUI `Navigation` + `NavPathStack` 路由栈组织，实现全屏内容穿透状态栏的顶部与底部沉浸式体验。
 - **启动与恢复链路**：标准启动流程为 `Loading -> Disclaimer -> Onboarding -> Main`；若上次启动异常崩溃，自动进入 `SafeMode` 安全模式防止崩溃循环。
-- **确定性工程测试护栏**：内建 935 个确定性单元测试（@ohos/hypium 全绿通过），严密覆盖数据合并、编解码、下载事务、色彩矩阵与播放状态机。
+- **确定性工程测试护栏**：内建 980 个确定性单元测试（@ohos/hypium；最近一次全量执行 874/874 全绿），严密覆盖数据合并、编解码、下载事务、色彩矩阵与播放状态机。
 
 ---
 
@@ -164,7 +164,7 @@ NeriPlayer-HarmonyOS/
 │       │   ├── sync/             # 双向因果云同步、Protobuf/JSON 编解码管线
 │       │   ├── util/             # ColorScience 色彩科学、二维码引擎、断点度量
 │       │   └── view/             # ArkUI 声明式页面、HDS 组件与一镜到底动画
-│       ├── src/test/             # 本地确定性单元测试 (935+ Cases，全绿)
+│       ├── src/test/             # 本地确定性单元测试 (980 Cases；最近全量执行 874/874)
 │       └── src/ohosTest/         # 设备端侧集成测试集 (Acts* 真实环境用例)
 ├── docs/                         # 架构规范、协议分析、安全审计与移植进展看板
 ├── build-signed.sh               # Linux 服务端一键构建与 hap-sign-tool 签名脚本
@@ -196,7 +196,7 @@ ohpm install --all
 # 2. 执行 Release 构建 (生成 unsigned HAP)
 hvigorw assembleHap --mode module -p module=entry@default -p product=default -p buildMode=release --no-daemon
 
-# 3. 运行本地单元测试 (935+ 测试用例)
+# 3. 运行本地单元测试 (980 测试用例)
 hvigorw test --mode module -p module=entry@default -p product=default -p buildMode=debug --no-daemon
 ```
 
@@ -248,7 +248,7 @@ cd NeriPlayer-HarmonyOS
 
 | 校验层级 | 工具与框架 | 当前状态 | 覆盖与保障范围 |
 | :--- | :--- | :---: | :--- |
-| **本地单测** | `@ohos/hypium` 1.0.28 | **935 / 935 全绿** | 覆盖同步三路合并、Protobuf/JSON 双向编解码、ColorScience 色彩矩阵、二维码生成器、下载状态机等 |
+| **本地单测** | `@ohos/hypium` 1.0.28 | **980 用例（静态清点；最近一次全量执行 874/874 全绿）** | 覆盖同步三路合并、Protobuf/JSON 双向编解码、ColorScience 色彩矩阵、二维码生成器、下载状态机等 |
 | **代码规范** | `CodeLinter` | **0 Error 基线** | 严格保障 ArkTS 规范、异步 Promise 处理机制与资源引用安全 |
 | **设备端测** | `ohosTest` + `aa test` | **50+ 项设备用例** | AVPlayer 真实网络取流、Asset 凭据安全存取、长时任务后台保活、断网自愈与异常自愈 |
 | **持续集成** | GitHub Actions | **自动化守护** | push / PR 自动拉起 HarmonyOS API 26 环境执行编译与自动化检查 |
