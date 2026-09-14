@@ -125,7 +125,7 @@ export struct SettingsDetailPage {
   @StorageProp('np.lyric_phonetic') lyricPhonetic: boolean = false;
   @StorageProp('np.lyric_blur') lyricBlur: boolean = true;
   @StorageProp('np.download_concurrency') downloadConcurrency: number = 6;
-  // np.download_match_lyrics 开关已随死开关清理移除（暂无消费者，见 SETTING_DOWNLOAD 分区注释）
+  @StorageProp('np.download_match_lyrics') downloadMatchLyrics: boolean = true;
   @StorageProp('np.playback_cache') playbackCache: boolean = false;
   @StorageProp('np.download_directory_uri') downloadDirectoryUri: string = '';
   @StorageProp('np.download_directory_label') downloadDirectoryLabel: string = '';
@@ -1041,8 +1041,15 @@ export struct SettingsDetailPage {
                 SettingsRepository.setNumber(SettingsRepository.KEY_DOWNLOAD_CONCURRENCY, Number(value))
             })
 
-            // 「下载完成后匹配歌词」开关暂隐藏：np.download_match_lyrics 暂无消费者，
-            // 待 ANDROID_PARITY_BACKLOG §3.5 实现下载后歌词匹配后恢复（发布前必办清单 2.4）。
+            ToggleRow({
+              title: '下载伴生歌词',
+              subtitle: '下载完成后抓取歌词，与音频同名存为 .lrc 伴生文件',
+              icon: '词',
+              value: this.downloadMatchLyrics,
+              onChange: (on: boolean) =>
+                SettingsRepository.setBoolean(SettingsRepository.KEY_DOWNLOAD_MATCH_LYRICS, on)
+            })
+
             SettingRow({
               title: '下载目录',
               subtitle: DownloadDirectory.describeDirectory(this.downloadDirectoryUri, this.downloadDirectoryLabel),
