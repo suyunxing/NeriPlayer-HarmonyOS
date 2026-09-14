@@ -31,5 +31,26 @@ export default function audioQualityPolicyTest(): void {
       expect(AudioQualityPolicy.resolve(false, '', 'high', ''))
         .assertEqual('high');
     });
+  
+  describe('AudioQualityPolicyPlatform', () => {
+    it('cellularPlatformTierWinsWhenFollowOff', 0, () => {
+      expect(AudioQualityPolicy.resolvePlatform(false, false, 'lossless', 'standard'))
+        .assertEqual('lossless');
+    });
+
+    it('sharedTierUsedWhenFollowOn', 0, () => {
+      expect(AudioQualityPolicy.resolvePlatform(false, true, 'lossless', 'standard'))
+        .assertEqual('standard');
+    });
+
+    it('emptyPlatformTierInheritsShared', 0, () => {
+      expect(AudioQualityPolicy.resolvePlatform(false, false, '', 'exhigh'))
+        .assertEqual('exhigh');
+    });
+
+    it('wifiAlwaysUsesSharedTier', 0, () => {
+      expect(AudioQualityPolicy.resolvePlatform(true, false, 'lossless', 'high'))
+        .assertEqual('high');
+    });
   });
-}
+});

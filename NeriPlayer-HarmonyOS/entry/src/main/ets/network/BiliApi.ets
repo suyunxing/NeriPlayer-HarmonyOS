@@ -342,7 +342,8 @@ export class BiliApi {
     if (options.length === 0) {
       return '';
     }
-    const quality = AudioQualityPolicy.effective(await NetworkStatus.isWifi());
+    const quality = AudioQualityPolicy.effectiveForPlatform(await NetworkStatus.isWifi(),
+      MusicPlatform.BILIBILI);
     const track = selectBiliAudioStream(options, quality);
     if (track === null) {
       return '';

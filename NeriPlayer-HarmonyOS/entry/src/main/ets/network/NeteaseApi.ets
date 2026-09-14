@@ -18,6 +18,9 @@ import {
   shouldFallbackRecommendToAnonymous,
   neteaseSongToSongItem
 } from './NeteasePlaylistParser';
+import { AudioQualityPolicy } from '../player/AudioQualityPolicy';
+import { NetworkStatus } from '../util/NetworkStatus';
+import { MusicPlatform } from '../model/MusicPlatform';
 
 interface NeteaseSearchResponse {
   code: number;
@@ -263,10 +266,17 @@ export class NeteaseApi {
 
   /**
    * Tries quality levels from highest to lowest, mirroring the Android
-   * quality-fallback behavior.
+   * quality-fallback behavior. The starting tier follows the per-network +
+   * per-platform policy (backlog §7).
    */
-  static async getSongUrl(id: number, levels: string[] = ['exhigh', 'high', 'standard']): Promise<string> {
-    for (const level of levels) {
+  static async getSongUrl(id: number, levels: string[] = []): Promise<string> {
+    let ladder = levels;
+    if (ladder.length === 0) {
+      const chosen = AudioQualityPolicy.effectiveForPlatform(await NetworkStatus.isWifi(),
+        MusicPlatform.NETEASE);
+      ladder = NeteaseApi.qualityLadderFrom(chosen);
+    }
+    for (const level of ladder) {
       try {
         const url = await NeteaseApi.requestSongUrl(id, level);
         if (url.length > 0) {
@@ -279,6 +289,16 @@ export class NeteaseApi {
     }
     // Legacy fallback endpoint (no weapi) for resilient clients.
     return NeteaseApi.getSongUrlLegacy(id);
+  }
+
+  /** Ordered fallback ladder starting at the chosen tier (Android parity). */
+  static qualityLadderFrom(chosen: string): string[] {
+    const ladder = ['lossless', 'exhigh', 'high', 'standard'];
+    const index = ladder.indexOf(chosen);
+    if (index < 0) {
+      return ['exhigh', 'high', 'standard'];
+    }
+    return ladder.slice(index);
   }
 
   /**

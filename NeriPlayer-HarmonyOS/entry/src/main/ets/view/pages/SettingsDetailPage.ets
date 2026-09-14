@@ -131,6 +131,10 @@ export struct SettingsDetailPage {
   @StorageProp('np.download_directory_uri') downloadDirectoryUri: string = '';
   @StorageProp('np.download_directory_label') downloadDirectoryLabel: string = '';
   @StorageProp('np.save_traffic') saveTraffic: boolean = false;
+  @StorageProp('np.cellular_follow_default_quality') cellularFollowDefault: boolean = true;
+  @StorageProp('np.cellular_netease_quality') cellularNeteaseQuality: string = '';
+  @StorageProp('np.cellular_bili_quality') cellularBiliQuality: string = '';
+  @StorageProp('np.cellular_youtube_quality') cellularYoutubeQuality: string = '';
   @StorageProp('np.netease_auto_fallback') neteaseAutoFallback: boolean = true;
   @StorageProp('np.cover_policy') coverPolicy: string = 'always';
   @StorageProp('np.always_record_logs') alwaysRecordLogs: boolean = false;
@@ -1246,6 +1250,40 @@ export struct SettingsDetailPage {
               current: this.coverPolicy,
               onPick: (value: string) => SettingsRepository.setString(SettingsRepository.KEY_COVER_POLICY, value)
             })
+            ToggleRow({
+              title: '蜂窝分平台音质',
+              subtitle: '关闭后可为网易云 / Bilibili / YouTube 分别指定蜂窝网络音质',
+              icon: '📶',
+              value: this.cellularFollowDefault,
+              onChange: (on: boolean) =>
+                SettingsRepository.setBoolean(SettingsRepository.KEY_CELLULAR_FOLLOW_DEFAULT, on)
+            })
+            if (!this.cellularFollowDefault) {
+              OptionRow({
+                title: '蜂窝 · 网易云',
+                icon: '🎵',
+                options: this.qualityOptions(),
+                current: this.cellularNeteaseQuality,
+                onPick: (value: string) =>
+                  SettingsRepository.setString(SettingsRepository.KEY_CELLULAR_NETEASE_QUALITY, value)
+              })
+              OptionRow({
+                title: '蜂窝 · Bilibili',
+                icon: '📺',
+                options: this.qualityOptions(),
+                current: this.cellularBiliQuality,
+                onPick: (value: string) =>
+                  SettingsRepository.setString(SettingsRepository.KEY_CELLULAR_BILI_QUALITY, value)
+              })
+              OptionRow({
+                title: '蜂窝 · YouTube',
+                icon: '▶',
+                options: this.qualityOptions(),
+                current: this.cellularYoutubeQuality,
+                onPick: (value: string) =>
+                  SettingsRepository.setString(SettingsRepository.KEY_CELLULAR_YOUTUBE_QUALITY, value)
+              })
+            }
           } else if (this.section === SETTING_STORAGE) {
             SettingRow({
               title: '缓存占用',

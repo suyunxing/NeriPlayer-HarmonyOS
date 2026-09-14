@@ -730,6 +730,7 @@ export struct NowPlayingPage {
             // often have no remote lyric source, Android shows an empty state).
             LyricView({
               lyrics: this.lyrics,
+              lyricPlatform: this.song().platform,
               onSeek: (timeMs: number) => PlayerManager.seekTo(timeMs),
               // Lyric scrubbing previews the centered line's time in the shared
               // label channel (same previewMs the waveform drag uses); playback
