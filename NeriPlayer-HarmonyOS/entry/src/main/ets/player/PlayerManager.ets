@@ -1501,7 +1501,12 @@ export class PlayerManager {
       currentIndex: PlayerManager.engine.getCurrentQueueIndex()
     });
     if (action === LoadFailureAction.RETRY_SAME) {
-      Logger.warn(`Retrying playback for ${song.displayName} (attempt ${PlayerManager.errorAttempts})`);
+      // URL re-sign first (backlog §2.1): direct links carry TTLs, and both
+      // the per-song cache and the YTM resolver cache would happily serve
+      // the same expired URL to the retry.
+      StreamResolver.invalidateResolvedUrl(song);
+      Logger.warn(`Retrying playback with a fresh stream for ${song.displayName} `
+        + `(attempt ${PlayerManager.errorAttempts})`);
       await PlayerManager.loadSong(0, true);
       return;
     }
