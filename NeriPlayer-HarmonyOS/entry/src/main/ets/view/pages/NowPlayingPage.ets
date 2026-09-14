@@ -2,6 +2,7 @@
 
 import { curves, SymbolGlyphModifier, LengthMetrics, window } from '@kit.ArkUI';
 import { SongItem } from '../../model/SongItem';
+import { MusicPlatform } from '../../model/MusicPlatform';
 import { stableKeyOf } from '../../model/SongIdentity';
 import { LyricLine } from '../../model/LyricLine';
 import { QueueState } from '../../model/QueueState';
@@ -446,6 +447,15 @@ export struct NowPlayingPage {
     this.getUIContext().getPromptAction().showToast({ message: '暂无专辑信息', duration: 2000 });
   }
 
+  private openArtist(): void {
+    const song = this.song();
+    if (song.platform === MusicPlatform.NETEASE && song.artistId > 0) {
+      Router.push(Router.ARTIST, JSON.stringify({ artist: song.displayArtist, artistId: song.artistId }));
+      return;
+    }
+    this.getUIContext().getPromptAction().showToast({ message: '暂无艺人信息', duration: 2000 });
+  }
+
   @Builder
   songMenuBuilder() {
     Menu() {
@@ -484,6 +494,12 @@ export struct NowPlayingPage {
         content: '查看专辑'
       }).onClick(() => {
         this.openAlbum();
+      })
+      MenuItem({
+        symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.music_note_list')).fontSize(22),
+        content: '查看艺人'
+      }).onClick(() => {
+        this.openArtist();
       })
       MenuItem({
         symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.share')).fontSize(22),
