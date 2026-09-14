@@ -208,7 +208,7 @@ jobs:
           MDEOF
 
       - name: Upload Release assets
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           repository: ${{ github.repository }}
           token: ${{ github.token }}
