@@ -152,6 +152,9 @@ export struct SettingsDetailPage {
   // Only the dialed address is mirrored here; the dialog reads its own prefill
   // from the settings store so a reopened dialog is never stale.
   @StorageProp('np.listen_together_server') listenTogetherServer: string = '';
+  @StorageProp('np.listen_together_allow_member_control') ltAllowMemberControl: boolean = true;
+  @StorageProp('np.listen_together_auto_pause_on_member_change') ltAutoPauseOnMemberChange: boolean = true;
+  @StorageProp('np.listen_together_share_audio_links') ltShareAudioLinks: boolean = true;
 
   @State cacheBytes: number = 0;
 
@@ -1447,6 +1450,36 @@ export struct SettingsDetailPage {
               subtitle: this.listenTogetherServerSubtitle(),
               icon: '👥',
               onTap: () => this.openListenTogetherServerDialog()
+            })
+
+            Text('一起听房间默认设置')
+              .fontSize(13)
+              .fontColor(Theme.textSecondary(Theme.isDark()))
+              .width('100%')
+              .margin({ left: 6, top: 14, bottom: 6 })
+            ToggleRow({
+              title: '允许听众操作',
+              subtitle: '建房默认：听众可切歌、播放暂停与拖动进度（房主可随时改）',
+              icon: '🎚',
+              value: this.ltAllowMemberControl,
+              onChange: (on: boolean) =>
+                SettingsRepository.setBoolean(SettingsRepository.KEY_LISTEN_TOGETHER_ALLOW_MEMBER_CONTROL, on)
+            })
+            ToggleRow({
+              title: '成员变动自动暂停',
+              subtitle: '建房默认：成员进入或离开时自动暂停',
+              icon: '⏸',
+              value: this.ltAutoPauseOnMemberChange,
+              onChange: (on: boolean) =>
+                SettingsRepository.setBoolean(SettingsRepository.KEY_LISTEN_TOGETHER_AUTO_PAUSE_ON_MEMBER_CHANGE, on)
+            })
+            ToggleRow({
+              title: '下发音频直链',
+              subtitle: '建房默认：可用时向听众下发可播放的音频直链',
+              icon: '🔗',
+              value: this.ltShareAudioLinks,
+              onChange: (on: boolean) =>
+                SettingsRepository.setBoolean(SettingsRepository.KEY_LISTEN_TOGETHER_SHARE_AUDIO_LINKS, on)
             })
           } else if (this.section === SETTING_DEBUG) {
             ToggleRow({
