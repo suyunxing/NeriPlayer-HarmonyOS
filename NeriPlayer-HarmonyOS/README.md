@@ -104,5 +104,5 @@ $env:NERIPLAYER_SIGNING_PASSWORD = "<本地调试口令>"
 ## 运行与权限说明
 
 1. 首次启动应用时需完成免责声明确认与新用户引导流程。
-2. 本地音乐库扫描依赖 `ohos.permission.READ_AUDIO` 用户授权。
+2. 本地音乐导入通过系统文件选择器手动选取（`AudioViewPicker`，免权限授权）。
 3. 退出前台后继续播放音乐依赖 `ohos.permission.KEEP_BACKGROUND_RUNNING` 权限及系统长时任务授权。
