@@ -17,6 +17,7 @@ import { WindowMetrics } from '../util/WindowMetrics';
 import { ListenTogetherSessionManager } from '../listentogether/ListenTogetherSessionManager';
 import { CrashEventWatcher } from '../app/diagnostics/CrashEventWatcher';
 import { StableKeyMigration } from '../data/StableKeyMigration';
+import { LocalDirectoryScanner } from '../data/LocalDirectoryScanner';
 import { AutoSyncScheduler } from '../sync/AutoSyncScheduler';
 import { SyncService } from '../sync/SyncService';
 import { SyncReport } from '../sync/SyncReport';
@@ -48,6 +49,10 @@ export default class EntryAbility extends UIAbility {
     PlayerManager.initialize(this.context);
     ListenTogetherSessionManager.getInstance().start();
     DownloadEngine.init(this.context);
+    // Local music library scan root: re-activate the persisted read grant so
+    // a cold-start library refresh can enumerate without a new pick.
+    LocalDirectoryScanner.activatePersistedPermission(
+      SettingsRepository.getString(SettingsRepository.KEY_LOCAL_SCAN_DIRECTORY_URI, ''));
     NeteaseCookieRepository.init();
     BiliCookieRepository.init();
     GitHubConfigRepository.init();
