@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 /**
  * Pure Bilibili auth models and validation, ported from Android
  * data/auth/bili/BiliCookieRepository.kt. No platform imports: unit-testable

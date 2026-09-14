@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 import { common } from '@kit.AbilityKit';
 import { FaultLogger, hiAppEvent } from '@kit.PerformanceAnalysisKit';
 import { Logger } from '../Logger';

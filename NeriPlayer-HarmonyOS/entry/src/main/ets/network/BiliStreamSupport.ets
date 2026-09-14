@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
+
 /**
  * Pure helpers for Bilibili media stream URLs: host recognition, CDN
  * preference and the HTTP headers CDN fetches must carry. Kept free of Kit

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 import { SettingsRepository } from '../../data/SettingsRepository';
 import { SliderRow, ToggleRow } from './Ui';
 import { Theme } from '../Theme';

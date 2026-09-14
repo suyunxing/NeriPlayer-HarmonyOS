@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 // ReplaceSymbolEffect/EffectScope 是 symbolglyph.d.ts 的全局 ambient 类
 // （与 VisualEffect 同类），不从 kit 导入。
 import { SongItem } from '../../model/SongItem';

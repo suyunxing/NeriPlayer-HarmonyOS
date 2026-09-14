@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
+
 /**
  * Pure HTTP response-header utilities (no platform imports) so the NetEase
  * weapi cookie flow is unit-testable in the local hypium environment.

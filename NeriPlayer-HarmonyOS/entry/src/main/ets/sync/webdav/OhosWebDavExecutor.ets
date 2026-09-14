@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
+
 /** API 24 @ohos.net.http adapter for WebDAV custom methods and binary bodies. */
 
 import { http } from '@kit.NetworkKit';

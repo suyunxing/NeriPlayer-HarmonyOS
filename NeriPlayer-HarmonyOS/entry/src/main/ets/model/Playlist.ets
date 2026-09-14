@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 import { MusicPlatform } from './MusicPlatform';
 import { SongItem } from './SongItem';
 import { stableKeyOf } from './SongIdentity';

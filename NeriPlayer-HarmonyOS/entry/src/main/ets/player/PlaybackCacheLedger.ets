@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
+
 /**
  * Pure LRU ledger for the playback cache (PlaybackCacheManager). Maps a
  * stable song key to the system-managed offline cache directory an

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 /**
  * Extracts a searchable (title, artist) pair from a raw display name or file
  * name ("01 周杰伦 - 晴天 [FLAC].mp3" -> 晴天 / 周杰伦). Regex heuristics run

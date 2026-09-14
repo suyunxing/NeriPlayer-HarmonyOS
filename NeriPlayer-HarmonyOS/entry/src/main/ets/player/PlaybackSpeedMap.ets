@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
+
 /**
  * Numeric mirror of media.PlaybackSpeed (API 24), kept here so the mapping
  * stays a pure, unit-testable module without @kit imports — same arrangement

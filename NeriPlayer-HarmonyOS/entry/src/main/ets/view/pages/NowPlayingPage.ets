@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 import { curves, SymbolGlyphModifier, LengthMetrics, window } from '@kit.ArkUI';
 import { SongItem } from '../../model/SongItem';
 import { stableKeyOf } from '../../model/SongIdentity';

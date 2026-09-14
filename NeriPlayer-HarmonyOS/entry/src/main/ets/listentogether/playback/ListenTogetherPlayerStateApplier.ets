@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
+
 /**
  * Port of listentogether/playback/ListenTogetherPlayerStateApplier.kt: turns an
  * authoritative room snapshot into concrete player corrections — reload the

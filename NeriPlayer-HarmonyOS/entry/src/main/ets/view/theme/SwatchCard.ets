@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 /**
  * Standard color card used to snap the cover's dominant color to a
  * designer-grade "重点色" (accent). Nearest match is by CIEDE2000 over the

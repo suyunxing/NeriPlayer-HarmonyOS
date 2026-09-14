@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 /**
  * Pure NetEase auth models and validation, ported from Android
  * data/auth/netease/NeteaseCookieRepository.kt and data/auth/common/RawCookieTextParser.kt.

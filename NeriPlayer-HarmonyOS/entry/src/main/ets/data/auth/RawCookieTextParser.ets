@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 /**
  * Shared cookie-text helpers, extracted from Android
  * data/auth/common/RawCookieTextParser.kt plus the RFC cookie-name character

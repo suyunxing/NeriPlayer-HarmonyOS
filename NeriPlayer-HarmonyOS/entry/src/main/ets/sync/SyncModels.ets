@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
+
 /**
  * Ports of the Android sync data models (data/sync/model/SyncDataModels.kt,
  * SyncCausalToken.kt, data/model/SongIdentity.kt SyncSong.identity() and the

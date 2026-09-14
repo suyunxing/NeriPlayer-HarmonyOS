@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 /**
  * Linear playback progress bar (the successor of the waveform slider): a thin
  * round-capped track spanning the full width with the played part drawn on

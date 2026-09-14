@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 /**
  * Pure push-decision rules behind Router — no AppStorage, no ArkUI, so the
  * navigation rules stay unit-testable while the stack itself lives in ArkUI's
