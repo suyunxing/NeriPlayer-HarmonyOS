@@ -120,6 +120,10 @@ export class SettingsRepository {
   static readonly KEY_GITHUB_OWNER: string = 'np.github_owner';
   static readonly KEY_GITHUB_REPO: string = 'np.github_repo';
   static readonly KEY_GITHUB_DATA_SAVER: string = 'np.github_data_saver';
+  // Alias of KEY_GITHUB_DATA_SAVER: data-saver is one global switch shared by
+  // the GitHub and WebDAV transports (Android parity); the legacy key value
+  // is kept so existing user settings survive.
+  static readonly KEY_SYNC_DATA_SAVER: string = 'np.github_data_saver';
   // WebDAV credentials live in AssetStore; only endpoint metadata is persisted here.
   static readonly KEY_WEBDAV_SERVER_URL: string = 'np.webdav_server_url';
   static readonly KEY_WEBDAV_BASE_PATH: string = 'np.webdav_base_path';

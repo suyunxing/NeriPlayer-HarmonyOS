@@ -3,7 +3,10 @@
 
 /** App-facing entry points for manual GitHub and WebDAV synchronization. */
 
-import { getSyncFileName } from './SyncDataJsonCodec';
+import { getSyncFileName, serializeSyncDataJson } from './SyncDataJsonCodec';
+import { serializeSyncDataBinary } from './SyncDataProtoCodec';
+import { SyncData } from './SyncModels';
+import { SettingsRepository } from '../data/SettingsRepository';
 import { SyncCoordinator, SyncCoordinatorOptions } from './SyncCoordinator';
 import { GitHubSyncBackend, WebDavSyncBackend } from './SyncBackends';
 import { SyncAppLocalStore } from './SyncAppLocalStore';
@@ -14,6 +17,18 @@ import { OhosGhExecutor } from './github/OhosGhExecutor';
 import { WebDavConfigRepository } from './webdav/WebDavConfigRepository';
 import { OhosWebDavExecutor } from './webdav/OhosWebDavExecutor';
 import { WebDavSyncClient, WebDavTransport } from './webdav/WebDavTransport';
+
+/**
+ * Upload serializer per the sync data-saver switch (backlog §1.3): JSON bytes
+ * normally, GZIP(Protobuf) (~15% size) in data-saver mode — the exact format
+ * Android SyncDataSerializer produces for the same setting.
+ */
+function uploadSerializer(useDataSaver: boolean): (data: SyncData) => Uint8Array {
+  if (useDataSaver) {
+    return (data: SyncData): Uint8Array => serializeSyncDataBinary(data);
+  }
+  return (data: SyncData): Uint8Array => serializeSyncDataJson(data);
+}
 
 export class SyncService {
   static async syncGitHub(): Promise<SyncReport> {
@@ -26,6 +41,7 @@ export class SyncService {
       new GitHubTransport(new OhosGhExecutor(), config.token),
       config.owner, config.repo, getSyncFileName(config.dataSaver), config.dataSaver);
     const options = new SyncCoordinatorOptions();
+    options.serialize = uploadSerializer(config.dataSaver);
     options.lastSyncTime = await GitHubConfigRepository.getLastSyncTime();
     options.lastRemoteVersion = await GitHubConfigRepository.getLastRemoteSha();
     options.favoritesPlaylistId = local.favoritesPlaylistId();
@@ -50,6 +66,10 @@ export class SyncService {
     const transport = new WebDavTransport(new OhosWebDavExecutor(), config.username, config.password);
     const backend = new WebDavSyncBackend(new WebDavSyncClient(transport), config.remoteFileUrl());
     const options = new SyncCoordinatorOptions();
+    // Android treats data-saver as one global switch shared by GitHub/WebDAV;
+    // the key was named per-transport on this side, so WebDAV reads it too.
+    options.serialize = uploadSerializer(
+      SettingsRepository.getBoolean(SettingsRepository.KEY_SYNC_DATA_SAVER, false));
     options.lastSyncTime = await WebDavConfigRepository.getLastSyncTime();
     options.lastRemoteVersion = await WebDavConfigRepository.getLastRemoteFingerprint();
     options.favoritesPlaylistId = local.favoritesPlaylistId();
