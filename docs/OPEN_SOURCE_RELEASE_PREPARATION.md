@@ -111,8 +111,10 @@
 ### 4.1 [ ] 隐私政策定稿与「版本变更重新征同意」机制
 
 - **事实**：应用内隐私政策与用户协议为 `v1.0.0-draft` 草案（「草案 · 待作者复核」横幅、生效日期待定，`string.json` 内嵌文案）。开源发布（GitHub Release 分发）不是应用市场上架，**不强制**要求定稿；但发布即面向公众，建议作者以自己的名义定稿 v1.0.0，替换 draft 横幅。
+- **2026-09-14 文案载体迁移（本清单执行轮）**：两份法律长文从 `string.json` 单行内嵌迁移至 `NeriPlayer-HarmonyOS/entry/src/main/resources/rawfile/privacy_policy.md` / `user_agreement.md`（可读 Markdown，`LegalDocPage` 经 `resourceManager.getRawFileContent` 异步读入；标题与 draft 横幅仍在 string.json）。**定稿操作由此简化为：直接编辑 rawfile 下两个 .md**（填生效日期、去 `-draft`、按作者名义复核措辞），不再需要改 JSON 转义文本；将来上 AGC 时同一份 .md 复制到后台上传。定稿后同步删除 string.json 的 `legal_draft_notice` 键与 `LegalDocPage.ets` 中对它的引用（约一行）。
 - 另登记：文案承诺的「重大政策变更重新征同意」代码未实现（仍是布尔标记 `KEY_DISCLAIMER_ACCEPTED`，改版本号不重新弹窗）。开源发布不阻塞；若未来上架 AGC 则为必办（`RELEASE_CHECKLIST.md` §5.5 已登记）。
 - **本项性质**：文案定稿（作者本人操作），agent 不代笔最终法律文案。
+- **⏸ 待作者定稿**（载体迁移已就绪）。
 
 ### 4.2 [ ] 权限 reason 补全（低优先级，可延后）
 
