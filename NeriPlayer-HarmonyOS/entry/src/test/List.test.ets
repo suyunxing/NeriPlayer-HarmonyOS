@@ -1,4 +1,5 @@
 import lrcParserTest from './ets/test/LrcParser.test';
+import yrcLyricsTest from './ets/test/YrcLyrics.test';
 import persistedPlaybackStateTest from './ets/test/PersistedPlaybackState.test';
 import queueEngineTest from './ets/test/QueueEngine.test';
 import audioInterruptPolicyTest from './ets/test/AudioInterruptPolicy.test';
@@ -92,6 +93,7 @@ import nowPlayingMotionTest from './ets/test/NowPlayingMotion.test';
 
 export default function testsuite(): void {
   lrcParserTest();
+  yrcLyricsTest();
   persistedPlaybackStateTest();
   queueEngineTest();
   audioInterruptPolicyTest();
