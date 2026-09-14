@@ -90,6 +90,7 @@ import audioQualityPolicyTest from './ets/test/AudioQualityPolicy.test';
 import historyRepositoryTest from './ets/test/HistoryRepository.test';
 import songIdentitySha256Test from './ets/test/SongIdentitySha256.test';
 import playbackStatsRetentionTest from './ets/test/PlaybackStatsRetention.test';
+import playbackStatsAggregatorTest from './ets/test/PlaybackStatsAggregator.test';
 import volumeFaderTest from './ets/test/VolumeFader.test';
 import nowPlayingMotionTest from './ets/test/NowPlayingMotion.test';
 
@@ -186,6 +187,7 @@ export default function testsuite(): void {
   historyRepositoryTest();
   songIdentitySha256Test();
   playbackStatsRetentionTest();
+  playbackStatsAggregatorTest();
   volumeFaderTest();
   nowPlayingMotionTest();
 }
