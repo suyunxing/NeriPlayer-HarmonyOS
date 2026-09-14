@@ -75,6 +75,7 @@ import {
   isDefaultListenTogetherBaseUrl,
   resolveListenTogetherBaseUrl
 } from '../../listentogether/invite/ListenTogetherBaseUrlResolver';
+import { AutoSyncScheduler } from '../../sync/AutoSyncScheduler';
 
 const SPEEDS: number[] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
 const QUALITIES: string[] = ['standard', 'high', 'exhigh', 'lossless', 'hires'];
@@ -138,6 +139,7 @@ export struct SettingsDetailPage {
   @StorageProp('np.github_owner') githubOwner: string = '';
   @StorageProp('np.github_repo') githubRepo: string = '';
   @StorageProp('np.github_data_saver') githubDataSaver: boolean = false;
+  @StorageProp('np.sync_auto') syncAuto: boolean = false;
   @State githubTokenSaved: boolean = false;
   @State githubBusy: boolean = false;
 
@@ -1346,8 +1348,18 @@ export struct SettingsDetailPage {
               .margin({ left: 6, top: 14, bottom: 6 })
             Column({ space: 10 }) {
               ToggleRow({
+                title: '自动同步',
+                subtitle: '变更后 5 秒静默同步；启动时补偿同步；并注册 ≥2 小时后台延迟任务',
+                icon: '⚡',
+                value: this.syncAuto,
+                onChange: (on: boolean) => {
+                  SettingsRepository.setBoolean(SettingsRepository.KEY_SYNC_AUTO, on);
+                  AutoSyncScheduler.updateDelayedWorkRegistration();
+                }
+              })
+              ToggleRow({
                 title: '省流格式',
-                subtitle: '读取兼容全部格式；上传仍为 JSON',
+                subtitle: '上传写 Gzip Protobuf（backup-raw.bin，约 JSON 的 15%）；关闭时写 JSON',
                 icon: '📉',
                 value: this.githubDataSaver,
                 onChange: (on: boolean) =>

@@ -17,6 +17,9 @@ import { WindowMetrics } from '../util/WindowMetrics';
 import { ListenTogetherSessionManager } from '../listentogether/ListenTogetherSessionManager';
 import { CrashEventWatcher } from '../app/diagnostics/CrashEventWatcher';
 import { StableKeyMigration } from '../data/StableKeyMigration';
+import { AutoSyncScheduler } from '../sync/AutoSyncScheduler';
+import { SyncService } from '../sync/SyncService';
+import { SyncReport } from '../sync/SyncReport';
 
 const TAG: string = 'EntryAbility';
 const DOMAIN: number = 0x4E50;
@@ -85,6 +88,12 @@ export default class EntryAbility extends UIAbility {
             return;
           }
           hilog.info(DOMAIN, TAG, 'Content loaded');
+          // 自动静默同步（清单 §1.5）：runner 注入避免仓库层反向依赖 SyncService，
+          // 启动节流、变更防抖与后台延迟任务注册都收敛在 AutoSyncScheduler。
+          AutoSyncScheduler.setRunner((): Promise<SyncReport | null> => SyncService.syncConfigured());
+          AutoSyncScheduler.setBundleName(this.context.abilityInfo.bundleName);
+          AutoSyncScheduler.scheduleStartupSync();
+          AutoSyncScheduler.updateDelayedWorkRegistration();
         });
       });
   }

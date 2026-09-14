@@ -124,6 +124,9 @@ export class SettingsRepository {
   // the GitHub and WebDAV transports (Android parity); the legacy key value
   // is kept so existing user settings survive.
   static readonly KEY_SYNC_DATA_SAVER: string = 'np.github_data_saver';
+  // Auto silent sync (backlog §1.5): Android auto-sync defaults off; here it
+  // covers the debounced mutation sync + throttled startup sync.
+  static readonly KEY_SYNC_AUTO: string = 'np.sync_auto';
   // WebDAV credentials live in AssetStore; only endpoint metadata is persisted here.
   static readonly KEY_WEBDAV_SERVER_URL: string = 'np.webdav_server_url';
   static readonly KEY_WEBDAV_BASE_PATH: string = 'np.webdav_base_path';
@@ -205,6 +208,7 @@ export class SettingsRepository {
     // Android defaults data saver to true (writes GZIP+proto); this port
     // uploads JSON until the compact writer lands (M5.2b record), reads all formats.
     [SettingsRepository.KEY_GITHUB_DATA_SAVER, false],
+    [SettingsRepository.KEY_SYNC_AUTO, false],
     [SettingsRepository.KEY_WEBDAV_SERVER_URL, ''],
     [SettingsRepository.KEY_WEBDAV_BASE_PATH, ''],
     [SettingsRepository.KEY_PROXY_HOST, ''],

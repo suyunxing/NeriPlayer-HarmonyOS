@@ -3,6 +3,7 @@
 import { SchemaStore } from './schema/SchemaStore';
 import { util } from '@kit.ArkTS';
 import { SyncDeletionStore } from '../sync/SyncDeletionStore';
+import { AutoSyncScheduler } from '../sync/AutoSyncScheduler';
 import {
   SyncPlaybackCounterShard,
   normalizeCounterShards
@@ -65,6 +66,7 @@ export class PlaybackStatsRepository {
     all.daily = PlaybackStatsRepository.trimDailyBuckets(all.daily);
     const json = JSON.stringify(all);
     await SchemaStore.save(PlaybackStatsRepository.KEY, json, (value: string) => value);
+    AutoSyncScheduler.scheduleMutationSync();
   }
 
   static async getPlayCount(songKey: string): Promise<number> {
