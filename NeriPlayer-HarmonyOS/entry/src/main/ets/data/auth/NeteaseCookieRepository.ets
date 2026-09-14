@@ -90,6 +90,11 @@ export class NeteaseCookieRepository {
     return NeteaseCookieRepository.saveInternal(parseRawCookieText(raw));
   }
 
+  /** Saves cookies obtained from the phone/captcha login flow (backlog §3.3). */
+  static async saveFromPhoneLogin(cookies: Map<string, string>): Promise<boolean> {
+    return NeteaseCookieRepository.saveInternal(cookies);
+  }
+
   /**
    * Validation is synchronous, but the credential write must be awaited:
    * returning before `putString` settles is exactly how a process kill right
