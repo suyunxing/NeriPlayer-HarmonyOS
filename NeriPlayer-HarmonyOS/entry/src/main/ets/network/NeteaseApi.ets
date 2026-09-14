@@ -532,6 +532,136 @@ export class NeteaseApi {
     // short ar/al shape; the pure mapper in NeteasePlaylistParser covers both.
     return neteaseSongToSongItem(song);
   }
+
+  // ---- 专辑 / 艺人详情（backlog §3.4，Android getAlbumDetail /
+  // getArtistSongs / getArtistHead / getArtistAlbums） -----------------------
+
+  /** Album detail + full track list (weapi /weapi/v1/album/{id}). */
+  static async getAlbumDetail(albumId: number): Promise<SongItem[]> {
+    if (albumId <= 0) {
+      return [];
+    }
+    try {
+      const payload: Record<string, Object> = {};
+      payload['n'] = '100000';
+      payload['s'] = '8';
+      const params = await NeteaseCrypto.weapiParams(payload);
+      const url = await NeteaseApi.weapiUrl(`/weapi/v1/album/${albumId}`);
+      const text = await HttpClient.postForm(url, params, 15000, NeteaseApi.headers(), true);
+      const response = JSON.parse(text) as Record<string, Object>;
+      if (Number(response['code'] ?? -1) !== 200) {
+        Logger.warn(`NeteaseApi album detail code=${Number(response['code'] ?? -1)}`);
+        return [];
+      }
+      const album = response['album'] as Record<string, Object> | undefined;
+      const songs = response['songs'] as Object[] | undefined;
+      const items: SongItem[] = [];
+      if (songs !== undefined && Array.isArray(songs)) {
+        for (const raw of songs) {
+          items.push(NeteaseApi.toSongItem(raw as NeteaseSong));
+        }
+      }
+      // The weapi album payload omits per-song covers; the album art covers all.
+      if (album !== undefined && album['picUrl'] !== undefined) {
+        const pic = String(album['picUrl']);
+        for (const item of items) {
+          if (item.coverUrl.length === 0) {
+            item.coverUrl = pic;
+          }
+        }
+      }
+      return items;
+    } catch (error) {
+      const e = error as Error;
+      Logger.warn(`NeteaseApi album detail failed: ${e.message}`);
+      return [];
+    }
+  }
+
+  /** Artist hot/new songs (legacy /api/v1/artist/songs, POST form). */
+  static async getArtistSongs(artistId: number, order: string = 'hot', limit: number = 50): Promise<SongItem[]> {
+    if (artistId <= 0) {
+      return [];
+    }
+    try {
+      const form: Record<string, string> = {};
+      form['id'] = `${artistId}`;
+      form['private_cloud'] = 'true';
+      form['work_type'] = '1';
+      form['order'] = order;
+      form['offset'] = '0';
+      form['limit'] = `${limit}`;
+      const text = await HttpClient.postForm(
+        `${Constants.NETEASE_BASE}/api/v1/artist/songs`,
+        form,
+        15000,
+        NeteaseApi.headers(),
+        true
+      );
+      const response = JSON.parse(text) as Record<string, Object>;
+      if (Number(response['code'] ?? -1) !== 200) {
+        Logger.warn(`NeteaseApi artist songs code=${Number(response['code'] ?? -1)}`);
+        return [];
+      }
+      const songs = response['songs'] as Object[] | undefined;
+      const items: SongItem[] = [];
+      if (songs !== undefined && Array.isArray(songs)) {
+        for (const raw of songs) {
+          items.push(NeteaseApi.toSongItem(raw as NeteaseSong));
+        }
+      }
+      return items;
+    } catch (error) {
+      const e = error as Error;
+      Logger.warn(`NeteaseApi artist songs failed: ${e.message}`);
+      return [];
+    }
+  }
+
+  /** Artist head info (name/cover/fans) for the artist page header. */
+  static async getArtistHead(artistId: number): Promise<NeteaseArtistHead | null> {
+    if (artistId <= 0) {
+      return null;
+    }
+    try {
+      const form: Record<string, string> = {};
+      form['id'] = `${artistId}`;
+      const text = await HttpClient.postForm(
+        `${Constants.NETEASE_BASE}/api/artist/head/info/get`,
+        form,
+        15000,
+        NeteaseApi.headers(),
+        true
+      );
+      const response = JSON.parse(text) as Record<string, Object>;
+      if (Number(response['code'] ?? -1) !== 200) {
+        return null;
+      }
+      const data = response['data'] as Record<string, Object> | undefined;
+      const artist = data === undefined ? undefined : data['artist'] as Record<string, Object> | undefined;
+      const head = new NeteaseArtistHead();
+      if (artist !== undefined) {
+        head.name = String(artist['name'] ?? '');
+        head.coverUrl = String(artist['cover'] ?? '');
+        head.albumCount = Number(artist['albumCount'] ?? 0);
+        head.songCount = Number(artist['songCount'] ?? 0);
+        head.fansCount = Number(artist['fansCount'] ?? 0);
+      }
+      return head.name.length > 0 ? head : null;
+    } catch (error) {
+      const e = error as Error;
+      Logger.warn(`NeteaseApi artist head failed: ${e.message}`);
+      return null;
+    }
+  }
+}
+
+export class NeteaseArtistHead {
+  name: string = '';
+  coverUrl: string = '';
+  albumCount: number = 0;
+  songCount: number = 0;
+  fansCount: number = 0;
 }
 
 export class LyricPayload {
