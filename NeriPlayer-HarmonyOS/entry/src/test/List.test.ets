@@ -20,6 +20,7 @@ import assetChunkingTest from './ets/test/AssetChunking.test';
 import biliAuthTest from './ets/test/BiliAuth.test';
 import biliFavParserTest from './ets/test/BiliFavParser.test';
 import streamHeadersTest from './ets/test/StreamHeaders.test';
+import streamRefreshTest from './ets/test/StreamRefresh.test';
 import biliWbiTest from './ets/test/BiliWbi.test';
 import biliAudioSelectorTest from './ets/test/BiliAudioSelector.test';
 import biliStreamSupportTest from './ets/test/BiliStreamSupport.test';
@@ -110,6 +111,7 @@ export default function testsuite(): void {
   biliAuthTest();
   biliFavParserTest();
   streamHeadersTest();
+  streamRefreshTest();
   biliWbiTest();
   biliAudioSelectorTest();
   biliStreamSupportTest();
