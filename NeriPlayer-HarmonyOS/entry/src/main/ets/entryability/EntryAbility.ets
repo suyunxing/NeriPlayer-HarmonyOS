@@ -16,6 +16,7 @@ import { AppColorMode } from '../util/AppColorMode';
 import { WindowMetrics } from '../util/WindowMetrics';
 import { ListenTogetherSessionManager } from '../listentogether/ListenTogetherSessionManager';
 import { CrashEventWatcher } from '../app/diagnostics/CrashEventWatcher';
+import { StableKeyMigration } from '../data/StableKeyMigration';
 
 const TAG: string = 'EntryAbility';
 const DOMAIN: number = 0x4E50;
@@ -72,7 +73,10 @@ export default class EntryAbility extends UIAbility {
     // loadContent 之后执行，凭据先就位才能保证首屏请求带上 MUSIC_U（否则
     // 冷启动首个 weapi 请求以匿名会话发出，杀进程重启后表现为掉登录）。
     // onCreate 里的 init() 调用已让恢复在本阶段并行推进，这里通常只等余下尾延。
-    NeteaseCookieRepository.init()
+    // 稳定键 SHA-256 迁移必须最先完成：页面与播放器恢复一旦以新算法读写
+    // 歌单/统计/下载编目，而存量键还是旧 FNV 算法，就会造成一次性孤儿数据。
+    StableKeyMigration.runIfNeeded()
+      .then(() => NeteaseCookieRepository.init())
       .then(() => BiliCookieRepository.init())
       .then(() => {
         windowStage.loadContent('pages/Index', (error) => {

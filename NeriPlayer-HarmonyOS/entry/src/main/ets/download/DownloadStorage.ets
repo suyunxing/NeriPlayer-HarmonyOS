@@ -391,6 +391,12 @@ export class DownloadStorage {
     await SchemaStore.save('downloaded_catalog', json, (value: string) => value);
   }
 
+  /** Wholesale catalog rewrite (stable-key migration); keeps the store key encapsulated. */
+  static async replaceCatalog(entries: DownloadedSongEntry[]): Promise<void> {
+    const json = JSON.stringify(entries);
+    await SchemaStore.save('downloaded_catalog', json, (value: string) => value);
+  }
+
   static async getCatalog(): Promise<DownloadedSongEntry[]> {
     return SchemaStore.load<DownloadedSongEntry[]>('downloaded_catalog', [], (json: string): DownloadedSongEntry[] | null => {
       const rawList = JSON.parse(json) as Object[];

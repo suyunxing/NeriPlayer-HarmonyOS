@@ -87,7 +87,7 @@ export default function androidDataParserTest(): void {
   describe('SongStableKey', () => {
     it('matchesAndroidKeyFormat', 0, () => {
       // Android PlayHistoryRepositoryPolicyTest uses "123|netease|".
-      const identity = new SongIdentity(123, 'netease', '');
+      const identity = new SongIdentity('123', 'netease', '');
       expect(identity.stableKey()).assertEqual('123|netease|');
 
       const song = new SongItem(123, 'Song A', 'Artist', 'netease', 7);
