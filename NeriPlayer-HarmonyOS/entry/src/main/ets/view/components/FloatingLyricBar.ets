@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 import { PlaybackStatus } from '../../player/PlaybackConstants';
 import { Theme } from '../Theme';
 

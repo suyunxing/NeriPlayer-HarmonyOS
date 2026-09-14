@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 import { LengthMetrics, promptAction } from '@kit.ArkUI';
 import { SongItem } from '../../model/SongItem';
 import { MusicPlatform } from '../../model/MusicPlatform';

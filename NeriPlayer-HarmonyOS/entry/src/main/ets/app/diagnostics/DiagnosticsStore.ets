@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 import { common } from '@kit.AbilityKit';
 import { fileIo, picker } from '@kit.CoreFileKit';
 import { Logger } from '../Logger';

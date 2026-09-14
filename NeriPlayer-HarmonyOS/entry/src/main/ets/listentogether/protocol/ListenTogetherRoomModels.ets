@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
+
 /**
  * Port of listentogether/protocol/ListenTogetherRoomModels.kt: room settings,
  * members, the authoritative playback state and the versioned room snapshot.

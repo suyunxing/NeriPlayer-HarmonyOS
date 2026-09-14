@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
+
 /**
  * Port of data/sync/github/SyncDataChangeDetector.kt.
  * Decides whether the merged snapshot differs from the remote one (i.e.

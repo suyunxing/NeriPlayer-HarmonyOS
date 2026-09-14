@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
+
 import { Constants } from '../app/Constants';
 import { SongItem } from '../model/SongItem';
 import { AudioQualityPolicy } from '../player/AudioQualityPolicy';

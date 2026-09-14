@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 /**
  * Platform glue for cover color extraction: downloads the cover, decodes a
  * tiny downsampled RGBA bitmap, extracts colors with the official

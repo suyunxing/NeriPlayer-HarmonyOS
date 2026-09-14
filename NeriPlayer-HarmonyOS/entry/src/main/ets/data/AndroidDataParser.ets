@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 import { SongItem } from '../model/SongItem';
 import { Playlist } from '../model/Playlist';
 import { MusicPlatform } from '../model/MusicPlatform';

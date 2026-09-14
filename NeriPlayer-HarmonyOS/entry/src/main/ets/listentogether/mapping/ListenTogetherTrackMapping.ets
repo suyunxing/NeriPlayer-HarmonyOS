@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
+
 /**
  * Ports of listentogether/mapping/ListenTogetherSongItemMapper.kt and
  * listentogether/mapping/ListenTogetherTrackMapper.kt: the two directions

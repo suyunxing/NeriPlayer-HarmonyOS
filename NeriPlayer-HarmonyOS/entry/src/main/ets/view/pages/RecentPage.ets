@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 import { picker, fileIo } from '@kit.CoreFileKit';
 import { util } from '@kit.ArkTS';
 import { SongItem } from '../../model/SongItem';

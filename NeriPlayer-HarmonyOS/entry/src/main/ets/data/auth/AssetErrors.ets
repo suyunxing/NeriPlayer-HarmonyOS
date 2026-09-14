@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 /**
  * Classification of @ohos.security.asset error codes, used by CredentialStore
  * to decide between retry, memory fallback, and hard failure.

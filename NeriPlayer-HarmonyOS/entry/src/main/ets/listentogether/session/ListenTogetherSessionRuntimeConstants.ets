@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
+
 /**
  * The session runtime's timing constants, lifted out of
  * ListenTogetherSessionManager.kt's `companion object` so the policies that

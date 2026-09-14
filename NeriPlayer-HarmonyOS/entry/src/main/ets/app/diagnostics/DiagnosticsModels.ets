@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 /**
  * M9.2 crash diagnostics — pure models mirroring the Android crash chain
  * (ExceptionHandler + CrashReportStore + AnrWatchdog semantics):

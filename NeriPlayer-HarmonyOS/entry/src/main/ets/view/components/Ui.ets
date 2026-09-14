@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 import { Theme } from '../Theme';
 import { AccentScheme } from '../theme/AccentScheme';
 import { LengthMetrics } from '@kit.ArkUI';

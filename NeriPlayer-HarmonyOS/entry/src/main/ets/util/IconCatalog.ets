@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 /**
  * Compatibility icon mapper. The first HarmonyOS UI pass used emoji glyphs as
  * placeholder icons; this catalog maps those legacy glyphs to the ported SVG

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 import { preferences } from '@kit.ArkData';
 import { common } from '@kit.AbilityKit';
 import { Logger } from '../app/Logger';

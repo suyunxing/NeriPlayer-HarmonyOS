@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 // Pure presentation math. All coordinates are window-relative vp.
 // The transition is driven by native attribute animations (see NowPlayingCurves);
 // these functions only evaluate ENDPOINT geometry (amount is 0 or 1) and the

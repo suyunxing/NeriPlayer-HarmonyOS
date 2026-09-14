@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 import { AppPreferences } from './AppPreferences';
 import { SchemaStore } from './schema/SchemaStore';
 import { SyncPendingState } from './AndroidDataParser';

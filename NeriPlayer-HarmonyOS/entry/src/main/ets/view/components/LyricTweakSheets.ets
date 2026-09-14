@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 import { SettingsRepository } from '../../data/SettingsRepository';
 import { Theme } from '../Theme';
 import { BottomSheetPanel } from './BottomSheetPanel';

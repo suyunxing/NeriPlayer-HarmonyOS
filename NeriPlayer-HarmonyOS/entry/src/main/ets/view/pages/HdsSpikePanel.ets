@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 import { hdsMaterial, hdsEffect, HdsVisualComponent, HdsSceneController, HdsSceneType, HdsTabs, HdsNavigation, HdsNavDestination } from '@kit.UIDesignKit';
 import { HdsVisualComponentAttribute, HdsTabsAttribute, HdsNavigationAttribute, HdsNavDestinationAttribute } from '@kit.UIDesignKit';
 import { Theme } from '../Theme';

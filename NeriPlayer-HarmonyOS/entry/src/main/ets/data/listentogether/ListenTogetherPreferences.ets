@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 /**
  * Port of data/listentogether/ListenTogetherPreferences.kt: the identity
  * (user id / uuid / nickname) and the three room settings, plus the config

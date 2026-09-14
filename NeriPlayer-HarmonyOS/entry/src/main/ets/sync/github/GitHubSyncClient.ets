@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
+
 /**
  * Sync-semantics layer over GitHubTransport: the remote-snapshot fetch with
  * cross-format fallback file names (Android GitHubSyncManager
