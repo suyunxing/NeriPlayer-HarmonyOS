@@ -1,6 +1,6 @@
 # NeriPlayer HarmonyOS 开发与迁移指南
 
-> 核验日期：2026-08-14；2026-08-31 复核了 §3.1/§3.2/§8.1 的源码规模、能力域状态与用例计数；2026-09-08 复核了 §1/§2.2/§3.1/§8.1/§8.3/§9 的基线、包名、规模与用例计数（API 26 迁移与 bundleName 改名后的文档对齐）。本文依据华为开发者联盟文档中心、版本说明和当前工作区源码重写并复核：版本映射与官方文档核对一致；本机工具链路径按 2026-08-14 迁移后的 `D:\HarmonyOS\Tools\` 布局更新（2026-08-13 的验证记录当时基于旧布局 `D:\HarmonyOS\` 根目录）。本文面向 NeriPlayer 的 HarmonyOS 原生迁移，不是 HarmonyOS API 的完整百科。
+> 核验日期：2026-08-14；2026-08-31 复核了 §3.1/§3.2/§8.1 的源码规模、能力域状态与用例计数；2026-09-08 复核了 §1/§2.2/§3.1/§8.1/§8.3/§9 的基线、包名、规模与用例计数（API 26 迁移与 bundleName 改名后的文档对齐）；2026-09-14 复核了 §3.1/§8.1 的规模与用例计数并补记 §7.14（2026-09-08～09-14 真机反馈修复与播放页转场波次）。本文依据华为开发者联盟文档中心、版本说明和当前工作区源码重写并复核：版本映射与官方文档核对一致；本机工具链路径按 2026-08-14 迁移后的 `D:\HarmonyOS\Tools\` 布局更新（2026-08-13 的验证记录当时基于旧布局 `D:\HarmonyOS\` 根目录）。本文面向 NeriPlayer 的 HarmonyOS 原生迁移，不是 HarmonyOS API 的完整百科。
 
 ## 1. 先看结论
 
@@ -106,7 +106,7 @@ compatibleSdkVersion ≤ targetSdkVersion ≤ compileSdkVersion
 HarmonyOS 工程当前是单 `entry` HAP、Stage 模型、ArkTS 严格模式。
 工程声明支持 phone、tablet、2in1，包名为 `moe.ouom.neriplayer.hmos`（2026-09-01 由 `moe.ouom.neriplayer` 改名），许可证沿用 GPL-3.0。
 
-源码 `entry/src/main/ets` 下 251 个 `.ets` 文件、约 5.38 万行（2026-09-08 实测 53,753 行）。`entry/src/test/` 本地单元测试已随里程碑累积到 935 用例（2026-09-08 静态清点；最近一次全量执行为 2026-08-29 的 874/874 全绿），`entry/src/ohosTest/` 建有设备测试族；测试范围与计数沿革见 §8.1。
+源码 `entry/src/main/ets` 下 257 个 `.ets` 文件、约 5.57 万行（2026-09-14 实测 55,727 行）。`entry/src/test/` 本地单元测试已随里程碑累积到 980 用例（2026-09-14 静态清点；最近一次全量执行为 2026-08-29 的 874/874 全绿），`entry/src/ohosTest/` 建有设备测试族（21 个测试文件）；测试范围与计数沿革见 §8.1。
 2026-08-13 已使用 `D:\HarmonyOS` 中的 6.1.1 Release 工具链从 `ohpm install --all`、`clean` 开始完成 Debug HAP 构建，随后执行 ArkTS 单元测试、调试签名、模拟器安装、冷启动和设置页 smoke test。构建与测试结果可从当前源码重复获得，不再依赖 2026-08-02 的历史日志。
 
 ### 3.2 已有代码与可信度
@@ -127,7 +127,7 @@ HarmonyOS 工程当前是单 `entry` HAP、Stage 模型、ArkTS 严格模式。
 | 一起听 | `listentogether/` 全链 + 房间页（M7，2026-08-21/22） | 建房/加入/同步播放/重连/邀请分享双端设备闭环；房间设置开关等增强项未做 |
 | USB 独占 | M9.1 spike 定案**不移植**（2026-08-24，`docs/USB_M91_SPIKE.md`） | API 面可行，但 ArkTS 单 JS 线程守不住等时节拍、SDK 无公开 USB DDK；系统路径 AVPlayer→USB Audio HAL 可用 |
 | 动态取色/高级模糊 | `view/theme/`（Palette/DynamicTheme 等）+ 背景模糊/玻璃子集（M8.1/M8.4，2026-08-23） | 设备实证随封面变色；AGSL 区域掩码玻璃无平台对应（D 级降级）；壁纸取色待复核 |
-| 测试 | ArkTS 本地单元测试 874/874 通过（2026-08-29 S 阶段记录，为最近一次全量执行；2026-09-08 静态清点 935 例；最初仅 3 个 LRC 用例，随各里程碑累积）+ `ohosTest` 设备测试族 | 已建立并持续扩充；UI/Instrument 自动化仍薄 |
+| 测试 | ArkTS 本地单元测试 874/874 通过（2026-08-29 S 阶段记录，为最近一次全量执行；2026-09-14 静态清点 980 例；最初仅 3 个 LRC 用例，随各里程碑累积）+ `ohosTest` 设备测试族 | 已建立并持续扩充；UI/Instrument 自动化仍薄 |
 
 ### 3.3 当前配置审查
 
@@ -477,7 +477,7 @@ $hdc = 'D:\HarmonyOS\Tools\command-line-tools\sdk\default\openharmony\toolchains
 
 ### 8.1 纯逻辑测试
 
-当前基线位于 `entry/src/test/`，通过 `@ohos/hypium` 和 Hvigor 本地单元测试任务执行 **935 个用例**（2026-09-08 静态清点 `it(` 声明；最近一次全量执行记录为 2026-08-29 的 874/874 全绿，`docs/FEATURE_MATRIX.md`；此前各里程碑计数 3→42→…→809→816→848→874→935 递增，`hvigorw test` 默认不打印计数，结果读 `entry/.test/default/intermediates/test/coverage_data/test_result.txt`）。测试不访问设备和第三方网络。该结果不替代需要安装测试包并通过 `aa test` 执行的设备侧 JsUnit/Instrument 测试。
+当前基线位于 `entry/src/test/`，通过 `@ohos/hypium` 和 Hvigor 本地单元测试任务执行 **980 个用例**（2026-09-14 静态清点 `it(` 声明；最近一次全量执行记录为 2026-08-29 的 874/874 全绿，`docs/FEATURE_MATRIX.md`；此前各里程碑计数 3→42→…→809→816→848→874→935→980 递增，`hvigorw test` 默认不打印计数，结果读 `entry/.test/default/intermediates/test/coverage_data/test_result.txt`）。测试不访问设备和第三方网络。该结果不替代需要安装测试包并通过 `aa test` 执行的设备侧 JsUnit/Instrument 测试。
 
 优先为以下模块补 JsUnit：
 
@@ -690,6 +690,18 @@ $hdc = 'D:\HarmonyOS\Tools\command-line-tools\sdk\default\openharmony\toolchains
 - 设备探针（ohosTest，待真机/Windows 跑）：`ActsNativePlaylistProbeTest`（2 例：API 可达性+advance 落点+contentChanged 回传 id、NONE 模式 5s 静默窗不自进）与 `ActsAvDownloaderProbeTest`（1 例：manager 创建→小 MP3 下载完成→getTaskCacheDirectory→目录源 prepare 全链）。
 - 验证（服务器）：entry@default assembleHap **BUILD SUCCESSFUL 0 error**；entry@ohosTest assembleHap（含两个探针）**BUILD SUCCESSFUL 0 error**；`hvigorw test` 编译级 0 error（执行挂死为 Linux 已知限制，真实计数待 Windows 工作站）；codelinter 14 个改动文件 **0 新增缺陷**（全仓仍为基线 5 error + 23 warn + 3 suggestion）。
 - 未验证（设备侧全部）：gapless 实效与 advance 是否跳过 prepare 周期（探针 1 回答）；NONE 模式是否真不自进（探针 2）；缓存目录跨进程存活与 prepare 可行性（探针 3）；B 站带 Referer 头的下载任务是否被 CDN 接受；缓存命中音频与在线流音质一致性。
+
+### 7.14 2026-09-08～09-14 真机反馈修复与播放页转场波次记录（分支 `dev`，PR #20–#30）
+
+本节为波次汇总；单事件取证在专项文档与看板，不在此重复。波次内各提交以服务器侧构建、改动文件 codelinter、`hvigorw test` 编译级检查为常规门禁（Linux 测试执行段挂死为已知限制），push/PR 由 CI（`harmonyos-ci.yml`）复核；**设备侧结论来自用户真机反馈**（日志/录屏/诊断输出），非本服务器取证。
+
+- **网易云登录四连修复**（3f4dea0f→bd4d9c0→bc19926→fe101cf）：杀后台掉登录（凭据从未落盘 + 冷启动时序）→ 803 后 Set-Cookie 双来源捕获 → Asset `ASSET_TAG_SECRET` 1024 字节上限触发 `AssetError(401)`（自动分块存储 `AssetChunking`）。取证详见 `PORTING_EXECUTION_PLAN.md` 三节「缺陷修复：网易云……（2026-09-08～09）」；扫码链路真机诊断日志实证生效，落盘修复真机复测待验证。
+- **下载完整性系列修复**（77a6745→3d655fc→c60dfb1→b8ff989→b5c136d）：分块写入 `offset` 误用致带零洞坏容器、播放失败重试风暴、5400106 双根因（下载源改 legacy 干净接口 + 本地源走 `fdSrc`）、完整性门禁与 8 条边界加固。取证详见 `PORTING_EXECUTION_PLAN.md`「缺陷修复：下载完整性……（2026-09-12～14）」节；坏文件 5400106 由真机日志实证。
+- **播放页一镜到底转场整层重写**（654ca5d→26b49aa，PR #24–#28，九轮迭代记录见 `docs/NOW_PLAYING_TRANSITION_20260910.md`）：最终形态为 `bindContentCover` 全屏模态 + 单一进度 `panelAmount` 分阶段**原生属性动画**（S6-core 的 `geometryTransition` 共享元素方案已整层移除；展开 300ms/收起 400ms；`NowPlayingCurves.ets` 先慢后快/回弹自定义曲线）。`Router.push(NOW_PLAYING)` 不再入 NavPathStack，改为翻转 `ui.nowPlayingShown`；起止矩形按真机录屏逐帧标定（HdsTabs miniBar 槽位测量只反映槽位布局矩形，需标定偏移换算药丸视觉矩形）。审查跟进：计时器竞态/压暗跳变/宽屏锚点（26b49aa）、迷你条切页槽位重建时播放键符号动效误闪（552df87，`symbolTrigger` 初值改 -1）。观感经用户真机多轮反馈修正；折返打断、歌词页返回、宽屏形态仍待系统真机回归。
+- **壳层沉浸改版**（f38205d→8958d16→073b852→4edac60→b9589db）：外壳改用 `HdsNavigation`（§S 阶段 S0「HdsNavigation 内容子树不挂载已回退」的模拟器结论被后续版本推翻，自建 `TitleBarBlurBackdrop` 等价实现随之删除）、标题栏 `ScrollEffectType.GRADIENT_BLUR` 渐变模糊并经 `expandSafeArea(SYSTEM/CUTOUT, TOP|BOTTOM)` 延伸到状态栏后；探索/资料库/设置页与首页统一内容穿透（`.clip(false)` + 列表顶部 `expandSafeArea`）；标题栏移除系统返回与「刷新推荐」按钮。**未验证**：渐变模糊材质在真机的实际渲染档位。
+- **音量淡入淡出**（54fb31f→c3acdbd）：`VolumeFader` 纯状态机 25ms 插值接入 `PlayerManager` 三类路径，后设置化为 `np.playback_fade` 总开关 + 双向时长滑条；详见 `FEATURE_MATRIX.md` 对应行。设备端听感未验证。
+- **资料库收尾**（d9b209c）：统计卡片图标/新建按钮/歌单图标随封面取色重染，消除主题色残留。
+- **工程协作**（d68f4f3、cbef581、8de4ca1）：配置 Copilot 代码审查（`.github/skills/harmonyos-code-review/SKILL.md`、`.github/copilot-instructions.md`、`.github/instructions/` 按 ArkTS 与 CI workflow 两域分流）；根目录与工程 README 按上游风格重写；`NeriPlayer-master/` 解除 Git 追踪并加入 `.gitignore`（磁盘保留为只读参照快照；`NeriPlayer-ASCF/` 仍在版本控制中）。
 
 每次 SDK 或上游 Android 更新，都更新本文件的核验日期、版本矩阵、源码状态和测试结果。
 

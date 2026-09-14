@@ -401,7 +401,7 @@ eport-m61-recheck.json）：IOS 直出窗口仍开——fbvvS8e1KgI playability 
 - [x] M9.3a tablet / 2in1 形态布局回归（从 M9.3 拆出，因环境阻塞独立登记）。**2026-08-25/26 阻塞解除并完成，但发现的问题另开了一轮整改（见下方证据行）。**
   - 阻塞：2026-08-24 所需系统镜像未下载。本机 `Sdk/system-image/HarmonyOS-6.1.1/` 下**只有 `phone_all_x86`**，而 MatePad Pro 13（tablet，2880×1920）需 `tablet_x86/`、MateBook Pro（2in1，3120×2080）需 `pc_all_x86/`。**须纠正 RELEASE_CHECKLIST 旧表述"DevEco API 24 镜像库无 2in1 设备"——该说法经实测证伪**：`Emulator.bat -help` 明列支持 `Phone | Foldable | WideFold | TripleFold | Tablet | 2in1 | 2in1 Foldable | Wearable | WearableKid | TV`，且四个 API 24 实例（Mate X7 / MateBook Pro / MatePad Pro 13 / Pura 90）都已创建；Mate X7 能跑正是因为 foldable 复用 `phone_all_x86`。真正的障碍是**命令行镜像管理器在无 GUI 会话下静默失效**：`Emulator.bat -imageList [-deviceType Phone] [-downloaded true]` 退出码 0 且**零输出**（连已在盘的 phone 镜像都不列），`Emulator.bat -install -deviceType 2in1 -osVersion "HarmonyOS 6.1.1(24)" -force`（`-license accept` 已先成功执行）同样退出码 0、零输出、镜像目录无变化。强启 MateBook Pro 的现象可与之互证：`isRunning=true` 且有 2 个 `Emulator.exe`，但 hdc 端口始终不出现（`list targets` 恒 `[Empty]`、`tconn 127.0.0.1:5555..5560` 全 `Connect failed`、netstat 无 555x 监听），即启动进入无镜像死态；对照组 Mate X7 启动后日志出 `Windows Hypervisor Platform accelerator is operational`、5555 端口 LISTENING、`hdc tconn 127.0.0.1:5555` 成功。**解除条件**：在 DevEco GUI 的 SDK/模拟器管理器里下载 `tablet_x86` 与 `pc_all_x86` 两份 API 24 镜像，之后可直接复用本轮的度量脚本（判据已按根节点屏宽自适应，无需改动）。
   - 证据（2026-08-25/26）：镜像阻塞经**在 DevEco GUI 内下载**解除——`Tools/Sdk/system-image/HarmonyOS-7.0.0-B1/pc_all_x86` 与 `HarmonyOS-7.0.0-B2/tablet_x86` 已在盘并通过签名校验。**须明确口径差异：下到的是 API 26 / HarmonyOS 7.0.0 Beta（`os.isPublic=false`），不是目标 6.1.1(24)；本机没有任何 6.1.1 的 tablet/pc 镜像**，所以这两档结论属**向上兼容运行**，不能替代目标 API 回归。另有一道启动门禁：CLT 的 `Emulator.bat -start` 能把 guest 跑起来但检测不到 `EmitGuestOSBootComplete`（因此不建 hdc 端口转发），DevEco 自带的 `Emulator.exe` 则要求华为账号处于登录态（日志缺 `SnUtil.cpp(CheckLogin)` 即落到 `can not read uuid file` 并弹「请在 DevEco Studio 中登录华为账号」）→ 可行路径只有「在 DevEco 登录账号 → 从设备管理器启动实例」。**回归结果**：tablet 1440vp 6 页 + 2in1（自由窗口 1100vp / 最大化 1642vp）5 组 `dumpLayout`，四类布局缺陷全 0，深色模式通过，tablet 上另取得挖孔避让实测（本机唯一带挖孔形态）。**但暴露 11 条大屏信息密度问题**（顶层 Tab 单格随窗口膨胀到 360vp、设置行文本 1412~1519vp、正文行宽 1408vp≈66 汉字、全宽按钮 1296vp、竖向空白 555vp），根因不是「某个控件写错」而是**全项目没有使用 ArkUI 标准响应式组件**（`GridRow`/`GridCol`/`Navigation`/`Tabs`/断点 grep 全部零命中）→ 已于 2026-08-26 另开一轮整改：`Tabs`/`TabContent`（大屏 `.vertical(true).barWidth(96)` 侧边栏）、`Navigation`/`NavDestination` + `NavPathStack`（`Router` 保留门面，38 个调用点零改动）、`GridRow`/`GridCol` 按断点分列、`ContentBand` 栏宽约束、硬编码 28vp → `TYPE_NAVIGATION_INDICATOR` 动态避让，共 24 文件（新增 3）。整改后门禁：`assembleHap` BUILD SUCCESSFUL 17 s 235 ms、codelinter `0 error / 26 warn / 2 suggestion`、**本地单测 819/819**（首次在本机实测到该 suite 的计数，落在 `entry/.test/default/intermediates/test/coverage_data/test_result.txt`；此前文档流传的 798 从未在本机测量过，两者不可作差）、设备侧 ohosTest 49 中 29 pass（20 个失败全是实网请求超时，因此**不能用它证明无回归**）。**未验证（如实记录）**：phone 与 2in1 的**改后**复测、2in1「自由窗口避让区 0 → 抬升量 0」这一动态避让核心验收点、动态跨断点切换、字号三档改后复测、目标 API 24 上的 tablet/2in1、真机、横屏、折叠外屏、侧滑返回手势（被系统 Dock 占用）、`mcp__deveco-mcp__check`（对本工程不可用）。详见 `docs/UX_COMPLIANCE_AUDIT.md` §8.2/§10.2/§11.5 与 `docs/RELEASE_CHECKLIST.md` §1/§7.3。
-- [ ] M9.4 API 26 前瞻（可选）：SDK Manager 下载 API 26 镜像后在 7.0 跑回归；7.0-only 能力走 capability adapter，不污染 24 基线。
+- [x] M9.4 API 26 前瞻（可选）：SDK Manager 下载 API 26 镜像后在 7.0 跑回归；7.0-only 能力走 capability adapter，不污染 24 基线。**2026-09-14 更新：本项前提已被取代**——2026-09-07 工程全量迁移 API 26（`compatibleSdkVersion` 26.0.0，见 `hm.md` §7.12），24 基线不复存在，7.0-only 能力可直接接入（仍受 canIUse 检测与降级守则约束）；原生播放列表桥与播放缓存已按此落地（§7.13）。剩余为 26 镜像/真机全功能回归，并入发布门槛待办。
   - 阻塞：2026-08-24 本机无 API 26 SDK 与镜像，且无法从命令行获取。实测：`Sdk/` 下只有一套 `system-image/HarmonyOS-6.1.1/`（且其中只有 `phone_all_x86`），CLT `sdk/` 下只有 `default`（= 6.1.1/API 24）；四个模拟器实例 `os.osVersion` 全部为 `HarmonyOS 6.1.1(24)`。获取通道与 M9.3a 同一个坏点——`Emulator.bat -imageList`/`-install` 在无 GUI 会话下退出码 0、零输出、无副作用（详见 M9.3a）。另据华为开发者联盟公开信息，HarmonyOS 7(API 26) 当前以 **Developer Beta 公开招募**形式分发，取用需相应 DevEco 版本 + Beta 资格，非直接可下载——因此本项不是"顺手跑一下"能闭合的，属需要外部输入（账号资格 + GUI 下载）的任务。**解除条件**：具备 API 26 Beta 资格并在 GUI 中装好 API 26 SDK + 对应模拟器镜像；届时先只做**只读回归**（同一份 API 24 HAP 在 7.0 上跑本轮的 `dumpLayout` 度量与 ohosTest），确认无回归后再考虑 capability adapter，`compileSdkVersion` 保持 24 不动以免污染基线。**注意本机的一个已知反直觉点**：已安装的 DevEco 是 26.0.0.621 Beta2（版本号已属 API 26 世代），但它自带的 hvigor **构不出 API 24**，本工程构建一直走 CLT 的 `hvigorw.bat`；升级 API 26 相关工具链时勿把这条踩坑记录一起改掉。
 
 ### 收尾常设任务（不编号，每里程碑末执行）
@@ -479,6 +479,28 @@ eport-m61-recheck.json）：IOS 直出窗口仍开——fbvvS8e1KgI playability 
 - 待续：字号 1.75x 布局复测（新字阶更大，上架硬性项）、真机 HDS 复核
   （材质能力/IMMERSIVE 档位/流光调参/WithTheme 整树重绘确认）、探针面板移除
   （真机复核后再删）。
+
+## S 阶段续：壳层沉浸与播放页转场波次（2026-09-08～09-14，分支 `dev`，PR #20–#30）
+
+S0–S6 结论的部分修正与延续（逐项证据见 `hm.md` §7.14 与 `FEATURE_MATRIX.md` 对应行）：
+
+- S0 结论修正：`HdsNavigation` 内容子树不挂载是当时模拟器/版本的观察，非平台定论——
+  8958d16 起外壳稳定换用 `HdsNavigation`（`hideBackButton(true)`、标题随 Tab、
+  `scrollEffectType: GRADIENT_BLUR` 渐变模糊标题栏、根节点 `expandSafeArea(SYSTEM/CUTOUT,
+  TOP|BOTTOM)` 延伸状态栏），自建 `TitleBarBlurBackdrop` 等价实现随之删除；真机录屏
+  （转场标定）证实外壳可用。`getSystemMaterialTypes()=[]` 材质降级结论维持。
+- 沉浸扩展：4edac60 探索/资料库/设置与首页统一内容穿透状态栏（外层与页内列表
+  `.clip(false)` + 列表顶部 `expandSafeArea`）；b9589db 移除标题栏系统返回与
+  「刷新推荐」按钮。
+- S6-core 整层替换：迷你条→播放页一镜到底废弃 `geometryTransition` 共享元素方案，
+  改 `bindContentCover` 全屏模态 + 单一进度 `panelAmount` 分阶段原生属性动画
+  （`NowPlayingCurves.ets` 先慢后快/回弹曲线，展开 300ms/收起 400ms，起止矩形按
+  真机录屏逐帧标定）。九轮迭代与审查跟进（26b49aa/552df87）记录见
+  `docs/NOW_PLAYING_TRANSITION_20260910.md`；折返/歌词页返回/宽屏真机回归待办。
+- 波次内其余：音量淡入淡出及设置化（54fb31f/c3acdbd，矩阵行详载）、资料库取色
+  重染收尾（d9b209c）、登录四连修复与下载完整性系列（见下方缺陷修复节）、
+  Copilot 代码审查 CI 配置（d68f4f3）、README 重写与 `NeriPlayer-master/` 解除
+  Git 追踪（8de4ca1）。
 
 ## 缺陷修复：网易云/B站杀进程重启后掉登录（2026-09-08，二次修复）
 
@@ -597,3 +619,41 @@ eport-m61-recheck.json）：IOS 直出窗口仍开——fbvvS8e1KgI playability 
   杀进程冷启动恢复）。
 - 连带效应：B 站 bundle（SESSDATA 等 ~500B）当前未超限，行为不变；未来超限同样
   自动分块，无需改动。
+
+## 缺陷修复：下载坏文件与本地播放 5400106 系列（2026-09-12～14，五连修复）
+
+- 背景：用户真机反馈「下载显示完成但文件无法播放（AVPlayer `5400106 Unsupported
+  Format`）+ 迷你条重新加载闪烁风暴 + 清空记录后资料库计数不清零」。真机日志驱动
+  五轮修复（77a6745→3d655fc→c60dfb1→b8ff989→b5c136d），细节同步登记
+  `FEATURE_MATRIX.md` 下载行。
+- **①分块写入错位与重试风暴（77a6745）**：`appendChunk` 给 `writeSync` 传
+  `offset: chunk.byteLength`——官方 FAQ 明确 `WriteOptions.offset` 是**文件绝对位置**，
+  追加必须 `OpenMode.APPEND`；每个分块都写到同一绝对位置，提交的是带零洞的坏容器。
+  无 Content-Length 响应（`expected<=0`）时 `transferSizeComplete` 恒真，坏文件照常
+  提交编目。修复为 APPEND + 无 offset 追加、416 视为完成时新增本地非空校验；播放
+  失败恢复收敛为纯策略 `PlaybackFailurePolicy.ets`（重试 1 次→跳下一首；下一目标即
+  当前曲或全队列已试完则停止并发布 ERROR；失败代守卫防 AVPlayer 错误回调与被拒
+  加载链双计），catalog fd 源失败自愈（删行+删文件，计数回归真实、允许重下）；
+  下载管理页改任务+catalog 合并行 `DownloadRow`（清空记录后已下载条目仍可见、
+  可删、单条删除）。
+- **②真机反馈三连（3d655fc）**：断网播已下载失败——重下曾被「catalog 有记录且
+  size>0 即短路 COMPLETED」钉死在旧坏文件上；现短路与 commit 前均做载荷头校验
+  `isPlausibleAudioHead`（NUL 空洞/HTML/JSON 错误页拒绝，m4a 允许 ≤3 个前导 NUL，
+  7 单测），自愈改走 `deleteDownload` 连任务记录一起清；资料库页删重复「下载管理」
+  入口；下载管理页删与删除键重叠的绿勾角标。
+- **③本地播放 5400106 双根因（c60dfb1）**：其一，网易云 weapi 取流的 AAC CDN 存在
+  周期性垃圾填充段，内容校验无法拦截——下载改走匿名 legacy 接口（`NeteaseApi.
+  getSongUrlLegacy`）拿干净 320k MP3；其二，本地文件经 `createMediaSourceWithUrl
+  ('fd://...')` 撞 AVPlayer 嗅探缺陷——改为打开文件后直赋
+  `player.fdSrc={fd,offset:0,length}`（精确 length）。
+- **④Copilot 一轮审查加固（b8ff989，7 条）**：下载日志脱敏、完整性门禁 fail-closed、
+  下载 key 竞态、播放缓存填充段扫描、416 严格重验、请求签名头精准匹配、环回桥
+  改走 fd 描述符。
+- **⑤二轮复审边界加固（b5c136d，8 条）**：凭据域截断防泄漏、self-heal 与
+  `currentMediaUrl` 配对防误删在线源、aborted 与失败清理区分、`file://` 路径
+  归一化、分享直链离线短路防坏副本、快速路径取消检查、经已打开 fd 取 size、
+  补充测试用例。
+- 验证：各轮服务器侧构建 + codelinter 改动文件 0 error + `hvigorw test` 编译级
+  0 error；新增 `PlaybackFailurePolicy`（6）/`DownloadRow`（4）等单测。坏文件
+  5400106 与修复效果由用户真机日志实证（legacy 源 + fdSrc 后本地下载可播）；
+  断网/杀进程恢复、自定义目录下载等设备侧自动化回归仍待真机。
