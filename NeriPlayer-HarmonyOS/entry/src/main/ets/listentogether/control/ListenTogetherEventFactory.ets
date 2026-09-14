@@ -35,7 +35,11 @@ import {
   ListenTogetherEvent,
   createListenTogetherEvent
 } from '../protocol/ListenTogetherEventModels';
-import { ListenTogetherRoomState } from '../protocol/ListenTogetherRoomModels';
+import {
+  ListenTogetherRoomSettings,
+  ListenTogetherRoomState,
+  cloneListenTogetherRoomSettings
+} from '../protocol/ListenTogetherRoomModels';
 import { ListenTogetherSocketEnvelope } from '../protocol/ListenTogetherSocketEnvelope';
 import { ListenTogetherTrack } from '../protocol/ListenTogetherTrack';
 import {
@@ -221,6 +225,17 @@ export class ListenTogetherEventFactory {
     event.track = track;
     event.requestTrackStableKey = stableKey;
     event.forceRefresh = forceRefresh ? true : null;
+    return event;
+  }
+
+  /**
+   * Controller-only room permission update (backlog §4.1/§4.2, Android
+   * updateRoomSettings): carries the normalized settings triple; the server
+   * answers with a room_state the whole room applies.
+   */
+  buildUpdateSettingsEvent(settings: ListenTogetherRoomSettings): ListenTogetherEvent {
+    const event = this.newEnvelope('UPDATE_SETTINGS');
+    event.roomSettings = cloneListenTogetherRoomSettings(settings);
     return event;
   }
 

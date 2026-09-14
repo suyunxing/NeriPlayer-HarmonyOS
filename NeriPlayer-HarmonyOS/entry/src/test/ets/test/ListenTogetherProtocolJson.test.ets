@@ -23,6 +23,7 @@ import {
 } from '../../../main/ets/listentogether/protocol/ListenTogetherEventModels';
 import {
   ListenTogetherMember,
+  ListenTogetherRoomSettings,
   ListenTogetherRoomStatuses,
   createListenTogetherRoomState,
   listenTogetherRoomStateFromRecord,
@@ -153,6 +154,29 @@ export default function listenTogetherProtocolJsonTest(): void {
       expect(decoded.eventId).assertEqual('event-play');
       expect(decoded.clientInstanceId).assertEqual('client-instance');
       expect(decoded.clientSequence).assertEqual(42);
+    });
+
+    it('roundTripsUpdateSettingsRoomSettings', 0, () => {
+      // backlog §4.1: the controller's UPDATE_SETTINGS carries the whole
+      // permission triple through the same event envelope.
+      const event = createListenTogetherEvent('UPDATE_SETTINGS');
+      event.eventId = 'event-settings';
+      const settings = new ListenTogetherRoomSettings();
+      settings.allowMemberControl = false;
+      settings.autoPauseOnMemberChange = false;
+      settings.shareAudioLinks = true;
+      event.roomSettings = settings;
+
+      const record = listenTogetherEventToRecord(event);
+      const wire = JSON.stringify(record);
+      expect(wire.includes('"allowMemberControl":false')).assertTrue();
+      expect(wire.includes('"shareAudioLinks":true')).assertTrue();
+      const decoded = listenTogetherEventFromRecord(reparse(record));
+      expect(decoded.type).assertEqual('UPDATE_SETTINGS');
+      expect(decoded.roomSettings === null).assertFalse();
+      expect(decoded.roomSettings!.allowMemberControl).assertFalse();
+      expect(decoded.roomSettings!.autoPauseOnMemberChange).assertFalse();
+      expect(decoded.roomSettings!.shareAudioLinks).assertTrue();
     });
 
     it('distinguishesAnAbsentQueueFromAnEmptyQueue', 0, () => {
