@@ -32,12 +32,15 @@ import {
 } from './SyncModels';
 import {
   ProtoReader,
+  ProtoWriter,
   WIRE_VARINT,
   WIRE_LEN,
   int64NumberValue,
   idFieldText,
   int32FromVarint
 } from './ProtobufWire';
+import { gzipCompress } from './GzipDeflate';
+import { songIdKeyText } from './SyncModels';
 
 // ---------------------------------------------------------------------------
 // Phase 1: schema-checked wire parsing
@@ -763,3 +766,371 @@ export function decodeProtoSyncDataWithLegacyFallback(protoBytes: Uint8Array, no
   return decodeSyncDataProto(protoBytes, nowMs) ??
     decodeLegacySyncData(protoBytes, nowMs);
 }
+
+// ---------------------------------------------------------------------------
+// Encode direction (backlog §1.3): kotlinx.protobuf encodeDefaults=false — a
+// field is written only when its value differs from the schema default the
+// decoder fills in for absent fields, byte-compatible with Android writes.
+// ---------------------------------------------------------------------------
+
+function writeStringIfSet(w: ProtoWriter, field: number, value: string | null): void {
+  if (value !== null) {
+    w.writeStringField(field, value);
+  }
+}
+
+function writeStringIfNonEmpty(w: ProtoWriter, field: number, value: string): void {
+  if (value.length > 0) {
+    w.writeStringField(field, value);
+  }
+}
+
+/** 64-bit id: wire-fidelity text wins over the (possibly lossy) number. */
+function songIdBigInt(id: number, idText: string): bigint {
+  const text = idText.length > 0 ? idText : `${id}`;
+  if (/^-?[0-9]+$/.test(text)) {
+    return BigInt(text);
+  }
+  return BigInt(id);
+}
+
+function encodeCausalTokens(w: ProtoWriter, field: number, tokens: SyncCausalToken[]): void {
+  for (const token of tokens) {
+    const nested = new ProtoWriter();
+    writeStringIfNonEmpty(nested, 1, token.deviceId);
+    if (token.counter !== 0) {
+      nested.writeNumberField(2, token.counter);
+    }
+    w.writeMessageField(field, nested);
+  }
+}
+
+function encodeSyncSong(song: SyncSong): ProtoWriter {
+  const w = new ProtoWriter();
+  if (song.id !== 0 || song.syncIdText.length > 0) {
+    w.writeInt64Field(1, songIdBigInt(song.id, song.syncIdText));
+  }
+  writeStringIfNonEmpty(w, 2, song.name);
+  writeStringIfNonEmpty(w, 3, song.artist);
+  writeStringIfNonEmpty(w, 4, song.album);
+  if (song.albumId !== 0) {
+    w.writeNumberField(5, song.albumId);
+  }
+  if (song.durationMs !== 0) {
+    w.writeNumberField(6, song.durationMs);
+  }
+  writeStringIfSet(w, 7, song.coverUrl);
+  writeStringIfSet(w, 8, song.mediaUri);
+  if (song.addedAt !== 0) {
+    w.writeNumberField(9, song.addedAt);
+  }
+  writeStringIfSet(w, 10, song.matchedLyric);
+  writeStringIfSet(w, 11, song.matchedTranslatedLyric);
+  writeStringIfSet(w, 12, song.matchedLyricSource);
+  writeStringIfSet(w, 13, song.matchedSongId);
+  if (song.userLyricOffsetMs !== 0) {
+    w.writeNumberField(14, song.userLyricOffsetMs);
+  }
+  writeStringIfSet(w, 15, song.customCoverUrl);
+  writeStringIfSet(w, 16, song.customName);
+  writeStringIfSet(w, 17, song.customArtist);
+  writeStringIfSet(w, 18, song.originalName);
+  writeStringIfSet(w, 19, song.originalArtist);
+  writeStringIfSet(w, 20, song.originalCoverUrl);
+  writeStringIfSet(w, 21, song.originalLyric);
+  writeStringIfSet(w, 22, song.originalTranslatedLyric);
+  writeStringIfSet(w, 23, song.channelId);
+  writeStringIfSet(w, 24, song.audioId);
+  writeStringIfSet(w, 25, song.subAudioId);
+  writeStringIfSet(w, 26, song.playlistContextId);
+  encodeCausalTokens(w, 27, song.syncMembershipTokens);
+  if (song.syncMetadataVersion !== 0) {
+    w.writeNumberField(28, song.syncMetadataVersion);
+  }
+  if (song.legacyAddedAt !== null) {
+    w.writeNumberField(29, song.legacyAddedAt);
+  }
+  return w;
+}
+
+function encodeSyncPlaylist(playlist: SyncPlaylist): ProtoWriter {
+  const w = new ProtoWriter();
+  if (playlist.id !== 0) {
+    w.writeNumberField(1, playlist.id);
+  }
+  writeStringIfNonEmpty(w, 2, playlist.name);
+  for (const song of playlist.songs) {
+    w.writeMessageField(3, encodeSyncSong(song));
+  }
+  if (playlist.createdAt !== 0) {
+    w.writeNumberField(4, playlist.createdAt);
+  }
+  if (playlist.modifiedAt !== 0) {
+    w.writeNumberField(5, playlist.modifiedAt);
+  }
+  if (playlist.isDeleted) {
+    w.writeBoolField(6, true);
+  }
+  if (playlist.songOrderVersion !== 0) {
+    w.writeNumberField(7, playlist.songOrderVersion);
+  }
+  return w;
+}
+
+function encodeRecentPlay(entry: SyncRecentPlay): ProtoWriter {
+  const w = new ProtoWriter();
+  if (entry.songId !== 0) {
+    w.writeNumberField(1, entry.songId);
+  }
+  const songBytes = encodeSyncSong(entry.song);
+  if (songBytes.byteLength() > 0) {
+    w.writeMessageField(2, songBytes);
+  }
+  if (entry.playedAt !== 0) {
+    w.writeNumberField(3, entry.playedAt);
+  }
+  writeStringIfNonEmpty(w, 4, entry.deviceId);
+  if (entry.resumePositionMs !== 0) {
+    w.writeNumberField(5, entry.resumePositionMs);
+  }
+  return w;
+}
+
+function encodeRecentPlayDeletion(deletion: SyncRecentPlayDeletion): ProtoWriter {
+  const w = new ProtoWriter();
+  if (deletion.songId !== 0 || deletion.syncSongIdText.length > 0) {
+    w.writeInt64Field(1, songIdBigInt(deletion.songId, deletion.syncSongIdText));
+  }
+  writeStringIfNonEmpty(w, 2, deletion.album);
+  writeStringIfSet(w, 3, deletion.mediaUri);
+  if (deletion.deletedAt !== 0) {
+    w.writeNumberField(4, deletion.deletedAt);
+  }
+  writeStringIfNonEmpty(w, 5, deletion.deviceId);
+  return w;
+}
+
+function encodePlaylistSongDeletion(deletion: SyncPlaylistSongDeletion): ProtoWriter {
+  const w = new ProtoWriter();
+  if (deletion.playlistId !== 0) {
+    w.writeNumberField(1, deletion.playlistId);
+  }
+  if (deletion.songId !== 0 || deletion.syncSongIdText.length > 0) {
+    w.writeInt64Field(2, songIdBigInt(deletion.songId, deletion.syncSongIdText));
+  }
+  writeStringIfNonEmpty(w, 3, deletion.album);
+  writeStringIfSet(w, 4, deletion.mediaUri);
+  if (deletion.deletedAt !== 0) {
+    w.writeNumberField(5, deletion.deletedAt);
+  }
+  writeStringIfNonEmpty(w, 6, deletion.deviceId);
+  encodeCausalTokens(w, 7, deletion.removedMembershipTokens);
+  return w;
+}
+
+function encodeFavoritePlaylist(favorite: SyncFavoritePlaylist): ProtoWriter {
+  const w = new ProtoWriter();
+  if (favorite.id !== 0) {
+    w.writeNumberField(1, favorite.id);
+  }
+  writeStringIfNonEmpty(w, 2, favorite.name);
+  writeStringIfSet(w, 3, favorite.coverUrl);
+  if (favorite.trackCount !== 0) {
+    w.writeNumberField(4, favorite.trackCount);
+  }
+  writeStringIfNonEmpty(w, 5, favorite.source);
+  for (const song of favorite.songs) {
+    w.writeMessageField(6, encodeSyncSong(song));
+  }
+  if (favorite.addedTime !== 0) {
+    w.writeNumberField(7, favorite.addedTime);
+  }
+  if (favorite.modifiedAt !== favorite.addedTime) {
+    w.writeNumberField(8, favorite.modifiedAt);
+  }
+  if (favorite.isDeleted) {
+    w.writeBoolField(9, true);
+  }
+  if (favorite.sortOrder !== favorite.addedTime) {
+    w.writeNumberField(10, favorite.sortOrder);
+  }
+  writeStringIfSet(w, 11, favorite.browseId);
+  writeStringIfSet(w, 12, favorite.playlistId);
+  writeStringIfSet(w, 13, favorite.subtitle);
+  return w;
+}
+
+function encodeLogEntry(entry: SyncLogEntry): ProtoWriter {
+  const w = new ProtoWriter();
+  if (entry.timestamp !== 0) {
+    w.writeNumberField(1, entry.timestamp);
+  }
+  writeStringIfNonEmpty(w, 2, entry.deviceId);
+  if (entry.action !== SyncAction.CREATE_PLAYLIST) {
+    w.writeNumberField(3, entry.action);
+  }
+  if (entry.playlistId !== null) {
+    w.writeNumberField(4, entry.playlistId);
+  }
+  if (entry.songId !== null) {
+    w.writeNumberField(5, entry.songId);
+  }
+  writeStringIfSet(w, 6, entry.details);
+  return w;
+}
+
+function encodeCounterShards(w: ProtoWriter, field: number, shards: SyncPlaybackCounterShard[]): void {
+  for (const shard of shards) {
+    const nested = new ProtoWriter();
+    writeStringIfNonEmpty(nested, 1, shard.deviceId);
+    if (shard.epochStartedAt !== 0) {
+      nested.writeNumberField(2, shard.epochStartedAt);
+    }
+    if (shard.totalListenMs !== 0) {
+      nested.writeNumberField(3, shard.totalListenMs);
+    }
+    if (shard.playCount !== 0) {
+      nested.writeNumberField(4, shard.playCount);
+    }
+    if (shard.firstPlayedAt !== 0) {
+      nested.writeNumberField(5, shard.firstPlayedAt);
+    }
+    if (shard.lastPlayedAt !== 0) {
+      nested.writeNumberField(6, shard.lastPlayedAt);
+    }
+    w.writeMessageField(field, nested);
+  }
+}
+
+function encodeTrackStat(stat: SyncTrackStat): ProtoWriter {
+  const w = new ProtoWriter();
+  writeStringIfNonEmpty(w, 1, stat.identityKey);
+  writeStringIfNonEmpty(w, 2, stat.name);
+  writeStringIfNonEmpty(w, 3, stat.artist);
+  writeStringIfNonEmpty(w, 4, stat.album);
+  if (stat.totalListenMs !== 0) {
+    w.writeNumberField(5, stat.totalListenMs);
+  }
+  if (stat.playCount !== 0) {
+    w.writeNumberField(6, stat.playCount);
+  }
+  if (stat.lastPlayedAt !== 0) {
+    w.writeNumberField(7, stat.lastPlayedAt);
+  }
+  if (stat.firstPlayedAt !== 0) {
+    w.writeNumberField(8, stat.firstPlayedAt);
+  }
+  writeStringIfSet(w, 9, stat.coverUrl);
+  if (stat.durationMs !== 0) {
+    w.writeNumberField(10, stat.durationMs);
+  }
+  writeStringIfSet(w, 11, stat.mediaUri);
+  if (stat.id !== 0) {
+    w.writeNumberField(12, stat.id);
+  }
+  if (stat.albumId !== 0) {
+    w.writeNumberField(13, stat.albumId);
+  }
+  if (stat.counterBaseListenMs !== 0) {
+    w.writeNumberField(14, stat.counterBaseListenMs);
+  }
+  if (stat.counterBasePlayCount !== 0) {
+    w.writeNumberField(15, stat.counterBasePlayCount);
+  }
+  encodeCounterShards(w, 16, stat.counterShards);
+  return w;
+}
+
+function encodePlaybackStatBucket(bucket: SyncPlaybackStatBucket): ProtoWriter {
+  const w = new ProtoWriter();
+  if (bucket.dayStartAt !== 0) {
+    w.writeNumberField(1, bucket.dayStartAt);
+  }
+  writeStringIfNonEmpty(w, 2, bucket.identityKey);
+  writeStringIfNonEmpty(w, 3, bucket.name);
+  writeStringIfNonEmpty(w, 4, bucket.artist);
+  writeStringIfNonEmpty(w, 5, bucket.album);
+  if (bucket.totalListenMs !== 0) {
+    w.writeNumberField(6, bucket.totalListenMs);
+  }
+  if (bucket.playCount !== 0) {
+    w.writeNumberField(7, bucket.playCount);
+  }
+  if (bucket.lastPlayedAt !== 0) {
+    w.writeNumberField(8, bucket.lastPlayedAt);
+  }
+  if (bucket.firstPlayedAt !== 0) {
+    w.writeNumberField(9, bucket.firstPlayedAt);
+  }
+  writeStringIfSet(w, 10, bucket.coverUrl);
+  if (bucket.durationMs !== 0) {
+    w.writeNumberField(11, bucket.durationMs);
+  }
+  writeStringIfSet(w, 12, bucket.mediaUri);
+  if (bucket.id !== 0) {
+    w.writeNumberField(13, bucket.id);
+  }
+  if (bucket.albumId !== 0) {
+    w.writeNumberField(14, bucket.albumId);
+  }
+  if (bucket.counterBaseListenMs !== 0) {
+    w.writeNumberField(15, bucket.counterBaseListenMs);
+  }
+  if (bucket.counterBasePlayCount !== 0) {
+    w.writeNumberField(16, bucket.counterBasePlayCount);
+  }
+  encodeCounterShards(w, 17, bucket.counterShards);
+  return w;
+}
+
+/** SyncData → protobuf bytes (current schema). */
+export function encodeSyncDataProto(data: SyncData): Uint8Array {
+  const w = new ProtoWriter();
+  if (data.version !== SYNC_DATA_VERSION) {
+    writeStringIfNonEmpty(w, 1, data.version);
+  }
+  writeStringIfNonEmpty(w, 2, data.deviceId);
+  writeStringIfNonEmpty(w, 3, data.deviceName);
+  if (data.lastModified !== 0) {
+    w.writeNumberField(4, data.lastModified);
+  }
+  for (const playlist of data.playlists) {
+    w.writeMessageField(5, encodeSyncPlaylist(playlist));
+  }
+  for (const favorite of data.favoritePlaylists) {
+    w.writeMessageField(6, encodeFavoritePlaylist(favorite));
+  }
+  for (const entry of data.recentPlays) {
+    w.writeMessageField(7, encodeRecentPlay(entry));
+  }
+  for (const entry of data.syncLog) {
+    w.writeMessageField(8, encodeLogEntry(entry));
+  }
+  for (const deletion of data.recentPlayDeletions) {
+    w.writeMessageField(9, encodeRecentPlayDeletion(deletion));
+  }
+  for (const stat of data.playbackStats) {
+    w.writeMessageField(10, encodeTrackStat(stat));
+  }
+  if (data.playbackStatsClearedAt !== 0) {
+    w.writeNumberField(11, data.playbackStatsClearedAt);
+  }
+  for (const bucket of data.playbackStatBuckets) {
+    w.writeMessageField(12, encodePlaybackStatBucket(bucket));
+  }
+  for (const deletion of data.playlistSongDeletions) {
+    w.writeMessageField(13, encodePlaylistSongDeletion(deletion));
+  }
+  return w.toBytes();
+}
+
+/**
+ * Data-saver upload payload: GZIP(Protobuf(SyncData)), the exact format
+ * Android SyncDataSerializer writes for backup-raw.bin.
+ */
+export function serializeSyncDataBinary(data: SyncData): Uint8Array {
+  return gzipCompress(encodeSyncDataProto(data));
+}
+
+/** Re-exported for callers that verify wire ids against the codec split. */
+export { songIdKeyText };

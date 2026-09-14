@@ -30,6 +30,7 @@ import playbackStatsMergePolicyTest from './ets/test/PlaybackStatsMergePolicy.te
 import dataChangeDetectorTest from './ets/test/DataChangeDetector.test';
 import syncDataJsonCodecTest from './ets/test/SyncDataJsonCodec.test';
 import syncBinaryCodecTest from './ets/test/SyncBinaryCodec.test';
+import syncProtoEncodeTest from './ets/test/SyncProtoEncode.test';
 import syncSongConvertTest from './ets/test/SyncSongConvert.test';
 import syncSnapshotBuilderTest from './ets/test/SyncSnapshotBuilder.test';
 import syncDeletionStoreTest from './ets/test/SyncDeletionStore.test';
@@ -118,6 +119,7 @@ export default function testsuite(): void {
   dataChangeDetectorTest();
   syncDataJsonCodecTest();
   syncBinaryCodecTest();
+  syncProtoEncodeTest();
   syncSongConvertTest();
   syncSnapshotBuilderTest();
   syncDeletionStoreTest();
