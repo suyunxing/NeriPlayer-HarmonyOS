@@ -9,6 +9,7 @@ import { SongItem } from '../model/SongItem';
 import { stableKeyOf } from '../model/SongIdentity';
 import { util } from '@kit.ArkTS';
 import { SyncDeletionStore } from '../sync/SyncDeletionStore';
+import { AutoSyncScheduler } from '../sync/AutoSyncScheduler';
 import { SyncPlaylistSongDeletion, songIdKeyText, syncSongIdentity } from '../sync/SyncModels';
 import { playlistIdToSync, syncSongFromSongItem } from '../sync/SyncSongConvert';
 
@@ -91,6 +92,7 @@ export class LocalPlaylistRepository {
         ids = SyncPendingState.markPending(ids, changedId);
       }
       await AppPreferences.putString(SyncPendingState.KEY, SyncPendingState.toJson(ids));
+      AutoSyncScheduler.scheduleMutationSync();
     }
   }
 

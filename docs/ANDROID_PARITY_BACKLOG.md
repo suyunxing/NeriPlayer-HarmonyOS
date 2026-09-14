@@ -18,6 +18,8 @@
 
 ### 1.1 SongIdentity 数值 ID 哈希算法跨端不兼容 ⚠️ 最高优先
 
+> **✅ 已完成（2026-09-14，`android-parity` 分支 dcbc450）**：`SongIdentity.id` 改为十进制字符串并复用 sync 层既有 `stableSyncId`（SHA-256 前 8 字节大端有符号 Long，0→1 兜底），与 Android `stableYouTubeMusicId` 逐字节一致；旧 FNV 算法冻结为 `legacyFnvStableKey` 仅供迁移。存量数据经 `data/StableKeyMigration.ets` 一次性重算（歌单键按索引对齐重建、统计键冲突求和合并、下载编目按 songJson 重算，不可解析旧键原样保留），EntryAbility 在 loadContent 前等待迁移完成。跨端 fixture：`dQw4w9WgXcQ→6875601686285462142`、`bilibili|170001|234567→-6910934312082985118`（负数符号位路径）等 13 例（`SongIdentitySha256.test.ets`）。**残留**：云端历史 FNV 键条目不会被主动清除（将与 Android 键长期并存直至自然老化）；单测执行计数待 Windows 工作站。
+
 - **事实**：Android 对 B 站/YTM 曲目用 SHA-256 摘要前 8 字节生成 64 位 Long（`NeriPlayer-master/.../data/platform/youtube/YouTubeMusicSupport.kt:469` `stableYouTubeMusicId`，LibraryHostScreen/ExploreHostScreen/HomeScreen 等 UI 层调用）；HarmonyOS 用 FNV-1a 32 位（`entry/src/main/ets/model/SongIdentity.ets:27`）。同一首歌两侧稳定键不同。
 - **后果**：Android 设备与 HarmonyOS 设备云同步时，B 站/YTM 曲目被识别为两首歌，重复入库。网易云歌曲不受影响（id 用平台原生数字 id）。
 - **做法**：`hashStableId` 改为 SHA-256 截断 64 位（ArkTS 手写或用 `@ohos.security.cryptoFramework`），并写跨端 fixture 测试（同一 bvid/videoId 两端产出相同 id）；已入库的 FNV id 需一次性迁移（按 `<id>|<album>|<mediaUri>` 重算并更新歌单/历史/统计中的引用）。
@@ -25,20 +27,28 @@
 
 ### 1.2 下载歌曲身份回退（sourceStableKey 未被消费）
 
+> **✅ 已完成（2026-09-14，dcbc450）**：`songIdentity()` 对本地歌曲优先解析 `sourceStableKey` 还原远端身份（对齐 Android `normalizedDownloadedSourceIdentity`，自引用守卫）；`LocalMediaScanner` 导入时经 `matchDownloadedEntry`（路径优先/文件名回退）回链下载编目并写入 `sourceStableKey`。单测覆盖「下载→编目→本地导入→识别为同一首」全链。注：HarmonyOS 下载播放本就走编目原始平台身份（DownloadsPage/PlayerManager 均未降级 platform），本项补齐的是本地媒体库导入侧的身份回链。
+
 - **事实**：`SongItem.ets:35/79/135` 定义并序列化了 `sourceStableKey` 字段，但 `SongIdentity.ets` 不读取它；Android 侧 `SongIdentity.kt` 会从本地音频还原云端原始身份。当前下载后的歌曲在 HarmonyOS 端被判为纯本地曲目，身份脱钩（与 1.1 叠加影响跨端同步）。
 - **做法**：`SongIdentity.fromSong` 检测本地歌曲时优先解析 `sourceStableKey` 还原平台身份；补单测覆盖「下载→同步→另一端识别为同一首」。
 
 ### 1.3 同步上传 Protobuf 写出（省流模式半实现）
+
+> **✅ 已完成（2026-09-14，0c51898）**：新增 `sync/GzipDeflate.ets`（纯 ArkTS fixed-Huffman LZ77 gzip 压缩器，算法原型先经 CPython gzip 交叉解压验证）+ `ProtoWriter` 写入原语 + `encodeSyncDataProto`（字段号与解码器镜像、kotlinx encodeDefaults=false 语义）+ `serializeSyncDataBinary`=GZIP(Proto)。`SyncCoordinator` 注入序列化器，`SyncService` 按省流开关分流（GitHub 写 backup-raw.bin、WebDAV 同名文件共享全局开关并按 gzip 魔数切 octet-stream）。服务器端以 esbuild+Node 真实执行编码→gzip→解码全往返（gzip-proto 体积为 JSON 的 16.6%），CPython gzip 可解压产物；`SyncProtoEncode.test.ets` 6 例。**残留**：与真实 Android 端的双向互通待用户真机复核；默认仍关省流（避免静默切换远端格式）。
 
 - **事实**：读侧三格式兼容（`SyncDataProtoCodec.ets` + `GzipInflate.ets` 可解码 Android 写出的 `backup-raw.bin`），但写侧无论省流开关与否一律 `serializeSyncDataJson`（`SyncCoordinator.ets:105`）；Android 省流模式写 Gzip Protobuf 体积仅 JSON 的 ~15%。
 - **做法**：实现 Protobuf 编码器（`ProtobufWire.ets` 已有 wire 基础，补 encode 方向），`upload` 按 `np.sync_data_saver` 分流；用 Android 产出的 `backup-raw.bin` 做往返 fixture（HarmonyOS 写 → Android 读）。`GitHubConfigRepository.ets:12` 注释已自认此缺口。
 
 ### 1.4 统计日桶仅保留 30 天（Android 保留 8000 天）
 
+> **✅ 已完成（2026-09-14，cd0976d）**：按 Android `PlaybackStatsDailyBuckets` 真实语义实现「400 天滑动窗口 + 8000 桶硬上限」（原文「8000 天」为桶数之误），`trimDailyBuckets` 移植其淘汰优先级（日期降序→次数降序→键降序）；`PlaybackStatsRetention.test.ets` 4 例。单 key 体积评估：8000 桶上限本身就是护栏，超限前已按优先级裁切。
+
 - **事实**：`PlaybackStatsRepository.ets:26` `BUCKET_DAYS = 30`，超期日桶强制裁切；Android `PlaybackStatsDailyBuckets.kt:4` 为 8_000 桶。年度收听报告等长周期统计在当前实现下不可能。
 - **做法**：评估把保留窗口提到与 Android 对齐（直接调常量即可），同时评估 preferences 单 key 体积与写入频率（8 千桶的 JSON 读写开销），必要时改分片存储；跨端同步时注意 Android 端已存在的多年数据合并。
 
 ### 1.5 后台自动同步（缺 WorkManager 等价物）
+
+> **✅ 已完成（2026-09-14）**：API 26 官方文档核实后采用三层实现（`sync/AutoSyncScheduler.ets`）：① 数据变更 5 秒防抖静默同步（10 分钟窗口内合并，对齐 Android `scheduleDelayedSync`）；② 启动补偿同步（1 小时节流）；③ **后台延迟任务通道**——`workScheduler`（≥2 小时周期、允许网络、2 分钟回调上限、无需权限、活跃分组下最小 2h，官方文档核实）+ 新增 `SyncWorkSchedulerExtensionAbility`（module.json5 声明，扩展进程内自初始化 preferences/context 后复用同一静默管线）。总开关 `np.sync_auto`（默认关，对齐 Android），设置页 GitHub 分区新增「自动同步」开关并联动延迟任务注册。**未验证**：设备侧（延迟任务实际唤醒、扩展进程同步执行、后台网络），须真机/模拟器复核；长时任务/代理提醒/Push Kit 路线已由文档核实排除（DATA_TRANSFER 需实况窗进度、reminder 无代码回调、后台消息不拉起进程）。
 
 - **事实**：Android 用 WorkManager 周期静默同步（`GitHubSyncWorker`/`WebDavSyncWorker`）；HarmonyOS 只能设置页手动触发。
 - **做法**：调研 HarmonyOS 等价能力（`@ohos.resourceschedule.backgroundTaskManager` 的长时/延迟任务或提醒代理，注意平台对后台网络限制），不可行则降级为「应用启动时静默同步一次」并在 README 注明。

@@ -31,6 +31,19 @@ function uploadSerializer(useDataSaver: boolean): (data: SyncData) => Uint8Array
 }
 
 export class SyncService {
+  /** Runs whichever transport is configured (GitHub first); null when none. */
+  static async syncConfigured(): Promise<SyncReport | null> {
+    const github = await GitHubConfigRepository.loadConfig();
+    if (github !== null) {
+      return SyncService.syncGitHub();
+    }
+    const webDav = await WebDavConfigRepository.loadConfig();
+    if (webDav !== null) {
+      return SyncService.syncWebDav();
+    }
+    return null;
+  }
+
   static async syncGitHub(): Promise<SyncReport> {
     const config = await GitHubConfigRepository.loadConfig();
     if (config === null) {
