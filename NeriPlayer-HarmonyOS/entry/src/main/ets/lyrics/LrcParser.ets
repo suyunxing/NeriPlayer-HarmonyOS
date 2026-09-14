@@ -169,6 +169,11 @@ export class LrcParser {
     return `${minutes}:${`${seconds}`.padStart(2, '0')}`;
   }
 
+  /** `[mm:ss.SSS]` public wrapper for sidecar writers. */
+  static formatLrcTimestamp(timeMs: number): string {
+    return LrcParser.toTimestamp(timeMs);
+  }
+
   /**
    * Serializes parsed lines back into standard LRC text, the inverse of
    * parse(). Needed by AVSessionManager: AVMetadata.lyric is documented as
