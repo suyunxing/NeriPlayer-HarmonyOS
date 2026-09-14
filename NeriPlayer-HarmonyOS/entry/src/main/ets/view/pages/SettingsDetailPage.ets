@@ -39,6 +39,7 @@ import {
   QrPollOutcome,
   QrPollOutcomeCode
 } from '../components/QrLoginPanel';
+import { NeteasePhoneLoginPanel } from '../components/NeteasePhoneLoginPanel';
 import { Theme } from '../Theme';
 import { AccentScheme } from '../theme/AccentScheme';
 import { BAND_LIST_VP } from '../../util/Breakpoint';
@@ -155,6 +156,7 @@ export struct SettingsDetailPage {
   @StorageProp('np.listen_together_allow_member_control') ltAllowMemberControl: boolean = true;
   @StorageProp('np.listen_together_auto_pause_on_member_change') ltAutoPauseOnMemberChange: boolean = true;
   @StorageProp('np.listen_together_share_audio_links') ltShareAudioLinks: boolean = true;
+  @State showNeteasePhoneLogin: boolean = false;
 
   @State cacheBytes: number = 0;
 
@@ -320,6 +322,16 @@ export struct SettingsDetailPage {
       this.neteaseLogged = true;
       NeteaseApi.resetSession();
       promptAction.openToast({ message: '网易云登录成功' });
+    }
+    return saved;
+  }
+
+  private async onNeteasePhoneConfirmed(cookies: Map<string, string>): Promise<boolean> {
+    const saved = await NeteaseCookieRepository.saveFromPhoneLogin(cookies);
+    if (saved) {
+      this.neteaseLogged = true;
+      this.showNeteasePhoneLogin = false;
+      NeteaseApi.resetSession();
     }
     return saved;
   }
@@ -1282,6 +1294,22 @@ export struct SettingsDetailPage {
               icon: '📋',
               onTap: () => this.openNeteasePasteDialog()
             })
+            if (!this.neteaseLogged) {
+              SettingRow({
+                title: '手机号登录（网易云）',
+                subtitle: '短信验证码或密码登录',
+                icon: '📱',
+                onTap: () => {
+                  this.showNeteasePhoneLogin = !this.showNeteasePhoneLogin;
+                }
+              })
+              if (this.showNeteasePhoneLogin) {
+                NeteasePhoneLoginPanel({
+                  onConfirmed: (cookies: Map<string, string>): Promise<boolean> =>
+                    this.onNeteasePhoneConfirmed(cookies)
+                })
+              }
+            }
             SettingRow({
               title: 'Bilibili',
               subtitle: this.biliLogged
