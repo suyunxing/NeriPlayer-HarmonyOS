@@ -2,6 +2,7 @@
 
 import { Theme } from '../Theme';
 import { BAND_TEXT_VP } from '../../util/Breakpoint';
+import { util } from '@kit.ArkTS';
 
 export const LEGAL_PRIVACY: string = 'privacy';
 export const LEGAL_AGREEMENT: string = 'agreement';
@@ -9,9 +10,11 @@ export const LEGAL_AGREEMENT: string = 'agreement';
 /**
  * 隐私政策 / 用户协议阅读页。
  *
- * 正文放在 resources 的 string.json 里（段落之间用 \n 分隔，Text 直接渲染换
- * 行），所以离线也能完整打开 —— 指南要求首启弹窗链接到的隐私政策与用户协议
- * 必须真的能打开，而不是一个点不动或加载不出来的外链。
+ * 正文放在 resources/rawfile/ 下的 Markdown 文件里（privacy_policy.md /
+ * user_agreement.md），aboutToAppear 时经 getRawFileContent 异步读入——离线
+ * 也能完整打开，指南要求首启弹窗链接到的隐私政策与用户协议必须真的能打
+ * 开，而不是一个点不动或加载不出来的外链。文案定稿直接改 rawfile 的
+ * .md 文件（将来上 AGC 时同一份文件复制到后台上传），不再改 string.json。
  *
  * 两种用法：
  *   * 首启免责声明页内的浮层（DisclaimerPage，onClose 收起浮层）
@@ -23,6 +26,8 @@ export struct LegalDocPage {
   onClose: () => void = () => {};
   /** 正文收尾留白，跟随真实导航指示器避让区（见 util/WindowMetrics.ets）。 */
   @StorageProp('ui.bottomLiftVp') bottomLift: number = Theme.bottomBarLift();
+  @State private bodyText: string = '';
+  @State private loadFailed: boolean = false;
 
   private title(): Resource {
     return this.doc === LEGAL_AGREEMENT
@@ -30,10 +35,29 @@ export struct LegalDocPage {
       : $r('app.string.privacy_policy_title');
   }
 
-  private body(): Resource {
-    return this.doc === LEGAL_AGREEMENT
-      ? $r('app.string.user_agreement_body')
-      : $r('app.string.privacy_policy_body');
+  private rawFileName(): string {
+    return this.doc === LEGAL_AGREEMENT ? 'user_agreement.md' : 'privacy_policy.md';
+  }
+
+  aboutToAppear(): void {
+    this.loadBody();
+  }
+
+  private async loadBody(): Promise<void> {
+    try {
+      const ctx = this.getUIContext().getHostContext();
+      if (!ctx) {
+        this.loadFailed = true;
+        return;
+      }
+      const content = await ctx.resourceManager.getRawFileContent(this.rawFileName());
+      const text = util.TextDecoder.create('utf-8').decodeToString(content);
+      // 去掉首行 Markdown 标题（页面已有标题栏），保留正文原样按 \n 渲染。
+      const firstNewline = text.indexOf('\n');
+      this.bodyText = firstNewline >= 0 ? text.slice(firstNewline + 1).trim() : text.trim();
+    } catch (e) {
+      this.loadFailed = true;
+    }
   }
 
   build() {
@@ -74,11 +98,18 @@ export struct LegalDocPage {
             .padding(10)
             .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
             .borderRadius(10)
-          Text(this.body())
-            .fontSize(14)
-            .lineHeight(22)
-            .fontColor(Theme.textPrimary(Theme.isDark()))
-            .width('100%')
+          if (this.loadFailed) {
+            Text('文档加载失败，请重启应用重试。')
+              .fontSize(14)
+              .fontColor(Theme.warning(Theme.isDark()))
+              .width('100%')
+          } else {
+            Text(this.bodyText)
+              .fontSize(14)
+              .lineHeight(22)
+              .fontColor(Theme.textPrimary(Theme.isDark()))
+              .width('100%')
+          }
         }
         .width('100%')
         // 底部固定控件的上抬量同时用作滚动内容的收尾留白，保证最后一段不贴住
