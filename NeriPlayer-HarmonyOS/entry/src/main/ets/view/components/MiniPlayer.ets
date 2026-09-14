@@ -20,8 +20,14 @@ export struct MiniPlayer {
   onMeasured: (area: Area) => void = (_area: Area): void => {};
   @StorageLink('player.currentSong') currentSongJson: string = '';
   @StorageLink('player.status') @Watch('onStatusChanged') status: number = PlaybackStatus.IDLE;
-  /** ReplaceSymbolEffect 触发计数：播放/暂停切换时 +1 驱动交叉淡入。 */
-  @State symbolTrigger: number = 0;
+  /**
+   * ReplaceSymbolEffect 触发计数：播放/暂停切换时 +1 驱动交叉淡入。初值必须
+   * 为 -1（官方语义：triggerValue 变更才触发动效，「首次不希望触发动效，
+   * 设置 -1」）——HdsTabs 切 Tab 时会重建 miniBar 槽位内容（CustomBuilder
+   * remount），新 SymbolGlyph 以非 -1 的 trigger 挂载会被当成一次变更，误放
+   * 替换动效，播放键随每次切页闪烁。
+   */
+  @State symbolTrigger: number = -1;
   private replaceEffect: ReplaceSymbolEffect = new ReplaceSymbolEffect(EffectScope.WHOLE);
   @StorageLink('player.positionMs') positionMs: number = 0;
   @StorageLink('player.durationMs') durationMs: number = 0;
@@ -71,6 +77,14 @@ export struct MiniPlayer {
   }
 
   private onLyricLineChanged(): void {
+    this.lyricLineText = this.lyricLineFeed;
+  }
+
+  aboutToAppear(): void {
+    // @Watch 在初始化时不回调：槽位被切 Tab 重建时，下面的镜像 @State 若从
+    // 空值起步，歌词副行会回退成歌手行、封面取色回退默认主色，直到下一次
+    // 数据变更才恢复。挂载时先从 AppStorage 源补齐，重建与首挂同观感。
+    this.seedHex = this.coverSeedHex;
     this.lyricLineText = this.lyricLineFeed;
   }
 
