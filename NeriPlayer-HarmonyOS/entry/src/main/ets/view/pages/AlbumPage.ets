@@ -10,6 +10,8 @@ import { EmptyState } from '../components/Ui';
 import { SongRow } from '../components/SongRow';
 import { Router } from '../Router';
 import { stableKeyOf } from '../../model/SongIdentity';
+import { NeteaseApi } from '../../network/NeteaseApi';
+import { MusicPlatform } from '../../model/MusicPlatform';
 
 /**
  * 「查看专辑」页：聚合本地库（全部歌单 + 当前播放曲）中同一专辑的歌曲。
@@ -27,6 +29,7 @@ export struct AlbumPage {
   albumParam: string = '';
   @State songs: SongItem[] = [];
   @State albumName: string = '';
+  @State remoteAlbum: boolean = false;
   @State loading: boolean = true;
 
   private query(): AlbumQuery {
@@ -57,6 +60,16 @@ export struct AlbumPage {
       pool.push(current);
     }
     this.songs = AlbumSongs.collect(pool, query);
+    // NetEase albums upgrade to the remote track list (backlog §3.4): the
+    // local pool only knows songs the user already played somewhere.
+    if (query.albumId > 0 && pool.some((song: SongItem): boolean =>
+      song.platform === MusicPlatform.NETEASE && song.albumId === query.albumId)) {
+      const remote = await NeteaseApi.getAlbumDetail(query.albumId);
+      if (remote.length > 0) {
+        this.songs = remote;
+        this.remoteAlbum = true;
+      }
+    }
     this.loading = false;
   }
 
@@ -92,7 +105,9 @@ export struct AlbumPage {
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
           if (this.songs.length > 0) {
-            Text(`专辑 · ${this.songs.length} 首（本地库）`)
+            Text(this.remoteAlbum
+              ? `专辑 · ${this.songs.length} 首（网易云）`
+              : `专辑 · ${this.songs.length} 首（本地库）`)
               .fontSize(11)
               .fontColor(Theme.textSecondary(Theme.isDark()))
           }

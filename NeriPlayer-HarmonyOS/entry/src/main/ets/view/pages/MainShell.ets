@@ -31,6 +31,7 @@ import { StatsPage } from './StatsPage';
 import { SettingsDetailPage } from './SettingsDetailPage';
 import { LegalDocPage } from './LegalDocPage';
 import { AlbumPage } from './AlbumPage';
+import { ArtistPage } from './ArtistPage';
 
 /** Tab 项内容高度 56 + 顶部 6 的视觉间距，与改造前的 tabItem 固定高度一致。 */
 const TAB_BAR_CONTENT_VP: number = 62;
@@ -406,6 +407,8 @@ export struct MainShell {
         DownloadsPage()
       } else if (name === Router.ALBUM) {
         AlbumPage({ albumParam: this.paramText(param) })
+      } else if (name === Router.ARTIST) {
+        ArtistPage({ artistParam: this.paramText(param) })
       } else if (name === Router.LISTEN_TOGETHER) {
         ListenTogetherPage()
       } else if (name === Router.LEGAL_DOC) {

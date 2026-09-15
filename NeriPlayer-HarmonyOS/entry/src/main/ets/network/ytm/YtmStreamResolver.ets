@@ -103,6 +103,11 @@ export class YtmStreamResolver {
     return url;
   }
 
+  /** Drops every cached URL variant for a video (load-failure re-sign path). */
+  static evictCachedUrl(videoId: string): void {
+    YtmStreamResolver.cache.evictVideo(videoId);
+  }
+
   /**
    * Decision core: walk the health-filtered chain, retry an HTTP-400 IOS
    * attempt once on the downgraded version, and aggregate per-client

@@ -2,6 +2,7 @@
 
 import { curves, SymbolGlyphModifier, LengthMetrics, window } from '@kit.ArkUI';
 import { SongItem } from '../../model/SongItem';
+import { MusicPlatform } from '../../model/MusicPlatform';
 import { stableKeyOf } from '../../model/SongIdentity';
 import { LyricLine } from '../../model/LyricLine';
 import { QueueState } from '../../model/QueueState';
@@ -106,7 +107,6 @@ export struct NowPlayingPage {
   // its fade finishes it collapses into layer A without animation. 两层都是
   // 整屏主背景，blur 强度跟随设置项且整体增强（毛玻璃突出控件与歌词）。
   @StorageProp('np.nowplaying_blur_strength') blurStrength: number = 300;
-  @StorageProp('np.glass_effect') glassEffect: boolean = true;
   // 播放器设置（np.nowplaying_bg_style / np.keep_screen_on / np.circular_cover /
   // np.lyric_page_controls）。
   @StorageProp('np.nowplaying_bg_style') bgStyle: string = 'blur';
@@ -446,6 +446,15 @@ export struct NowPlayingPage {
     this.getUIContext().getPromptAction().showToast({ message: '暂无专辑信息', duration: 2000 });
   }
 
+  private openArtist(): void {
+    const song = this.song();
+    if (song.platform === MusicPlatform.NETEASE && song.artistId > 0) {
+      Router.push(Router.ARTIST, JSON.stringify({ artist: song.displayArtist, artistId: song.artistId }));
+      return;
+    }
+    this.getUIContext().getPromptAction().showToast({ message: '暂无艺人信息', duration: 2000 });
+  }
+
   @Builder
   songMenuBuilder() {
     Menu() {
@@ -484,6 +493,12 @@ export struct NowPlayingPage {
         content: '查看专辑'
       }).onClick(() => {
         this.openAlbum();
+      })
+      MenuItem({
+        symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.music_note_list')).fontSize(22),
+        content: '查看艺人'
+      }).onClick(() => {
+        this.openArtist();
       })
       MenuItem({
         symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.share')).fontSize(22),
@@ -714,6 +729,7 @@ export struct NowPlayingPage {
             // often have no remote lyric source, Android shows an empty state).
             LyricView({
               lyrics: this.lyrics,
+              lyricPlatform: this.song().platform,
               onSeek: (timeMs: number) => PlayerManager.seekTo(timeMs),
               // Lyric scrubbing previews the centered line's time in the shared
               // label channel (same previewMs the waveform drag uses); playback
@@ -925,10 +941,10 @@ export struct NowPlayingPage {
                 showClose: false,
                 // API 24 上半模态的官方材质入口（since 12）。COMPONENT 系列
                 // 跟随组件圆角取景，即「沉浸光感」玻璃观感；设备材质能力
-                // 不足或用户关闭毛玻璃时用不透明 surface 兜底（HdsLight 探针
-                // 在模拟器恒为空，故不做运行时材质探测）。
-                blurStyle: this.glassEffect ? BlurStyle.COMPONENT_ULTRA_THICK : BlurStyle.NONE,
-                backgroundColor: this.glassEffect ? Theme.surfaceGlass(Theme.isDark()) : Theme.surface(Theme.isDark()),
+                // 不足时用不透明 surface 兜底（HdsLight 探针在模拟器恒为
+                // 空，故不做运行时材质探测）。
+                blurStyle: BlurStyle.COMPONENT_ULTRA_THICK,
+                backgroundColor: Theme.surfaceGlass(Theme.isDark()),
                 onDisappear: () => {
                   this.showLyricSettings = false;
                 }

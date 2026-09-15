@@ -19,6 +19,7 @@ import {
   parseBiliFavResourcePage,
   biliFavMediaDedupKey
 } from './BiliFavParser';
+import { BiliCookieRepository } from '../data/auth/BiliCookieRepository';
 
 interface BiliSearchItem {
   bvid: string;
@@ -106,6 +107,68 @@ export class BiliApi {
   // playurl rejects bvid-only requests with -400 since 2026; the cid from the
   // view endpoint is stable per video, so cache it for the process lifetime.
   private static cidCache: Map<string, number> = new Map();
+  // Anonymous fingerprint seeding (backlog §3.6, Android ensureAnonCookies):
+  // cached 1h like upstream; empty until the first logged-out fetch succeeds.
+  private static anonCookieHeader: string = '';
+  private static anonCookiesAt: number = 0;
+  private static readonly ANON_COOKIE_CACHE_MS: number = 3600000;
+  private static readonly FINGERPRINT_UA: string =
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 13_2_3 like Mac OS X) '
+    + 'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.0.3 '
+    + 'Mobile/15E148 Safari/604.1 Edg/114.0.0.0';
+
+  /**
+   * Seeds buvid3/buvid4/buvid_fp/buvid_fp_plain/b_lsid into the cookie jar
+   * for logged-out sessions (x/frontend/finger/spi): without them bilibili
+   * risk control answers -412 on playurl and starves anonymous WBI search.
+   * A logged-in jar always wins; failures are logged and never block calls.
+   */
+  static async ensureAnonymousFingerprint(): Promise<void> {
+    try {
+      if (BiliCookieRepository.isLoggedIn()) {
+        return;
+      }
+      const now = Date.now();
+      if (BiliApi.anonCookieHeader.length > 0
+        && now - BiliApi.anonCookiesAt < BiliApi.ANON_COOKIE_CACHE_MS) {
+        return;
+      }
+      const text = await HttpClient.getText(
+        `${Constants.BILI_BASE}/x/frontend/finger/spi`,
+        { 'User-Agent': BiliApi.FINGERPRINT_UA, 'Referer': 'https://www.bilibili.com/' }
+      );
+      const parsed = JSON.parse(text) as Record<string, Object>;
+      const data = parsed['data'] as Record<string, Object> | undefined;
+      if (data === undefined) {
+        return;
+      }
+      const pairs: string[] = [];
+      const wanted: [string, string, string][] = [
+        ['buvid3', 'b_3', 'buvid3'],
+        ['buvid4', 'b_4', 'buvid4'],
+        ['buvid_fp', 'buvid_fp', ''],
+        ['buvid_fp_plain', 'buvid_fp_plain', ''],
+        ['b_lsid', 'b_lsid', '']
+      ];
+      for (const entry of wanted) {
+        const primary = String(data[entry[1]] ?? '');
+        const fallback = entry[2].length > 0 ? String(data[entry[2]] ?? '') : '';
+        const value = primary.length > 0 ? primary : fallback;
+        if (value.length > 0) {
+          pairs.push(`${entry[0]}=${value}`);
+        }
+      }
+      if (pairs.length === 0) {
+        return;
+      }
+      BiliApi.anonCookieHeader = pairs.join('; ');
+      BiliApi.anonCookiesAt = now;
+      HttpClient.seedCookies(`${Constants.BILI_BASE}/`, BiliApi.anonCookieHeader);
+      Logger.info('BiliApi: seeded anonymous buvid fingerprint cookies');
+    } catch (error) {
+      Logger.warn(`BiliApi anonymous fingerprint seeding failed: ${(error as Error).message}`);
+    }
+  }
 
   private static biliHeaders(): Record<string, string> {
     const headers: Record<string, string> = {};
@@ -182,6 +245,7 @@ export class BiliApi {
   }
 
   static async search(keyword: string, limit: number = 20): Promise<SongItem[]> {
+    await BiliApi.ensureAnonymousFingerprint();
     const items = await BiliApi.searchOnce(keyword, limit);
     if (items.length > 0) {
       return items;
@@ -237,6 +301,7 @@ export class BiliApi {
    * -400 since the 2024 risk control tightening.
    */
   static async resolveAudioUrl(bvid: string): Promise<string> {
+    await BiliApi.ensureAnonymousFingerprint();
     const cid = await BiliApi.resolveCid(bvid);
     const params = new Map<string, string>();
     params.set('bvid', bvid);
@@ -277,7 +342,8 @@ export class BiliApi {
     if (options.length === 0) {
       return '';
     }
-    const quality = AudioQualityPolicy.effective(await NetworkStatus.isWifi());
+    const quality = AudioQualityPolicy.effectiveForPlatform(await NetworkStatus.isWifi(),
+      MusicPlatform.BILIBILI);
     const track = selectBiliAudioStream(options, quality);
     if (track === null) {
       return '';

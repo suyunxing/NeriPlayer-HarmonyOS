@@ -8,6 +8,7 @@ import { SystemBars } from '../../util/SystemBars';
 import { DownloadStorage } from '../../download/DownloadStorage';
 import { DownloadEngine } from '../../download/DownloadEngine';
 import { DownloadDirectory } from '../../download/DownloadDirectory';
+import { PlaylistBackupManager } from '../../data/PlaylistBackupManager';
 import {
   DownloadDirectoryManager,
   DownloadDirectoryPickCode
@@ -39,6 +40,7 @@ import {
   QrPollOutcome,
   QrPollOutcomeCode
 } from '../components/QrLoginPanel';
+import { NeteasePhoneLoginPanel } from '../components/NeteasePhoneLoginPanel';
 import { Theme } from '../Theme';
 import { AccentScheme } from '../theme/AccentScheme';
 import { BAND_LIST_VP } from '../../util/Breakpoint';
@@ -75,6 +77,7 @@ import {
   isDefaultListenTogetherBaseUrl,
   resolveListenTogetherBaseUrl
 } from '../../listentogether/invite/ListenTogetherBaseUrlResolver';
+import { AutoSyncScheduler } from '../../sync/AutoSyncScheduler';
 
 const SPEEDS: number[] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
 const QUALITIES: string[] = ['standard', 'high', 'exhigh', 'lossless', 'hires'];
@@ -102,6 +105,7 @@ export struct SettingsDetailPage {
   @StorageProp('np.playback_fade_in_ms') playbackFadeInMs: number = 500;
   @StorageProp('np.playback_fade_out_ms') playbackFadeOutMs: number = 500;
   @StorageProp('np.autoplay_on_launch') autoplayOnLaunch: boolean = false;
+  @StorageProp('np.keep_playback_mode_state') keepPlaybackMode: boolean = true;
   @StorageProp('np.nowplaying_bg_style') nowplayingBgStyle: string = 'blur';
   @StorageProp('np.keep_screen_on') keepScreenOn: boolean = false;
   @StorageProp('np.dynamic_color') dynamicColor: boolean = true;
@@ -116,18 +120,21 @@ export struct SettingsDetailPage {
   @StorageProp('np.lyric_offset_ms') lyricOffsetMs: number = 0;
   @StorageProp('np.lyric_translation') lyricTranslation: boolean = true;
   @StorageProp('np.amll_lyrics') amllLyrics: boolean = true;
-  @StorageProp('np.glass_effect') glassEffect: boolean = true;
   @StorageProp('np.nowplaying_blur_strength') nowplayingBlurStrength: number = 300;
   @StorageProp('np.floating_lyric') floatingLyric: boolean = false;
   @StorageProp('np.bt_lyric') btLyric: boolean = false;
   @StorageProp('np.lyric_phonetic') lyricPhonetic: boolean = false;
   @StorageProp('np.lyric_blur') lyricBlur: boolean = true;
   @StorageProp('np.download_concurrency') downloadConcurrency: number = 6;
-  // np.download_match_lyrics 开关已随死开关清理移除（暂无消费者，见 SETTING_DOWNLOAD 分区注释）
+  @StorageProp('np.download_match_lyrics') downloadMatchLyrics: boolean = true;
   @StorageProp('np.playback_cache') playbackCache: boolean = false;
   @StorageProp('np.download_directory_uri') downloadDirectoryUri: string = '';
   @StorageProp('np.download_directory_label') downloadDirectoryLabel: string = '';
   @StorageProp('np.save_traffic') saveTraffic: boolean = false;
+  @StorageProp('np.cellular_follow_default_quality') cellularFollowDefault: boolean = true;
+  @StorageProp('np.cellular_netease_quality') cellularNeteaseQuality: string = '';
+  @StorageProp('np.cellular_bili_quality') cellularBiliQuality: string = '';
+  @StorageProp('np.cellular_youtube_quality') cellularYoutubeQuality: string = '';
   @StorageProp('np.netease_auto_fallback') neteaseAutoFallback: boolean = true;
   @StorageProp('np.cover_policy') coverPolicy: string = 'always';
   @StorageProp('np.always_record_logs') alwaysRecordLogs: boolean = false;
@@ -138,6 +145,7 @@ export struct SettingsDetailPage {
   @StorageProp('np.github_owner') githubOwner: string = '';
   @StorageProp('np.github_repo') githubRepo: string = '';
   @StorageProp('np.github_data_saver') githubDataSaver: boolean = false;
+  @StorageProp('np.sync_auto') syncAuto: boolean = false;
   @State githubTokenSaved: boolean = false;
   @State githubBusy: boolean = false;
 
@@ -149,6 +157,10 @@ export struct SettingsDetailPage {
   // Only the dialed address is mirrored here; the dialog reads its own prefill
   // from the settings store so a reopened dialog is never stale.
   @StorageProp('np.listen_together_server') listenTogetherServer: string = '';
+  @StorageProp('np.listen_together_allow_member_control') ltAllowMemberControl: boolean = true;
+  @StorageProp('np.listen_together_auto_pause_on_member_change') ltAutoPauseOnMemberChange: boolean = true;
+  @StorageProp('np.listen_together_share_audio_links') ltShareAudioLinks: boolean = true;
+  @State showNeteasePhoneLogin: boolean = false;
 
   @State cacheBytes: number = 0;
 
@@ -316,6 +328,40 @@ export struct SettingsDetailPage {
       promptAction.openToast({ message: '网易云登录成功' });
     }
     return saved;
+  }
+
+  private async onNeteasePhoneConfirmed(cookies: Map<string, string>): Promise<boolean> {
+    const saved = await NeteaseCookieRepository.saveFromPhoneLogin(cookies);
+    if (saved) {
+      this.neteaseLogged = true;
+      this.showNeteasePhoneLogin = false;
+      NeteaseApi.resetSession();
+    }
+    return saved;
+  }
+
+  /** Exports playlists + history to a user-picked JSON file. */
+  private async exportPlaylistBackup(): Promise<void> {
+    try {
+      const message = await PlaylistBackupManager.exportViaPicker();
+      if (message.length > 0) {
+        promptAction.openToast({ message, duration: 2000 });
+      }
+    } catch (error) {
+      promptAction.openToast({ message: `导出失败：${(error as Error).message}` });
+    }
+  }
+
+  /** Imports playlists + history from a picked backup JSON. */
+  private async importPlaylistBackup(): Promise<void> {
+    try {
+      const result = await PlaylistBackupManager.importViaPicker();
+      if (result.message.length > 0) {
+        promptAction.openToast({ message: result.message, duration: 2500 });
+      }
+    } catch (error) {
+      promptAction.openToast({ message: `导入失败：${(error as Error).message}` });
+    }
   }
 
   private confirmNeteaseLogout(): void {
@@ -1004,6 +1050,15 @@ export struct SettingsDetailPage {
             })
 
             ToggleRow({
+              title: '记住循环/随机模式',
+              subtitle: '开启时恢复上次的循环与随机设置；关闭则每次启动回到列表循环',
+              icon: '♻',
+              value: this.keepPlaybackMode,
+              onChange: (on: boolean) =>
+                SettingsRepository.setBoolean(SettingsRepository.KEY_KEEP_PLAYBACK_MODE_STATE, on)
+            })
+
+            ToggleRow({
               title: '随机播放',
               subtitle: '在播放页切换，此处仅显示状态',
               icon: '🔀',
@@ -1029,8 +1084,15 @@ export struct SettingsDetailPage {
                 SettingsRepository.setNumber(SettingsRepository.KEY_DOWNLOAD_CONCURRENCY, Number(value))
             })
 
-            // 「下载完成后匹配歌词」开关暂隐藏：np.download_match_lyrics 暂无消费者，
-            // 待 ANDROID_PARITY_BACKLOG §3.5 实现下载后歌词匹配后恢复（发布前必办清单 2.4）。
+            ToggleRow({
+              title: '下载伴生歌词',
+              subtitle: '下载完成后抓取歌词，与音频同名存为 .lrc 伴生文件',
+              icon: '词',
+              value: this.downloadMatchLyrics,
+              onChange: (on: boolean) =>
+                SettingsRepository.setBoolean(SettingsRepository.KEY_DOWNLOAD_MATCH_LYRICS, on)
+            })
+
             SettingRow({
               title: '下载目录',
               subtitle: DownloadDirectory.describeDirectory(this.downloadDirectoryUri, this.downloadDirectoryLabel),
@@ -1165,13 +1227,6 @@ export struct SettingsDetailPage {
               current: 'zh',
               onPick: (_value: string) => promptAction.openToast({ message: '更多语言待移植' })
             })
-            ToggleRow({
-              title: '毛玻璃面板',
-              subtitle: '迷你播放条/播放列表面板',
-              icon: '✨',
-              value: this.glassEffect,
-              onChange: (on: boolean) => SettingsRepository.setBoolean(SettingsRepository.KEY_GLASS_EFFECT, on)
-            })
             OptionRow({
               title: '播放页背景模糊',
               icon: '🌫',
@@ -1212,6 +1267,40 @@ export struct SettingsDetailPage {
               current: this.coverPolicy,
               onPick: (value: string) => SettingsRepository.setString(SettingsRepository.KEY_COVER_POLICY, value)
             })
+            ToggleRow({
+              title: '蜂窝分平台音质',
+              subtitle: '关闭后可为网易云 / Bilibili / YouTube 分别指定蜂窝网络音质',
+              icon: '📶',
+              value: this.cellularFollowDefault,
+              onChange: (on: boolean) =>
+                SettingsRepository.setBoolean(SettingsRepository.KEY_CELLULAR_FOLLOW_DEFAULT, on)
+            })
+            if (!this.cellularFollowDefault) {
+              OptionRow({
+                title: '蜂窝 · 网易云',
+                icon: '🎵',
+                options: this.qualityOptions(),
+                current: this.cellularNeteaseQuality,
+                onPick: (value: string) =>
+                  SettingsRepository.setString(SettingsRepository.KEY_CELLULAR_NETEASE_QUALITY, value)
+              })
+              OptionRow({
+                title: '蜂窝 · Bilibili',
+                icon: '📺',
+                options: this.qualityOptions(),
+                current: this.cellularBiliQuality,
+                onPick: (value: string) =>
+                  SettingsRepository.setString(SettingsRepository.KEY_CELLULAR_BILI_QUALITY, value)
+              })
+              OptionRow({
+                title: '蜂窝 · YouTube',
+                icon: '▶',
+                options: this.qualityOptions(),
+                current: this.cellularYoutubeQuality,
+                onPick: (value: string) =>
+                  SettingsRepository.setString(SettingsRepository.KEY_CELLULAR_YOUTUBE_QUALITY, value)
+              })
+            }
           } else if (this.section === SETTING_STORAGE) {
             SettingRow({
               title: '缓存占用',
@@ -1260,6 +1349,22 @@ export struct SettingsDetailPage {
               icon: '📋',
               onTap: () => this.openNeteasePasteDialog()
             })
+            if (!this.neteaseLogged) {
+              SettingRow({
+                title: '手机号登录（网易云）',
+                subtitle: '短信验证码或密码登录',
+                icon: '📱',
+                onTap: () => {
+                  this.showNeteasePhoneLogin = !this.showNeteasePhoneLogin;
+                }
+              })
+              if (this.showNeteasePhoneLogin) {
+                NeteasePhoneLoginPanel({
+                  onConfirmed: (cookies: Map<string, string>): Promise<boolean> =>
+                    this.onNeteasePhoneConfirmed(cookies)
+                })
+              }
+            }
             SettingRow({
               title: 'Bilibili',
               subtitle: this.biliLogged
@@ -1295,6 +1400,23 @@ export struct SettingsDetailPage {
               onTap: () => promptAction.openToast({ message: 'YouTube 登录待移植' })
             })
           } else if (this.section === SETTING_SYNC) {
+            Text('本地备份')
+              .fontSize(13)
+              .fontColor(Theme.textSecondary(Theme.isDark()))
+              .width('100%')
+              .margin({ left: 6, top: 8, bottom: 6 })
+            SettingRow({
+              title: '导出歌单备份到本机',
+              subtitle: '生成 JSON 文件（含歌单与播放历史，与云端备份同格式）',
+              icon: '⬆',
+              onTap: () => this.exportPlaylistBackup()
+            })
+            SettingRow({
+              title: '从本机导入歌单备份',
+              subtitle: '选择备份 JSON，按歌单名与歌曲稳定键合并（不覆盖本地已有）',
+              icon: '⬇',
+              onTap: () => this.importPlaylistBackup()
+            })
             Text('GitHub 备份')
               .fontSize(13)
               .fontColor(Theme.textSecondary(Theme.isDark()))
@@ -1346,8 +1468,18 @@ export struct SettingsDetailPage {
               .margin({ left: 6, top: 14, bottom: 6 })
             Column({ space: 10 }) {
               ToggleRow({
+                title: '自动同步',
+                subtitle: '变更后 5 秒静默同步；启动时补偿同步；并注册 ≥2 小时后台延迟任务',
+                icon: '⚡',
+                value: this.syncAuto,
+                onChange: (on: boolean) => {
+                  SettingsRepository.setBoolean(SettingsRepository.KEY_SYNC_AUTO, on);
+                  AutoSyncScheduler.updateDelayedWorkRegistration();
+                }
+              })
+              ToggleRow({
                 title: '省流格式',
-                subtitle: '读取兼容全部格式；上传仍为 JSON',
+                subtitle: '上传写 Gzip Protobuf（backup-raw.bin，约 JSON 的 15%）；关闭时写 JSON',
                 icon: '📉',
                 value: this.githubDataSaver,
                 onChange: (on: boolean) =>
@@ -1418,6 +1550,36 @@ export struct SettingsDetailPage {
               subtitle: this.listenTogetherServerSubtitle(),
               icon: '👥',
               onTap: () => this.openListenTogetherServerDialog()
+            })
+
+            Text('一起听房间默认设置')
+              .fontSize(13)
+              .fontColor(Theme.textSecondary(Theme.isDark()))
+              .width('100%')
+              .margin({ left: 6, top: 14, bottom: 6 })
+            ToggleRow({
+              title: '允许听众操作',
+              subtitle: '建房默认：听众可切歌、播放暂停与拖动进度（房主可随时改）',
+              icon: '🎚',
+              value: this.ltAllowMemberControl,
+              onChange: (on: boolean) =>
+                SettingsRepository.setBoolean(SettingsRepository.KEY_LISTEN_TOGETHER_ALLOW_MEMBER_CONTROL, on)
+            })
+            ToggleRow({
+              title: '成员变动自动暂停',
+              subtitle: '建房默认：成员进入或离开时自动暂停',
+              icon: '⏸',
+              value: this.ltAutoPauseOnMemberChange,
+              onChange: (on: boolean) =>
+                SettingsRepository.setBoolean(SettingsRepository.KEY_LISTEN_TOGETHER_AUTO_PAUSE_ON_MEMBER_CHANGE, on)
+            })
+            ToggleRow({
+              title: '下发音频直链',
+              subtitle: '建房默认：可用时向听众下发可播放的音频直链',
+              icon: '🔗',
+              value: this.ltShareAudioLinks,
+              onChange: (on: boolean) =>
+                SettingsRepository.setBoolean(SettingsRepository.KEY_LISTEN_TOGETHER_SHARE_AUDIO_LINKS, on)
             })
           } else if (this.section === SETTING_DEBUG) {
             ToggleRow({
@@ -1610,7 +1772,7 @@ struct GitHubConfigDialog {
         .fontSize(17)
         .fontWeight(FontWeight.Bold)
         .fontColor(Theme.textPrimary(Theme.isDark()))
-      Text('令牌需包含 repo 权限（用于私有备份仓库读写）。仅保存在本机安全存储，不会出现在日志中。')
+      Text('支持经典 PAT（repo 权限）与精细化令牌（Fine-grained PAT：选中备份仓库，权限给 Contents: Read and write + Metadata: Read-only；「创建备份仓库」还需 Administration: Read and write）。仅保存在本机安全存储，不会出现在日志中。')
         .fontSize(12)
         .fontColor(Theme.textSecondary(Theme.isDark()))
       TextArea({ placeholder: 'ghp_… / github_pat_…', text: this.tokenText })

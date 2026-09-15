@@ -234,13 +234,49 @@ export struct ListenTogetherPage {
     }
   }
 
+  /**
+   * 房主房间设置开关（清单 §4.1/§4.2）：本地乐观更新 + UPDATE_SETTINGS 下发，
+   * 服务端 room_state 广播回来后经 onRoomJsonChange 重置为权威值。
+   */
+  @Builder
+  private roomSettingToggle(title: string, subtitle: string, value: boolean, key: string) {
+    Row() {
+      Column({ space: 2 }) {
+        Text(title)
+          .fontSize(13)
+          .fontColor(Theme.textPrimary(Theme.isDark()))
+        Text(subtitle)
+          .fontSize(11)
+          .fontColor(Theme.textSecondary(Theme.isDark()))
+      }
+      .layoutWeight(1)
+      .alignItems(HorizontalAlign.Start)
+      Toggle({ type: ToggleType.Switch, isOn: value })
+        .onChange((on: boolean) => {
+          const settings = this.roomViewData.settings;
+          if (key === 'allowMemberControl') {
+            settings.allowMemberControl = on;
+          } else if (key === 'autoPauseOnMemberChange') {
+            settings.autoPauseOnMemberChange = on;
+          } else if (key === 'shareAudioLinks') {
+            settings.shareAudioLinks = on;
+          }
+          this.roomViewData.settings = settings;
+          ListenTogetherSessionManager.getInstance().updateRoomSettings(settings)
+            .then((sent: boolean) => {
+              promptAction.openToast({ message: sent ? '房间设置已更新' : '房间设置下发失败' });
+            });
+        })
+    }
+    .width('100%')
+  }
+
   private copyInvite(): void {
     const shareText = this.inviteShareText(this.sessionView);
     if (shareText === null) {
       promptAction.openToast({ message: '邀请信息不可用' });
       return;
-    }
-    const board = pasteboard.getSystemPasteboard();
+    }    const board = pasteboard.getSystemPasteboard();
     board.setData(pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, shareText))
       .then((): void => {
         promptAction.openToast({ message: '邀请已复制，发送给朋友即可' });
@@ -405,6 +441,19 @@ export struct ListenTogetherPage {
             .fontColor(Theme.onPrimary(Theme.isDark()))
             .backgroundColor(Theme.primary(Theme.isDark()))
             .onClick(() => this.copyInvite())
+          Column({ space: 8 }) {
+            Text('房间设置')
+              .fontSize(13)
+              .fontColor(Theme.textSecondary(Theme.isDark()))
+            this.roomSettingToggle('允许听众操作', '听众可切歌、播放暂停与拖动进度',
+              this.roomViewData.settings.allowMemberControl, 'allowMemberControl')
+            this.roomSettingToggle('成员变动自动暂停', '成员进入或离开时自动暂停播放',
+              this.roomViewData.settings.autoPauseOnMemberChange, 'autoPauseOnMemberChange')
+            this.roomSettingToggle('下发音频直链', '可用时向听众下发可播放的音频直链',
+              this.roomViewData.settings.shareAudioLinks, 'shareAudioLinks')
+          }
+          .width('100%')
+          .alignItems(HorizontalAlign.Start)
         }
         .width('100%')
         .padding(12)

@@ -2,16 +2,40 @@
 
 import { curves } from '@kit.ArkUI';
 import { LyricLine, LyricWord } from '../../model/LyricLine';
+import { MusicPlatform } from '../../model/MusicPlatform';
+import { SettingsRepository } from '../../data/SettingsRepository';
 import { LyricLineLayout, LyricScrollMath } from '../../lyrics/LyricScrollMath';
 import { Theme } from '../Theme';
 
 const LYRIC_OFFSET_STORAGE_KEY = 'np.lyric_offset_ms';
+// Per-platform baseline offsets (backlog §3.7/§6.2, Android
+// cloud_music/qq_music_lyric_default_offset_ms), stacked on the global one.
+const LYRIC_NETEASE_OFFSET_STORAGE_KEY = 'np.netease_lyric_offset_ms';
+const LYRIC_BILI_OFFSET_STORAGE_KEY = 'np.bili_lyric_offset_ms';
+const LYRIC_YOUTUBE_OFFSET_STORAGE_KEY = 'np.youtube_lyric_offset_ms';
 const LYRIC_TRANSLATION_STORAGE_KEY = 'np.lyric_translation';
 const LYRIC_PHONETIC_STORAGE_KEY = 'np.lyric_phonetic';
 const LYRIC_FONT_SIZE_STORAGE_KEY = 'np.lyric_font_size';
 const LYRIC_CENTER_STORAGE_KEY = 'np.lyric_center';
 const LYRIC_FONT_WEIGHT_STORAGE_KEY = 'np.lyric_font_weight';
 const LYRIC_LINE_SPACING_STORAGE_KEY = 'np.lyric_line_spacing';
+/**
+ * Word karaoke style (np.word_karaoke): 'off' = no per-word highlight (the
+ * plain line renderer), 'step' = instant word-by-word switches, 'smooth' =
+ * tweened color/weight so the highlight sweeps between the ~500ms throttled
+ * position updates. Legacy boolean values map: true -> 'smooth',
+ * false -> 'step'.
+ */
+const LYRIC_WORD_KARAOKE_STORAGE_KEY = 'np.word_karaoke';
+
+export type WordKaraokeMode = 'off' | 'step' | 'smooth';
+
+export function normalizeWordKaraokeMode(raw: string): WordKaraokeMode {
+  if (raw === 'off' || raw === 'step' || raw === 'smooth') {
+    return raw;
+  }
+  return 'smooth';
+}
 
 // The reference lyric page uses an editorial, airy rhythm rather than a
 // compact karaoke list. Keep the value in vp so it scales with the device;
@@ -47,12 +71,38 @@ export struct LyricView {
   // Global lyric offset (np.lyric_offset_ms, ms): applied at display time,
   // positive = lyrics advance (Android lyricOffsetMs semantics).
   @StorageProp(LYRIC_OFFSET_STORAGE_KEY) @Watch('onOffsetChanged') lyricOffsetMs: number = 0;
+  // Per-platform baselines; the active song's platform picks one to stack.
+  @StorageProp(LYRIC_NETEASE_OFFSET_STORAGE_KEY) neteaseOffsetMs: number = 0;
+  @StorageProp(LYRIC_BILI_OFFSET_STORAGE_KEY) biliOffsetMs: number = 0;
+  @StorageProp(LYRIC_YOUTUBE_OFFSET_STORAGE_KEY) youtubeOffsetMs: number = 0;
+  /** Platform of the song whose lyrics are shown; 0 (=LOCAL) adds nothing. */
+  @Prop lyricPlatform: number = 0;
+
+  /** Global + platform-baseline offset for the current song (backlog §6.2). */
+  private effectiveOffsetMs(): number {
+    if (this.lyricPlatform === MusicPlatform.NETEASE) {
+      return this.lyricOffsetMs + this.neteaseOffsetMs;
+    }
+    if (this.lyricPlatform === MusicPlatform.BILIBILI) {
+      return this.lyricOffsetMs + this.biliOffsetMs;
+    }
+    if (this.lyricPlatform === MusicPlatform.YOUTUBE_MUSIC) {
+      return this.lyricOffsetMs + this.youtubeOffsetMs;
+    }
+    return this.lyricOffsetMs;
+  }
   @StorageProp(LYRIC_TRANSLATION_STORAGE_KEY) lyricTranslation: boolean = true;
   @StorageProp(LYRIC_PHONETIC_STORAGE_KEY) lyricPhonetic: boolean = false;
   @StorageProp(LYRIC_FONT_SIZE_STORAGE_KEY) lyricFontSize: number = 16;
   @StorageProp(LYRIC_CENTER_STORAGE_KEY) lyricCenter: boolean = true;
   @StorageProp(LYRIC_FONT_WEIGHT_STORAGE_KEY) lyricFontWeight: number = 500;
   @StorageProp(LYRIC_LINE_SPACING_STORAGE_KEY) lyricLineSpacing: number = 1.0;
+  // Karaoke word style (np.word_karaoke): off / step / smooth, normalized
+  // from the raw storage value (legacy booleans included).
+  @StorageProp(LYRIC_WORD_KARAOKE_STORAGE_KEY) wordKaraokeRaw: string = 'smooth';
+  private wordKaraokeMode(): WordKaraokeMode {
+    return normalizeWordKaraokeMode(this.wordKaraokeRaw);
+  }
 
   @State viewportHeight: number = 0;
   @State scrubIndex: number = -1;
@@ -70,7 +120,24 @@ export struct LyricView {
   private revertTimerId: number = -1;
 
   aboutToAppear(): void {
+    LyricView.migrateLegacyWordKaraokeValue();
     this.onLyricsReplaced();
+  }
+
+  /**
+   * np.word_karaoke was a boolean before the three-way option; rewrite the
+   * stored value once so the string shape holds from now on (true -> 'smooth',
+   * false -> 'step'). Anything absent normalizes to the default 'smooth'.
+   */
+  private static migrateLegacyWordKaraokeValue(): void {
+    const raw = AppStorage.get<boolean | string>(LYRIC_WORD_KARAOKE_STORAGE_KEY);
+    if (typeof raw === 'boolean') {
+      const migrated = raw ? 'smooth' : 'step';
+      AppStorage.setOrCreate(LYRIC_WORD_KARAOKE_STORAGE_KEY, migrated);
+      SettingsRepository.setString(SettingsRepository.KEY_WORD_KARAOKE, migrated);
+    } else if (raw === undefined || raw === null) {
+      AppStorage.setOrCreate(LYRIC_WORD_KARAOKE_STORAGE_KEY, 'smooth');
+    }
   }
 
   aboutToDisappear(): void {
@@ -78,7 +145,7 @@ export struct LyricView {
   }
 
   private currentIndex(): number {
-    const selectionTimeMs = this.positionMs + this.lyricOffsetMs;
+    const selectionTimeMs = this.positionMs + this.effectiveOffsetMs();
     let index = -1;
     for (let i = 0; i < this.lyrics.length; i++) {
       if (this.lyrics[i].timeMs <= selectionTimeMs) {
@@ -97,7 +164,7 @@ export struct LyricView {
 
   /** Word state for karaoke highlighting: 0 = upcoming, 1 = active, 2 = sung. */
   private wordState(word: LyricWord): number {
-    const selectionTimeMs = this.positionMs + this.lyricOffsetMs;
+    const selectionTimeMs = this.positionMs + this.effectiveOffsetMs();
     if (selectionTimeMs >= word.endMs) {
       return 2;
     }
@@ -331,7 +398,7 @@ export struct LyricView {
       this.scrubIndex = index;
       if (index >= 0 && index < this.lyrics.length) {
         // Playback-domain time of this line, same conversion as the click-to-seek.
-        this.onScrubLine(this.lyrics[index].timeMs - this.lyricOffsetMs);
+        this.onScrubLine(this.lyrics[index].timeMs - this.effectiveOffsetMs());
       }
     }
   }
@@ -366,7 +433,7 @@ export struct LyricView {
     this.scrubIndex = -1;
     this.onScrubLine(-1);
     this.lastFollowedIndex = -1;
-    this.onSeek(line.timeMs - this.lyricOffsetMs);
+    this.onSeek(line.timeMs - this.effectiveOffsetMs());
   }
 
   @Builder
@@ -376,12 +443,18 @@ export struct LyricView {
         Span(word.text)
           .fontColor(this.wordState(word) > 0 ? Theme.textPrimary(Theme.isDark()) : Theme.textSecondary(Theme.isDark()))
           .fontWeight(this.wordState(word) === 1 ? FontWeight.Medium : FontWeight.Normal)
-      }, (word: LyricWord, index: number) => `${index}_${word.startMs}_${word.text}`)
+      }, (word: LyricWord, index: number) => `${index}_${word.startMs}_${word.text}_${this.wordState(word)}`)
     }
     .fontSize(this.lyricFontSize + 6)
     .fontWeight(this.lyricFontWeight)
     .textAlign(this.lineTextAlign())
     .width('100%')
+    // Karaoke smoothing: position updates arrive throttled at ~500ms so state
+    // flips land as hard switches; a short color/weight transition per Span
+    // turns the discrete states into a progressive sweep. positionMs-driven
+    // re-render must also refresh the ForEach keys (wordState suffix) or
+    // spans with identical keys never re-animate.
+    .animation(this.wordKaraokeMode() === 'smooth' ? { duration: 260, curve: Curve.EaseOut } : undefined)
   }
 
   build() {
@@ -395,7 +468,8 @@ export struct LyricView {
         } else {
           ForEach(this.lyrics, (line: LyricLine, index: number) => {
             Column({ space: 6 }) {
-              if (index === this.currentIndex() && index === this.activeIndex() && line.words.length > 0) {
+              if (index === this.currentIndex() && index === this.activeIndex()
+                && line.words.length > 0 && this.wordKaraokeMode() !== 'off') {
                 // Karaoke line: per-word highlight driven by positionMs. While
                 // scrubbing the highlight belongs to the centered line instead.
                 this.activeWordLine(line)

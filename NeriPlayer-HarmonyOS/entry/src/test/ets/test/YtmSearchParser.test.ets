@@ -1,6 +1,7 @@
 import { describe, it, expect } from '@ohos/hypium';
 import { parseYtmDurationMs, parseYtmSearchResponse } from '../../../main/ets/network/ytm/YtmSearchParser';
-import { hashStableId, stableKeyOf } from '../../../main/ets/model/SongIdentity';
+import { stableKeyOf } from '../../../main/ets/model/SongIdentity';
+import { stableSyncId } from '../../../main/ets/sync/SyncModels';
 import { MusicPlatform } from '../../../main/ets/model/MusicPlatform';
 
 /** Wraps shelf sections in the envelope both search endpoints share. */
@@ -78,7 +79,7 @@ export default function ytmSearchParserTest(): void {
       );
       const items = parseYtmSearchResponse(json, 5);
       expect(items[0].album).assertEqual('');
-      expect(stableKeyOf(items[0])).assertEqual(`${hashStableId('vid001')}|youtube_music|youtube_music|vid001`);
+      expect(stableKeyOf(items[0])).assertEqual(`${stableSyncId('vid001')}|youtube_music|youtube_music|vid001`);
     });
 
     it('readsDurationFromMetadataWhenTheShelfHasNoFixedColumn', 0, () => {

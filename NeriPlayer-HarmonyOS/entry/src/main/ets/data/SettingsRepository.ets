@@ -34,6 +34,10 @@ export class SettingsRepository {
   // sandbox default <filesDir>/Download/NeriPlayer.
   static readonly KEY_DOWNLOAD_DIRECTORY_URI: string = 'np.download_directory_uri';
   static readonly KEY_DOWNLOAD_DIRECTORY_LABEL: string = 'np.download_directory_label';
+  // Local music library scan root (backlog §8): a persisted DocumentViewPicker
+  // directory that the local library re-scans incrementally.
+  static readonly KEY_LOCAL_SCAN_DIRECTORY_URI: string = 'np.local_scan_directory_uri';
+  static readonly KEY_LOCAL_SCAN_DIRECTORY_LABEL: string = 'np.local_scan_directory_label';
   // Listen Together server. Android keeps two keys with different clearing
   // rules: _SERVER is what the client dials and is stored only for a custom
   // address (the built-in default is represented by absence, so changing the
@@ -57,6 +61,18 @@ export class SettingsRepository {
   static readonly KEY_AUDIO_QUALITY: string = 'np.audio_quality';
   static readonly KEY_AUDIO_QUALITY_WIFI: string = 'np.audio_quality_wifi';
   static readonly KEY_AUDIO_QUALITY_CELLULAR: string = 'np.audio_quality_cellular';
+  // Per-platform cellular tiers (backlog §7, Android mobile_data_* keys):
+  // when cellular-follow-default is off, each platform streams at its own
+  // cellular tier instead of the shared cellular choice. Empty = inherit.
+  static readonly KEY_CELLULAR_FOLLOW_DEFAULT: string = 'np.cellular_follow_default_quality';
+  static readonly KEY_CELLULAR_NETEASE_QUALITY: string = 'np.cellular_netease_quality';
+  static readonly KEY_CELLULAR_YOUTUBE_QUALITY: string = 'np.cellular_youtube_quality';
+  static readonly KEY_CELLULAR_BILI_QUALITY: string = 'np.cellular_bili_quality';
+  // Per-platform lyric baseline offsets in ms (backlog §3.7/§6.2, Android
+  // cloud_music/qq_music_lyric_default_offset_ms). 0 = no shift.
+  static readonly KEY_NETEASE_LYRIC_OFFSET_MS: string = 'np.netease_lyric_offset_ms';
+  static readonly KEY_BILI_LYRIC_OFFSET_MS: string = 'np.bili_lyric_offset_ms';
+  static readonly KEY_YOUTUBE_LYRIC_OFFSET_MS: string = 'np.youtube_lyric_offset_ms';
   // Keep playing alongside other apps' audio. Maps to the AVPlayer interrupt
   // mode plus ignoring cooperative (SHARE-type) pause hints; a system FORCED
   // interruption still wins on HarmonyOS.
@@ -71,6 +87,9 @@ export class SettingsRepository {
   static readonly KEY_PLAYBACK_FADE_OUT_MS: string = 'np.playback_fade_out_ms';
   // Resume playback automatically after cold start once the queue is restored.
   static readonly KEY_AUTOPLAY_ON_LAUNCH: string = 'np.autoplay_on_launch';
+  // Android keep_playback_mode_state (default true): restore loop/shuffle
+  // across launches; off resets to list-loop each start (backlog §2.2).
+  static readonly KEY_KEEP_PLAYBACK_MODE_STATE: string = 'np.keep_playback_mode_state';
   // NowPlaying backdrop style: 'blur' (blurred cover), 'solid', 'gradient'
   // (flowing cover-color gradient).
   static readonly KEY_NOWPLAYING_BG_STYLE: string = 'np.nowplaying_bg_style';
@@ -98,16 +117,16 @@ export class SettingsRepository {
   static readonly KEY_LYRIC_OFFSET_MS: string = 'np.lyric_offset_ms';
   // AMLL word-timed TTML lyrics as an upgrade source (Android AMLL toggle).
   static readonly KEY_AMLL_LYRICS: string = 'np.amll_lyrics';
+  // Word karaoke style: 'off' (plain line), 'step' (instant word switches),
+  // 'smooth' (tweened highlight sweep). Was a boolean before the three-way
+  // option; LyricView migrates stored booleans on first read.
+  static readonly KEY_WORD_KARAOKE: string = 'np.word_karaoke';
   // In-app floating lyric bar (D4 fallback for the Android system overlay).
   static readonly KEY_FLOATING_LYRIC: string = 'np.floating_lyric';
   // Lyric line in the AVSession title slot (notification / AVRCP lyric line).
   static readonly KEY_BT_LYRIC: string = 'np.bt_lyric';
   // NowPlaying blurred-cover strength, Android scale 0..500 (0 disables).
   static readonly KEY_NOWPLAYING_BLUR_STRENGTH: string = 'np.nowplaying_blur_strength';
-  // Frosted-glass surfaces (MiniPlayer/queue sheet). Android's AGSL
-  // region-mask glass has no HarmonyOS equivalent; this maps to the
-  // platform backgroundBlurStyle subset (documented as a D-level fallback).
-  static readonly KEY_GLASS_EFFECT: string = 'np.glass_effect';
   static readonly KEY_SAVE_TRAFFIC: string = 'np.save_traffic';
   static readonly KEY_COVER_POLICY: string = 'np.cover_policy';
 	  static readonly KEY_DOWNLOAD_MATCH_LYRICS: string = 'np.download_match_lyrics';
@@ -120,6 +139,13 @@ export class SettingsRepository {
   static readonly KEY_GITHUB_OWNER: string = 'np.github_owner';
   static readonly KEY_GITHUB_REPO: string = 'np.github_repo';
   static readonly KEY_GITHUB_DATA_SAVER: string = 'np.github_data_saver';
+  // Alias of KEY_GITHUB_DATA_SAVER: data-saver is one global switch shared by
+  // the GitHub and WebDAV transports (Android parity); the legacy key value
+  // is kept so existing user settings survive.
+  static readonly KEY_SYNC_DATA_SAVER: string = 'np.github_data_saver';
+  // Auto silent sync (backlog §1.5): Android auto-sync defaults off; here it
+  // covers the debounced mutation sync + throttled startup sync.
+  static readonly KEY_SYNC_AUTO: string = 'np.sync_auto';
   // WebDAV credentials live in AssetStore; only endpoint metadata is persisted here.
   static readonly KEY_WEBDAV_SERVER_URL: string = 'np.webdav_server_url';
   static readonly KEY_WEBDAV_BASE_PATH: string = 'np.webdav_base_path';
@@ -146,6 +172,8 @@ export class SettingsRepository {
     [SettingsRepository.KEY_DOWNLOAD_CONCURRENCY, 6],
     [SettingsRepository.KEY_DOWNLOAD_DIRECTORY_URI, ''],
     [SettingsRepository.KEY_DOWNLOAD_DIRECTORY_LABEL, ''],
+    [SettingsRepository.KEY_LOCAL_SCAN_DIRECTORY_URI, ''],
+    [SettingsRepository.KEY_LOCAL_SCAN_DIRECTORY_LABEL, ''],
     [SettingsRepository.KEY_LISTEN_TOGETHER_SERVER, ''],
     [SettingsRepository.KEY_LISTEN_TOGETHER_SERVER_INPUT, ''],
     [SettingsRepository.KEY_LISTEN_TOGETHER_LAST_USER_ID, ''],
@@ -157,12 +185,20 @@ export class SettingsRepository {
     [SettingsRepository.KEY_AUDIO_QUALITY, 'standard'],
     [SettingsRepository.KEY_AUDIO_QUALITY_WIFI, ''],
     [SettingsRepository.KEY_AUDIO_QUALITY_CELLULAR, ''],
+    [SettingsRepository.KEY_CELLULAR_FOLLOW_DEFAULT, true],
+    [SettingsRepository.KEY_CELLULAR_NETEASE_QUALITY, ''],
+    [SettingsRepository.KEY_CELLULAR_YOUTUBE_QUALITY, ''],
+    [SettingsRepository.KEY_CELLULAR_BILI_QUALITY, ''],
+    [SettingsRepository.KEY_NETEASE_LYRIC_OFFSET_MS, 0],
+    [SettingsRepository.KEY_BILI_LYRIC_OFFSET_MS, 0],
+    [SettingsRepository.KEY_YOUTUBE_LYRIC_OFFSET_MS, 0],
     [SettingsRepository.KEY_MIX_AUDIO, true],
     [SettingsRepository.KEY_PLAYBACK_VOLUME, 1.0],
     [SettingsRepository.KEY_PLAYBACK_FADE, true],
     [SettingsRepository.KEY_PLAYBACK_FADE_IN_MS, 500],
     [SettingsRepository.KEY_PLAYBACK_FADE_OUT_MS, 500],
     [SettingsRepository.KEY_AUTOPLAY_ON_LAUNCH, false],
+    [SettingsRepository.KEY_KEEP_PLAYBACK_MODE_STATE, true],
     [SettingsRepository.KEY_NOWPLAYING_BG_STYLE, 'blur'],
     [SettingsRepository.KEY_KEEP_SCREEN_ON, false],
     [SettingsRepository.KEY_CIRCULAR_COVER, false],
@@ -180,12 +216,12 @@ export class SettingsRepository {
     [SettingsRepository.KEY_LYRIC_TRANSLATION, true],
     [SettingsRepository.KEY_LYRIC_PHONETIC, false],
     [SettingsRepository.KEY_LYRIC_BLUR, true],
+    [SettingsRepository.KEY_WORD_KARAOKE, 'smooth'],
     [SettingsRepository.KEY_LYRIC_OFFSET_MS, 0],
     [SettingsRepository.KEY_AMLL_LYRICS, true],
     [SettingsRepository.KEY_FLOATING_LYRIC, false],
     [SettingsRepository.KEY_BT_LYRIC, false],
     [SettingsRepository.KEY_NOWPLAYING_BLUR_STRENGTH, 300],
-    [SettingsRepository.KEY_GLASS_EFFECT, true],
     [SettingsRepository.KEY_SAVE_TRAFFIC, false],
     [SettingsRepository.KEY_COVER_POLICY, 'always'],
     [SettingsRepository.KEY_DOWNLOAD_MATCH_LYRICS, true],
@@ -201,6 +237,7 @@ export class SettingsRepository {
     // Android defaults data saver to true (writes GZIP+proto); this port
     // uploads JSON until the compact writer lands (M5.2b record), reads all formats.
     [SettingsRepository.KEY_GITHUB_DATA_SAVER, false],
+    [SettingsRepository.KEY_SYNC_AUTO, false],
     [SettingsRepository.KEY_WEBDAV_SERVER_URL, ''],
     [SettingsRepository.KEY_WEBDAV_BASE_PATH, ''],
     [SettingsRepository.KEY_PROXY_HOST, ''],

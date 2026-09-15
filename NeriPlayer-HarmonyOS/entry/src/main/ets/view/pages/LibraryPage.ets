@@ -2,6 +2,7 @@
 
 import { promptAction } from '@kit.ArkUI';
 import { common } from '@kit.AbilityKit';
+import { picker, fileShare } from '@kit.CoreFileKit';
 import { Playlist } from '../../model/Playlist';
 import { SongItem } from '../../model/SongItem';
 import { LocalPlaylistRepository } from '../../data/LocalPlaylistRepository';
@@ -9,6 +10,10 @@ import { HistoryRepository } from '../../data/HistoryRepository';
 import { DownloadStorage } from '../../download/DownloadStorage';
 import { PlaybackStatsRepository } from '../../data/PlaybackStatsRepository';
 import { LocalMediaScanner } from '../../data/LocalMediaScanner';
+import { LocalDirectoryScanner } from '../../data/LocalDirectoryScanner';
+import { SettingsRepository } from '../../data/SettingsRepository';
+import { DownloadDirectory } from '../../download/DownloadDirectory';
+import { DownloadDirectoryManager } from '../../download/DownloadDirectoryManager';
 import { PlayerManager } from '../../player/PlayerManager';
 import { NeteaseApi } from '../../network/NeteaseApi';
 import { NeteasePlaylistSummary } from '../../network/NeteasePlaylistParser';
@@ -44,6 +49,7 @@ export struct LibraryPage {
   @State favorites: Playlist | null = null;
   @State downloadCount: number = 0;
   @State localSongCount: number = 0;
+  @State scanning: boolean = false;
   @State playCount: number = 0;
   @State listenHours: number = 0;
   @State listenMinutes: number = 0;
@@ -80,7 +86,11 @@ export struct LibraryPage {
     this.favorites = playlists.find((item: Playlist) => item.id === LocalPlaylistRepository.FAVORITES_ID) ?? null;
     const catalog = await DownloadStorage.getCatalog();
     this.downloadCount = catalog.length;
-    this.localSongCount = (await LocalMediaScanner.loadCached()).length;
+    // Directory library cache (persisted) wins; picker imports stay in the
+    // session memory cache as before.
+    const persisted = await LocalDirectoryScanner.loadCached();
+    this.localSongCount = persisted.length > 0 ? persisted.length
+      : (await LocalMediaScanner.loadCached()).length;
     this.playCount = await PlaybackStatsRepository.getTotalPlayCount();
     const listenMs = await PlaybackStatsRepository.getTotalListenMs();
     this.listenHours = Math.floor(listenMs / 3600000);
@@ -167,6 +177,21 @@ export struct LibraryPage {
         promptAction.openToast({ message: '应用上下文未就绪' });
         return;
       }
+      // Directory library first (backlog §8): a persisted scan root triggers a
+      // recursive refresh; without one fall back to the audio picker.
+      const dirUri = SettingsRepository.getString(SettingsRepository.KEY_LOCAL_SCAN_DIRECTORY_URI, '');
+      if (dirUri.length > 0) {
+        this.scanning = true;
+        try {
+          const songs = await LocalDirectoryScanner.scanPersistedDirectory(dirUri);
+          this.localSongCount = songs.length;
+          promptAction.openToast({ message: `本地音乐库已刷新：${songs.length} 首` });
+        } finally {
+          this.scanning = false;
+        }
+        await this.reload();
+        return;
+      }
       const songs = await LocalMediaScanner.scan(context);
       this.localSongCount = songs.length;
       promptAction.openToast({ message: `已导入 ${songs.length} 首本地音乐` });
@@ -174,6 +199,56 @@ export struct LibraryPage {
     } catch (error) {
       const e = error as Error;
       promptAction.openToast({ message: `扫描失败：${e.message}` });
+    }
+  }
+
+  /** Picks the library scan root (DocumentViewPicker FOLDER + persist). */
+  private localScanDirLabel(): string {
+    return SettingsRepository.getString(SettingsRepository.KEY_LOCAL_SCAN_DIRECTORY_LABEL, '');
+  }
+
+  private async playLocalLibrary(): Promise<void> {
+    const songs = await LocalDirectoryScanner.loadCached();
+    if (songs.length === 0) {
+      promptAction.openToast({ message: '本地音乐库为空' });
+      return;
+    }
+    PlayerManager.playPlaylist(songs, 0);
+  }
+
+  private async pickLocalScanDirectory(): Promise<void> {
+    try {
+      const context = AppStorage.get<common.UIAbilityContext>('abilityContext');
+      if (context === undefined) {
+        promptAction.openToast({ message: '应用上下文未就绪' });
+        return;
+      }
+      if (!DownloadDirectoryManager.folderPickerSupported()) {
+        promptAction.openToast({ message: '当前系统不支持选择文件夹' });
+        return;
+      }
+      const options = new picker.DocumentSelectOptions();
+      options.selectMode = picker.DocumentSelectMode.FOLDER;
+      options.maxSelectNumber = 1;
+      const documentPicker = new picker.DocumentViewPicker(context);
+      const uris: string[] = await documentPicker.select(options);
+      if (uris.length === 0) {
+        return;
+      }
+      const dirUri = uris[0];
+      const policy: fileShare.PolicyInfo = {
+        uri: dirUri,
+        operationMode: fileShare.OperationMode.READ_MODE
+      };
+      await fileShare.persistPermission([policy]);
+      SettingsRepository.setString(SettingsRepository.KEY_LOCAL_SCAN_DIRECTORY_URI, dirUri);
+      SettingsRepository.setString(SettingsRepository.KEY_LOCAL_SCAN_DIRECTORY_LABEL,
+        DownloadDirectory.labelFromUri(dirUri));
+      promptAction.openToast({ message: '已设置本地音乐库目录，正在扫描...' });
+      await this.scanLocal();
+    } catch (error) {
+      const e = error as Error;
+      promptAction.openToast({ message: `设置目录失败：${e.message}` });
     }
   }
 
@@ -510,11 +585,27 @@ export struct LibraryPage {
         .margin({ top: 12 })
 
         SettingRow({
-          title: '本地音乐库',
-          subtitle: this.localSongCount > 0 ? `已收录 ${this.localSongCount} 首本地音频` : '点击扫描手机上的音频文件',
+          title: '本地音乐库目录',
+          subtitle: this.localScanDirLabel().length > 0
+            ? `${this.localScanDirLabel()} · 点击重新扫描` : '选择文件夹后自动递归收录音频（含同名 .lrc 歌词）',
           icon: '🗂',
-          onTap: () => this.scanLocal()
+          onTap: () => this.pickLocalScanDirectory()
         })
+
+        if (SettingsRepository.getString(SettingsRepository.KEY_LOCAL_SCAN_DIRECTORY_URI, '').length > 0) {
+          SettingRow({
+            title: this.scanning ? '正在扫描本地音乐库...' : '扫描本地音乐库',
+            subtitle: this.localSongCount > 0 ? `已收录 ${this.localSongCount} 首 · 点击立即播放` : '点击扫描所选目录',
+            icon: '♫',
+            onTap: () => {
+              if (this.localSongCount > 0) {
+                this.playLocalLibrary();
+                return;
+              }
+              this.scanLocal();
+            }
+          })
+        }
 
         Text('平台')
           .fontSize(18)

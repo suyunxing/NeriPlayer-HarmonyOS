@@ -1,4 +1,5 @@
 import lrcParserTest from './ets/test/LrcParser.test';
+import yrcLyricsTest from './ets/test/YrcLyrics.test';
 import persistedPlaybackStateTest from './ets/test/PersistedPlaybackState.test';
 import queueEngineTest from './ets/test/QueueEngine.test';
 import audioInterruptPolicyTest from './ets/test/AudioInterruptPolicy.test';
@@ -9,6 +10,8 @@ import downloadDirectoryTest from './ets/test/DownloadDirectory.test';
 import downloadRowTest from './ets/test/DownloadRow.test';
 import downloadPayloadCheckTest from './ets/test/DownloadPayloadCheck.test';
 import downloadUrlRedactionTest from './ets/test/DownloadUrlRedaction.test';
+import downloadLyricSidecarTest from './ets/test/DownloadLyricSidecar.test';
+import localDirectoryScannerTest from './ets/test/LocalDirectoryScanner.test';
 import playbackFailurePolicyTest from './ets/test/PlaybackFailurePolicy.test';
 import qrEncoderTest from './ets/test/QrEncoder.test';
 import neteaseAuthTest from './ets/test/NeteaseAuth.test';
@@ -19,6 +22,7 @@ import assetChunkingTest from './ets/test/AssetChunking.test';
 import biliAuthTest from './ets/test/BiliAuth.test';
 import biliFavParserTest from './ets/test/BiliFavParser.test';
 import streamHeadersTest from './ets/test/StreamHeaders.test';
+import streamRefreshTest from './ets/test/StreamRefresh.test';
 import biliWbiTest from './ets/test/BiliWbi.test';
 import biliAudioSelectorTest from './ets/test/BiliAudioSelector.test';
 import biliStreamSupportTest from './ets/test/BiliStreamSupport.test';
@@ -30,6 +34,7 @@ import playbackStatsMergePolicyTest from './ets/test/PlaybackStatsMergePolicy.te
 import dataChangeDetectorTest from './ets/test/DataChangeDetector.test';
 import syncDataJsonCodecTest from './ets/test/SyncDataJsonCodec.test';
 import syncBinaryCodecTest from './ets/test/SyncBinaryCodec.test';
+import syncProtoEncodeTest from './ets/test/SyncProtoEncode.test';
 import syncSongConvertTest from './ets/test/SyncSongConvert.test';
 import syncSnapshotBuilderTest from './ets/test/SyncSnapshotBuilder.test';
 import syncDeletionStoreTest from './ets/test/SyncDeletionStore.test';
@@ -84,11 +89,15 @@ import avPlaylistPolicyTest from './ets/test/AvPlaylistPolicy.test';
 import playbackCacheLedgerTest from './ets/test/PlaybackCacheLedger.test';
 import audioQualityPolicyTest from './ets/test/AudioQualityPolicy.test';
 import historyRepositoryTest from './ets/test/HistoryRepository.test';
+import songIdentitySha256Test from './ets/test/SongIdentitySha256.test';
+import playbackStatsRetentionTest from './ets/test/PlaybackStatsRetention.test';
+import playbackStatsAggregatorTest from './ets/test/PlaybackStatsAggregator.test';
 import volumeFaderTest from './ets/test/VolumeFader.test';
 import nowPlayingMotionTest from './ets/test/NowPlayingMotion.test';
 
 export default function testsuite(): void {
   lrcParserTest();
+  yrcLyricsTest();
   persistedPlaybackStateTest();
   queueEngineTest();
   audioInterruptPolicyTest();
@@ -105,6 +114,7 @@ export default function testsuite(): void {
   biliAuthTest();
   biliFavParserTest();
   streamHeadersTest();
+  streamRefreshTest();
   biliWbiTest();
   biliAudioSelectorTest();
   biliStreamSupportTest();
@@ -116,6 +126,7 @@ export default function testsuite(): void {
   dataChangeDetectorTest();
   syncDataJsonCodecTest();
   syncBinaryCodecTest();
+  syncProtoEncodeTest();
   syncSongConvertTest();
   syncSnapshotBuilderTest();
   syncDeletionStoreTest();
@@ -171,9 +182,14 @@ export default function testsuite(): void {
   downloadRowTest();
   downloadPayloadCheckTest();
   downloadUrlRedactionTest();
+  downloadLyricSidecarTest();
+  localDirectoryScannerTest();
   playbackFailurePolicyTest();
   audioQualityPolicyTest();
   historyRepositoryTest();
+  songIdentitySha256Test();
+  playbackStatsRetentionTest();
+  playbackStatsAggregatorTest();
   volumeFaderTest();
   nowPlayingMotionTest();
 }

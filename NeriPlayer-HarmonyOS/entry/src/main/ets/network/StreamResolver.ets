@@ -8,12 +8,26 @@ import { SettingsRepository } from '../data/SettingsRepository';
 import { BiliApi } from './BiliApi';
 import { NeteaseApi } from './NeteaseApi';
 import { YouTubeMusicApi } from './YouTubeMusicApi';
+import { YtmStreamResolver } from './ytm/YtmStreamResolver';
 
 /**
  * Unified stream resolution with platform fallbacks, mirroring
  * PlayerManagerNeteaseAutoSourceSwitch and the YouTube layered fallbacks.
  */
 export class StreamResolver {
+  /**
+   * URL re-sign (backlog §2.1, Android refreshCurrentSongUrl): drops every
+   * cached direct link for the song so the next resolve re-fetches a fresh
+   * signed URL. Direct links from netease/bilibili/googlevideo all carry
+   * TTLs; retrying a load failure against the stale cache can never recover.
+   */
+  static invalidateResolvedUrl(song: SongItem): void {
+    if (song.platform === MusicPlatform.YOUTUBE_MUSIC && song.audioId.length > 0) {
+      YtmStreamResolver.evictCachedUrl(song.audioId);
+    }
+    song.streamUrl = '';
+  }
+
   /**
    * Resolves a playable URL for a song. Returns '' when nothing is playable.
    */
