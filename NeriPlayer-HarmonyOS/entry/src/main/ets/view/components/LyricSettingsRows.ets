@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0
 
 import { SettingsRepository } from '../../data/SettingsRepository';
-import { SliderRow, ToggleRow } from './Ui';
+import { SliderRow, ToggleRow, OptionRow, OptionEntry } from './Ui';
 import { Theme } from '../Theme';
 import { iconForLegacy } from '../../util/IconCatalog';
+import { normalizeWordKaraokeMode } from './LyricView';
 /**
  * 歌词设置行组（设置页「歌词设置」分区与播放页歌词面板共用）。
  *
@@ -24,7 +25,15 @@ export struct LyricSettingsRows {
   @StorageProp('np.lyric_font_weight') lyricFontWeight: number = 500;
   @StorageProp('np.lyric_line_spacing') lyricLineSpacing: number = 1.0;
   @StorageProp('np.amll_lyrics') amllLyrics: boolean = true;
-  @StorageProp('np.word_karaoke') wordKaraoke: boolean = true;
+  @StorageProp('np.word_karaoke') wordKaraoke: string = 'smooth';
+
+  private wordKaraokeOptions(): OptionEntry[] {
+    return [
+      { value: 'off', label: '逐行高亮（不逐字）' },
+      { value: 'step', label: '逐字跳变' },
+      { value: 'smooth', label: '逐字渐变过渡' }
+    ];
+  }
   @StorageProp('np.lyric_translation') lyricTranslation: boolean = true;
   @StorageProp('np.lyric_phonetic') lyricPhonetic: boolean = false;
   @StorageProp('np.lyric_blur') lyricBlur: boolean = true;
@@ -192,13 +201,14 @@ export struct LyricSettingsRows {
         value: this.amllLyrics,
         onChange: (on: boolean) => SettingsRepository.setBoolean(SettingsRepository.KEY_AMLL_LYRICS, on)
       })
-      ToggleRow({
-        title: '逐字平滑过渡',
-        subtitle: '逐字高亮补间推进，关闭则字与字间直接切换',
+      OptionRow({
+        title: '逐字高亮样式',
         icon: '🎨',
         transparentBg: this.transparentBg,
-        value: this.wordKaraoke,
-        onChange: (on: boolean) => SettingsRepository.setBoolean(SettingsRepository.KEY_WORD_KARAOKE, on)
+        options: this.wordKaraokeOptions(),
+        current: normalizeWordKaraokeMode(this.wordKaraoke),
+        onPick: (value: string) =>
+          SettingsRepository.setString(SettingsRepository.KEY_WORD_KARAOKE, value)
       })
       ToggleRow({
         title: '歌词模糊效果',

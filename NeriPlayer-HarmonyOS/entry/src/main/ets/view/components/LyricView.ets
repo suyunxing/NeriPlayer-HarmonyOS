@@ -3,6 +3,7 @@
 import { curves } from '@kit.ArkUI';
 import { LyricLine, LyricWord } from '../../model/LyricLine';
 import { MusicPlatform } from '../../model/MusicPlatform';
+import { SettingsRepository } from '../../data/SettingsRepository';
 import { LyricLineLayout, LyricScrollMath } from '../../lyrics/LyricScrollMath';
 import { Theme } from '../Theme';
 
@@ -18,7 +19,23 @@ const LYRIC_FONT_SIZE_STORAGE_KEY = 'np.lyric_font_size';
 const LYRIC_CENTER_STORAGE_KEY = 'np.lyric_center';
 const LYRIC_FONT_WEIGHT_STORAGE_KEY = 'np.lyric_font_weight';
 const LYRIC_LINE_SPACING_STORAGE_KEY = 'np.lyric_line_spacing';
+/**
+ * Word karaoke style (np.word_karaoke): 'off' = no per-word highlight (the
+ * plain line renderer), 'step' = instant word-by-word switches, 'smooth' =
+ * tweened color/weight so the highlight sweeps between the ~500ms throttled
+ * position updates. Legacy boolean values map: true -> 'smooth',
+ * false -> 'step'.
+ */
 const LYRIC_WORD_KARAOKE_STORAGE_KEY = 'np.word_karaoke';
+
+export type WordKaraokeMode = 'off' | 'step' | 'smooth';
+
+export function normalizeWordKaraokeMode(raw: string): WordKaraokeMode {
+  if (raw === 'off' || raw === 'step' || raw === 'smooth') {
+    return raw;
+  }
+  return 'smooth';
+}
 
 // The reference lyric page uses an editorial, airy rhythm rather than a
 // compact karaoke list. Keep the value in vp so it scales with the device;
@@ -80,9 +97,12 @@ export struct LyricView {
   @StorageProp(LYRIC_CENTER_STORAGE_KEY) lyricCenter: boolean = true;
   @StorageProp(LYRIC_FONT_WEIGHT_STORAGE_KEY) lyricFontWeight: number = 500;
   @StorageProp(LYRIC_LINE_SPACING_STORAGE_KEY) lyricLineSpacing: number = 1.0;
-  // Karaoke word smoothing (np.word_karaoke): tween the per-word highlight so
-  // the 500ms-throttled position updates read as a progressive sweep.
-  @StorageProp(LYRIC_WORD_KARAOKE_STORAGE_KEY) wordKaraokeSmooth: boolean = true;
+  // Karaoke word style (np.word_karaoke): off / step / smooth, normalized
+  // from the raw storage value (legacy booleans included).
+  @StorageProp(LYRIC_WORD_KARAOKE_STORAGE_KEY) wordKaraokeRaw: string = 'smooth';
+  private wordKaraokeMode(): WordKaraokeMode {
+    return normalizeWordKaraokeMode(this.wordKaraokeRaw);
+  }
 
   @State viewportHeight: number = 0;
   @State scrubIndex: number = -1;
@@ -100,7 +120,24 @@ export struct LyricView {
   private revertTimerId: number = -1;
 
   aboutToAppear(): void {
+    LyricView.migrateLegacyWordKaraokeValue();
     this.onLyricsReplaced();
+  }
+
+  /**
+   * np.word_karaoke was a boolean before the three-way option; rewrite the
+   * stored value once so the string shape holds from now on (true -> 'smooth',
+   * false -> 'step'). Anything absent normalizes to the default 'smooth'.
+   */
+  private static migrateLegacyWordKaraokeValue(): void {
+    const raw = AppStorage.get<boolean | string>(LYRIC_WORD_KARAOKE_STORAGE_KEY);
+    if (typeof raw === 'boolean') {
+      const migrated = raw ? 'smooth' : 'step';
+      AppStorage.setOrCreate(LYRIC_WORD_KARAOKE_STORAGE_KEY, migrated);
+      SettingsRepository.setString(SettingsRepository.KEY_WORD_KARAOKE, migrated);
+    } else if (raw === undefined || raw === null) {
+      AppStorage.setOrCreate(LYRIC_WORD_KARAOKE_STORAGE_KEY, 'smooth');
+    }
   }
 
   aboutToDisappear(): void {
@@ -412,13 +449,12 @@ export struct LyricView {
     .fontWeight(this.lyricFontWeight)
     .textAlign(this.lineTextAlign())
     .width('100%')
-    // Karaoke smoothing (user feedback on §6.1): position updates arrive
-    // throttled at ~500ms so state flips land as hard switches; a short
-    // color/weight transition per Span turns the discrete states into a
-    // progressive sweep. positionMs-driven re-render must also refresh the
-    // ForEach keys (wordState suffix) or spans with identical keys never
-    // re-animate.
-    .animation(this.wordKaraokeSmooth ? { duration: 260, curve: Curve.EaseOut } : undefined)
+    // Karaoke smoothing: position updates arrive throttled at ~500ms so state
+    // flips land as hard switches; a short color/weight transition per Span
+    // turns the discrete states into a progressive sweep. positionMs-driven
+    // re-render must also refresh the ForEach keys (wordState suffix) or
+    // spans with identical keys never re-animate.
+    .animation(this.wordKaraokeMode() === 'smooth' ? { duration: 260, curve: Curve.EaseOut } : undefined)
   }
 
   build() {
@@ -432,7 +468,8 @@ export struct LyricView {
         } else {
           ForEach(this.lyrics, (line: LyricLine, index: number) => {
             Column({ space: 6 }) {
-              if (index === this.currentIndex() && index === this.activeIndex() && line.words.length > 0) {
+              if (index === this.currentIndex() && index === this.activeIndex()
+                && line.words.length > 0 && this.wordKaraokeMode() !== 'off') {
                 // Karaoke line: per-word highlight driven by positionMs. While
                 // scrubbing the highlight belongs to the centered line instead.
                 this.activeWordLine(line)
