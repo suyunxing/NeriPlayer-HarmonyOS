@@ -24,24 +24,16 @@ export class DownloadLyricSidecar {
       if (!SettingsRepository.getBoolean(SettingsRepository.KEY_DOWNLOAD_MATCH_LYRICS, true)) {
         return;
       }
-      // Custom download directories return file:// URIs from commit(); the
-      // sidecar must be written through the converted sandbox path exactly
-      // like the audio copy itself, otherwise the open fails silently.
-      const writablePath = DownloadStorage.resolveFilePath(audioPath);
-      if (writablePath.length === 0) {
-        Logger.warn(`DownloadLyricSidecar: audio path not writable for ${song.displayName}`);
-        return;
-      }
       const lines = await LyricDispatcher.loadLyrics(song);
       if (lines.length === 0) {
-        Logger.info(`DownloadLyricSidecar: no lyric resolved for ${song.displayName}`);
         return;
       }
-      const sidecarPath = DownloadLyricSidecar.sidecarPath(writablePath);
-      DownloadStorage.writeSidecarText(sidecarPath, DownloadLyricSidecar.buildSidecarText(lines));
+      DownloadStorage.writeSidecarText(
+        DownloadLyricSidecar.sidecarPath(audioPath),
+        DownloadLyricSidecar.buildSidecarText(lines));
       Logger.info(`DownloadLyricSidecar: wrote ${lines.length} lines for ${song.displayName}`);
     } catch (error) {
-      Logger.warn(`DownloadLyricSidecar skipped: ${(error as Error).message}`);
+      Logger.info(`DownloadLyricSidecar skipped: ${(error as Error).message}`);
     }
   }
 

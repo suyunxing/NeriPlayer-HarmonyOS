@@ -18,7 +18,6 @@ const LYRIC_FONT_SIZE_STORAGE_KEY = 'np.lyric_font_size';
 const LYRIC_CENTER_STORAGE_KEY = 'np.lyric_center';
 const LYRIC_FONT_WEIGHT_STORAGE_KEY = 'np.lyric_font_weight';
 const LYRIC_LINE_SPACING_STORAGE_KEY = 'np.lyric_line_spacing';
-const LYRIC_WORD_KARAOKE_STORAGE_KEY = 'np.word_karaoke';
 
 // The reference lyric page uses an editorial, airy rhythm rather than a
 // compact karaoke list. Keep the value in vp so it scales with the device;
@@ -80,9 +79,6 @@ export struct LyricView {
   @StorageProp(LYRIC_CENTER_STORAGE_KEY) lyricCenter: boolean = true;
   @StorageProp(LYRIC_FONT_WEIGHT_STORAGE_KEY) lyricFontWeight: number = 500;
   @StorageProp(LYRIC_LINE_SPACING_STORAGE_KEY) lyricLineSpacing: number = 1.0;
-  // Karaoke word smoothing (np.word_karaoke): tween the per-word highlight so
-  // the 500ms-throttled position updates read as a progressive sweep.
-  @StorageProp(LYRIC_WORD_KARAOKE_STORAGE_KEY) wordKaraokeSmooth: boolean = true;
 
   @State viewportHeight: number = 0;
   @State scrubIndex: number = -1;
@@ -406,19 +402,12 @@ export struct LyricView {
         Span(word.text)
           .fontColor(this.wordState(word) > 0 ? Theme.textPrimary(Theme.isDark()) : Theme.textSecondary(Theme.isDark()))
           .fontWeight(this.wordState(word) === 1 ? FontWeight.Medium : FontWeight.Normal)
-      }, (word: LyricWord, index: number) => `${index}_${word.startMs}_${word.text}_${this.wordState(word)}`)
+      }, (word: LyricWord, index: number) => `${index}_${word.startMs}_${word.text}`)
     }
     .fontSize(this.lyricFontSize + 6)
     .fontWeight(this.lyricFontWeight)
     .textAlign(this.lineTextAlign())
     .width('100%')
-    // Karaoke smoothing (user feedback on §6.1): position updates arrive
-    // throttled at ~500ms so state flips land as hard switches; a short
-    // color/weight transition per Span turns the discrete states into a
-    // progressive sweep. positionMs-driven re-render must also refresh the
-    // ForEach keys (wordState suffix) or spans with identical keys never
-    // re-animate.
-    .animation(this.wordKaraokeSmooth ? { duration: 260, curve: Curve.EaseOut } : undefined)
   }
 
   build() {
