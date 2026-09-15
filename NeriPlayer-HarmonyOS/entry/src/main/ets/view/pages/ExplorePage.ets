@@ -28,7 +28,7 @@ export struct ExplorePage {
   scroller: Scroller = new Scroller();
   /**
    * S5: 订阅封面配色。Theme.*() 读 AppStorage 是无跟踪调用（M7.4），换歌后
-   * 坐在本页的组件不会重建；有了这个成员并在 build 里经 schemeBg() 直读，
+   * 坐在本页的组件不会重建；有了这个成员并经 schemeBg()/accent*() 直读，
    * scheme 一发布本页就随新配色重染。
    */
   @StorageProp('player.coverScheme') coverScheme: AccentScheme = AccentScheme.neutralFallback();
@@ -129,11 +129,11 @@ export struct ExplorePage {
         .height(18)
       Text(label)
         .fontSize(13)
-        .fontColor(this.platform === index ? Theme.onPrimary(Theme.isDark()) : Theme.textSecondary(Theme.isDark()))
+        .fontColor(this.platform === index ? this.accentOnPrimary(Theme.isDark()) : Theme.textSecondary(Theme.isDark()))
     }
     .height(40)
     .padding({ left: 14, right: 14 })
-    .backgroundColor(this.platform === index ? Theme.primary(Theme.isDark()) : Theme.surface(Theme.isDark()))
+    .backgroundColor(this.platform === index ? this.accentPrimary(Theme.isDark()) : this.accentSurface(Theme.isDark()))
     .borderRadius(17)
     .clickEffect({ level: ClickEffectLevel.LIGHT })
     .onClick(() => {
@@ -149,6 +149,31 @@ export struct ExplorePage {
   private schemeBg(dark: boolean): string {
     const hasScheme = this.coverScheme.light.background.length > 0;
     return hasScheme ? Theme.background(dark) : Theme.background(dark);
+  }
+
+  /**
+   * M7.4 的另一半：强调色与卡片底色节点直接写 Theme.*() 仍是无跟踪调用，
+   * 换歌后不动。读法与 schemeBg 相同——先摸被跟踪的 coverScheme 注册依赖，
+   * 取值依旧交给 Theme 统一决策（动态取色关闭、legacy seed 等回退路径不变）。
+   */
+  private accentPrimary(dark: boolean): string {
+    const hasScheme = this.coverScheme.light.primary.length > 0;
+    return hasScheme ? Theme.primary(dark) : Theme.primary(dark);
+  }
+
+  private accentOnPrimary(dark: boolean): string {
+    const hasScheme = this.coverScheme.light.primary.length > 0;
+    return hasScheme ? Theme.onPrimary(dark) : Theme.onPrimary(dark);
+  }
+
+  private accentSurfaceVariant(dark: boolean): string {
+    const hasScheme = this.coverScheme.light.primary.length > 0;
+    return hasScheme ? Theme.surfaceVariant(dark) : Theme.surfaceVariant(dark);
+  }
+
+  private accentSurface(dark: boolean): string {
+    const hasScheme = this.coverScheme.light.primary.length > 0;
+    return hasScheme ? Theme.surface(dark) : Theme.surface(dark);
   }
 
   build() {
@@ -181,18 +206,18 @@ export struct ExplorePage {
         .layoutWeight(1)
         .height(44)
         .padding({ left: 14, right: 8 })
-        .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+        .backgroundColor(this.accentSurfaceVariant(Theme.isDark()))
         .borderRadius(22)
 
         Button() {
           SymbolGlyph($r('sys.symbol.magnifyingglass'))
             .fontSize(20)
-            .fontColor([Theme.onPrimary(Theme.isDark())])
+            .fontColor([this.accentOnPrimary(Theme.isDark())])
         }
         .width(44)
         .height(44)
         .type(ButtonType.Circle)
-        .backgroundColor(Theme.primary(Theme.isDark()))
+        .backgroundColor(this.accentPrimary(Theme.isDark()))
         .accessibilityText('搜索')
         .clickEffect({ level: ClickEffectLevel.LIGHT })
         .onClick(() => this.search())
@@ -235,7 +260,7 @@ export struct ExplorePage {
                 .fontSize(13)
                 .fontColor(Theme.textPrimary(Theme.isDark()))
                 .padding({ left: 12, right: 12, top: 7, bottom: 7 })
-                .backgroundColor(Theme.surface(Theme.isDark()))
+                .backgroundColor(this.accentSurface(Theme.isDark()))
                 .borderRadius(16)
                 .margin({ right: 8, bottom: 8 })
                 .onClick(() => this.useHistory(keyword))
@@ -275,7 +300,7 @@ export struct ExplorePage {
             Image($r('app.media.ic_music_note_24'))
               .width(26)
               .height(26)
-              .fillColor(Theme.primary(Theme.isDark()))
+              .fillColor(this.accentPrimary(Theme.isDark()))
             Column({ space: 2 }) {
               Text('搜索歌曲')
                 .fontSize(15)
@@ -293,14 +318,14 @@ export struct ExplorePage {
           }
           .width('100%')
           .padding(14)
-          .backgroundColor(Theme.surface(Theme.isDark()))
+          .backgroundColor(this.accentSurface(Theme.isDark()))
           .borderRadius(Theme.cardRadius())
 
           Row({ space: 12 }) {
             Image($r('app.media.ic_queue_music_24'))
               .width(26)
               .height(26)
-              .fillColor(Theme.primary(Theme.isDark()))
+              .fillColor(this.accentPrimary(Theme.isDark()))
             Column({ space: 2 }) {
               Text('搜索歌单')
                 .fontSize(15)
@@ -318,7 +343,7 @@ export struct ExplorePage {
           }
           .width('100%')
           .padding(14)
-          .backgroundColor(Theme.surface(Theme.isDark()))
+          .backgroundColor(this.accentSurface(Theme.isDark()))
           .borderRadius(Theme.cardRadius())
         }
         .width('100%')
