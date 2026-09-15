@@ -117,8 +117,9 @@ export class SettingsRepository {
   static readonly KEY_LYRIC_OFFSET_MS: string = 'np.lyric_offset_ms';
   // AMLL word-timed TTML lyrics as an upgrade source (Android AMLL toggle).
   static readonly KEY_AMLL_LYRICS: string = 'np.amll_lyrics';
-  // Tween the per-word karaoke highlight between the throttled position
-  // updates so the highlight sweeps instead of hard-switching.
+  // Word karaoke style: 'off' (plain line), 'step' (instant word switches),
+  // 'smooth' (tweened highlight sweep). Was a boolean before the three-way
+  // option; LyricView migrates stored booleans on first read.
   static readonly KEY_WORD_KARAOKE: string = 'np.word_karaoke';
   // In-app floating lyric bar (D4 fallback for the Android system overlay).
   static readonly KEY_FLOATING_LYRIC: string = 'np.floating_lyric';
@@ -219,7 +220,7 @@ export class SettingsRepository {
     [SettingsRepository.KEY_LYRIC_TRANSLATION, true],
     [SettingsRepository.KEY_LYRIC_PHONETIC, false],
     [SettingsRepository.KEY_LYRIC_BLUR, true],
-    [SettingsRepository.KEY_WORD_KARAOKE, true],
+    [SettingsRepository.KEY_WORD_KARAOKE, 'smooth'],
     [SettingsRepository.KEY_LYRIC_OFFSET_MS, 0],
     [SettingsRepository.KEY_AMLL_LYRICS, true],
     [SettingsRepository.KEY_FLOATING_LYRIC, false],
