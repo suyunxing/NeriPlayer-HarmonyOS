@@ -8,7 +8,6 @@ import { SystemBars } from '../../util/SystemBars';
 import { DownloadStorage } from '../../download/DownloadStorage';
 import { DownloadEngine } from '../../download/DownloadEngine';
 import { DownloadDirectory } from '../../download/DownloadDirectory';
-import { PlaylistBackupManager } from '../../data/PlaylistBackupManager';
 import {
   DownloadDirectoryManager,
   DownloadDirectoryPickCode
@@ -339,30 +338,6 @@ export struct SettingsDetailPage {
       NeteaseApi.resetSession();
     }
     return saved;
-  }
-
-  /** Exports playlists + history to a user-picked JSON file. */
-  private async exportPlaylistBackup(): Promise<void> {
-    try {
-      const message = await PlaylistBackupManager.exportViaPicker();
-      if (message.length > 0) {
-        promptAction.openToast({ message, duration: 2000 });
-      }
-    } catch (error) {
-      promptAction.openToast({ message: `导出失败：${(error as Error).message}` });
-    }
-  }
-
-  /** Imports playlists + history from a picked backup JSON. */
-  private async importPlaylistBackup(): Promise<void> {
-    try {
-      const result = await PlaylistBackupManager.importViaPicker();
-      if (result.message.length > 0) {
-        promptAction.openToast({ message: result.message, duration: 2500 });
-      }
-    } catch (error) {
-      promptAction.openToast({ message: `导入失败：${(error as Error).message}` });
-    }
   }
 
   private confirmNeteaseLogout(): void {
@@ -1408,23 +1383,6 @@ export struct SettingsDetailPage {
               onTap: () => promptAction.openToast({ message: 'YouTube 登录待移植' })
             })
           } else if (this.section === SETTING_SYNC) {
-            Text('本地备份')
-              .fontSize(13)
-              .fontColor(Theme.textSecondary(Theme.isDark()))
-              .width('100%')
-              .margin({ left: 6, top: 8, bottom: 6 })
-            SettingRow({
-              title: '导出歌单备份到本机',
-              subtitle: '生成 JSON 文件（含歌单与播放历史，与云端备份同格式）',
-              icon: '⬆',
-              onTap: () => this.exportPlaylistBackup()
-            })
-            SettingRow({
-              title: '从本机导入歌单备份',
-              subtitle: '选择备份 JSON，按歌单名与歌曲稳定键合并（不覆盖本地已有）',
-              icon: '⬇',
-              onTap: () => this.importPlaylistBackup()
-            })
             Text('GitHub 备份')
               .fontSize(13)
               .fontColor(Theme.textSecondary(Theme.isDark()))
@@ -1780,7 +1738,7 @@ struct GitHubConfigDialog {
         .fontSize(17)
         .fontWeight(FontWeight.Bold)
         .fontColor(Theme.textPrimary(Theme.isDark()))
-      Text('支持经典 PAT（repo 权限）与精细化令牌（Fine-grained PAT：选中备份仓库，权限给 Contents: Read and write + Metadata: Read-only；「创建备份仓库」还需 Administration: Read and write）。仅保存在本机安全存储，不会出现在日志中。')
+      Text('令牌需包含 repo 权限（用于私有备份仓库读写）。仅保存在本机安全存储，不会出现在日志中。')
         .fontSize(12)
         .fontColor(Theme.textSecondary(Theme.isDark()))
       TextArea({ placeholder: 'ghp_… / github_pat_…', text: this.tokenText })
