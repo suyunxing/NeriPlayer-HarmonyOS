@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 import { SettingsRepository } from '../data/SettingsRepository';
 import { Router } from '../view/Router';
 import { Theme } from '../view/Theme';

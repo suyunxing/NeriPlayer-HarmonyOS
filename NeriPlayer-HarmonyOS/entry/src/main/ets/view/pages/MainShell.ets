@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 import { Router } from '../Router';
 import { NowPlayingMotion, NowPlayingRect } from '../NowPlayingMotion';
 import { PANEL_CURVE } from '../NowPlayingCurves';

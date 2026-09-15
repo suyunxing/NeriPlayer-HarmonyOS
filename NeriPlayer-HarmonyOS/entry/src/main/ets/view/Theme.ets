@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 import { SettingsRepository } from '../data/SettingsRepository';
 import { GUIDELINE_BOTTOM_LIFT_VP } from '../util/Breakpoint';
 import { DynamicTheme, TonePalette } from './theme/DynamicTheme';

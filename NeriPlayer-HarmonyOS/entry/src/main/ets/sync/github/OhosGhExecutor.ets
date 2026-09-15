@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
+
 /**
  * @ohos.net.http adapter for the GitHub transport. This is the only file in
  * sync/github with platform imports - everything else stays pure for local

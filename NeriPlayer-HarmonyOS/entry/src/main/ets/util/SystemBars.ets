@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 import { window } from '@kit.ArkUI';
 import { common } from '@kit.AbilityKit';
 import { Logger } from '../app/Logger';

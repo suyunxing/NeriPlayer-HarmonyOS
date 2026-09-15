@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
+
 /** Pure HTTP helpers shared by the YTM loopback bridge and local tests. */
 export interface YtmLoopbackRequest {
   method: string;

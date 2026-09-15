@@ -57,6 +57,7 @@
 
 如果你只是想体验应用，请看 [快速体验与安装](#-快速体验与安装--getting-started)。
 如果你想了解项目能力，请看 [项目亮点](#-项目亮点--why-it-stands-out) 和 [移植现状与能力矩阵](#-移植现状与能力矩阵--feature-matrix)。
+如果你想了解规划中的鸿蒙特色功能，请看 [未来功能规划](#-未来功能规划--roadmap)。
 如果你想了解工程架构，请看 [系统架构与目录分工](#-系统架构与工程结构)。
 如果你准备贡献代码，请阅读 [CONTRIBUTING.md](./CONTRIBUTING.md)。
 
@@ -123,7 +124,7 @@ NeriPlayer for HarmonyOS
 | :--- | :--- | :---: | :--- |
 | **多源在线播放** | 网易云音乐 | ✅ 已闭环 | WEAPI 协议、QR 扫码登录、Cookie 导入、每日推荐、歌单无截断全量导入、音质降级取流 |
 | | 哔哩哔哩 (B站) | ✅ 已闭环 | WBI 签名鉴权、QR 扫码登录、收藏夹全量并发分页加载、DASH 音轨优选、Referer 防盗链注入 |
-| | YouTube Music | ⏳ 演进中 | 搜索与匿名移动端直连取流已通；受 Google 直链限制当前单轨约 1 分钟，后续待接入 PoToken/JS 逆向运行时 |
+| | YouTube Music | 🧪 实验性 | 搜索与匿名移动端直连取流已通；受 Google 直链签名限制当前单轨约 1 分钟即中断，后续待接入 PoToken/JS 逆向运行时 |
 | | 多源自动换源 | ✅ 已闭环 | 网易云无版权/失效时，按匹配度算法自动换源至 Bilibili 对应音频兜底 |
 | **播放核心与音频** | AVPlayer 核心控制 | ✅ 已闭环 | 队列、随机、循环、倍速（0.5x~2.0x）、断点恢复、VolumeFader 平滑淡入淡出、API 26 原生播放列表桥接 |
 | | AVSession 媒体中心 | ✅ 已闭环 | 锁屏/通知栏/控制中心联动、双向元数据同步、逐行歌词、单曲收藏、拉起 Ability 回跳 |
@@ -134,12 +135,52 @@ NeriPlayer for HarmonyOS
 | | ColorScience 取色 | ✅ 已闭环 | 纯 ArkTS CIE Lab / LCh / ΔE00 算法，毫秒级封面取色并生成动态呼吸流光背景 |
 | | 桌面悬浮歌词 | ⏳ 演进中 | 应用内悬浮条已完成；系统级桌面歌词已打通至系统服务层，图形上屏待真机验证 |
 | **离线与数据** | 工业级下载引擎 | ✅ 已闭环 | Range/HLS 续传、两阶段事务提交、脱机短路读取 fd 极速解码 |
-| | 本地音乐与沙箱 | ✅ 已闭环 | 沙箱媒体库、`READ_AUDIO` 授权扫描、元数据解析与封面提取 |
+| | 本地音乐与沙箱 | ✅ 已闭环 | 沙箱媒体库、系统文件选择器手动导入（`AudioViewPicker` 免权限）、元数据解析与封面提取 |
 | | 凭据安全保险箱 | ✅ 已闭环 | 基于 `@ohos.security.asset` 的系统加密存储，Chunk 分块突破 1024B 上限 |
 | **同步与协作** | 因果云同步 | ✅ 已闭环 | 兼容 Android 双端 Protobuf/JSON 格式，GitHub Git Data API / WebDAV 三路因果合并与墓碑防复活 |
 | | 一起听 (Listen Together) | ✅ 已闭环 | WebSocket 长连接、网络 RTT 与时钟漂移控制在 300ms 内、权威直链共享 |
 | **架构与容灾** | 响应式多形态适配 | ✅ 已闭环 | 直板机、折叠屏（Mate X7 707vp LG 断点）、平板、2in1 自由悬浮窗栅格自适应 |
 | | 异常诊断与安全模式 | ✅ 已闭环 | `FaultLogger` + `hiAppEvent` 监控，启动失败自动进入 `SafeMode` 安全自愈 |
+
+---
+
+## 🔮 未来功能规划 / Roadmap
+
+> 详细的功能定义、实现理论基础、风险与推进建议请参阅 [docs/HARMONYOS_EXCLUSIVE_FEATURES.md](docs/HARMONYOS_EXCLUSIVE_FEATURES.md)。
+> 本板块聚焦「用鸿蒙独有 API 做出其他平台做不了的体验」，与 Android 功能对齐待办（[docs/ANDROID_PARITY_BACKLOG.md](docs/ANDROID_PARITY_BACKLOG.md)）互补，均不阻塞开源发布。
+
+### P0 · 优先推进（爽点密度高 / 工程量小）
+
+| 功能名 | 效果 | 实现理论基础 | 完成状态 |
+| :--- | :--- | :--- | :---: |
+| 波形进度条机械阻尼震感 | 拖拽波形进度条时每过一个峰值触发拨轮式短震，「机械卡齿」seek 手感，振幅越大震感越强 | `@ohos.vibrator` 预置 `haptic.clock.timer` 效果（API 12+），强度随 `WaveformSlider` 波形振幅调制 | 📋 已规划 |
+| 隔空手势切歌 | 做饭、吃饭手脏时，隔空「敲一敲」暂停/播放、「划一划」切歌 | ArkUI `SmartGestureController` / `smartGestureShortcut`（API 26），传感器捕获隔空 TAP / SLIDE 手势 | 📋 已规划 |
+| 桌面服务卡片 | 2×2 / 2×4 常驻磁贴：旋转封面 + 歌名 + 播放/暂停/切歌，封面主色动态染色背景 | `FormExtensionAbility`（`@kit.FormKit`）+ `postCardAction` call 模式后台静默控制播放 | 📋 已规划 |
+
+### P1 · 核心深潜（前置依赖或工程量中大）
+
+| 功能名 | 效果 | 实现理论基础 | 完成状态 |
+| :--- | :--- | :--- | :---: |
+| 低音节拍同步震动 | 重低音鼓点触发马达随音乐律动震颤 | `@ohos.multimedia.audioHaptic` 音频-触觉协同服务；在线流是否生效需真机 spike，降级方案为能量检测 + 自定义震动波形 | 📋 已规划 |
+| 全局悬浮歌词画中画 | 应用内悬浮歌词条升级为跨 App 全局歌词胶囊，点按展开控制 | `@ohos.PiPWindow` 画中画窗口（需先确认桌面歌词 M102 spike 结论，避免重复路线） | 📋 已规划 |
+| 音频投屏与多设备流转 | 一键投到 Sound X / 智慧屏 / 车机 / DLNA，手机变沉浸式遥控器 | `@kit.AVSessionKit` 的 `avCastPicker` + `AVCastController`（Cast+ / DLNA 协议） | 📋 已规划 |
+| 裸眼 3D 视差封面 | 封面/黑胶随设备倾斜微移，Apple Music 式景深视差 | `sensor.SensorId.ROTATION_VECTOR` 四元数驱动多层 `translate`/`rotate`（无需权限） | 📋 已规划 |
+
+### P2 · 彩蛋与长尾
+
+| 功能名 | 效果 | 实现理论基础 | 完成状态 |
+| :--- | :--- | :--- | :---: |
+| 睡眠定时倒计时实况窗 | 状态栏胶囊/锁屏/AOD 实时显示剩余分钟，不解锁即可暂停或加时 | `@kit.LiveViewKit`，`TIMER` 白名单场景（需 AGC 申请实况窗权限，全清单唯一高门槛项） | 📋 已规划 |
+| 跨端接续播放 | 手机听到一半靠近平板一点即续播，队列/进度/歌词位置同步迁移 | `UIAbility.onContinue` + `@ohos.data.distributedDataObject` + `distributedFilesDir` | 📋 已规划 |
+| 语音 DJ（点歌/切歌/暂停） | 驾车场景说「播放周杰伦」即可点歌，端侧离线识别可注入歌名热词 | `@kit.CoreSpeechKit` 的 `speechRecognizer`（离线 + 200 热词）+ `textToSpeech` 播报 | 📋 已规划 |
+| 歌词页音乐律动粒子 | 背景粒子随音乐能量呼吸吞吐，副歌段粒子爆发 | ArkUI `Particle` 扰动场 `disturbanceFields`（API 12+）+ 波形能量数据驱动 | 📋 已规划 |
+| 摇一摇换歌 | 用力摇晃触发随机切歌（走路/跑步防误触） | `sensor.SensorId.ACCELEROMETER` 幅度阈值 + 时间窗去抖 | 📋 已规划 |
+| 充电摆台黑胶时钟 | 横屏充电 45°~90° 摆放时进入黑胶唱片 + 时钟的待机屏保摆台 | 待机屏保卡片（API 23+，需 AGC 申请），复用桌面卡片基建 | 📋 已规划 |
+| 复古留声机音效彩蛋 | 输出加「老留声机 / 水下 / 广播喇叭」环境音场滤镜 | Native `OHAudioSuite` `ENVIRONMENT_EFFECT`（API 22+），挂接成本需先 spike | 📋 已规划 |
+| 碰一碰切歌单 | 床头/车上贴 NFC 标签，手机碰一下切对应歌单 | `@ohos.nfc.tag` 前台分发读 NDEF 歌单 ID | 📋 已规划 |
+| 折叠屏演奏台 | 半折悬停时下屏变控制面板、上屏展示封面歌词 | `display.on('foldAngleChange')`（API 12+）半折态上下分屏布局 | 📋 已规划 |
+
+> AR 贴纸、骨骼点体感、智能抠图、BLE 雷达、防窥检测等调研过的能力经评估与音乐播放场景不契合，已明确排除，详见规划文档第 17 节。
 
 ---
 
@@ -238,7 +279,7 @@ cd NeriPlayer-HarmonyOS
 .\sign-local.ps1
 ```
 
-首次在设备启动应用后，根据引导完成**免责声明**与**新用户引导**。本地音乐扫描需授权 `ohos.permission.READ_AUDIO` 权限，后台连续播放请确保保持 `ohos.permission.KEEP_BACKGROUND_RUNNING` 授权。
+首次在设备启动应用后，根据引导完成**免责声明**与**新用户引导**。本地音乐导入通过系统文件选择器手动选取（`AudioViewPicker` 免权限授权），后台连续播放请确保保持 `ohos.permission.KEEP_BACKGROUND_RUNNING` 授权。
 
 ---
 
@@ -252,6 +293,35 @@ cd NeriPlayer-HarmonyOS
 | **代码规范** | `CodeLinter` | **0 Error 基线** | 严格保障 ArkTS 规范、异步 Promise 处理机制与资源引用安全 |
 | **设备端测** | `ohosTest` + `aa test` | **50+ 项设备用例** | AVPlayer 真实网络取流、Asset 凭据安全存取、长时任务后台保活、断网自愈与异常自愈 |
 | **持续集成** | GitHub Actions | **自动化守护** | push / PR 自动拉起 HarmonyOS API 26 环境执行编译与自动化检查 |
+
+---
+
+## ⚠️ 已知限制 / Known Limitations
+
+为避免误解，以下能力现状如实列出（与 Android 原版的完整差异见 [docs/ANDROID_PARITY_BACKLOG.md](docs/ANDROID_PARITY_BACKLOG.md)）：
+
+**实验性能力**
+
+- **YouTube Music**：受 Google 直链签名限制，匿名取流当前单轨约 1 分钟即中断；搜索、元数据与歌单能力正常。
+- **播放缓存**：基于系统 `AVDownloaderManager` 的实验功能，默认关闭（opt-in）。
+
+**设置页占位（点击只弹提示，非可用功能）**
+
+- 语言切换：当前仅简体中文；
+- YouTube 登录：Cookie 会话待移植；
+- 网易云无版权歌曲自动换源至 Bilibili 时，界面上无换源提示标记。
+
+**平台限制（HarmonyOS 开放度所致，非缺陷）**
+
+- USB DAC 独占输出 / Bit-Perfect：无公开 USB DDK，系统路径下 AVPlayer 经 USB Audio HAL 已可正常出声；
+- 系统级桌面悬浮歌词 / 状态栏歌词：桌面歌词 API 已打通至系统服务层，图形上屏待真机验证；当前为应用内悬浮歌词条降级实现；
+- 均衡器 / 响度归一化 / 声道平衡 / 播放页音频律动背景：AVPlayer 无 DSP 管线暴露；
+- 下载曲目元数据写入：无公开 tag 写 API，以 sidecar 编目承载。
+
+**其他**
+
+- 一起听（Listen Together）需自建或已知服务器，客户端直连，不经任何中间服务；
+- B 站收藏页需登录态，未登录时不可用。
 
 ---
 

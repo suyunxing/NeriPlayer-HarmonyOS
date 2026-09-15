@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 import { Logger } from '../../app/Logger';
 import { Constants } from '../../app/Constants';
 import { SettingsRepository } from '../SettingsRepository';

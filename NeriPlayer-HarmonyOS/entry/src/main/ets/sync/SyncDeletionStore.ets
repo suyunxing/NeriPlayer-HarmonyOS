@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
+
 /**
  * Port of the SecureTokenStorage subset the sync stack needs on this side:
  * recent-play/playlist-song deletion tombstones plus the sync device id,

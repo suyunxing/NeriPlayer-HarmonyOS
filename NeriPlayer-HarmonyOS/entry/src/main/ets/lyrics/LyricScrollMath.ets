@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
+
 /**
  * Pure layout math for the centered auto-scrolling lyric view. Everything is
  * static and side-effect free so it stays unit-testable without ArkUI.

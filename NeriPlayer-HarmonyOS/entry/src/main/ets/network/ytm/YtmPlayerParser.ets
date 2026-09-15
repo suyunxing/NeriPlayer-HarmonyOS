@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
+
 /**
  * Pure parsers for the youtubei/v1/player response and the bootstrap page
  * (no platform imports so the local hypium suite can exercise them).

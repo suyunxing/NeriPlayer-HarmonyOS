@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
+
 /**
  * Platform seam for the random identifiers listen together needs, ported from
  * listentogether/invite/ListenTogetherInviteBuilder.kt

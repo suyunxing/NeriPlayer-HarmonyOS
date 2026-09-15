@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 import { MatchCandidate, MatchSource, SongMatchApi, matchSourceTag } from '../../network/SongMatchApi';
 import { SongItem } from '../../model/SongItem';
 import { stableKeyOf } from '../../model/SongIdentity';

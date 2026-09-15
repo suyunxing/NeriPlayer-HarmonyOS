@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
+
 /**
  * Per-client failure suppression, porting Android PlayerClientHealthTracker
  * (YouTubeMusicPlaybackRepository.kt:280-313):

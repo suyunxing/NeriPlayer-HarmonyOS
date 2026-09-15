@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
+
 /** Typed WebDAV failures shared by transport, coordinator and settings UI. */
 
 export enum WebDavErrorKind {

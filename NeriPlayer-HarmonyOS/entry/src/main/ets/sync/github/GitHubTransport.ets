@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
+
 /**
  * GitHub REST transport for the backup-sync pipeline (pure ArkTS: the HTTP
  * executor is injected so local hypium tests drive the full request flow).

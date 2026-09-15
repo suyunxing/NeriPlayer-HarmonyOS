@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 import { curves } from '@kit.ArkUI';
 import { LyricLine, LyricWord } from '../../model/LyricLine';
 import { LyricLineLayout, LyricScrollMath } from '../../lyrics/LyricScrollMath';

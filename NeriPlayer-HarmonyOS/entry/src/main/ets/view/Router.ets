@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 import { KEY_REFRESH_TICK } from '../util/Breakpoint';
 import { ROUTE_MAIN, RoutePushAction, routePushAction } from './RouteStack';
 

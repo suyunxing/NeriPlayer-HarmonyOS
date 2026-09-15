@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 import { promptAction } from '@kit.ArkUI';
 import { NeteaseApi } from '../../network/NeteaseApi';
 import { BiliApi } from '../../network/BiliApi';
