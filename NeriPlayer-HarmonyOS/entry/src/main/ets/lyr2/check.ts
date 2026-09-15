@@ -1,0 +1,10 @@
+import { SongItem } from './SongItem';
+import { MusicPlatform } from '../model/MusicPlatform';
+const song = new SongItem(123, '歌名', '歌手', 'album', 456);
+song.platform = MusicPlatform.NETEASE;
+song.channelId = 'netease';
+song.audioId = '123';
+const json = song.toJson();
+console.log('audioId in json:', json.includes('"audioId":"123"'));
+const back = SongItem.fromJson(json);
+console.log('audioId round trip:', back.audioId);
