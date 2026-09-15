@@ -1139,10 +1139,16 @@ export class PlayerManager {
     PlayerManager.positionMs = state.positionMs;
     PlayerManager.restoredPositionMs = state.positionMs;
     const startQueueIndex = Math.min(state.queueIndex, state.songs.length - 1);
+    // keep_playback_mode_state (backlog §2.2, Android default on): when off,
+    // loop/shuffle reset to list-loop defaults instead of being restored.
+    const keepModeState = SettingsRepository.getBoolean(
+      SettingsRepository.KEY_KEEP_PLAYBACK_MODE_STATE, true);
     // Mirrors Android applyRestoredStateSnapshot: shuffle restarts from a
     // fresh bag around the restored track; history/future are not persisted.
     PlayerManager.engine.setQueueSize(state.songs.length);
-    PlayerManager.engine.start(startQueueIndex, state.shuffle, state.repeatMode);
+    PlayerManager.engine.start(startQueueIndex,
+      keepModeState ? state.shuffle : false,
+      keepModeState ? state.repeatMode : RepeatMode.ALL);
     PlayerManager.publishQueue();
     PlayerManager.publishPosition();
     AppStorage.setOrCreate(PlaybackConstants.KEY_SPEED, PlayerManager.speed);
@@ -1501,7 +1507,12 @@ export class PlayerManager {
       currentIndex: PlayerManager.engine.getCurrentQueueIndex()
     });
     if (action === LoadFailureAction.RETRY_SAME) {
-      Logger.warn(`Retrying playback for ${song.displayName} (attempt ${PlayerManager.errorAttempts})`);
+      // URL re-sign first (backlog §2.1): direct links carry TTLs, and both
+      // the per-song cache and the YTM resolver cache would happily serve
+      // the same expired URL to the retry.
+      StreamResolver.invalidateResolvedUrl(song);
+      Logger.warn(`Retrying playback with a fresh stream for ${song.displayName} `
+        + `(attempt ${PlayerManager.errorAttempts})`);
       await PlayerManager.loadSong(0, true);
       return;
     }

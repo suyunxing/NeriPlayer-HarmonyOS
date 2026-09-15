@@ -29,6 +29,8 @@ export class Router {
   static readonly LISTEN_TOGETHER: string = 'listen_together';
   /** 专辑页，param 为 JSON：{ album: string, albumId: number }。 */
   static readonly ALBUM: string = 'album';
+  /** 网易云艺人页，param 为 JSON：{ artist: string, artistId: number }。 */
+  static readonly ARTIST: string = 'artist';
   /** 隐私政策 / 用户协议阅读页，param 取 LEGAL_PRIVACY / LEGAL_AGREEMENT。 */
   static readonly LEGAL_DOC: string = 'legal_doc';
 

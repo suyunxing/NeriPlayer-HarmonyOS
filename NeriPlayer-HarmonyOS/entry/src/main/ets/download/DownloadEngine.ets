@@ -12,6 +12,7 @@ import { StreamResolver } from '../network/StreamResolver';
 import { NeteaseApi } from '../network/NeteaseApi';
 import { MusicPlatform } from '../model/MusicPlatform';
 import { BiliApi } from '../network/BiliApi';
+import { DownloadLyricSidecar } from './DownloadLyricSidecar';
 import { HttpClient } from '../network/HttpClient';
 import { HttpStreamDownloader, StreamDownloadHeaders } from '../network/HttpStreamDownloader';
 import {
@@ -534,6 +535,9 @@ export class DownloadEngine {
     DownloadEngine.persistQueue();
     DownloadEngine.notifyChanged();
     Logger.info(`DownloadEngine: completed ${song.displayName} -> ${finalPath}`);
+    // Companion lyric sidecar (backlog §3.5): fire-and-forget, the download
+    // itself already succeeded — a lyric miss must never turn into a failure.
+    DownloadLyricSidecar.writeFor(song, finalPath);
   }
 
   private static async failTask(songKey: string, attemptId: number, song: SongItem, reason: string): Promise<void> {

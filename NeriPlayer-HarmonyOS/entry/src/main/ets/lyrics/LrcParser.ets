@@ -11,12 +11,26 @@ import { LrcMetadata, LrcParseResult, LyricLine, LyricWord } from '../model/Lyri
  * (`<mm:ss.ff>` per-word prefixes) and fills per-line end times (next
  * line's start, last line + 5000ms, Android parseNeteaseLrc semantics).
  * serialize() is the inverse direction, added for AVMetadata.lyric.
+ *
+ * NetEase YRC (逐字歌词, Android parseNeteaseYrc): lines shaped
+ * `[startMs,durMs](ws,wd,0)字(ws,wd,0)词…` are auto-detected per line —
+ * segment texts become word timings with explicit per-word end times and
+ * the line keeps its explicit end (start + dur) instead of the
+ * next-line-start fallback.
  */
 export class LrcParser {
   private static readonly TIMESTAMP_REGEX: RegExp = /\[(\d{1,2}):(\d{1,2})(?:[.:](\d{1,3}))?\]/g;
   private static readonly WORD_TAG_REGEX: RegExp = /<(\d{1,2}):(\d{1,2})(?:[.:](\d{1,3}))?>/g;
   private static readonly METADATA_LINE_REGEX: RegExp = /^\[(ti|ar|al|by|offset):(.*)\]\s*$/;
   private static readonly LAST_LINE_DURATION_MS: number = 5000;
+  private static readonly YRC_HEADER_REGEX: RegExp = /^\[(\d{1,19}),\s*(\d{1,19})\]/;
+  private static readonly YRC_WORD_REGEX: RegExp = /\((\d{1,19}),\s*(\d{1,19}),\s*[-\d]{1,20}\)([^()\n\r]*)/g;
+  private static readonly YRC_DETECT_REGEX: RegExp = /\[\d{1,19},\s*\d{1,19}\]\(\d{1,19},/;
+
+  /** True when the content carries NetEase YRC word-timed lines. */
+  static isNeteaseYrc(content: string): boolean {
+    return LrcParser.YRC_DETECT_REGEX.test(content);
+  }
 
   static parse(text: string): LyricLine[] {
     return LrcParser.parseWithMetadata(text).lines;
@@ -28,6 +42,7 @@ export class LrcParser {
       return result;
     }
     const lines: LyricLine[] = [];
+    const explicitEndLines = new Set<LyricLine>();
     const sourceLines = text.split('\n');
     for (const sourceLine of sourceLines) {
       const trimmed = sourceLine.trim();
@@ -37,6 +52,14 @@ export class LrcParser {
       const metadataMatch = LrcParser.METADATA_LINE_REGEX.exec(trimmed);
       if (metadataMatch !== null) {
         LrcParser.applyMetadataTag(result.metadata, metadataMatch[1], metadataMatch[2].trim());
+        continue;
+      }
+      const yrcLine = LrcParser.parseYrcLine(trimmed);
+      if (yrcLine !== null) {
+        lines.push(yrcLine.line);
+        if (yrcLine.explicitEnd) {
+          explicitEndLines.add(yrcLine.line);
+        }
         continue;
       }
       const matches = LrcParser.collectTimestamps(trimmed);
@@ -54,9 +77,50 @@ export class LrcParser {
     lines.sort((a: LyricLine, b: LyricLine) => a.timeMs - b.timeMs);
     LrcParser.applyOffset(lines, result.metadata.offsetMs);
     LrcParser.fillWordTimings(lines);
-    LrcParser.fillEndTimes(lines);
+    LrcParser.fillEndTimes(lines, explicitEndLines);
     result.lines = lines;
     return result;
+  }
+
+  /**
+   * Parses one `[startMs,durMs](ws,wd,0)text…` YRC line; null when the line
+   * is not YRC-shaped. Lines without word segments degrade to plain timed
+   * lines (Android parity). YRC word/line end times are explicit (start+dur).
+   */
+  private static parseYrcLine(trimmed: string): YrcParseOutcome | null {
+    const header = LrcParser.YRC_HEADER_REGEX.exec(trimmed);
+    if (header === null) {
+      return null;
+    }
+    const start = Number(header[1]);
+    const duration = Number(header[2]);
+    if (!Number.isFinite(start) || !Number.isFinite(duration)) {
+      return null;
+    }
+    const line = new LyricLine(start, '', '');
+    const words: LyricWord[] = [];
+    let text = '';
+    LrcParser.YRC_WORD_REGEX.lastIndex = 0;
+    let match = LrcParser.YRC_WORD_REGEX.exec(trimmed);
+    while (match !== null) {
+      const wordStart = Number(match[1]);
+      const wordDuration = Number(match[2]);
+      const wordText = match[3];
+      if (Number.isFinite(wordStart) && Number.isFinite(wordDuration)) {
+        words.push(new LyricWord(wordText, wordStart, wordStart + wordDuration));
+        text += wordText;
+      }
+      match = LrcParser.YRC_WORD_REGEX.exec(trimmed);
+    }
+    if (words.length === 0) {
+      const afterHeader = trimmed.indexOf(']');
+      line.text = afterHeader >= 0 ? trimmed.substring(afterHeader + 1).trim() : '';
+    } else {
+      line.text = text;
+      line.words = words;
+    }
+    line.endTimeMs = start + duration;
+    return new YrcParseOutcome(line, true);
   }
 
   /**
@@ -103,6 +167,11 @@ export class LrcParser {
     const minutes = Math.floor(totalSeconds / 60);
     const seconds = totalSeconds % 60;
     return `${minutes}:${`${seconds}`.padStart(2, '0')}`;
+  }
+
+  /** `[mm:ss.SSS]` public wrapper for sidecar writers. */
+  static formatLrcTimestamp(timeMs: number): string {
+    return LrcParser.toTimestamp(timeMs);
   }
 
   /**
@@ -251,13 +320,28 @@ export class LrcParser {
     return plainText;
   }
 
-  /** line.end = next line's start (last + 5000ms); word.end = next word's start. */
-  private static fillEndTimes(lines: LyricLine[]): void {
+  /**
+   * line.end = next line's start (last + 5000ms); word.end = next word's
+   * start. YRC lines keep their explicit start+dur end (Android parity) —
+   * only non-YRC lines fall back to the next-line rule.
+   */
+  private static fillEndTimes(lines: LyricLine[], explicitEndLines?: Set<LyricLine>): void {
     for (let i = 0; i < lines.length; i++) {
+      if (explicitEndLines !== undefined && explicitEndLines.has(lines[i])) {
+        continue;
+      }
       lines[i].endTimeMs =
         i + 1 < lines.length ? lines[i + 1].timeMs : lines[i].timeMs + LrcParser.LAST_LINE_DURATION_MS;
     }
     for (const line of lines) {
+      if (line.words.length === 0) {
+        continue;
+      }
+      // YRC words carry explicit ends; detect via the set when present,
+      // otherwise (enhanced LRC) chain to the next word's start.
+      if (explicitEndLines !== undefined && explicitEndLines.has(line)) {
+        continue;
+      }
       for (let i = 0; i < line.words.length; i++) {
         const word = line.words[i];
         word.endMs = i + 1 < line.words.length ? line.words[i + 1].startMs : line.endTimeMs;
@@ -290,5 +374,16 @@ export class LrcParser {
   private static lineContent(line: string): string {
     const lastBracket = line.lastIndexOf(']');
     return lastBracket >= 0 ? line.substring(lastBracket + 1) : line;
+  }
+}
+
+/** Internal result of parseYrcLine: the line plus whether its end is explicit. */
+class YrcParseOutcome {
+  line: LyricLine;
+  explicitEnd: boolean;
+
+  constructor(line: LyricLine, explicitEnd: boolean) {
+    this.line = line;
+    this.explicitEnd = explicitEnd;
   }
 }

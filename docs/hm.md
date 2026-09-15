@@ -702,6 +702,7 @@ $hdc = 'D:\HarmonyOS\Tools\command-line-tools\sdk\default\openharmony\toolchains
 - **音量淡入淡出**（54fb31f→c3acdbd）：`VolumeFader` 纯状态机 25ms 插值接入 `PlayerManager` 三类路径，后设置化为 `np.playback_fade` 总开关 + 双向时长滑条；详见 `FEATURE_MATRIX.md` 对应行。设备端听感未验证。
 - **资料库收尾**（d9b209c）：统计卡片图标/新建按钮/歌单图标随封面取色重染，消除主题色残留。
 - **工程协作**（d68f4f3、cbef581、8de4ca1）：配置 Copilot 代码审查（`.github/skills/harmonyos-code-review/SKILL.md`、`.github/copilot-instructions.md`、`.github/instructions/` 按 ArkTS 与 CI workflow 两域分流）；根目录与工程 README 按上游风格重写；`NeriPlayer-master/` 解除 Git 追踪并加入 `.gitignore`（磁盘保留为只读参照快照；`NeriPlayer-ASCF/` 仍在版本控制中）。
+- **审查工具切换**（2026-09-16）：应用户要求移除上一条的 Copilot 审查 4 个配置文件（GitHub 侧 `copilot-pull-request-reviewer` 与 `chatgpt-codex-connector` 两个审查 App 由用户网页端停用）；AI 审查改走 CodeRabbit（`.coderabbit.yaml`，App 待装、仓库转公开后免费）+ gitleaks 密钥扫描（`.github/workflows/gitleaks.yml`，已上线）。
 
 每次 SDK 或上游 Android 更新，都更新本文件的核验日期、版本矩阵、源码状态和测试结果。
 

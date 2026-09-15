@@ -119,6 +119,20 @@ export class YtmUrlCache {
     this.entries.clear();
   }
 
+  /** Drops every quality variant cached for the video (URL re-sign path). */
+  evictVideo(videoId: string): void {
+    const prefix = `${videoId}|`;
+    const stale: string[] = [];
+    this.entries.forEach((_entry, key) => {
+      if (key.startsWith(prefix)) {
+        stale.push(key);
+      }
+    });
+    for (const key of stale) {
+      this.entries.delete(key);
+    }
+  }
+
   size(): number {
     return this.entries.size;
   }

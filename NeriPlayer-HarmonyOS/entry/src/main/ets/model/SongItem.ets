@@ -14,6 +14,8 @@ export class SongItem {
   artist: string;
   album: string;
   albumId: number;
+  /** Primary artist id (NetEase ar[0].id); 0 when the platform has none. */
+  artistId: number;
   durationMs: number;
   coverUrl: string;
   mediaUri: string;
@@ -58,6 +60,7 @@ export class SongItem {
     this.artist = artist;
     this.album = album;
     this.albumId = albumId;
+    this.artistId = 0;
     this.durationMs = durationMs;
     this.coverUrl = coverUrl;
     this.mediaUri = mediaUri;
@@ -114,6 +117,7 @@ export class SongItem {
     song.artist = String(raw['artist'] ?? '');
     song.album = String(raw['album'] ?? '');
     song.albumId = Number(raw['albumId'] ?? 0);
+    song.artistId = Number(raw['artistId'] ?? 0);
     song.durationMs = Number(raw['durationMs'] ?? 0);
     song.coverUrl = String(raw['coverUrl'] ?? '');
     song.mediaUri = String(raw['mediaUri'] ?? '');

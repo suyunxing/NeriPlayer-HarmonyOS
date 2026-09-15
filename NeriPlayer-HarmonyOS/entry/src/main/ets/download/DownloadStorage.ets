@@ -391,6 +391,12 @@ export class DownloadStorage {
     await SchemaStore.save('downloaded_catalog', json, (value: string) => value);
   }
 
+  /** Wholesale catalog rewrite (stable-key migration); keeps the store key encapsulated. */
+  static async replaceCatalog(entries: DownloadedSongEntry[]): Promise<void> {
+    const json = JSON.stringify(entries);
+    await SchemaStore.save('downloaded_catalog', json, (value: string) => value);
+  }
+
   static async getCatalog(): Promise<DownloadedSongEntry[]> {
     return SchemaStore.load<DownloadedSongEntry[]>('downloaded_catalog', [], (json: string): DownloadedSongEntry[] | null => {
       const rawList = JSON.parse(json) as Object[];
@@ -456,6 +462,7 @@ export class DownloadStorage {
    * user-picked file:// URI directories. Never throws.
    */
   static deleteFileQuiet(audioPath: string): void {
+    DownloadStorage.deleteSidecarQuiet(audioPath);
     if (audioPath.length === 0) {
       return;
     }
@@ -470,6 +477,36 @@ export class DownloadStorage {
     } catch (error) {
       const e = error as Error;
       Logger.warn(`deleteFileQuiet failed: ${e.message}`);
+    }
+  }
+
+  /** Writes a `<audio>.lrc` companion (DownloadLyricSidecar); never throws. */
+  static writeSidecarText(path: string, text: string): void {
+    if (text.trim().length === 0) {
+      return;
+    }
+    DownloadStorage.writeTextFile(path, text);
+  }
+
+  /** Removes the `<audio>.lrc` companion when its audio file is deleted. */
+  static deleteSidecarQuiet(audioPath: string): void {
+    if (audioPath.length === 0) {
+      return;
+    }
+    const dot = audioPath.lastIndexOf('.');
+    const slash = audioPath.lastIndexOf('/');
+    const withoutExt = dot > slash ? audioPath.substring(0, dot) : audioPath;
+    const sidecar = DownloadStorage.resolveFilePath(`${withoutExt}.lrc`);
+    if (sidecar.length === 0) {
+      return;
+    }
+    try {
+      if (fileIo.accessSync(sidecar)) {
+        fileIo.unlinkSync(sidecar);
+      }
+    } catch (error) {
+      const e = error as Error;
+      Logger.debug(`deleteSidecarQuiet ignored: ${e.message}`);
     }
   }
 

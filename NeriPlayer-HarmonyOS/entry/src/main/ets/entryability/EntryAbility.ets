@@ -16,6 +16,11 @@ import { AppColorMode } from '../util/AppColorMode';
 import { WindowMetrics } from '../util/WindowMetrics';
 import { ListenTogetherSessionManager } from '../listentogether/ListenTogetherSessionManager';
 import { CrashEventWatcher } from '../app/diagnostics/CrashEventWatcher';
+import { StableKeyMigration } from '../data/StableKeyMigration';
+import { LocalDirectoryScanner } from '../data/LocalDirectoryScanner';
+import { AutoSyncScheduler } from '../sync/AutoSyncScheduler';
+import { SyncService } from '../sync/SyncService';
+import { SyncReport } from '../sync/SyncReport';
 
 const TAG: string = 'EntryAbility';
 const DOMAIN: number = 0x4E50;
@@ -44,6 +49,10 @@ export default class EntryAbility extends UIAbility {
     PlayerManager.initialize(this.context);
     ListenTogetherSessionManager.getInstance().start();
     DownloadEngine.init(this.context);
+    // Local music library scan root: re-activate the persisted read grant so
+    // a cold-start library refresh can enumerate without a new pick.
+    LocalDirectoryScanner.activatePersistedPermission(
+      SettingsRepository.getString(SettingsRepository.KEY_LOCAL_SCAN_DIRECTORY_URI, ''));
     NeteaseCookieRepository.init();
     BiliCookieRepository.init();
     GitHubConfigRepository.init();
@@ -72,7 +81,10 @@ export default class EntryAbility extends UIAbility {
     // loadContent 之后执行，凭据先就位才能保证首屏请求带上 MUSIC_U（否则
     // 冷启动首个 weapi 请求以匿名会话发出，杀进程重启后表现为掉登录）。
     // onCreate 里的 init() 调用已让恢复在本阶段并行推进，这里通常只等余下尾延。
-    NeteaseCookieRepository.init()
+    // 稳定键 SHA-256 迁移必须最先完成：页面与播放器恢复一旦以新算法读写
+    // 歌单/统计/下载编目，而存量键还是旧 FNV 算法，就会造成一次性孤儿数据。
+    StableKeyMigration.runIfNeeded()
+      .then(() => NeteaseCookieRepository.init())
       .then(() => BiliCookieRepository.init())
       .then(() => {
         windowStage.loadContent('pages/Index', (error) => {
@@ -81,6 +93,12 @@ export default class EntryAbility extends UIAbility {
             return;
           }
           hilog.info(DOMAIN, TAG, 'Content loaded');
+          // 自动静默同步（清单 §1.5）：runner 注入避免仓库层反向依赖 SyncService，
+          // 启动节流、变更防抖与后台延迟任务注册都收敛在 AutoSyncScheduler。
+          AutoSyncScheduler.setRunner((): Promise<SyncReport | null> => SyncService.syncConfigured());
+          AutoSyncScheduler.setBundleName(this.context.abilityInfo.bundleName);
+          AutoSyncScheduler.scheduleStartupSync();
+          AutoSyncScheduler.updateDelayedWorkRegistration();
         });
       });
   }

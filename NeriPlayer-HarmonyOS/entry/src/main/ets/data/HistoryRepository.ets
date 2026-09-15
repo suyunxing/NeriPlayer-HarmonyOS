@@ -6,6 +6,7 @@ import { stableKeyOf } from '../model/SongIdentity';
 import { SchemaStore } from './schema/SchemaStore';
 import { util } from '@kit.ArkTS';
 import { SyncDeletionStore } from '../sync/SyncDeletionStore';
+import { AutoSyncScheduler } from '../sync/AutoSyncScheduler';
 import { SyncRecentPlayDeletion, songIdKeyText, syncSongIdentity } from '../sync/SyncModels';
 import { syncSongFromSongItem } from '../sync/SyncSongConvert';
 
@@ -56,6 +57,7 @@ export class HistoryRepository {
     if (syncSong !== null) {
       await SyncDeletionStore.clearRecentPlayDeletion(syncSongIdentity(syncSong).stableKey());
     }
+    AutoSyncScheduler.scheduleMutationSync();
   }
 
   static async clear(): Promise<void> {
