@@ -10,6 +10,8 @@ on:
 
 permissions:
   contents: read
+  # pull_request 事件下 gitleaks-action 需读 PR 提交列表（pulls/commits API）
+  pull-requests: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
