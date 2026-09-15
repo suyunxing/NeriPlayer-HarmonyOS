@@ -120,7 +120,6 @@ export struct SettingsDetailPage {
   @StorageProp('np.lyric_offset_ms') lyricOffsetMs: number = 0;
   @StorageProp('np.lyric_translation') lyricTranslation: boolean = true;
   @StorageProp('np.amll_lyrics') amllLyrics: boolean = true;
-  @StorageProp('np.glass_effect') glassEffect: boolean = true;
   @StorageProp('np.nowplaying_blur_strength') nowplayingBlurStrength: number = 300;
   @StorageProp('np.floating_lyric') floatingLyric: boolean = false;
   @StorageProp('np.bt_lyric') btLyric: boolean = false;
@@ -1227,13 +1226,6 @@ export struct SettingsDetailPage {
               options: [{ value: 'zh', label: '简体中文' }],
               current: 'zh',
               onPick: (_value: string) => promptAction.openToast({ message: '更多语言待移植' })
-            })
-            ToggleRow({
-              title: '毛玻璃面板',
-              subtitle: '迷你播放条/播放列表面板',
-              icon: '✨',
-              value: this.glassEffect,
-              onChange: (on: boolean) => SettingsRepository.setBoolean(SettingsRepository.KEY_GLASS_EFFECT, on)
             })
             OptionRow({
               title: '播放页背景模糊',

@@ -41,7 +41,6 @@ export struct MiniPlayer {
   // expressions: AppStorage reads hidden inside Theme.* calls are invisible
   // to minimal-update tracking (M7.4 pitfall), so the raw copy is required.
   @StorageProp('player.coverSeedHex') @Watch('onCoverSeedChanged') coverSeedHex: string = '';
-  @StorageProp('np.glass_effect') glassEffect: boolean = true;
   @State seedHex: string = '';
   // 播放页模态显示状态：控制右侧非封面元素在展开/收起时平滑显隐。
   @StorageProp('ui.nowPlayingShown') nowPlayingShown: boolean = false;
@@ -121,10 +120,10 @@ export struct MiniPlayer {
    * 光感材质（MainShell 的 barFloatingStyle.systemMaterialEffect 作用于
    * 整条栏，enableMiniBarBackground 让槽位背景跟随栏身，lightColor 随
    * 封面取色）。自绘玻璃会盖在系统材质上把光感挡掉，仅在不支持材质的
-   * 设备（模拟器 getSystemMaterialTypes 为空）或用户关闭毛玻璃时回落。
+   * 设备（模拟器 getSystemMaterialTypes 为空）时回落。
    */
   private followsBarMaterial(): boolean {
-    return this.compact && this.glassEffect
+    return this.compact
       && (HdsLight.immersiveSupported() || HdsLight.adaptiveSupported());
   }
 
@@ -132,7 +131,7 @@ export struct MiniPlayer {
     if (this.followsBarMaterial()) {
       return Color.Transparent;
     }
-    return this.glassEffect ? Theme.surfaceGlass(Theme.isDark()) : Theme.surface(Theme.isDark());
+    return Theme.surfaceGlass(Theme.isDark());
   }
 
   build() {
@@ -141,7 +140,7 @@ export struct MiniPlayer {
         .width('100%')
         .height(this.compact ? 40 : 62)
         .backgroundColor(this.barBackground())
-        .backgroundBlurStyle(this.followsBarMaterial() || !this.glassEffect
+        .backgroundBlurStyle(this.followsBarMaterial()
           ? BlurStyle.NONE : BlurStyle.COMPONENT_THICK)
         .borderRadius(this.compact ? 20 : 16)
         .hitTestBehavior(HitTestMode.None)
