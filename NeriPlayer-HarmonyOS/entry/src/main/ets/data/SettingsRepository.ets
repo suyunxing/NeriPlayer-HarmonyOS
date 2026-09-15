@@ -127,10 +127,6 @@ export class SettingsRepository {
   static readonly KEY_BT_LYRIC: string = 'np.bt_lyric';
   // NowPlaying blurred-cover strength, Android scale 0..500 (0 disables).
   static readonly KEY_NOWPLAYING_BLUR_STRENGTH: string = 'np.nowplaying_blur_strength';
-  // Frosted-glass surfaces (MiniPlayer/queue sheet). Android's AGSL
-  // region-mask glass has no HarmonyOS equivalent; this maps to the
-  // platform backgroundBlurStyle subset (documented as a D-level fallback).
-  static readonly KEY_GLASS_EFFECT: string = 'np.glass_effect';
   static readonly KEY_SAVE_TRAFFIC: string = 'np.save_traffic';
   static readonly KEY_COVER_POLICY: string = 'np.cover_policy';
 	  static readonly KEY_DOWNLOAD_MATCH_LYRICS: string = 'np.download_match_lyrics';
@@ -226,7 +222,6 @@ export class SettingsRepository {
     [SettingsRepository.KEY_FLOATING_LYRIC, false],
     [SettingsRepository.KEY_BT_LYRIC, false],
     [SettingsRepository.KEY_NOWPLAYING_BLUR_STRENGTH, 300],
-    [SettingsRepository.KEY_GLASS_EFFECT, true],
     [SettingsRepository.KEY_SAVE_TRAFFIC, false],
     [SettingsRepository.KEY_COVER_POLICY, 'always'],
     [SettingsRepository.KEY_DOWNLOAD_MATCH_LYRICS, true],
