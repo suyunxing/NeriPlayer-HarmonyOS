@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 /**
  * Global constants, mirroring the constants scattered through the Android codebase.
  */

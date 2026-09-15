@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 /**
  * Minimal RFC 4648 base64 encoder (standard alphabet + '=' padding).
  *

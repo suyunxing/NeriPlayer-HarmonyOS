@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
+
 /**
  * Port of listentogether/control/ListenTogetherEventFactory.kt: every outbound
  * room event is built here and nowhere else, so the wire shape has exactly one

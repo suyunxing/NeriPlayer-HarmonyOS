@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 /**
  * Maps an AccentScheme onto the official 51-slot CustomColors theme
  * (ThemeControl/WithTheme) so built-in components (Toggle, Slider, Menu,

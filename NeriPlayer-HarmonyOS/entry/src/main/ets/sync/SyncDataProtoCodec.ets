@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
+
 /**
  * Protobuf wire decoder for the sync binary channel, porting the read path
  * of Android SyncDataSerializer.decodeGzipProto (kotlinx.protobuf 1.11.0,

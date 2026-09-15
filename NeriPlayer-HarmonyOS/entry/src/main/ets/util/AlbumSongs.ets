@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 import { SongItem } from '../model/SongItem';
 import { stableKeyOf } from '../model/SongIdentity';
 import { Constants } from '../app/Constants';

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 import { promptAction } from '@kit.ArkUI';
 import { encodeQr, QrMatrix } from '../../util/QrEncoder';
 import { Theme } from '../Theme';

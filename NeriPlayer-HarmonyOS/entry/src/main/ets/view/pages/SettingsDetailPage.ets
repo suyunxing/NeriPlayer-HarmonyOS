@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 import { promptAction } from '@kit.ArkUI';
 import { common } from '@kit.AbilityKit';
 import { SettingsRepository } from '../../data/SettingsRepository';
@@ -121,7 +123,7 @@ export struct SettingsDetailPage {
   @StorageProp('np.lyric_phonetic') lyricPhonetic: boolean = false;
   @StorageProp('np.lyric_blur') lyricBlur: boolean = true;
   @StorageProp('np.download_concurrency') downloadConcurrency: number = 6;
-  @StorageProp('np.download_match_lyrics') downloadMatchLyrics: boolean = true;
+  // np.download_match_lyrics 开关已随死开关清理移除（暂无消费者，见 SETTING_DOWNLOAD 分区注释）
   @StorageProp('np.playback_cache') playbackCache: boolean = false;
   @StorageProp('np.download_directory_uri') downloadDirectoryUri: string = '';
   @StorageProp('np.download_directory_label') downloadDirectoryLabel: string = '';
@@ -1027,13 +1029,8 @@ export struct SettingsDetailPage {
                 SettingsRepository.setNumber(SettingsRepository.KEY_DOWNLOAD_CONCURRENCY, Number(value))
             })
 
-            ToggleRow({
-              title: '下载完成后匹配歌词',
-              icon: '♪',
-              value: this.downloadMatchLyrics,
-              onChange: (on: boolean) =>
-                SettingsRepository.setBoolean(SettingsRepository.KEY_DOWNLOAD_MATCH_LYRICS, on)
-            })
+            // 「下载完成后匹配歌词」开关暂隐藏：np.download_match_lyrics 暂无消费者，
+            // 待 ANDROID_PARITY_BACKLOG §3.5 实现下载后歌词匹配后恢复（发布前必办清单 2.4）。
             SettingRow({
               title: '下载目录',
               subtitle: DownloadDirectory.describeDirectory(this.downloadDirectoryUri, this.downloadDirectoryLabel),
@@ -1446,7 +1443,7 @@ export struct SettingsDetailPage {
               Text('欢迎回来！')
                 .fontSize(15)
                 .fontColor(Theme.textSecondary(Theme.isDark()))
-              Text('版本 1.0.0 (HarmonyOS 6.1.1 / API 24)')
+              Text('版本 1.0.0 (HarmonyOS 26 / API 26)')
                 .fontSize(13)
                 .fontColor(Theme.textDisabled(Theme.isDark()))
               Text('多源在线播放：网易云 / Bilibili / YouTube Music；本地音乐、歌词、歌单与统计。\n本项目仅供学习与研究使用，请勿用于任何非法用途。')

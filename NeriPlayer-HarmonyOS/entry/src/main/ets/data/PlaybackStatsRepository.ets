@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 import { SchemaStore } from './schema/SchemaStore';
 import { util } from '@kit.ArkTS';
 import { SyncDeletionStore } from '../sync/SyncDeletionStore';

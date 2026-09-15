@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
+
 /**
  * Pure decision helpers for the managed download directory (Android
  * ManagedDownloadStorageSettings / ManagedDownloadRootResolver): the custom

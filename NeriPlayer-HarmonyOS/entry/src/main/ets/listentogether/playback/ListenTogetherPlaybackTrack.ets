@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
+
 /**
  * Port of listentogether/playback/ListenTogetherPlaybackTrack.kt: which track a
  * room state or a control event is talking about, and how two local songs are

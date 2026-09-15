@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 import { DownloadEngine, DownloadEngineListener } from '../../download/DownloadEngine';
 import { DownloadStatus, isDownloadTaskClearable } from '../../download/DownloadModels';
 import { buildDownloadRows, DownloadRow } from '../../download/DownloadRow';

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 import { PlaybackStatsRepository } from '../../data/PlaybackStatsRepository';
 import { HistoryRepository } from '../../data/HistoryRepository';
 import { SongItem } from '../../model/SongItem';

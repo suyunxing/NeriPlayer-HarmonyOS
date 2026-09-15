@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
+
 import { Logger } from '../app/Logger';
 import { SettingsRepository } from '../data/SettingsRepository';
 import { AmllLyricsResolver, AmllLyricsService } from './AmllLyricsResolver';

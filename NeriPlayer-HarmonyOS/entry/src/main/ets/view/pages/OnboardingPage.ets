@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 import { Theme } from '../Theme';
 import { BAND_BUTTON_VP, BAND_TEXT_VP, BP_LG, BP_MD } from '../../util/Breakpoint';
 

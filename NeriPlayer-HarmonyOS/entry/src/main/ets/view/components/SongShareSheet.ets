@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 import { pasteboard } from '@kit.BasicServicesKit';
 import { SongItem } from '../../model/SongItem';
 import { ShareLinks } from '../../util/ShareLinks';

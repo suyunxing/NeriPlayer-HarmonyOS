@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
+
 /** Optimistic-lock upload retry loop shared by GitHub and WebDAV. */
 
 export class UploadRefetchResult<TRemote, TVersion> {

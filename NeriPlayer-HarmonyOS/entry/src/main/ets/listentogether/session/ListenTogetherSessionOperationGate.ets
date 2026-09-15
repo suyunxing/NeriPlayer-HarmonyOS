@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
+
 /**
  * Invalidates asynchronous room operations after a leave, room switch or
  * lifecycle teardown. Promise cancellation is not available for the platform

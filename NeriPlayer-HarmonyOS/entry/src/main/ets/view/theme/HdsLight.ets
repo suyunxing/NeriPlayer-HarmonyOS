@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 /**
  * Official immersive-light facade over hdsEffect (@kit.UIDesignKit):
  * - capability probing (getSystemMaterialTypes) cached per process, with the

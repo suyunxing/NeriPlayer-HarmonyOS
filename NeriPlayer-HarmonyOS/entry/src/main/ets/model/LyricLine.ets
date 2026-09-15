@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 /**
  * A single timed lyric line with optional translation, mirroring the
  * accompanist-lyrics-core model used by the Android app. Enhanced (word

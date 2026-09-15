@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
+
 import { fileIo, fileUri } from '@kit.CoreFileKit';
 import { util } from '@kit.ArkTS';
 import { common } from '@kit.AbilityKit';

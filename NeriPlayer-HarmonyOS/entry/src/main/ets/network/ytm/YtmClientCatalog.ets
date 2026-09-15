@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
+
 /**
  * Central registry of innertube player client profiles (D2 decision:
  * keep client versions in one place so drift is a single-line change).

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 import { LengthMetrics } from '@kit.ArkUI';
 import { Theme } from '../Theme';
 

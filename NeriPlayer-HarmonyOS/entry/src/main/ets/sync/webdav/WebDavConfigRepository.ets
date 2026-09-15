@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
+
 /** WebDAV configuration with credentials isolated in the Asset store. */
 
 import { AppPreferences } from '../../data/AppPreferences';

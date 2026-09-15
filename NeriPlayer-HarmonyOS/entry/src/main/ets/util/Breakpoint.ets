@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
+
 /**
  * 纯的窗口度量派生规则：逻辑宽度 -> 断点，导航指示器避让区 -> 底部抬升量。
  * 不引 ArkUI、不读 AppStorage，所以可以直接单测（与 RouteStack.ets 同一惯例）。

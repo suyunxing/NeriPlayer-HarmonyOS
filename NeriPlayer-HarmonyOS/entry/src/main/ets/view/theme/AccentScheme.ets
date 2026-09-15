@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 /**
  * Cover-driven full color scheme: score extracted candidates → pick the
  * dominant → snap it to the standard swatch card (CIEDE2000) → clamp in LCh

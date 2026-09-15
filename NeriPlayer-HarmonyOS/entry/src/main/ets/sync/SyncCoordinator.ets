@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
+
 /** Coordinates snapshot, three-way merge, optimistic upload and local apply. */
 
 import { SyncData } from './SyncModels';

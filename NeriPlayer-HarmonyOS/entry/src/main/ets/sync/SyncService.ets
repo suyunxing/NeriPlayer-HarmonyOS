@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
+
 /** App-facing entry points for manual GitHub and WebDAV synchronization. */
 
 import { getSyncFileName } from './SyncDataJsonCodec';

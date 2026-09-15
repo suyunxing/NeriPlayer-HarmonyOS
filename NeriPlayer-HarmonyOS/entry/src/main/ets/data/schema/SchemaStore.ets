@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 import { AppPreferences } from '../AppPreferences';
 import { Logger } from '../../app/Logger';
 

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 import { common, ConfigurationConstant } from '@kit.AbilityKit';
 import { Logger } from '../app/Logger';
 
