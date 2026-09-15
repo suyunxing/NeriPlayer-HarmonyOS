@@ -24,6 +24,7 @@ export struct LyricSettingsRows {
   @StorageProp('np.lyric_font_weight') lyricFontWeight: number = 500;
   @StorageProp('np.lyric_line_spacing') lyricLineSpacing: number = 1.0;
   @StorageProp('np.amll_lyrics') amllLyrics: boolean = true;
+  @StorageProp('np.word_karaoke') wordKaraoke: boolean = true;
   @StorageProp('np.lyric_translation') lyricTranslation: boolean = true;
   @StorageProp('np.lyric_phonetic') lyricPhonetic: boolean = false;
   @StorageProp('np.lyric_blur') lyricBlur: boolean = true;
@@ -190,6 +191,14 @@ export struct LyricSettingsRows {
         transparentBg: this.transparentBg,
         value: this.amllLyrics,
         onChange: (on: boolean) => SettingsRepository.setBoolean(SettingsRepository.KEY_AMLL_LYRICS, on)
+      })
+      ToggleRow({
+        title: '逐字平滑过渡',
+        subtitle: '逐字高亮补间推进，关闭则字与字间直接切换',
+        icon: '🎨',
+        transparentBg: this.transparentBg,
+        value: this.wordKaraoke,
+        onChange: (on: boolean) => SettingsRepository.setBoolean(SettingsRepository.KEY_WORD_KARAOKE, on)
       })
       ToggleRow({
         title: '歌词模糊效果',
