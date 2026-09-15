@@ -31,7 +31,7 @@ export default function audioQualityPolicyTest(): void {
       expect(AudioQualityPolicy.resolve(false, '', 'high', ''))
         .assertEqual('high');
     });
-  
+
   describe('AudioQualityPolicyPlatform', () => {
     it('cellularPlatformTierWinsWhenFollowOff', 0, () => {
       expect(AudioQualityPolicy.resolvePlatform(false, false, 'lossless', 'standard'))
