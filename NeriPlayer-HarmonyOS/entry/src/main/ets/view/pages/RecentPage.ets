@@ -13,7 +13,7 @@ import { EmptyState } from '../components/Ui';
 import { SongRow } from '../components/SongRow';
 import { Router } from '../Router';
 import { HdsNavDestination } from '@kit.UIDesignKit';
-import { subPageTitleBar, SubPageBottomFade, SubPageMenuEntry } from '../components/HdsSubPage';
+import { subPageTitleBar, SubPageBottomFade, SubPageMenuEntry, SUB_TITLEBAR_SPACE_VP, SUB_BOTTOM_CLEARANCE_VP } from '../components/HdsSubPage';
 
 /**
  * 播放历史（参考应用历史页）：搜索、按时间/次数排序、播放全部、更多菜单
@@ -274,6 +274,10 @@ export struct RecentPage {
           .justifyContent(FlexAlign.Center)
         } else {
           List({ scroller: this.scroller }) {
+          // 顶部让位标题栏：让位量随内容滚走（同首页 Tab 页 padding top 56）。
+          ListItem() {
+            Column().height(SUB_TITLEBAR_SPACE_VP)
+          }
             ListItem() {
               // 参考截图的搜索框：透明底 + 灰描边胶囊，非实心底。
               Row({ space: 8 }) {
@@ -366,7 +370,7 @@ export struct RecentPage {
               }, (song: SongItem) => `${song.platform}_${song.audioId}_${song.id}_${song.addedAt}`)
               // 尾部让位：列表延伸进底部手势条区后，末条记录滚过渐变遮罩仍可停稳。
               ListItem() {
-                Column().height(this.bottomLift + 32)
+                Column().height(this.bottomLift + SUB_BOTTOM_CLEARANCE_VP)
               }
             }
           }
@@ -387,7 +391,7 @@ export struct RecentPage {
     .titleBar(subPageTitleBar('播放历史', this.titleMenu()))
     .bindToScrollable([this.scroller])
     .backgroundColor(Color.Transparent)
-    .ignoreLayoutSafeArea([LayoutSafeAreaType.SYSTEM], [LayoutSafeAreaEdge.BOTTOM])
+    .ignoreLayoutSafeArea([LayoutSafeAreaType.SYSTEM], [LayoutSafeAreaEdge.TOP, LayoutSafeAreaEdge.BOTTOM])
     .onWillDisappear(() => {
       Router.notifyReturned();
     })

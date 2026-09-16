@@ -23,7 +23,7 @@ import { AccentScheme } from '../theme/AccentScheme';
 import { Router } from '../Router';
 import { iconForLegacy } from '../../util/IconCatalog';
 import { HdsNavDestination } from '@kit.UIDesignKit';
-import { subPageTitleBar, SubPageBottomFade } from '../components/HdsSubPage';
+import { subPageTitleBar, SubPageBottomFade, SUB_TITLEBAR_SPACE_VP, SUB_BOTTOM_CLEARANCE_VP } from '../components/HdsSubPage';
 
 /**
  * 播放统计（backlog §5.1，对齐 Android PlaybackStatsScreen）：日/周/月/年/全部
@@ -275,7 +275,7 @@ export struct StatsPage {
             }
           }
           .width('100%')
-          .padding({ left: 14, right: 14, top: 10, bottom: this.bottomLift + 32 })
+          .padding({ left: 14, right: 14, top: SUB_TITLEBAR_SPACE_VP, bottom: this.bottomLift + SUB_BOTTOM_CLEARANCE_VP })
         }
         .layoutWeight(1)
         .scrollBar(BarState.Auto)
@@ -293,7 +293,7 @@ export struct StatsPage {
     .titleBar(subPageTitleBar('播放统计'))
     .bindToScrollable([this.scroller])
     .backgroundColor(Color.Transparent)
-    .ignoreLayoutSafeArea([LayoutSafeAreaType.SYSTEM], [LayoutSafeAreaEdge.BOTTOM])
+    .ignoreLayoutSafeArea([LayoutSafeAreaType.SYSTEM], [LayoutSafeAreaEdge.TOP, LayoutSafeAreaEdge.BOTTOM])
     .onWillDisappear(() => {
       Router.notifyReturned();
     })

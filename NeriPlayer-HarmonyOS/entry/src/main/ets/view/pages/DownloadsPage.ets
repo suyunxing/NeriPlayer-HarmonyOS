@@ -11,7 +11,7 @@ import { AccentScheme } from '../theme/AccentScheme';
 import { EmptyState } from '../components/Ui';
 import { Router } from '../Router';
 import { HdsNavDestination } from '@kit.UIDesignKit';
-import { subPageTitleBar, SubPageBottomFade, SubPageMenuEntry } from '../components/HdsSubPage';
+import { subPageTitleBar, SubPageBottomFade, SubPageMenuEntry, SUB_TITLEBAR_SPACE_VP, SUB_BOTTOM_CLEARANCE_VP } from '../components/HdsSubPage';
 
 class DownloadsListener implements DownloadEngineListener {
   private page: WeakRef<DownloadsPage> | null = null;
@@ -135,13 +135,21 @@ export struct DownloadsPage {
       Stack() {
         Column() {
           if (this.rows.length === 0) {
-            EmptyState({
-              icon: '⤓',
-              title: '暂无下载内容',
-              subtitle: '在歌曲列表点「⋯ → 下载」，下载的歌曲会显示在这里'
-            })
+            Column() {
+              EmptyState({
+                icon: '⤓',
+                title: '暂无下载内容',
+                subtitle: '在歌曲列表点「⋯ → 下载」，下载的歌曲会显示在这里'
+              })
+            }
+            .padding({ top: SUB_TITLEBAR_SPACE_VP })
+            .width('100%')
           } else {
             List({ scroller: this.scroller }) {
+            // 顶部让位标题栏：让位量随内容滚走（同首页 Tab 页 padding top 56）。
+            ListItem() {
+              Column().height(SUB_TITLEBAR_SPACE_VP)
+            }
           ForEach(this.rows, (row: DownloadRow) => {
             ListItem() {
               Row({ space: 12 }) {
@@ -216,7 +224,7 @@ export struct DownloadsPage {
           }, (row: DownloadRow) => `${row.stableKey}:${row.attemptId}:${row.entry !== null ? 'f' : 't'}`)
               // 尾部让位：列表延伸进底部手势条区后，末条任务滚过渐变遮罩仍可停稳。
               ListItem() {
-                Column().height(this.bottomLift + 32)
+                Column().height(this.bottomLift + SUB_BOTTOM_CLEARANCE_VP)
               }
             }
             .layoutWeight(1)
@@ -240,7 +248,7 @@ export struct DownloadsPage {
     .titleBar(subPageTitleBar('下载管理', this.titleMenu()))
     .bindToScrollable([this.scroller])
     .backgroundColor(Color.Transparent)
-    .ignoreLayoutSafeArea([LayoutSafeAreaType.SYSTEM], [LayoutSafeAreaEdge.BOTTOM])
+    .ignoreLayoutSafeArea([LayoutSafeAreaType.SYSTEM], [LayoutSafeAreaEdge.TOP, LayoutSafeAreaEdge.BOTTOM])
     .onWillDisappear(() => {
       Router.notifyReturned();
     })

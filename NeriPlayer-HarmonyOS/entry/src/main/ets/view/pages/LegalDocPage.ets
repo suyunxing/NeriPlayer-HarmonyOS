@@ -5,7 +5,7 @@ import { BAND_TEXT_VP } from '../../util/Breakpoint';
 import { util } from '@kit.ArkTS';
 import { Router } from '../Router';
 import { HdsNavDestination } from '@kit.UIDesignKit';
-import { subPageTitleBar, SubPageBottomFade } from '../components/HdsSubPage';
+import { subPageTitleBar, SubPageBottomFade, SUB_TITLEBAR_SPACE_VP, SUB_BOTTOM_CLEARANCE_VP } from '../components/HdsSubPage';
 
 export const LEGAL_PRIVACY: string = 'privacy';
 export const LEGAL_AGREEMENT: string = 'agreement';
@@ -101,7 +101,7 @@ export struct LegalDocPage {
         .width('100%')
         // 底部固定控件的上抬量同时用作滚动内容的收尾留白，保证最后一段不贴住
         // 导航条；路由态正文延伸进手势条区，多让一层渐变遮罩的高度。
-        .padding({ left: 16, right: 16, bottom: this.bottomLift + (this.asRoute ? 32 : 0) })
+        .padding({ left: 16, right: 16, top: this.asRoute ? SUB_TITLEBAR_SPACE_VP : 0, bottom: this.bottomLift + (this.asRoute ? SUB_BOTTOM_CLEARANCE_VP : 0) })
       }
       .layoutWeight(1)
       .scrollBar(BarState.Auto)
@@ -135,7 +135,7 @@ export struct LegalDocPage {
       .titleBar(subPageTitleBar(this.title()))
       .bindToScrollable([this.scroller])
       .backgroundColor(Color.Transparent)
-      .ignoreLayoutSafeArea([LayoutSafeAreaType.SYSTEM], [LayoutSafeAreaEdge.BOTTOM])
+      .ignoreLayoutSafeArea([LayoutSafeAreaType.SYSTEM], [LayoutSafeAreaEdge.TOP, LayoutSafeAreaEdge.BOTTOM])
       .onWillDisappear(() => {
         Router.notifyReturned();
       })

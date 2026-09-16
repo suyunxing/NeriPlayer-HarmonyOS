@@ -14,7 +14,7 @@ import { EmptyState, LoadingState } from '../components/Ui';
 import { Router } from '../Router';
 import { PlaylistHeader, HeaderPill } from '../components/PlaylistHeader';
 import { HdsNavDestination } from '@kit.UIDesignKit';
-import { subPageTitleBar, SubPageBottomFade } from '../components/HdsSubPage';
+import { subPageTitleBar, SubPageBottomFade, SUB_TITLEBAR_SPACE_VP, SUB_BOTTOM_CLEARANCE_VP } from '../components/HdsSubPage';
 
 /**
  * Bilibili favorite-folder detail: header + paged video list (loads more on
@@ -198,6 +198,10 @@ export struct BiliFavPage {
           .backgroundColor(this.schemeBg(Theme.isDark()))
         } else {
           List({ scroller: this.scroller, space: 1 }) {
+          // 顶部让位标题栏：让位量随内容滚走（同首页 Tab 页 padding top 56）。
+          ListItem() {
+            Column().height(SUB_TITLEBAR_SPACE_VP)
+          }
             ListItem() {
               Column() {
                 PlaylistHeader({
@@ -263,7 +267,7 @@ export struct BiliFavPage {
               }
               // 尾部让位：列表延伸进底部手势条区后，末条视频滚过渐变遮罩仍可停稳。
               ListItem() {
-                Column().height(this.bottomLift + 32)
+                Column().height(this.bottomLift + SUB_BOTTOM_CLEARANCE_VP)
               }
             }
           }
@@ -330,7 +334,7 @@ export struct BiliFavPage {
       this.info !== null && this.info.title.length > 0 ? this.info.title : 'B 站收藏夹'))
     .bindToScrollable([this.scroller])
     .backgroundColor(Color.Transparent)
-    .ignoreLayoutSafeArea([LayoutSafeAreaType.SYSTEM], [LayoutSafeAreaEdge.BOTTOM])
+    .ignoreLayoutSafeArea([LayoutSafeAreaType.SYSTEM], [LayoutSafeAreaEdge.TOP, LayoutSafeAreaEdge.BOTTOM])
     .onWillDisappear(() => {
       Router.notifyReturned();
     })
