@@ -13,6 +13,8 @@ import { SongRow } from '../components/SongRow';
 import { EmptyState } from '../components/Ui';
 import { PlaylistHeader, HeaderPill } from '../components/PlaylistHeader';
 import { Router } from '../Router';
+import { HdsNavDestination } from '@kit.UIDesignKit';
+import { subPageTitleBar, SubPageBottomFade, SubPageMenuEntry } from '../components/HdsSubPage';
 
 @Component
 export struct PlaylistDetailPage {
@@ -24,11 +26,29 @@ export struct PlaylistDetailPage {
   @StorageProp('player.coverScheme') coverScheme: AccentScheme = AccentScheme.neutralFallback();
   /** 由 MainShell 的 navDestination builder 从路由参数传入。 */
   @Prop playlistId: string = '';
+  @StorageProp('ui.bottomLiftVp') bottomLift: number = Theme.bottomBarLift();
   @State playlist: Playlist | null = null;
   @State history: SongItem[] = [];
   @State showAddDialog: boolean = false;
   @State showRenameDialog: boolean = false;
   @State renameValue: string = '';
+  /** 供 HdsNavDestination.bindToScrollable 绑定的歌曲列表控制器。 */
+  private scroller: Scroller = new Scroller();
+
+  /** 标题栏菜单：歌单管理（重命名/删除，原页内「⋯」按钮迁入；收藏夹不可改）。 */
+  private titleMenu(): SubPageMenuEntry[] | undefined {
+    if (this.isFavorites()) {
+      return undefined;
+    }
+    return [{
+      label: '歌单管理',
+      icon: $r('app.media.ic_grid_dots_24'),
+      action: (): void => {
+        this.renameValue = this.playlist?.name ?? '';
+        this.showRenameDialog = true;
+      }
+    }];
+  }
 
   private isFavorites(): boolean {
     return this.playlistId === LocalPlaylistRepository.FAVORITES_ID;
@@ -92,131 +112,110 @@ export struct PlaylistDetailPage {
   }
 
   build() {
-    Stack() {
-      Column() {
-        Row({ space: 8 }) {
-          Button('‹')
-            .width(40)
-            .height(40)
-            // '‹' is punctuation to a screen reader; name the action.
-            .accessibilityText('返回')
-            .type(ButtonType.Circle)
-            .backgroundColor(Color.Transparent)
-            .fontColor(Theme.textPrimary(Theme.isDark()))
-            .fontSize(20)
-            .onClick(() => Router.pop())
-          Text(this.playlist !== null ? this.playlist.name : '歌单')
-            .fontSize(20)
-            .fontWeight(FontWeight.Bold)
-            .fontColor(Theme.textPrimary(Theme.isDark()))
-            .layoutWeight(1)
-            .maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
-          if (!this.isFavorites()) {
-            Button('⋯')
-              .width(40)
-              .height(40)
-              .type(ButtonType.Circle)
-              .backgroundColor(Color.Transparent)
-              .fontColor(Theme.textPrimary(Theme.isDark()))
-              .fontSize(18)
-              .accessibilityText('歌单管理')
-              .onClick(() => {
-                this.renameValue = this.playlist?.name ?? '';
-                this.showRenameDialog = true;
-              })
-          }
-        }
-        .width('100%')
-        .padding({ left: 8, right: 12, top: 8, bottom: 8 })
-
+    // 标题栏（返回 + 歌单名 + 管理菜单）由 HdsNavDestination 承载；歌单头图、
+    // 歌曲区与列表并入同一个 List，滚动时整页内容穿到标题栏下方被 GRADIENT_BLUR
+    // 渐变模糊覆盖（同首页外壳）。
+    HdsNavDestination() {
+      Stack() {
         if (this.playlist !== null) {
-          Column({ space: 10 }) {
-            PlaylistHeader({
-              coverUrl: '',
-              title: this.playlist.name,
-              subtitle: `${this.playlist.songKeys.length} 首`
-            }) {
-              HeaderPill({
-                label: '全部播放',
-                filled: true,
-                onTap: (): void => this.playAll(false)
-              })
-              HeaderPill({
-                label: '随机播放',
-                onTap: (): void => this.playAll(true)
-              })
-            }
-
-            Row() {
-              Text('歌曲')
-                .fontSize(16)
-                .fontWeight(FontWeight.Bold)
-                .fontColor(Theme.textPrimary(Theme.isDark()))
-                .layoutWeight(1)
-              Button('＋ 添加')
-                .height(40)
-                .fontSize(12)
-                .backgroundColor(Theme.surface(Theme.isDark()))
-                .fontColor(Theme.primary(Theme.isDark()))
-                .onClick(() => {
-                  this.showAddDialog = true;
-                })
-            }
-            .width('100%')
-
-            if (this.playlist.songs.length === 0) {
-              EmptyState({
-                icon: '♪',
-                title: '歌单为空',
-                subtitle: this.isFavorites() ? '在歌曲列表点 ♡ 收藏歌曲' : '点击「添加」从播放历史选歌'
-              })
-            } else {
-              List() {
-                ForEach(this.playlist.songs, (song: SongItem, index: number) => {
-                  ListItem() {
-                    Row() {
-                      SongRow({
-                        songJson: song.toJson(),
-                        index: index,
-                        onPlay: () => {
-                          if (this.playlist !== null) {
-                            PlayerManager.playPlaylist(this.playlist.songs, index);
-                            Router.push(Router.NOW_PLAYING);
-                          }
-                        }
-                      })
-                      Button() {
-                        Image($r('app.media.ic_close_24'))
-                          .width(16)
-                          .height(16)
-                          .fillColor(Theme.textDisabled(Theme.isDark()))
-                      }
-                      .width(40)
-                      .height(40)
-                      .type(ButtonType.Circle)
-                      .backgroundColor(Color.Transparent)
-                      .accessibilityText('从歌单移除')
-                      .onClick(() => this.removeSong(stableKeyOf(song)))
-                    }
-                    .width('100%')
-                  }
-                }, (song: SongItem) => `${song.platform}_${song.audioId}_${song.id}`)
+          List({ scroller: this.scroller }) {
+            ListItem() {
+              Column() {
+                PlaylistHeader({
+                  coverUrl: '',
+                  title: this.playlist.name,
+                  subtitle: `${this.playlist.songKeys.length} 首`
+                }) {
+                  HeaderPill({
+                    label: '全部播放',
+                    filled: true,
+                    onTap: (): void => this.playAll(false)
+                  })
+                  HeaderPill({
+                    label: '随机播放',
+                    onTap: (): void => this.playAll(true)
+                  })
+                }
               }
-              .layoutWeight(1)
-              .scrollBar(BarState.Off)
+              .padding({ bottom: 10 })
+            }
+
+            ListItem() {
+              Row() {
+                Text('歌曲')
+                  .fontSize(16)
+                  .fontWeight(FontWeight.Bold)
+                  .fontColor(Theme.textPrimary(Theme.isDark()))
+                  .layoutWeight(1)
+                Button('＋ 添加')
+                  .height(40)
+                  .fontSize(12)
+                  .backgroundColor(Theme.surface(Theme.isDark()))
+                  .fontColor(Theme.primary(Theme.isDark()))
+                  .onClick(() => {
+                    this.showAddDialog = true;
+                  })
+              }
               .width('100%')
             }
+
+            if (this.playlist.songs.length === 0) {
+              ListItem() {
+                EmptyState({
+                  icon: '♪',
+                  title: '歌单为空',
+                  subtitle: this.isFavorites() ? '在歌曲列表点 ♡ 收藏歌曲' : '点击「添加」从播放历史选歌'
+                })
+              }
+            } else {
+              ForEach(this.playlist.songs, (song: SongItem, index: number) => {
+                ListItem() {
+                  Row() {
+                    SongRow({
+                      songJson: song.toJson(),
+                      index: index,
+                      onPlay: () => {
+                        if (this.playlist !== null) {
+                          PlayerManager.playPlaylist(this.playlist.songs, index);
+                          Router.push(Router.NOW_PLAYING);
+                        }
+                      }
+                    })
+                    Button() {
+                      Image($r('app.media.ic_close_24'))
+                        .width(16)
+                        .height(16)
+                        .fillColor(Theme.textDisabled(Theme.isDark()))
+                    }
+                    .width(40)
+                    .height(40)
+                    .type(ButtonType.Circle)
+                    .backgroundColor(Color.Transparent)
+                    .accessibilityText('从歌单移除')
+                    .onClick(() => this.removeSong(stableKeyOf(song)))
+                  }
+                  .width('100%')
+                }
+              }, (song: SongItem) => `${song.platform}_${song.audioId}_${song.id}`)
+              // 尾部让位：列表延伸进底部手势条区后，末首歌滚过渐变遮罩仍可停稳。
+              ListItem() {
+                Column().height(this.bottomLift + 32)
+              }
+            }
           }
+          .layoutWeight(1)
+          .scrollBar(BarState.Off)
           .width('100%')
           .padding({ left: 14, right: 14 })
-          .layoutWeight(1)
+          // 官方开发实例：穿透到标题栏下方的列表项预加载，避免滚入区域闪空。
+          .cachedCount(3, true)
+          .clip(false)
+          .backgroundColor(this.schemeBg(Theme.isDark()))
         }
-      }
-      .width('100%')
-      .height('100%')
 
-      if (this.showAddDialog) {
+        SubPageBottomFade()
+
+        if (this.showAddDialog) {
         Column() {
           Column() {
             Row() {
@@ -337,6 +336,15 @@ export struct PlaylistDetailPage {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor(this.schemeBg(Theme.isDark()))
+    }
+    .titleBar(subPageTitleBar(
+      this.playlist !== null ? this.playlist.name : '歌单',
+      this.titleMenu()))
+    .bindToScrollable([this.scroller])
+    .backgroundColor(Color.Transparent)
+    .ignoreLayoutSafeArea([LayoutSafeAreaType.SYSTEM], [LayoutSafeAreaEdge.BOTTOM])
+    .onWillDisappear(() => {
+      Router.notifyReturned();
+    })
   }
 }

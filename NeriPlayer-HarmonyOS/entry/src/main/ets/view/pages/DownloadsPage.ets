@@ -10,6 +10,8 @@ import { Theme } from '../Theme';
 import { AccentScheme } from '../theme/AccentScheme';
 import { EmptyState } from '../components/Ui';
 import { Router } from '../Router';
+import { HdsNavDestination } from '@kit.UIDesignKit';
+import { subPageTitleBar, SubPageBottomFade, SubPageMenuEntry } from '../components/HdsSubPage';
 
 class DownloadsListener implements DownloadEngineListener {
   private page: WeakRef<DownloadsPage> | null = null;
@@ -34,8 +36,20 @@ export struct DownloadsPage {
    * scheme 一发布本页就随新配色重染。
    */
   @StorageProp('player.coverScheme') coverScheme: AccentScheme = AccentScheme.neutralFallback();
+  @StorageProp('ui.bottomLiftVp') bottomLift: number = Theme.bottomBarLift();
   @State rows: DownloadRow[] = [];
   private listener: DownloadsListener = new DownloadsListener();
+  /** 供 HdsNavDestination.bindToScrollable 绑定的任务列表控制器。 */
+  private scroller: Scroller = new Scroller();
+
+  /** 标题栏菜单：清空已结束任务（原页内「清空记录」按钮迁入）。 */
+  private titleMenu(): SubPageMenuEntry[] {
+    return [{
+      label: '清空记录',
+      icon: $r('app.media.ic_delete_24'),
+      action: () => DownloadEngine.clearFinished()
+    }];
+  }
 
   aboutToAppear(): void {
     this.listener.attach(this);
@@ -115,41 +129,19 @@ export struct DownloadsPage {
   }
 
   build() {
-    Column() {
-      Row({ space: 8 }) {
-        Button('‹')
-          .width(40)
-          .height(40)
-          // '‹' is punctuation to a screen reader; name the action.
-          .accessibilityText('返回')
-          .type(ButtonType.Circle)
-          .backgroundColor(Color.Transparent)
-          .fontColor(Theme.textPrimary(Theme.isDark()))
-          .fontSize(20)
-          .onClick(() => Router.pop())
-        Text('下载管理')
-          .fontSize(20)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(Theme.textPrimary(Theme.isDark()))
-          .layoutWeight(1)
-        Button('清空记录')
-          .height(40)
-          .fontSize(13)
-          .backgroundColor(Theme.surface(Theme.isDark()))
-          .fontColor(Theme.danger(Theme.isDark()))
-          .onClick(() => DownloadEngine.clearFinished())
-      }
-      .width('100%')
-      .padding({ left: 8, right: 14, top: 8, bottom: 8 })
-
-      if (this.rows.length === 0) {
-        EmptyState({
-          icon: '⤓',
-          title: '暂无下载内容',
-          subtitle: '在歌曲列表点「⋯ → 下载」，下载的歌曲会显示在这里'
-        })
-      } else {
-        List() {
+    // 标题栏（返回 + 标题 + 清空记录菜单）由 HdsNavDestination 承载，滚动时
+    // 任务列表穿到标题栏下方被 GRADIENT_BLUR 渐变模糊覆盖（同首页外壳）。
+    HdsNavDestination() {
+      Stack() {
+        Column() {
+          if (this.rows.length === 0) {
+            EmptyState({
+              icon: '⤓',
+              title: '暂无下载内容',
+              subtitle: '在歌曲列表点「⋯ → 下载」，下载的歌曲会显示在这里'
+            })
+          } else {
+            List({ scroller: this.scroller }) {
           ForEach(this.rows, (row: DownloadRow) => {
             ListItem() {
               Row({ space: 12 }) {
@@ -222,15 +214,35 @@ export struct DownloadsPage {
               .borderRadius(Theme.cardRadius())
             }
           }, (row: DownloadRow) => `${row.stableKey}:${row.attemptId}:${row.entry !== null ? 'f' : 't'}`)
+              // 尾部让位：列表延伸进底部手势条区后，末条任务滚过渐变遮罩仍可停稳。
+              ListItem() {
+                Column().height(this.bottomLift + 32)
+              }
+            }
+            .layoutWeight(1)
+            .scrollBar(BarState.Off)
+            .width('100%')
+            .padding({ left: 12, right: 12 })
+            // 官方开发实例：穿透到标题栏下方的列表项预加载，避免滚入区域闪空。
+            .cachedCount(3, true)
+            .clip(false)
+          }
         }
-        .layoutWeight(1)
-        .scrollBar(BarState.Off)
         .width('100%')
-        .padding({ left: 12, right: 12 })
+        .height('100%')
+        .backgroundColor(this.schemeBg(Theme.isDark()))
+
+        SubPageBottomFade()
       }
+      .width('100%')
+      .height('100%')
     }
-    .width('100%')
-    .height('100%')
-    .backgroundColor(this.schemeBg(Theme.isDark()))
+    .titleBar(subPageTitleBar('下载管理', this.titleMenu()))
+    .bindToScrollable([this.scroller])
+    .backgroundColor(Color.Transparent)
+    .ignoreLayoutSafeArea([LayoutSafeAreaType.SYSTEM], [LayoutSafeAreaEdge.BOTTOM])
+    .onWillDisappear(() => {
+      Router.notifyReturned();
+    })
   }
 }

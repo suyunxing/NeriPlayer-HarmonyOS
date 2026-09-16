@@ -378,59 +378,56 @@ export struct MainShell {
   }
 
   /**
-   * 全屏路由。10 个 if/else 分支从 build() 搬到这里，由 Navigation 按栈顶
-   * 路由名调用；转场交给系统标准动效，不再自己拼 TransitionEffect。
-   * 播放页不在此列：一镜到底改由 build() 根上的 bindContentCover 全屏模态
-   * 承载（NOW_PLAYING 不再入栈，见 Router 注释）。
+   * 全屏路由。由 Navigation 按栈顶路由名调用；转场交给系统标准动效，不再自己拼
+   * TransitionEffect。播放页不在此列：一镜到底改由 build() 根上的 bindContentCover
+   * 全屏模态承载（NOW_PLAYING 不再入栈，见 Router 注释）。
+   * 各路由页自身以 HdsNavDestination 为根（配置见 view/components/HdsSubPage.ets），
+   * 承载与外壳同款的 GRADIENT_BLUR 渐变模糊标题栏与底部渐变遮罩；返回刷新广播
+   * （notifyReturned）随之移到各页 HdsNavDestination 的 onWillDisappear。
+   * S4 模拟器曾实测 HdsNavDestination 只渲染标题栏 chrome、不挂载内容子树（与
+   * S0 spike S7 探针一致）；外壳 HdsNavigation 的同类问题真机不复现（2026-09-10
+   * 用户确认），子页按官方开发实例写法启用 HdsNavDestination，模拟器行为待复核。
    */
   @Builder
   pageMap(name: string, param: Object) {
-    // S4 实测：HdsNavDestination 在模拟器上只渲染标题栏 chrome、不挂载内容
-    // 子树（与 S0 spike S7 探针一致），路由页回退标准 NavDestination；
-    // HdsNavigation 外壳与 HdsTabs 悬浮栏保留。
-    NavDestination() {
-      if (name === Router.PLAYLIST_DETAIL) {
-        PlaylistDetailPage({ playlistId: this.paramText(param) })
-      } else if (name === Router.NETEASE_PLAYLIST) {
-        NeteasePlaylistPage({ playlistParam: this.paramText(param) })
-      } else if (name === Router.BILI_FAV) {
-        BiliFavPage({ favParam: this.paramText(param) })
-      } else if (name === Router.RECENT) {
-        RecentPage()
-      } else if (name === Router.STATS) {
-        StatsPage()
-      } else if (name === Router.SETTINGS_DETAIL) {
-        SettingsDetailPage({ section: this.paramText(param) })
-      } else if (name === Router.DEBUG) {
-        DebugPage()
-      } else if (name === Router.DOWNLOADS) {
-        DownloadsPage()
-      } else if (name === Router.ALBUM) {
-        AlbumPage({ albumParam: this.paramText(param) })
-      } else if (name === Router.ARTIST) {
-        ArtistPage({ artistParam: this.paramText(param) })
-      } else if (name === Router.LISTEN_TOGETHER) {
-        ListenTogetherPage()
-      } else if (name === Router.LEGAL_DOC) {
-        // 设置页入口按全屏路由打开，返回键与页内返回按钮都走 Router.pop()。
-        LegalDocPage({ doc: this.paramText(param), onClose: () => Router.pop() })
-      } else {
-        // 未知路由名：给一个空白页而不是崩掉，返回键仍能退出。
+    if (name === Router.PLAYLIST_DETAIL) {
+      PlaylistDetailPage({ playlistId: this.paramText(param) })
+    } else if (name === Router.NETEASE_PLAYLIST) {
+      NeteasePlaylistPage({ playlistParam: this.paramText(param) })
+    } else if (name === Router.BILI_FAV) {
+      BiliFavPage({ favParam: this.paramText(param) })
+    } else if (name === Router.RECENT) {
+      RecentPage()
+    } else if (name === Router.STATS) {
+      StatsPage()
+    } else if (name === Router.SETTINGS_DETAIL) {
+      SettingsDetailPage({ section: this.paramText(param) })
+    } else if (name === Router.DEBUG) {
+      DebugPage()
+    } else if (name === Router.DOWNLOADS) {
+      DownloadsPage()
+    } else if (name === Router.ALBUM) {
+      AlbumPage({ albumParam: this.paramText(param) })
+    } else if (name === Router.ARTIST) {
+      ArtistPage({ artistParam: this.paramText(param) })
+    } else if (name === Router.LISTEN_TOGETHER) {
+      ListenTogetherPage()
+    } else if (name === Router.LEGAL_DOC) {
+      // 设置页入口按全屏路由打开，返回走 HdsNavDestination 标题栏返回键。
+      LegalDocPage({ doc: this.paramText(param), asRoute: true, onClose: () => Router.pop() })
+    } else {
+      // 未知路由名：给一个空白页而不是崩掉，返回键仍能退出。navDestination
+      // builder 的根必须是 NavDestination 系组件；标准 NavDestination 官方
+      // 允许与 HdsNavDestination 混用。
+      NavDestination() {
         Column().width('100%').height('100%')
       }
+      .hideTitleBar(true)
+      .backgroundColor(Color.Transparent)
+      .onWillDisappear(() => {
+        Router.notifyReturned();
+      })
     }
-    .hideTitleBar(true)
-    // NavDestination 默认背景是不透明白：深色模式下内容区以下的系统
-    // 导航条区会露出一截白边。显式置透明，条带回落到 Index 的沉浸背景
-    // 层（应用底色），与改造前全屏路由的行为一致；页面正文各自的
-    // 背景是动态取色，无法用单一 NavDestination 背景逐路由对齐。
-    .backgroundColor(Color.Transparent)
-    // destination 被销毁时通知常驻的 Tab 页刷新。一处覆盖四条返回路径：
-    // Router.pop()、系统返回键、侧滑返回手势、Router.reset() 的 clear()。
-    //（播放页模态的同类信号在 bindContentCover 的 onDisappear 发出。）
-    .onWillDisappear(() => {
-      Router.notifyReturned();
-    })
   }
 
   /**

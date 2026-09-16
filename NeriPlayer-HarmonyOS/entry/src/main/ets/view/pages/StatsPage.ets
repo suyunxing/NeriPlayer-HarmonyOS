@@ -22,6 +22,8 @@ import { Theme } from '../Theme';
 import { AccentScheme } from '../theme/AccentScheme';
 import { Router } from '../Router';
 import { iconForLegacy } from '../../util/IconCatalog';
+import { HdsNavDestination } from '@kit.UIDesignKit';
+import { subPageTitleBar, SubPageBottomFade } from '../components/HdsSubPage';
 
 /**
  * 播放统计（backlog §5.1，对齐 Android PlaybackStatsScreen）：日/周/月/年/全部
@@ -31,12 +33,19 @@ import { iconForLegacy } from '../../util/IconCatalog';
 @Component
 export struct StatsPage {
   @StorageProp('player.coverScheme') coverScheme: AccentScheme = AccentScheme.neutralFallback();
+  @StorageProp('ui.bottomLiftVp') bottomLift: number = Theme.bottomBarLift();
   @State range: StatsTimeRange = StatsTimeRange.ALL;
   @State sortByDuration: boolean = false;
   @State tracks: AggregatedTrackStat[] = [];
   @State artists: AggregatedArtistStat[] = [];
   @State songsByKey: Map<string, SongItem> = new Map();
   @State loaded: boolean = false;
+  /**
+   * 供 HdsNavDestination.bindToScrollable 绑定的整页滚动控制器。曲目榜上限
+   * 100 行（reload 里 slice），直接平铺进 Scroll 的 Column，不需要 List 的
+   * 懒加载与嵌套滚动。
+   */
+  private scroller: Scroller = new Scroller();
 
   async aboutToAppear(): Promise<void> {
     this.songsByKey = await StatsPage.buildSongIndex();
@@ -113,134 +122,115 @@ export struct StatsPage {
   }
 
   build() {
-    Column() {
-      Row({ space: 8 }) {
-        Button('‹')
-          .width(40)
-          .height(40)
-          .accessibilityText('返回')
-          .type(ButtonType.Circle)
-          .backgroundColor(Color.Transparent)
-          .fontColor(Theme.textPrimary(Theme.isDark()))
-          .fontSize(20)
-          .onClick(() => Router.pop())
-        Text('播放统计')
-          .fontSize(20)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(Theme.textPrimary(Theme.isDark()))
-      }
-      .width('100%')
-      .padding({ left: 8, right: 14, top: 8, bottom: 8 })
-
-      if (!this.loaded) {
-        Column() {
-          LoadingProgress()
-            .width(36)
-            .height(36)
-            .color(Theme.primary(Theme.isDark()))
-        }
-        .layoutWeight(1)
-        .width('100%')
-        .justifyContent(FlexAlign.Center)
-      } else {
-        Column({ space: 12 }) {
-          // 时间范围选择（Android 日/周/月/年/全部）。
-          Row({ space: 6 }) {
-            ForEach(STATS_RANGE_LABELS, (label: string, index: number) => {
-              Text(label)
-                .fontSize(12)
-                .fontColor(this.range === index
-                  ? Theme.onPrimary(Theme.isDark())
-                  : Theme.textSecondary(Theme.isDark()))
-                .padding({ left: 10, right: 10, top: 5, bottom: 5 })
-                .backgroundColor(this.range === index
-                  ? Theme.primary(Theme.isDark())
-                  : Theme.surface(Theme.isDark()))
-                .borderRadius(12)
-                .onClick(() => {
-                  this.range = index as StatsTimeRange;
-                  this.reload();
-                })
-            }, (label: string) => label)
-          }
-          .width('100%')
-
-          Row({ space: 10 }) {
-            StatTile({ icon: '▶', value: `${this.totalPlays()}`, label: '播放次数' })
-            StatTile({
-              icon: '⏱',
-              value: StatsPage.formatDuration(this.totalListenMs()),
-              label: '收听时长'
-            })
-            StatTile({ icon: '🎵', value: `${this.tracks.length}`, label: '上榜曲目' })
-          }
-          .width('100%')
-
-          if (this.artists.length > 0) {
-            Column({ space: 6 }) {
-              Text('歌手榜')
-                .fontSize(16)
-                .fontWeight(FontWeight.Bold)
-                .fontColor(Theme.textPrimary(Theme.isDark()))
-                .width('100%')
-              Scroll() {
-                Row({ space: 8 }) {
-                  ForEach(this.artists, (artist: AggregatedArtistStat) => {
-                    Column({ space: 4 }) {
-                      Text(artist.artist.length > 0 ? artist.artist.substring(0, 8) : '未知')
-                        .fontSize(13)
-                        .fontWeight(FontWeight.Medium)
-                        .fontColor(Theme.textPrimary(Theme.isDark()))
-                        .maxLines(1)
-                      Text(`${artist.playCount} 次 · ${artist.trackCount} 首`)
-                        .fontSize(10)
-                        .fontColor(Theme.textSecondary(Theme.isDark()))
-                        .maxLines(1)
-                    }
-                    .padding({ left: 12, right: 12, top: 8, bottom: 8 })
-                    .backgroundColor(Theme.surface(Theme.isDark()))
-                    .borderRadius(12)
-                    .alignItems(HorizontalAlign.Center)
-                  }, (artist: AggregatedArtistStat) => `${artist.artist}_${artist.playCount}`)
-                }
+    // 标题栏（返回 + 标题）由 HdsNavDestination 承载，滚动时统计内容穿到
+    // 标题栏下方被 GRADIENT_BLUR 渐变模糊覆盖（同首页外壳）。
+    HdsNavDestination() {
+      Stack() {
+        Scroll(this.scroller) {
+          Column({ space: 12 }) {
+            if (!this.loaded) {
+              Column() {
+                LoadingProgress()
+                  .width(36)
+                  .height(36)
+                  .color(Theme.primary(Theme.isDark()))
               }
-              .scrollable(ScrollDirection.Horizontal)
-              .scrollBar(BarState.Off)
               .width('100%')
-            }
-            .width('100%')
-          }
+              .padding({ top: 80 })
+            } else {
+              // 时间范围选择（Android 日/周/月/年/全部）。
+              Row({ space: 6 }) {
+                ForEach(STATS_RANGE_LABELS, (label: string, index: number) => {
+                  Text(label)
+                    .fontSize(12)
+                    .fontColor(this.range === index
+                      ? Theme.onPrimary(Theme.isDark())
+                      : Theme.textSecondary(Theme.isDark()))
+                    .padding({ left: 10, right: 10, top: 5, bottom: 5 })
+                    .backgroundColor(this.range === index
+                      ? Theme.primary(Theme.isDark())
+                      : Theme.surface(Theme.isDark()))
+                    .borderRadius(12)
+                    .onClick(() => {
+                      this.range = index as StatsTimeRange;
+                      this.reload();
+                    })
+                }, (label: string) => label)
+              }
+              .width('100%')
 
-          Row() {
-            Text(this.sortByDuration ? '曲目榜 · 按时长' : '曲目榜 · 按次数')
-              .fontSize(16)
-              .fontWeight(FontWeight.Bold)
-              .fontColor(Theme.textPrimary(Theme.isDark()))
-              .layoutWeight(1)
-            Text('切换排序')
-              .fontSize(12)
-              .fontColor(Theme.primary(Theme.isDark()))
-              .padding(4)
-              .onClick(() => {
-                this.sortByDuration = !this.sortByDuration;
-                this.reload();
-              })
-          }
-          .width('100%')
+              Row({ space: 10 }) {
+                StatTile({ icon: '▶', value: `${this.totalPlays()}`, label: '播放次数' })
+                StatTile({
+                  icon: '⏱',
+                  value: StatsPage.formatDuration(this.totalListenMs()),
+                  label: '收听时长'
+                })
+                StatTile({ icon: '🎵', value: `${this.tracks.length}`, label: '上榜曲目' })
+              }
+              .width('100%')
 
-          if (this.tracks.length === 0) {
-            Column() {
-              Text('该时间范围内还没有播放记录')
-                .fontSize(13)
-                .fontColor(Theme.textSecondary(Theme.isDark()))
-            }
-            .layoutWeight(1)
-            .justifyContent(FlexAlign.Center)
-            .width('100%')
-          } else {
-            List() {
-              ForEach(this.tracks, (track: AggregatedTrackStat, index: number) => {
-                ListItem() {
+              if (this.artists.length > 0) {
+                Column({ space: 6 }) {
+                  Text('歌手榜')
+                    .fontSize(16)
+                    .fontWeight(FontWeight.Bold)
+                    .fontColor(Theme.textPrimary(Theme.isDark()))
+                    .width('100%')
+                  Scroll() {
+                    Row({ space: 8 }) {
+                      ForEach(this.artists, (artist: AggregatedArtistStat) => {
+                        Column({ space: 4 }) {
+                          Text(artist.artist.length > 0 ? artist.artist.substring(0, 8) : '未知')
+                            .fontSize(13)
+                            .fontWeight(FontWeight.Medium)
+                            .fontColor(Theme.textPrimary(Theme.isDark()))
+                            .maxLines(1)
+                          Text(`${artist.playCount} 次 · ${artist.trackCount} 首`)
+                            .fontSize(10)
+                            .fontColor(Theme.textSecondary(Theme.isDark()))
+                            .maxLines(1)
+                        }
+                        .padding({ left: 12, right: 12, top: 8, bottom: 8 })
+                        .backgroundColor(Theme.surface(Theme.isDark()))
+                        .borderRadius(12)
+                        .alignItems(HorizontalAlign.Center)
+                      }, (artist: AggregatedArtistStat) => `${artist.artist}_${artist.playCount}`)
+                    }
+                  }
+                  .scrollable(ScrollDirection.Horizontal)
+                  .scrollBar(BarState.Off)
+                  .width('100%')
+                }
+                .width('100%')
+              }
+
+              Row() {
+                Text(this.sortByDuration ? '曲目榜 · 按时长' : '曲目榜 · 按次数')
+                  .fontSize(16)
+                  .fontWeight(FontWeight.Bold)
+                  .fontColor(Theme.textPrimary(Theme.isDark()))
+                  .layoutWeight(1)
+                Text('切换排序')
+                  .fontSize(12)
+                  .fontColor(Theme.primary(Theme.isDark()))
+                  .padding(4)
+                  .onClick(() => {
+                    this.sortByDuration = !this.sortByDuration;
+                    this.reload();
+                  })
+              }
+              .width('100%')
+
+              if (this.tracks.length === 0) {
+                Text('该时间范围内还没有播放记录')
+                  .fontSize(13)
+                  .fontColor(Theme.textSecondary(Theme.isDark()))
+                  .width('100%')
+                  .padding({ top: 24, bottom: 24 })
+              } else {
+                // 上限 100 行直接平铺（见 scroller 成员注释），整页随外层 Scroll 滚动。
+                ForEach(this.tracks, (track: AggregatedTrackStat, index: number) => {
                   Row({ space: 10 }) {
                     Text(`${index + 1}`)
                       .fontSize(13)
@@ -280,22 +270,33 @@ export struct StatsPage {
                   .width('100%')
                   .padding(8)
                   .onClick(() => this.playTrack(track))
-                }
-              }, (track: AggregatedTrackStat) => `${track.key}_${track.playCount}_${track.listenMs}`)
+                }, (track: AggregatedTrackStat) => `${track.key}_${track.playCount}_${track.listenMs}`)
+              }
             }
-            .layoutWeight(1)
-            .scrollBar(BarState.Off)
-            .width('100%')
           }
+          .width('100%')
+          .padding({ left: 14, right: 14, top: 10, bottom: this.bottomLift + 32 })
         }
-        .width('100%')
-        .padding({ left: 14, right: 14, top: 10 })
         .layoutWeight(1)
+        .scrollBar(BarState.Auto)
+        .align(Alignment.Top)
+        .width('100%')
+        // 视口延伸进底部手势条区 + 放行内容画出视口上沿滚入标题栏渐变模糊区。
+        .clip(false)
+        .backgroundColor(this.schemeBg(Theme.isDark()))
+
+        SubPageBottomFade()
       }
+      .width('100%')
+      .height('100%')
     }
-    .width('100%')
-    .height('100%')
-    .backgroundColor(this.schemeBg(Theme.isDark()))
+    .titleBar(subPageTitleBar('播放统计'))
+    .bindToScrollable([this.scroller])
+    .backgroundColor(Color.Transparent)
+    .ignoreLayoutSafeArea([LayoutSafeAreaType.SYSTEM], [LayoutSafeAreaEdge.BOTTOM])
+    .onWillDisappear(() => {
+      Router.notifyReturned();
+    })
   }
 }
 
