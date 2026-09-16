@@ -106,10 +106,10 @@ export function subPageTitleBar(title: ResourceStr, menu?: SubPageMenuEntry[], s
 
 /**
  * 子页底部的渐变模糊效果，复刻首页的复合遮罩（MainShell HdsTabs
- * gradientMask 92vp·0x99 + 手势条渐变 0xD9→0）：页面根容器经
+ * gradientMask 92vp·0x99 + 手势条渐变 0xD9）：页面根容器经
  * HdsNavDestination.ignoreLayoutSafeArea 延伸进底部安全区后，叠一层由上到下
- * 「渐入 0x99 → 手势条上方 0xD9 → 屏幕底边归零」的页面底色渐变，保证系统
- * 导航指示条区域的可读性。不拦截触摸；作为页面根 Stack/Column 的最后一个
+ * 「渐入 0x99 → 一路加深到屏幕最底边 0xD9」的页面底色渐变，导航指示条区域
+ * 同样被覆盖（不避让）。不拦截触摸；作为页面根 Stack/Column 的最后一个
  * 子节点叠在滚动内容之上。
  */
 @Component
@@ -126,15 +126,15 @@ export struct SubPageBottomFade {
     const bg = Theme.background(Theme.isDark());
     const height = this.fadeHeight();
     const maskEnd = 92 / height;
-    const gesturePeak = (height - (this.bottomLift + 8) * 0.4) / height;
-    // 全部色标都用页面底色的透明变体：终止色若用透明黑（0x00000000），插值
-    // 过程会穿过半透明黑，浅色主题下底部呈现一段「黑雾」（首页同写法但该
-    // 区域被悬浮 Tab 栏与其 gradientMask 盖住不可见，子页无遮挡会直接露出）。
+    // 全部色标用页面底色的透明变体（终止色若用透明黑，插值穿过半透明黑，
+    // 浅色主题下底部呈「黑雾」——首页同写法但该区域被悬浮 Tab 栏与其
+    // gradientMask 盖住不可见，子页无遮挡会直接露出）。末段一路加深到
+    // 0xD9 直达屏幕最底边：导航指示条区域同样被渐变覆盖，不避让
+    //（2026-09-16 用户反馈：底端回退透明会让渐变看起来从导航条上沿才开始）。
     return [
       [Theme.withAlpha(bg, 0x00), 0],
       [Theme.withAlpha(bg, 0x99), maskEnd],
-      [Theme.withAlpha(bg, 0xD9), gesturePeak],
-      [Theme.withAlpha(bg, 0x00), 1]
+      [Theme.withAlpha(bg, 0xD9), 1]
     ];
   }
 
