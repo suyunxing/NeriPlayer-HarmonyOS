@@ -29,6 +29,8 @@ import { DownloadDirectoryManager } from './DownloadDirectoryManager';
 
 export interface DownloadEngineListener {
   onTasksChanged(): void;
+  /** 单首歌落盘完成（含命中本地缓存直接结算）时回调；完成提示由常驻壳层统一弹出。 */
+  onDownloadCompleted(song: SongItem, fromCache: boolean): void;
 }
 
 /** Parsed HLS playlist with the segment list and its fingerprint. */
@@ -79,6 +81,12 @@ export class DownloadEngine {
   private static context: common.Context | null = null;
   private static netConnection: connection.NetConnection | null = null;
   private static initialized: boolean = false;
+  /**
+   * 已下载目录的变更信号：资料库页 @StorageProp 订阅它实时刷新「已下载」计数
+   * （同 Router.notifyReturned 的 tick 机制）。装饰器参数只收字面量，订阅侧
+   * 必须写同名字符串 'download.catalogTick'。
+   */
+  static readonly KEY_CATALOG_TICK: string = 'download.catalogTick';
 
   static init(context: common.Context): void {
     if (DownloadEngine.initialized) {
@@ -148,6 +156,7 @@ export class DownloadEngine {
     if (entry !== null) {
       await DownloadStorage.removeCatalogEntryByKey(songKey);
       DownloadStorage.deleteFileQuiet(entry.audioPath);
+      DownloadEngine.bumpCatalogTick();
     }
     const task = DownloadEngine.store.getTask(songKey);
     if (task !== null && isDownloadTaskClearable(task.status)) {
@@ -197,6 +206,19 @@ export class DownloadEngine {
     }
   }
 
+  private static notifyCompleted(song: SongItem, fromCache: boolean): void {
+    for (const listener of DownloadEngine.listeners) {
+      listener.onDownloadCompleted(song, fromCache);
+    }
+  }
+
+  /** 目录行数真正增减时自增；进度回调等高频路径不得调用。 */
+  private static bumpCatalogTick(): void {
+    const previous = AppStorage.get<number>(DownloadEngine.KEY_CATALOG_TICK);
+    const tick = previous === undefined || previous === null ? 0 : previous;
+    AppStorage.setOrCreate(DownloadEngine.KEY_CATALOG_TICK, tick + 1);
+  }
+
   // ----------------------------------------------------------------------
   // Single task execution
   // ----------------------------------------------------------------------
@@ -218,11 +240,14 @@ export class DownloadEngine {
         DownloadEngine.store.updateStatus(songKey, task.attemptId, DownloadStatus.COMPLETED);
         DownloadEngine.persistQueue();
         DownloadEngine.notifyChanged();
+        // 目录行数不变，不发 tick；但对用户仍是一次「已存在」的结算反馈。
+        DownloadEngine.notifyCompleted(task.song, true);
         return;
       }
       Logger.warn('DownloadEngine: cached copy failed payload check, re-downloading');
       DownloadStorage.deleteFileQuiet(cached.audioPath);
       await DownloadStorage.removeCatalogEntry(task.song);
+      DownloadEngine.bumpCatalogTick();
     }
 
     let url = '';
@@ -533,7 +558,9 @@ export class DownloadEngine {
       return;
     }
     DownloadEngine.persistQueue();
+    DownloadEngine.bumpCatalogTick();
     DownloadEngine.notifyChanged();
+    DownloadEngine.notifyCompleted(song, false);
     Logger.info(`DownloadEngine: completed ${song.displayName} -> ${finalPath}`);
     // Companion lyric sidecar (backlog §3.5): fire-and-forget, the download
     // itself already succeeded — a lyric miss must never turn into a failure.

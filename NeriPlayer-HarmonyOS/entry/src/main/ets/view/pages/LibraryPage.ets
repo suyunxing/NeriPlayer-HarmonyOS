@@ -69,11 +69,23 @@ export struct LibraryPage {
    */
   @StorageProp('np.default_start_tab') activeTab: number = 0;
   @StorageProp('ui.refreshTick') @Watch('onRefreshTick') refreshTick: number = 0;
+  /**
+   * 下载引擎的目录变更信号（DownloadEngine.KEY_CATALOG_TICK，装饰器只收字面量）。
+   * 停在本页时后台下载完成/删除也能实时刷新「已下载」计数，不必等返回信号。
+   */
+  @StorageProp('download.catalogTick') @Watch('onCatalogTick') catalogTick: number = 0;
 
   private onRefreshTick(): void {
     if (this.activeTab === TAB_INDEX) {
       this.reload();
     }
+  }
+
+  private onCatalogTick(): void {
+    // 只刷新计数，不整页 reload（目录读失败时维持旧值，与 DownloadsPage 同策略）。
+    DownloadStorage.getCatalog().then((catalog) => {
+      this.downloadCount = catalog.length;
+    }).catch(() => {});
   }
 
   async aboutToAppear(): Promise<void> {

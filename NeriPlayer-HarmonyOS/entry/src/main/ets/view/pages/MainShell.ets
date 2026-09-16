@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0
 
 import { Router } from '../Router';
+import { DownloadEngine, DownloadEngineListener } from '../../download/DownloadEngine';
+import { SongItem } from '../../model/SongItem';
 import { NowPlayingMotion, NowPlayingRect } from '../NowPlayingMotion';
 import { PANEL_CURVE } from '../NowPlayingCurves';
 import { Theme } from '../Theme';
@@ -35,6 +37,31 @@ import { ArtistPage } from './ArtistPage';
 
 /** Tab 项内容高度 56 + 顶部 6 的视觉间距，与改造前的 tabItem 固定高度一致。 */
 const TAB_BAR_CONTENT_VP: number = 62;
+
+/**
+ * 下载完成提示的壳层订阅：引擎回调无 UI 上下文，由常驻的 MainShell 统一弹
+ * toast（DownloadsPage 只刷列表不弹提示，避免两处重复）。
+ */
+class ShellDownloadListener implements DownloadEngineListener {
+  private shell: WeakRef<MainShell> | null = null;
+
+  attach(shell: MainShell): void {
+    this.shell = new WeakRef<MainShell>(shell);
+  }
+
+  onTasksChanged(): void {
+    // 任务列表刷新由各页面自行订阅。
+  }
+
+  onDownloadCompleted(song: SongItem, fromCache: boolean): void {
+    const target = this.shell !== null ? this.shell.deref() : undefined;
+    if (target === undefined) {
+      return;
+    }
+    const message = fromCache ? `已在下载库中：${song.displayName}` : `下载完成：${song.displayName}`;
+    target.getUIContext().getPromptAction().showToast({ message, duration: 2000 });
+  }
+}
 /** 侧边导航栏宽度。固定值，不随窗口膨胀 —— 这正是改用 Tabs 要解决的问题。 */
 const SIDE_BAR_WIDTH_VP: number = 96;
 /** 侧边栏单项高度：22vp 图标 + 10fp 文字，纵向排列后的舒适高度。 */
@@ -92,6 +119,7 @@ export struct MainShell {
   private settleTimer: number = -1;
   private modalReady: boolean = false;
   private pendingDismiss: DismissContentCoverAction | undefined = undefined;
+  private downloadListener: ShellDownloadListener = new ShellDownloadListener();
 
   private clearSettle(): void {
     if (this.settleTimer >= 0) {
@@ -268,6 +296,9 @@ export struct MainShell {
 
   aboutToAppear(): void {
     Router.attach(this.pageStack, this.getUIContext());
+    // 注册要放在启动页分支的 return 之前，任何默认页配置下都得收到完成回调。
+    this.downloadListener.attach(this);
+    DownloadEngine.addListener(this.downloadListener);
     // np.start_page ('last' | '0'..'3') is the explicit 启动页 choice; the
     // legacy np.default_start_tab keeps tracking the last visited tab and is
     // what 'last' resolves to.
