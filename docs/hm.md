@@ -704,6 +704,17 @@ $hdc = 'D:\HarmonyOS\Tools\command-line-tools\sdk\default\openharmony\toolchains
 - **工程协作**（d68f4f3、cbef581、8de4ca1）：配置 Copilot 代码审查（`.github/skills/harmonyos-code-review/SKILL.md`、`.github/copilot-instructions.md`、`.github/instructions/` 按 ArkTS 与 CI workflow 两域分流）；根目录与工程 README 按上游风格重写；`NeriPlayer-master/` 解除 Git 追踪并加入 `.gitignore`（磁盘保留为只读参照快照；`NeriPlayer-ASCF/` 仍在版本控制中）。
 - **审查工具切换**（2026-09-16）：应用户要求移除上一条的 Copilot 审查 4 个配置文件（GitHub 侧 `copilot-pull-request-reviewer` 与 `chatgpt-codex-connector` 两个审查 App 由用户网页端停用）；AI 审查改走 CodeRabbit（`.coderabbit.yaml`，App 待装、仓库转公开后免费）+ gitleaks 密钥扫描（`.github/workflows/gitleaks.yml`，已上线）。
 
+### 7.15 2026-09-16 二、三级页沉浸渐变模糊标题栏统一（服务器 Linux CLT 26.0.0.105，无设备，分支 `settings-card-radius`）
+
+将 §7.14「壳层沉浸改版」的 `HdsNavigation` GRADIENT_BLUR 标题栏模式下沉到全部 12 个路由页（本地歌单/网易云歌单/B 站收藏夹/专辑/艺人/播放历史/播放统计/下载管理/一起听/调试/设置详情/协议文档），按官方 UIDesignKit「组件导航-开发实例」（`ui-design-navigation-dynamic-blur-demo`）的 HdsNavDestination 写法：
+
+- **共享配置** `view/components/HdsSubPage.ets`（新文件）：`subPageTitleBar(title, menu?, subTitle?)` 构造与外壳逐参数对齐的 titleBar（`ScrollEffectType.GRADIENT_BLUR` 0→8vp + `BlurStrategy.ADAPTIVE` + `systemMaterialEffect`（HdsLight 探测降级）+ `enableComponentSafeArea: true`）；`SubPageBottomFade` 组件复刻 MainShell 手势条渐变遮罩（页面底色 0xD9→透明，`@StorageProp('ui.bottomLiftVp')` 跟随避让区）。
+- **MainShell.pageMap**：去掉共享 `NavDestination().hideTitleBar(true)` 包装层，各路由页自身以 `HdsNavDestination` 为根（官方允许与标准 NavDestination 混用；未知路由兜底分支保留标准 NavDestination）。`onWillDisappear → Router.notifyReturned()` 返回广播随之下沉到各页。
+- **每页模式**：根 `HdsNavDestination().titleBar(...).bindToScrollable([scroller]).backgroundColor(Transparent).ignoreLayoutSafeArea([SYSTEM],[BOTTOM]).onWillDisappear(...)`；滚动容器 `.clip(false)`（内容滚入标题栏下方被渐变模糊覆盖）+ List 加 `.cachedCount(3, true)`（官方 FAQ：防穿透区列表项闪空）；`ignoreLayoutSafeArea` 底边延伸后列表尾部加 `bottomLift + 32` 让位 spacer、Scroll 类页面改 padding 尾部同高。
+- **结构归一**：原「固定头部 + 内嵌 List」的页面（三个歌单页、艺人页、历史页）把头图/搜索框/胶囊等并入同一个 List/Scroll 作首组 ListItem，保证整页内容可穿到标题栏下；StatsPage 曲目榜（≤100 行）直接平铺进外层 Scroll 免嵌套滚动。原页内头部操作迁入 titleBar 菜单（RecentPage 排序+说明/导出/导入/清除 5 项、DownloadsPage 清空记录、PlaylistDetailPage 歌单管理；sys.symbol 资源名经 `toolchains/id_defined.json` 核实存在）。LegalDocPage 双模式：新增 `asRoute` 属性，全屏路由走 HdsNavDestination，免责声明浮层保留自绘头部。
+- **模拟器风险**：S4 曾实测 HdsNavDestination 在模拟器只渲染标题栏 chrome 不挂载内容子树（8958d16 注释）；同类的 HdsNavigation 外壳问题真机不复现（2026-09-10 用户确认），子页按官方标准启用，**模拟器行为待复核、真机渲染未验证**。
+- 验证（服务器）：entry@default assembleHap **BUILD SUCCESSFUL 0 error**（首轮 10 error 为 `.margin()` 链在带尾随闭包的 `PlaylistHeader{...}` 之后的 ArkTS 语法限制，改 Column 包裹后清零）；codelinter 14 个改动文件 **0 error / 8 warn**（其中 6 warn 为 BiliFav/Netease 存量性能提示、2 warn 为 custom-component 风格提示——SubPageBottomFade 因自带 `@StorageProp` 响应式跟踪保留组件形态）。
+
 每次 SDK 或上游 Android 更新，都更新本文件的核验日期、版本矩阵、源码状态和测试结果。
 
 新增能力必须附官方页面 URL、适用 API、代码位置、验证设备、失败日志和降级方案。
