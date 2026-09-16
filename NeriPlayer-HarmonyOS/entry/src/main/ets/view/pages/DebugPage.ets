@@ -28,6 +28,8 @@ export struct DebugPage {
   @State proxyHost: string = '';
   @State proxyPort: string = '';
   @StorageProp('ui.bottomLiftVp') bottomLift: number = Theme.bottomBarLift();
+  /** 状态栏避让（util/WindowMetrics.ets 发布）；内容根从 y=0 起，让位 = topInset + 56。 */
+  @StorageProp('ui.topInsetVp') topInset: number = 0;
   /** 供 HdsNavDestination.bindToScrollable 绑定的整页滚动控制器。 */
   private scroller: Scroller = new Scroller();
 
@@ -292,7 +294,7 @@ export struct DebugPage {
               .backgroundColor(Theme.surface(Theme.isDark()))
               .borderRadius(12)
           }
-          .padding({ left: 16, right: 16, top: SUB_TITLEBAR_SPACE_VP, bottom: this.bottomLift + SUB_BOTTOM_CLEARANCE_VP })
+          .padding({ left: 16, right: 16, top: this.topInset + SUB_TITLEBAR_SPACE_VP, bottom: this.bottomLift + SUB_BOTTOM_CLEARANCE_VP })
           .width('100%')
         }
         .layoutWeight(1)

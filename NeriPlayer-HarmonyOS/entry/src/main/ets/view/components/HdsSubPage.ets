@@ -126,12 +126,15 @@ export struct SubPageBottomFade {
     const bg = Theme.background(Theme.isDark());
     const height = this.fadeHeight();
     const maskEnd = 92 / height;
-    const gesturePeak = (92 + this.bottomLift * 0.5) / height;
+    const gesturePeak = (height - (this.bottomLift + 8) * 0.4) / height;
+    // 全部色标都用页面底色的透明变体：终止色若用透明黑（0x00000000），插值
+    // 过程会穿过半透明黑，浅色主题下底部呈现一段「黑雾」（首页同写法但该
+    // 区域被悬浮 Tab 栏与其 gradientMask 盖住不可见，子页无遮挡会直接露出）。
     return [
       [Theme.withAlpha(bg, 0x00), 0],
       [Theme.withAlpha(bg, 0x99), maskEnd],
       [Theme.withAlpha(bg, 0xD9), gesturePeak],
-      [0x00000000, 1]
+      [Theme.withAlpha(bg, 0x00), 1]
     ];
   }
 

@@ -37,6 +37,8 @@ export struct DownloadsPage {
    */
   @StorageProp('player.coverScheme') coverScheme: AccentScheme = AccentScheme.neutralFallback();
   @StorageProp('ui.bottomLiftVp') bottomLift: number = Theme.bottomBarLift();
+  /** 状态栏避让（util/WindowMetrics.ets 发布）；内容根从 y=0 起，让位 = topInset + 56。 */
+  @StorageProp('ui.topInsetVp') topInset: number = 0;
   @State rows: DownloadRow[] = [];
   private listener: DownloadsListener = new DownloadsListener();
   /** 供 HdsNavDestination.bindToScrollable 绑定的任务列表控制器。 */
@@ -142,13 +144,13 @@ export struct DownloadsPage {
                 subtitle: '在歌曲列表点「⋯ → 下载」，下载的歌曲会显示在这里'
               })
             }
-            .padding({ top: SUB_TITLEBAR_SPACE_VP })
+            .padding({ top: this.topInset + SUB_TITLEBAR_SPACE_VP })
             .width('100%')
           } else {
             List({ scroller: this.scroller }) {
             // 顶部让位标题栏：让位量随内容滚走（同首页 Tab 页 padding top 56）。
             ListItem() {
-              Column().height(SUB_TITLEBAR_SPACE_VP)
+              Column().height(this.topInset + SUB_TITLEBAR_SPACE_VP)
             }
           ForEach(this.rows, (row: DownloadRow) => {
             ListItem() {

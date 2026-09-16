@@ -33,6 +33,8 @@ export struct LegalDocPage {
   onClose: () => void = () => {};
   /** 正文收尾留白，跟随真实导航指示器避让区（见 util/WindowMetrics.ets）。 */
   @StorageProp('ui.bottomLiftVp') bottomLift: number = Theme.bottomBarLift();
+  /** 状态栏避让（util/WindowMetrics.ets 发布）；内容根从 y=0 起，让位 = topInset + 56。 */
+  @StorageProp('ui.topInsetVp') topInset: number = 0;
   @State private bodyText: string = '';
   @State private loadFailed: boolean = false;
   /** 供 HdsNavDestination.bindToScrollable 绑定的正文滚动控制器。 */
@@ -101,7 +103,7 @@ export struct LegalDocPage {
         .width('100%')
         // 底部固定控件的上抬量同时用作滚动内容的收尾留白，保证最后一段不贴住
         // 导航条；路由态正文延伸进手势条区，多让一层渐变遮罩的高度。
-        .padding({ left: 16, right: 16, top: this.asRoute ? SUB_TITLEBAR_SPACE_VP : 0, bottom: this.bottomLift + (this.asRoute ? SUB_BOTTOM_CLEARANCE_VP : 0) })
+        .padding({ left: 16, right: 16, top: this.asRoute ? this.topInset + SUB_TITLEBAR_SPACE_VP : 0, bottom: this.bottomLift + (this.asRoute ? SUB_BOTTOM_CLEARANCE_VP : 0) })
       }
       .layoutWeight(1)
       .scrollBar(BarState.Auto)
