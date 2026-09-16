@@ -26,6 +26,10 @@ class DownloadsListener implements DownloadEngineListener {
       target.refreshRows();
     }
   }
+
+  /** 完成提示由 MainShell 统一弹出，本页只随 onTasksChanged 刷新列表。 */
+  onDownloadCompleted(song: SongItem, fromCache: boolean): void {
+  }
 }
 
 @Component
