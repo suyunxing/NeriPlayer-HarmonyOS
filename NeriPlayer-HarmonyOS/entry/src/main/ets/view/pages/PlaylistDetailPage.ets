@@ -27,6 +27,8 @@ export struct PlaylistDetailPage {
   /** 由 MainShell 的 navDestination builder 从路由参数传入。 */
   @Prop playlistId: string = '';
   @StorageProp('ui.bottomLiftVp') bottomLift: number = Theme.bottomBarLift();
+  /** 状态栏避让（util/WindowMetrics.ets 发布）；内容根从 y=0 起，让位 = topInset + 56。 */
+  @StorageProp('ui.topInsetVp') topInset: number = 0;
   @State playlist: Playlist | null = null;
   @State history: SongItem[] = [];
   @State showAddDialog: boolean = false;
@@ -121,7 +123,7 @@ export struct PlaylistDetailPage {
           List({ scroller: this.scroller }) {
           // 顶部让位标题栏：让位量随内容滚走（同首页 Tab 页 padding top 56）。
           ListItem() {
-            Column().height(SUB_TITLEBAR_SPACE_VP)
+            Column().height(this.topInset + SUB_TITLEBAR_SPACE_VP)
           }
             ListItem() {
               Column() {

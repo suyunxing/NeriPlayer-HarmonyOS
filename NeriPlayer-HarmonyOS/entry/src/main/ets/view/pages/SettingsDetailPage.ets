@@ -95,6 +95,8 @@ export struct SettingsDetailPage {
    */
   @StorageProp('player.coverScheme') coverScheme: AccentScheme = AccentScheme.neutralFallback();
   @StorageProp('ui.bottomLiftVp') bottomLift: number = Theme.bottomBarLift();
+  /** 状态栏避让（util/WindowMetrics.ets 发布）；内容根从 y=0 起，让位 = topInset + 56。 */
+  @StorageProp('ui.topInsetVp') topInset: number = 0;
   /** 供 HdsNavDestination.bindToScrollable 绑定的整页滚动控制器。 */
   private scroller: Scroller = new Scroller();
   /** 由 MainShell 的 navDestination builder 从路由参数传入。 */
@@ -1608,7 +1610,7 @@ export struct SettingsDetailPage {
           }
         }
         .width('100%')
-        .padding({ left: 14, right: 14, top: SUB_TITLEBAR_SPACE_VP, bottom: this.bottomLift + SUB_BOTTOM_CLEARANCE_VP })
+        .padding({ left: 14, right: 14, top: this.topInset + SUB_TITLEBAR_SPACE_VP, bottom: this.bottomLift + SUB_BOTTOM_CLEARANCE_VP })
             }
             .layoutWeight(1)
             .scrollBar(BarState.Off)

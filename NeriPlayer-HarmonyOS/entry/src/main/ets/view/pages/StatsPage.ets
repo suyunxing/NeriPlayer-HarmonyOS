@@ -34,6 +34,8 @@ import { subPageTitleBar, SubPageBottomFade, SUB_TITLEBAR_SPACE_VP, SUB_BOTTOM_C
 export struct StatsPage {
   @StorageProp('player.coverScheme') coverScheme: AccentScheme = AccentScheme.neutralFallback();
   @StorageProp('ui.bottomLiftVp') bottomLift: number = Theme.bottomBarLift();
+  /** 状态栏避让（util/WindowMetrics.ets 发布）；内容根从 y=0 起，让位 = topInset + 56。 */
+  @StorageProp('ui.topInsetVp') topInset: number = 0;
   @State range: StatsTimeRange = StatsTimeRange.ALL;
   @State sortByDuration: boolean = false;
   @State tracks: AggregatedTrackStat[] = [];
@@ -136,7 +138,7 @@ export struct StatsPage {
                   .color(Theme.primary(Theme.isDark()))
               }
               .width('100%')
-              .padding({ top: 80 })
+              .padding({ top: this.topInset + SUB_TITLEBAR_SPACE_VP + 24 })
             } else {
               // 时间范围选择（Android 日/周/月/年/全部）。
               Row({ space: 6 }) {
@@ -275,7 +277,7 @@ export struct StatsPage {
             }
           }
           .width('100%')
-          .padding({ left: 14, right: 14, top: SUB_TITLEBAR_SPACE_VP, bottom: this.bottomLift + SUB_BOTTOM_CLEARANCE_VP })
+          .padding({ left: 14, right: 14, top: this.topInset + SUB_TITLEBAR_SPACE_VP, bottom: this.bottomLift + SUB_BOTTOM_CLEARANCE_VP })
         }
         .layoutWeight(1)
         .scrollBar(BarState.Auto)
