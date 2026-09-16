@@ -46,7 +46,7 @@ import { AccentScheme } from '../theme/AccentScheme';
 import { BAND_LIST_VP } from '../../util/Breakpoint';
 import { OptionEntry, OptionRow, SettingRow, SliderRow, ToggleRow } from '../components/Ui';
 import { HdsNavDestination } from '@kit.UIDesignKit';
-import { subPageTitleBar, SubPageBottomFade } from '../components/HdsSubPage';
+import { subPageTitleBar, SubPageBottomFade, SUB_TITLEBAR_SPACE_VP, SUB_BOTTOM_CLEARANCE_VP } from '../components/HdsSubPage';
 import { LyricSettingsRows, LyricStylePreview } from '../components/LyricSettingsRows';
 import { SETTING_PLAYBACK, SETTING_DOWNLOAD, SETTING_LYRICS, SETTING_PLAYER,
   SETTING_APPEARANCE, SETTING_NAVIGATION, SETTING_TRAFFIC, SETTING_STORAGE,
@@ -1608,7 +1608,7 @@ export struct SettingsDetailPage {
           }
         }
         .width('100%')
-        .padding({ left: 14, right: 14, bottom: this.bottomLift + 32 })
+        .padding({ left: 14, right: 14, top: SUB_TITLEBAR_SPACE_VP, bottom: this.bottomLift + SUB_BOTTOM_CLEARANCE_VP })
             }
             .layoutWeight(1)
             .scrollBar(BarState.Off)
@@ -1636,7 +1636,7 @@ export struct SettingsDetailPage {
     .titleBar(subPageTitleBar(this.title()))
     .bindToScrollable([this.scroller])
     .backgroundColor(Color.Transparent)
-    .ignoreLayoutSafeArea([LayoutSafeAreaType.SYSTEM], [LayoutSafeAreaEdge.BOTTOM])
+    .ignoreLayoutSafeArea([LayoutSafeAreaType.SYSTEM], [LayoutSafeAreaEdge.TOP, LayoutSafeAreaEdge.BOTTOM])
     .onWillDisappear(() => {
       Router.notifyReturned();
     })

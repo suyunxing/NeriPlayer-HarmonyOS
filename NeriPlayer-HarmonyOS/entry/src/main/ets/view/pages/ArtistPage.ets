@@ -9,7 +9,7 @@ import { EmptyState } from '../components/Ui';
 import { SongRow } from '../components/SongRow';
 import { Router } from '../Router';
 import { HdsNavDestination } from '@kit.UIDesignKit';
-import { subPageTitleBar, SubPageBottomFade } from '../components/HdsSubPage';
+import { subPageTitleBar, SubPageBottomFade, SUB_TITLEBAR_SPACE_VP, SUB_BOTTOM_CLEARANCE_VP } from '../components/HdsSubPage';
 
 /**
  * 网易云艺人页（backlog §3.4）：param 为 JSON { artist: string, artistId: number }；
@@ -87,6 +87,10 @@ export struct ArtistPage {
             EmptyState({ title: '没有找到该艺人的歌曲', subtitle: '网络异常或艺人不存在' })
           } else {
             List({ scroller: this.scroller }) {
+            // 顶部让位标题栏：让位量随内容滚走（同首页 Tab 页 padding top 56）。
+            ListItem() {
+              Column().height(SUB_TITLEBAR_SPACE_VP)
+            }
               if (this.head !== null) {
                 ListItem() {
                   Row({ space: 12 }) {
@@ -161,7 +165,7 @@ export struct ArtistPage {
               }, (song: SongItem) => `${song.platform}_${song.audioId}_${song.id}`)
               // 尾部让位：列表延伸进底部手势条区后，末首歌滚过渐变遮罩仍可停稳。
               ListItem() {
-                Column().height(this.bottomLift + 32)
+                Column().height(this.bottomLift + SUB_BOTTOM_CLEARANCE_VP)
               }
             }
             .layoutWeight(1)
@@ -185,7 +189,7 @@ export struct ArtistPage {
     .titleBar(subPageTitleBar(this.title()))
     .bindToScrollable([this.scroller])
     .backgroundColor(Color.Transparent)
-    .ignoreLayoutSafeArea([LayoutSafeAreaType.SYSTEM], [LayoutSafeAreaEdge.BOTTOM])
+    .ignoreLayoutSafeArea([LayoutSafeAreaType.SYSTEM], [LayoutSafeAreaEdge.TOP, LayoutSafeAreaEdge.BOTTOM])
     .onWillDisappear(() => {
       Router.notifyReturned();
     })

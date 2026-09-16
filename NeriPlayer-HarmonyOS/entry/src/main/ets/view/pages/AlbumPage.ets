@@ -13,7 +13,7 @@ import { stableKeyOf } from '../../model/SongIdentity';
 import { NeteaseApi } from '../../network/NeteaseApi';
 import { MusicPlatform } from '../../model/MusicPlatform';
 import { HdsNavDestination } from '@kit.UIDesignKit';
-import { subPageTitleBar, SubPageBottomFade } from '../components/HdsSubPage';
+import { subPageTitleBar, SubPageBottomFade, SUB_TITLEBAR_SPACE_VP, SUB_BOTTOM_CLEARANCE_VP } from '../components/HdsSubPage';
 
 /**
  * 「查看专辑」页：聚合本地库（全部歌单 + 当前播放曲）中同一专辑的歌曲。
@@ -108,13 +108,21 @@ export struct AlbumPage {
               .layoutWeight(1)
               .width('100%')
           } else if (this.songs.length === 0) {
-            EmptyState({
-              icon: '💿',
-              title: '专辑内暂无本地库歌曲',
-              subtitle: '收藏或加入歌单后，同专辑歌曲会出现在这里'
-            })
+            Column() {
+              EmptyState({
+                icon: '💿',
+                title: '专辑内暂无本地库歌曲',
+                subtitle: '收藏或加入歌单后，同专辑歌曲会出现在这里'
+              })
+            }
+            .padding({ top: SUB_TITLEBAR_SPACE_VP })
+            .width('100%')
           } else {
             List({ scroller: this.scroller, space: 2 }) {
+            // 顶部让位标题栏：让位量随内容滚走（同首页 Tab 页 padding top 56）。
+            ListItem() {
+              Column().height(SUB_TITLEBAR_SPACE_VP)
+            }
               ForEach(this.songs, (song: SongItem, index: number) => {
                 ListItem() {
                   SongRow({
@@ -125,7 +133,7 @@ export struct AlbumPage {
               }, (song: SongItem) => stableKeyOf(song))
               // 尾部让位：列表延伸进底部手势条区后，末首歌滚过渐变遮罩仍可停稳。
               ListItem() {
-                Column().height(this.bottomLift + 32)
+                Column().height(this.bottomLift + SUB_BOTTOM_CLEARANCE_VP)
               }
             }
             .layoutWeight(1)
@@ -155,7 +163,7 @@ export struct AlbumPage {
     // NavDestination 包装层的处理）。
     .backgroundColor(Color.Transparent)
     // 内容区延伸进底部手势条区，滚动内容真实透到系统指示条后面被渐变遮罩覆盖。
-    .ignoreLayoutSafeArea([LayoutSafeAreaType.SYSTEM], [LayoutSafeAreaEdge.BOTTOM])
+    .ignoreLayoutSafeArea([LayoutSafeAreaType.SYSTEM], [LayoutSafeAreaEdge.TOP, LayoutSafeAreaEdge.BOTTOM])
     // destination 销毁（Router.pop / 系统返回 / 侧滑 / reset）时通知常驻 Tab 页刷新。
     .onWillDisappear(() => {
       Router.notifyReturned();

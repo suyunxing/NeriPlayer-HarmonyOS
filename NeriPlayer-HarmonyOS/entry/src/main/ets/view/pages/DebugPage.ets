@@ -20,7 +20,7 @@ import { Router } from '../Router';
 import { Theme } from '../Theme';
 import { HdsSpikePanel } from './HdsSpikePanel';
 import { HdsNavDestination } from '@kit.UIDesignKit';
-import { subPageTitleBar, SubPageBottomFade } from '../components/HdsSubPage';
+import { subPageTitleBar, SubPageBottomFade, SUB_TITLEBAR_SPACE_VP, SUB_BOTTOM_CLEARANCE_VP } from '../components/HdsSubPage';
 
 @Component
 export struct DebugPage {
@@ -292,7 +292,7 @@ export struct DebugPage {
               .backgroundColor(Theme.surface(Theme.isDark()))
               .borderRadius(12)
           }
-          .padding({ left: 16, right: 16 })
+          .padding({ left: 16, right: 16, top: SUB_TITLEBAR_SPACE_VP, bottom: this.bottomLift + SUB_BOTTOM_CLEARANCE_VP })
           .width('100%')
         }
         .layoutWeight(1)
@@ -311,7 +311,7 @@ export struct DebugPage {
     .titleBar(subPageTitleBar('调试'))
     .bindToScrollable([this.scroller])
     .backgroundColor(Color.Transparent)
-    .ignoreLayoutSafeArea([LayoutSafeAreaType.SYSTEM], [LayoutSafeAreaEdge.BOTTOM])
+    .ignoreLayoutSafeArea([LayoutSafeAreaType.SYSTEM], [LayoutSafeAreaEdge.TOP, LayoutSafeAreaEdge.BOTTOM])
     .onWillDisappear(() => {
       Router.notifyReturned();
     })
