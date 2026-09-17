@@ -258,6 +258,8 @@ export struct NeteasePlaylistPage {
     }
     .width('100%')
     .height('100%')
+    // NavDestination 透明时短内容区会透视栈底 Tab 页，实色底由内容根补齐。
+    .backgroundColor(this.schemeBg(Theme.isDark()))
     }
     .titleBar(subPageTitleBar(
       this.overview !== null && this.overview.name.length > 0 ? this.overview.name : '网易云歌单'))

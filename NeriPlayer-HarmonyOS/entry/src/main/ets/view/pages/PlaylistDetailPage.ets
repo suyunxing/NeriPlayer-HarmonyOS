@@ -209,14 +209,15 @@ export struct PlaylistDetailPage {
               }
             }
           }
-          .layoutWeight(1)
+          // Stack 子组件不参与 layoutWeight 分配，短歌单时列表会缩成内容高度
+          // 悬浮屏中，须显式撑满视口，让首项让位垫片把内容钉在标题栏下方。
+          .height('100%')
           .scrollBar(BarState.Off)
           .width('100%')
           .padding({ left: 14, right: 14 })
           // 官方开发实例：穿透到标题栏下方的列表项预加载，避免滚入区域闪空。
           .cachedCount(3, true)
           .clip(false)
-          .backgroundColor(this.schemeBg(Theme.isDark()))
         }
 
         SubPageBottomFade()
@@ -342,6 +343,9 @@ export struct PlaylistDetailPage {
     }
     .width('100%')
     .height('100%')
+    // NavDestination 透明时转场与短内容区会直接透视栈底的资料库页，
+    // 子页实色底由内容根补齐（同 RecentPage）。
+    .backgroundColor(this.schemeBg(Theme.isDark()))
     }
     .titleBar(subPageTitleBar(
       this.playlist !== null ? this.playlist.name : '歌单',
