@@ -20,7 +20,7 @@
     <img alt="CI Build" src="https://img.shields.io/badge/CI-Passing-brightgreen?logo=github-actions&logoColor=white" />
   </a>
   <a href="NeriPlayer-HarmonyOS/entry/src/test/">
-    <img alt="Unit Tests" src="https://img.shields.io/badge/Unit%20Tests-980-success?logo=checkmarx&logoColor=white" />
+    <img alt="Unit Tests" src="https://img.shields.io/badge/Unit%20Tests-1035-success?logo=checkmarx&logoColor=white" />
   </a>
   <img alt="ArkTS" src="https://img.shields.io/badge/Language-ArkTS%20%7C%20ArkUI-orange" />
 </p>
@@ -85,20 +85,20 @@ NeriPlayer for HarmonyOS
 - **尊重隐私与账号安全**：坚决不向第三方平台上传本地播放历史和听歌统计，避免触发流媒体平台的异常登录与行为采样风控。
 - **Stage 纯血单 Ability 架构**：`EntryAbility` 作为统一入口，全界面基于 ArkUI `Navigation` + `NavPathStack` 路由栈组织，实现全屏内容穿透状态栏的顶部与底部沉浸式体验。
 - **启动与恢复链路**：标准启动流程为 `Loading -> Disclaimer -> Onboarding -> Main`；若上次启动异常崩溃，自动进入 `SafeMode` 安全模式防止崩溃循环。
-- **确定性工程测试护栏**：内建 980 个确定性单元测试（@ohos/hypium；最近一次全量执行 874/874 全绿），严密覆盖数据合并、编解码、下载事务、色彩矩阵与播放状态机。
+- **确定性工程测试护栏**：内建 1035 个确定性单元测试（@ohos/hypium；最近一次全量执行 874/874 全绿），严密覆盖数据合并、编解码、下载事务、色彩矩阵与播放状态机。
 
 ---
 
 ## ✨ 项目亮点 / Why it stands out
 
 - **纯血鸿蒙一镜到底转场（Now Playing Transition）**：
-  重构丢弃了易产生卡顿抖动的 JS 逐帧计时器，全面切换为 ArkUI 原生属性动画 `.animation()` 驱动。从底部 MiniPlayer（药丸药囊）展开至全屏播放页，实现封面尺寸与坐标的平滑飞行、控制按钮错峰淡入淡出、弹性阻尼回弹，并辅以自研 `TitleBarBlurBackdrop` 渐变模糊，让内容无缝穿透状态栏，兼具视听冲击力与极致手感。
+  重构丢弃了易产生卡顿抖动的 JS 逐帧计时器，全面切换为 ArkUI 原生属性动画 `.animation()` 驱动。从底部 MiniPlayer（药丸药囊）展开至全屏播放页，实现封面尺寸与坐标的平滑飞行、控制按钮错峰淡入淡出、弹性阻尼回弹，并辅以 `HdsNavigation` GRADIENT_BLUR 渐变模糊标题栏，让内容无缝穿透状态栏，兼具视听冲击力与极致手感。
 - **多源探索与自动换源兜底**：
   `PlayerManager` 接管全流程音源调度与容灾。当网易云音乐遇到无版权、试听片段或解析失效时，自动触发音质降级；降级仍不可播时，通过内置算法按歌名、歌手与时长综合评分，**毫秒级自动切换至 Bilibili 对应音轨兜底**；遇到偶发网络故障时自动重刷直链，保障播放不中断。
 - **ColorScience 动态取色与呼吸流光**：
   全自主纯 ArkTS 实现的色彩科学算法引擎，基于 CIE Lab / LCh 颜色空间、ΔE00 色差计算与真实色卡吸附，毫秒级提取专辑封面的核心主导色，动态注入播放器背景与全局组件，营造随音乐流动的光影氛围。
 - **深度 AMLL TTML 与逐字动效歌词**：
-  完整支持 Apple Music 级 AMLL TTML 格式与标准 LRC 双语歌词。支持逐字/逐词 Karaoke 发光高亮跟随、双语翻译对照、音译排版、单行/双行视差滚动与点击任意行精准 Seek 跳转；配合缺省歌词时基于 NLP 正则清洗与网易候选评分的自动匹配管线。
+  完整支持 Apple Music 级 AMLL TTML 格式与标准 LRC 双语歌词。支持逐行/逐字跳变/逐字渐变三选一的高亮跟随、双语翻译对照、音译排版、单行/双行视差滚动与点击任意行精准 Seek 跳转；配合缺省歌词时基于 NLP 正则清洗与网易候选评分的自动匹配管线。
 - **系统级 AVSession 与播控中心深度合规**：
   严格遵循 HarmonyOS 媒体规范，拒绝利用 `title` 蹭位的做法；将完整 LRC 写入系统 `lyric`（API 10+），将当前歌词行写入 `singleLyricText`（API 17+）；注册 `setLaunchAbility` 支持锁屏与通知播控卡片一键直达当前播放界面；接入 `toggleFavorite` 收藏联动并在 API 26 上规范声明媒体控制按钮集。
 - **工业级断点续传下载引擎**：
@@ -130,7 +130,7 @@ NeriPlayer for HarmonyOS
 | | AVSession 媒体中心 | ✅ 已闭环 | 锁屏/通知栏/控制中心联动、双向元数据同步、逐行歌词、单曲收藏、拉起 Ability 回跳 |
 | | 后台播放与保活 | ✅ 已闭环 | 申请 `AUDIO_PLAYBACK` 长时任务，进入后台稳定连续播放，暂停即释放合规治理 |
 | | USB 独占输出 | 🚫 定案不移植 | SDK 缺公开 USB DDK 头文件且 ArkTS 单线程无法满足 1ms 等时节拍；系统 AVPlayer 经系统 HAL 已能正常 USB 输出 |
-| **歌词与视觉** | AMLL TTML / LRC 歌词 | ✅ 已闭环 | 逐字发光跟随动画、双语翻译对照、单双行排版、点击时间戳跳转、NLP 缺省自动匹配 |
+| **歌词与视觉** | AMLL TTML / LRC 歌词 | ✅ 已闭环 | 逐行/逐字跳变/逐字渐变三选一高亮跟随、双语翻译对照、单双行排版、点击时间戳跳转、NLP 缺省自动匹配 |
 | | 一镜到底转场 | ✅ 已闭环 | MiniPlayer ↔ 正在播放页面属性动画展开/收拢、封面弹性位移、沉浸式状态栏渐变穿透 |
 | | ColorScience 取色 | ✅ 已闭环 | 纯 ArkTS CIE Lab / LCh / ΔE00 算法，毫秒级封面取色并生成动态呼吸流光背景 |
 | | 桌面悬浮歌词 | ⏳ 演进中 | 应用内悬浮条已完成；系统级桌面歌词已打通至系统服务层，图形上屏待真机验证 |
@@ -205,7 +205,7 @@ NeriPlayer-HarmonyOS/
 │       │   ├── sync/             # 双向因果云同步、Protobuf/JSON 编解码管线
 │       │   ├── util/             # ColorScience 色彩科学、二维码引擎、断点度量
 │       │   └── view/             # ArkUI 声明式页面、HDS 组件与一镜到底动画
-│       ├── src/test/             # 本地确定性单元测试 (980 Cases；最近全量执行 874/874)
+│       ├── src/test/             # 本地确定性单元测试 (1035 Cases；最近全量执行 874/874)
 │       └── src/ohosTest/         # 设备端侧集成测试集 (Acts* 真实环境用例)
 ├── docs/                         # 架构规范、协议分析、安全审计与移植进展看板
 ├── build-signed.sh               # Linux 服务端一键构建与 hap-sign-tool 签名脚本
@@ -237,7 +237,7 @@ ohpm install --all
 # 2. 执行 Release 构建 (生成 unsigned HAP)
 hvigorw assembleHap --mode module -p module=entry@default -p product=default -p buildMode=release --no-daemon
 
-# 3. 运行本地单元测试 (980 测试用例)
+# 3. 运行本地单元测试 (1035 测试用例)
 hvigorw test --mode module -p module=entry@default -p product=default -p buildMode=debug --no-daemon
 ```
 
@@ -253,7 +253,7 @@ hvigorw test --mode module -p module=entry@default -p product=default -p buildMo
 
 1. 前往本仓库 [Releases 页面](../../releases) 下载最新版的 `NeriPlayer-vX.Y.Z-unsigned.hap`。
 2. 校验文件配套的 `SHA256SUMS.txt` 完整性。
-3. 按照发布包内附带的 [INSTALL.md](INSTALL.md) 指南，使用您在华为开发者联盟（AGC）申请的个人调试证书对 HAP 签名并安装。
+3. 按照发布包内附带的 `INSTALL.md` 指南（由 Release 工作流生成并随产物上传，不入库），使用您在华为开发者联盟（AGC）申请的个人调试证书对 HAP 签名并安装。
 
 ### 方式二：开发者一键签名与安装
 
@@ -289,7 +289,7 @@ cd NeriPlayer-HarmonyOS
 
 | 校验层级 | 工具与框架 | 当前状态 | 覆盖与保障范围 |
 | :--- | :--- | :---: | :--- |
-| **本地单测** | `@ohos/hypium` 1.0.28 | **980 用例（静态清点；最近一次全量执行 874/874 全绿）** | 覆盖同步三路合并、Protobuf/JSON 双向编解码、ColorScience 色彩矩阵、二维码生成器、下载状态机等 |
+| **本地单测** | `@ohos/hypium` 1.0.28 | **1035 用例（静态清点；最近一次全量执行 874/874 全绿）** | 覆盖同步三路合并、Protobuf/JSON 双向编解码、ColorScience 色彩矩阵、二维码生成器、下载状态机等 |
 | **代码规范** | `CodeLinter` | **0 Error 基线** | 严格保障 ArkTS 规范、异步 Promise 处理机制与资源引用安全 |
 | **设备端测** | `ohosTest` + `aa test` | **50+ 项设备用例** | AVPlayer 真实网络取流、Asset 凭据安全存取、长时任务后台保活、断网自愈与异常自愈 |
 | **持续集成** | GitHub Actions | **自动化守护** | push / PR 自动拉起 HarmonyOS API 26 环境执行编译与自动化检查 |
