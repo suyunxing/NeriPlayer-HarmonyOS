@@ -5,7 +5,6 @@
  */
 export class Constants {
   static readonly APP_NAME: string = 'NeriPlayer';
-  static readonly APP_VERSION: string = '1.0.0';
 
   // Third-party platform endpoints.
   static readonly NETEASE_BASE: string = 'https://music.163.com';

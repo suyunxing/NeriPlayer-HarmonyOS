@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0
 
 import { promptAction } from '@kit.ArkUI';
-import { common } from '@kit.AbilityKit';
+import { bundleManager, common } from '@kit.AbilityKit';
 import { SettingsRepository } from '../../data/SettingsRepository';
 import { AppColorMode } from '../../util/AppColorMode';
 import { SystemBars } from '../../util/SystemBars';
@@ -170,6 +170,8 @@ export struct SettingsDetailPage {
   @State showNeteasePhoneLogin: boolean = false;
 
   @State cacheBytes: number = 0;
+  /** 关于页版本行文案；版本号运行时读包信息，避免与 app.json5 / 发布 tag 脱节。 */
+  @State aboutVersionLine: string = '';
 
   private neteaseQrController: QrLoginPanelController = new QrLoginPanelController();
   private biliQrController: QrLoginPanelController = new QrLoginPanelController();
@@ -244,6 +246,7 @@ export struct SettingsDetailPage {
   }
 
   async aboutToAppear(): Promise<void> {
+    this.aboutVersionLine = this.resolveAboutVersionLine();
     const catalog = await DownloadStorage.getCatalog();
     let bytes = 0;
     for (const entry of catalog) {
@@ -254,6 +257,17 @@ export struct SettingsDetailPage {
     this.githubTokenSaved = GitHubConfigRepository.tokenPreview().length > 0;
     await WebDavConfigRepository.init();
     this.webdavCredentialsSaved = WebDavConfigRepository.isConfigured();
+  }
+
+  /** 读自身包信息的 versionName 拼版本行；读取异常时退化为提示文案，平台基线仍静态标注。 */
+  private resolveAboutVersionLine(): string {
+    try {
+      const info: bundleManager.BundleInfo =
+        bundleManager.getBundleInfoForSelfSync(bundleManager.BundleFlag.GET_BUNDLE_INFO_DEFAULT);
+      return `版本 ${info.versionName} (HarmonyOS 26 / API 26)`;
+    } catch (error) {
+      return `版本信息不可用 (HarmonyOS 26 / API 26)，${(error as Error).message}`;
+    }
   }
 
   // ---- Download directory (picker + persisted URI grant) ------------------
@@ -1591,7 +1605,7 @@ export struct SettingsDetailPage {
               Text('欢迎回来！')
                 .fontSize(15)
                 .fontColor(Theme.textSecondary(Theme.isDark()))
-              Text('版本 1.0.0 (HarmonyOS 26 / API 26)')
+              Text(this.aboutVersionLine)
                 .fontSize(13)
                 .fontColor(Theme.textDisabled(Theme.isDark()))
               Text('多源在线播放：网易云 / Bilibili / YouTube Music；本地音乐、歌词、歌单与统计。\n本项目仅供学习与研究使用，请勿用于任何非法用途。')
