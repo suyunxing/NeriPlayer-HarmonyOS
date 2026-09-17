@@ -732,9 +732,11 @@ export struct LibraryPage {
 struct StatCard {
   /** 订阅封面配色：图标直接写 Theme.primary() 是无跟踪调用（M7.4），不订阅则换歌后停留回退色。 */
   @StorageProp('player.coverScheme') coverScheme: AccentScheme = AccentScheme.neutralFallback();
-  icon: string = '';
-  value: string = '';
-  label: string = '';
+  // 入参必须 @Prop：普通成员只在组件创建时赋值一次，已下载/收藏数等运行期
+  // 会变的值随后续刷新永远停在首帧。
+  @Prop icon: string = '';
+  @Prop value: string = '';
+  @Prop label: string = '';
   onTap: () => void = () => {};
 
   /** 同 LibraryPage.accentPrimary：先摸被跟踪成员注册依赖，取值交给 Theme。 */
