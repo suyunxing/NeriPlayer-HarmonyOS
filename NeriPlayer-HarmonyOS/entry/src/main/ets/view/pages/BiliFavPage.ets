@@ -331,6 +331,8 @@ export struct BiliFavPage {
     }
     .width('100%')
     .height('100%')
+    // NavDestination 透明时短内容区会透视栈底 Tab 页，实色底由内容根补齐。
+    .backgroundColor(this.schemeBg(Theme.isDark()))
     }
     .titleBar(subPageTitleBar(
       this.info !== null && this.info.title.length > 0 ? this.info.title : 'B 站收藏夹'))
