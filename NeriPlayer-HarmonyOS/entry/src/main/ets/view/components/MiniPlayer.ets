@@ -21,8 +21,9 @@ export struct MiniPlayer {
   @Prop compact: boolean = false;
   /**
    * 脱离 HdsTabs 槽位的独立承载形态（壳层 dock 态覆盖层使用）：非紧凑形态
-   * 去掉自带的悬浮卡片外边距，几何完全由使用方给定；同时不再跟随槽位材质
-   * ——沉浸光感只存在于 HdsTabs 悬浮栏内部，独立承载时必须自绘玻璃背景。
+   * 去掉自带的悬浮卡片外边距，几何完全由使用方给定。背景分两档：设备支持
+   * ArkUI 沉浸材质（.systemMaterial，API 26）时挂系统玻璃质感（与悬浮 Tab
+   * 栏的沉浸光感同族），不支持时回落自绘玻璃。
    */
   @Prop embedded: boolean = false;
   onMeasured: (area: Area) => void = (_area: Area): void => {};
@@ -134,11 +135,27 @@ export struct MiniPlayer {
       && (HdsLight.immersiveSupported() || HdsLight.adaptiveSupported());
   }
 
+  /**
+   * 独立承载（embedded）且设备支持 ArkUI 沉浸材质（API 26）时挂系统玻璃
+   * 背景。材质启用后系统接管背景色/边框/阴影（官方告诫不要与常规属性叠加
+   * 设置），所以三处分支都按本档位让位：背景透明、模糊关闭、卡片阴影关闭
+   * （材质默认 applyShadow 自带投影）。
+   */
+  private usesSystemMaterial(): boolean {
+    return this.embedded && HdsLight.systemMaterialSupported();
+  }
+
   private barBackground(): ResourceColor {
-    if (this.followsBarMaterial()) {
+    if (this.usesSystemMaterial() || this.followsBarMaterial()) {
       return Color.Transparent;
     }
     return Theme.surfaceGlass(Theme.isDark());
+  }
+
+  private barBlurStyle(): BlurStyle {
+    return this.usesSystemMaterial() || this.followsBarMaterial()
+      ? BlurStyle.NONE
+      : BlurStyle.COMPONENT_THICK;
   }
 
   build() {
@@ -147,8 +164,10 @@ export struct MiniPlayer {
         .width('100%')
         .height(this.compact ? 40 : 62)
         .backgroundColor(this.barBackground())
-        .backgroundBlurStyle(this.followsBarMaterial()
-          ? BlurStyle.NONE : BlurStyle.COMPONENT_THICK)
+        .backgroundBlurStyle(this.barBlurStyle())
+        // ArkUI 通用沉浸材质（embedded 独立承载档；设备不支持传 undefined
+        // 即无材质，走上面的自绘玻璃分支）。
+        .systemMaterial(this.usesSystemMaterial() ? HdsLight.barSystemMaterial() : undefined)
         .borderRadius(this.compact ? 20 : 16)
         .hitTestBehavior(HitTestMode.None)
       this.playerContent()
@@ -163,7 +182,11 @@ export struct MiniPlayer {
     .onAreaChange((_oldArea: Area, area: Area) => {
       this.onMeasured(area);
     })
-    .shadow(this.compact ? { radius: 0, color: '#00000000' } : { radius: 12, color: '#22000000', offsetY: 2 })
+    // 沉浸材质档的投影由材质自带（applyShadow），卡片阴影只在自绘玻璃档启用，
+    // 避免与系统材质的阴影层叠加。
+    .shadow(this.compact || this.usesSystemMaterial()
+      ? { radius: 0, color: '#00000000' }
+      : { radius: 12, color: '#22000000', offsetY: 2 })
     // 滑动切歌的位移/缩放挂在 Stack 根上：玻璃背景是 playerContent 的兄弟
     // 节点，变换若只挂内容行，滑动时文字按钮滑走而药丸壳纹丝不动。
     .translate({ x: this.swipeOffset })
