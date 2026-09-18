@@ -43,6 +43,13 @@ export class Router {
    * 'ui.nowPlayingShown'（@StorageLink 装饰器参数不接受导入的常量引用）。
    */
   static readonly KEY_NOW_PLAYING_SHOWN: string = 'ui.nowPlayingShown';
+  /**
+   * 当前 NavPathStack 深度快照（0 = Tab 骨架，>0 = 处于子页）。每次栈操作后
+   * 同步发布，MainShell 用 @StorageProp 消费，驱动迷你条在子页下沉为 dock
+   * 形态。push 全部经过 Router.push、返回全部经过 Index.onBackPress →
+   * Router.pop，所以这里就是深度唯一的事实来源。
+   */
+  static readonly KEY_SUB_PAGE_DEPTH: string = 'ui.subPageDepth';
 
   private static nowPlayingShown(): boolean {
     return AppStorage.get<boolean>(Router.KEY_NOW_PLAYING_SHOWN) === true;
@@ -52,6 +59,15 @@ export class Router {
   static attach(stack: NavPathStack, uiContext: UIContext): void {
     Router.pathStack = stack;
     Router.uiContext = uiContext;
+  }
+
+  /**
+   * 栈操作后同步发布深度快照。NavPathStack 的 size() 在 push/pop/replace/clear
+   * 之后即时可读（Router.push 自身的防重决策就依赖这一语义），这里沿用。
+   */
+  private static publishDepth(): void {
+    const stack = Router.pathStack;
+    AppStorage.setOrCreate(Router.KEY_SUB_PAGE_DEPTH, stack === null ? 0 : stack.size());
   }
 
   static detach(): void {
@@ -86,10 +102,12 @@ export class Router {
     }
     if (action === RoutePushAction.CLEAR) {
       stack.clear();
+      Router.publishDepth();
       return;
     }
     if (action === RoutePushAction.REPLACE_TOP) {
       stack.replacePathByName(name, param);
+      Router.publishDepth();
       return;
     }
     const evict = (): void => {
@@ -99,6 +117,7 @@ export class Router {
     };
     evict();
     stack.pushPathByName(name, param);
+    Router.publishDepth();
   }
 
   static pop(): void {
@@ -112,6 +131,7 @@ export class Router {
       return;
     }
     stack.pop();
+    Router.publishDepth();
   }
 
   /** True while a full-screen route or the now-playing modal is showing, i.e. back has something to close. */
@@ -136,6 +156,7 @@ export class Router {
     const stack = Router.pathStack;
     if (stack !== null) {
       stack.clear();
+      Router.publishDepth();
     }
   }
 
