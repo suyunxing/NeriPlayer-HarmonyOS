@@ -718,6 +718,16 @@ $hdc = 'D:\HarmonyOS\Tools\command-line-tools\sdk\default\openharmony\toolchains
 - **修订二（2026-09-16 二轮真机截图：歌词设置页/网易云歌单页）**：(1) 顶部重合——内容根已在 y=0 但让位只补了 56vp，标题栏实占「状态栏 topInset + 56vp」，首卡约 1/3 被压在标题栏下；首页无此问题是因为首页内容区从状态栏下沿起算。修复：12 页统一 `@StorageProp('ui.topInsetVp')`，让位改 `topInset + SUB_TITLEBAR_SPACE_VP`（StatsPage loading 骨架同步）。(2) 底部黑雾——渐变终止色 `0x00000000` 是**透明黑**，插值穿过半透明黑，浅色主题下底部呈黑雾（首页同写法但该区被悬浮 Tab 栏 + gradientMask 盖住不可见，子页无遮挡直接露出）；修复：`SubPageBottomFade` 全部色标改用页面底色透明变体（含终止色），峰值 0xD9 移到手势带上沿之上 40% 处。复验：assembleHap **BUILD SUCCESSFUL 0 error**、codelinter **0 error / 8 warn（无新增）**；真机观感待复测。
 - **修订三（2026-09-16 三轮真机截图）**：修订二把渐变末端回退到透明后，导航指示条区域反而无覆盖，观感是「渐变从导航条上沿才开始」（避开导航条）。修复：`SubPageBottomFade` 色标简化为三段（0x00 → 92vp 处 0x99 → 屏幕最底边 0xD9），末段一路加深直达底边、不避让手势条。复验：assembleHap **BUILD SUCCESSFUL 0 error**、codelinter **0 error / 1 warn（存量）**。
 
+### 7.16 2026-09-18 子页 dock 态迷你条：进入二级页后迷你条下沉为 Tab 栏形态（服务器 Linux CLT 26.0.0.105，无设备，分支 `minibar-dock`）
+
+参照网易云 Android 客户端录屏（用户提供的参考视频）：迷你条常驻悬浮于子页之上，推入二级页时 Tab 栏被盖住，迷你条从药丸原位**扩大到 Tab 栏足迹并落到 Tab 栏位置**，返回时逆向归位。此前本工程子页是全屏 NavDestination，会把 HdsTabs 连同槽位迷你条一起盖住（子页上无任何播放条）。实现：
+
+- **深度状态源**（`view/Router.ets`）：新增 `KEY_SUB_PAGE_DEPTH ('ui.subPageDepth')`，`publishDepth()` 在 push（含 CLEAR/REPLACE_TOP/EVICT 分支）/pop/reset 每次栈操作后同步发布 `NavPathStack.size()`。所有入栈都经 `Router.push`、所有返回都经 `Index.onBackPress → Router.pop`，Router 即深度唯一事实来源（`size()` 栈操作后即时可读——push 防重决策本就依赖该语义）。
+- **MiniPlayer `embedded` 形态**（`view/components/MiniPlayer.ets`）：脱离 HdsTabs 槽位独立承载时非紧凑形态去掉自带 {10,10,8} 悬浮卡片外边距（几何由使用方给定），且 `followsBarMaterial()` 恒 false——沉浸光感材质只存在于悬浮栏内部，独立承载必须自绘玻璃。
+- **MainShell dock 态覆盖层**（`view/pages/MainShell.ets`）：根 Stack 内 `HdsNavigation` 之上挂 `dockMiniBarOverlay()`（NavDestination 盖不住它，且位于一镜到底压暗层之下）。状态机 `syncDockBar()`（由 `subPageDepth`/`currentSong`/`breakpoint` 三路 @Watch 驱动）：下潜 = 以药丸矩形（已标定的 `miniRect`）挂载 → 延迟一帧翻转到 dock 矩形（悬浮 Tab 栏边距体系：左右 16 = `barSideMargin`、底部 `bottomLift+8` = `barBottomMargin`、高 62 = 非紧凑胶囊）做原生属性动画（350ms Friction）；返回 = 翻回药丸矩形 → 落定后卸载，与槽位内真实迷你条（同位同形，延迟淡入）无缝交还；返回动画中途再次入栈会清卸载计时器并反向重定目标。紧凑/展开两份内容按目标形态交叉淡入淡出（180ms，对读屏/命中同样互斥），规避 40↔62vp 内容重排跳变。悬浮 Tab 栏边距常量提取为 `FLOAT_BAR_SIDE_MARGIN_VP`/`FLOAT_BAR_BOTTOM_GAP_VP` 两处共用。
+- **一镜到底锚点适配**：`onNowPlayingRequested` 展开起点在 `subPageDepth > 0` 时取 `dockRect()`（窗口坐标，与 `miniRect` 同系），面板从子页上可见的 dock 条起飞；dock 条透明度/命中沿用真实迷你条的模态开合同规格显隐（展开隐藏、收起后半段延迟淡入）。
+- 验证（服务器）：assembleHap **BUILD SUCCESSFUL**（1 条非阻塞 throw 警告）；codelinter 3 个改动文件 **0 error / 0 warn**。**设备侧未验证**：dock 矩形与真实 Tab 栏足迹的像素级对齐（HdsTabs 内部栏高未知，按边距体系推导）、迁移动画与 NavDestination 系统转场的节奏手感、子页列表尾部与 dock 条的遮挡关系，均待真机复测。
+
 每次 SDK 或上游 Android 更新，都更新本文件的核验日期、版本矩阵、源码状态和测试结果。
 
 新增能力必须附官方页面 URL、适用 API、代码位置、验证设备、失败日志和降级方案。

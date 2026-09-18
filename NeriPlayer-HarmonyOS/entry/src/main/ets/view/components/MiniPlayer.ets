@@ -19,6 +19,12 @@ export struct MiniPlayer {
    * 显示（可见环缩到 30vp 在槽位圆角内留出空余）。独立悬浮形态才用完整卡片。
    */
   @Prop compact: boolean = false;
+  /**
+   * 脱离 HdsTabs 槽位的独立承载形态（壳层 dock 态覆盖层使用）：非紧凑形态
+   * 去掉自带的悬浮卡片外边距，几何完全由使用方给定；同时不再跟随槽位材质
+   * ——沉浸光感只存在于 HdsTabs 悬浮栏内部，独立承载时必须自绘玻璃背景。
+   */
+  @Prop embedded: boolean = false;
   onMeasured: (area: Area) => void = (_area: Area): void => {};
   @StorageLink('player.currentSong') currentSongJson: string = '';
   @StorageLink('player.status') @Watch('onStatusChanged') status: number = PlaybackStatus.IDLE;
@@ -123,7 +129,8 @@ export struct MiniPlayer {
    * 设备（模拟器 getSystemMaterialTypes 为空）时回落。
    */
   private followsBarMaterial(): boolean {
-    return this.compact
+    return !this.embedded
+      && this.compact
       && (HdsLight.immersiveSupported() || HdsLight.adaptiveSupported());
   }
 
@@ -147,7 +154,9 @@ export struct MiniPlayer {
       this.playerContent()
     }
     .width('100%')
-    .margin(this.compact ? { left: 0, right: 0, bottom: 0 } : { left: 10, right: 10, bottom: 8 })
+    .margin(this.compact || this.embedded
+      ? { left: 0, right: 0, bottom: 0 }
+      : { left: 10, right: 10, bottom: 8 })
     // 显隐由使用方控制（壳层在转场期间对真实迷你条做淡入/隐藏），组件自身
     // 不再持有 mounted/presentation 状态——展示副本已删除，收缩时直接淡入
     // 真实迷你条，杜绝副本与真实布局不一致导致的切换闪烁。
