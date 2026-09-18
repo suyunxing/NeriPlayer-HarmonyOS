@@ -278,14 +278,25 @@ export struct MainShell {
   }
 
   /**
-   * dock 态迷你条覆盖层（参考网易云音乐：进入二级页后迷你条扩大到 Tab 栏
+   * dock 态覆盖层的隐藏条件：只跟随播放页模态的开合（面板占位时让位）。
+   * 不能复用 miniBarHidden()——后者含 subPageDepth > 0（隐藏槽位真实迷你条
+   * 用），并入会让覆盖层恰好在子页上时永远透明（真机首版实测：子页整层
+   * 不可见，只剩返回主页后槽位空药丸壳）。
+   */
+  private dockOverlayHidden(): boolean {
+    return this.modalMounted && !this.closing;
+  }
+
+  /**
+   * dock 态迷你条覆盖层（参考网易云：进入二级页后迷你条扩大到 Tab 栏
    * 尺寸并落到 Tab 栏位置）。挂在壳层根 Stack 里 HdsNavigation 之上，所以
    * 全屏 NavDestination 子页盖得住 Tab 骨架与槽位迷你条，盖不住它。
    *
    * 几何动画：容器在「药丸矩形（miniRect，与槽位迷你条同位同形）」和「dock
    * 矩形（悬浮 Tab 栏足迹）」之间做原生属性动画；两种紧凑/展开内容按目标
-   * 形态交叉淡入淡出，规避 40↔62vp 内容重排的跳变。透明度/命中与真实迷你条
-   * 同规格：播放页模态展开期间隐藏（面板占位），收起后半段同步淡入。
+   * 形态交叉淡入淡出，规避 40↔62vp 内容重排的跳变。透明度/命中只跟随模态
+   * 开合（dockOverlayHidden）：播放页模态展开期间隐藏（面板占位），收起
+   * 后半段同步淡入。
    */
   @Builder
   dockMiniBarOverlay() {
@@ -311,13 +322,13 @@ export struct MainShell {
       })
       // 几何段：dock 挂载/返回的起飞与落定（Friction 减速曲线，落栏手感）。
       .animation({ duration: DOCK_MORPH_MS, curve: Curve.Friction })
-      // 透明度段：与槽位迷你条同规格的模态开合显隐（各自捕获自己的属性段）。
-      .opacity(this.miniBarHidden() ? 0 : 1)
-      .animation(this.miniBarHidden()
+      // 透明度段：只跟随模态开合（dockOverlayHidden），各自捕获自己的属性段。
+      .opacity(this.dockOverlayHidden() ? 0 : 1)
+      .animation(this.dockOverlayHidden()
         ? { duration: 0 }
         : { duration: 220, delay: Math.round(NowPlayingMotion.COLLAPSE_MS * 0.55), curve: Curve.EaseOut })
-      .accessibilityLevel(this.miniBarHidden() ? 'no-hide-descendants' : 'auto')
-      .hitTestBehavior(this.miniBarHidden() ? HitTestMode.None : HitTestMode.Default)
+      .accessibilityLevel(this.dockOverlayHidden() ? 'no-hide-descendants' : 'auto')
+      .hitTestBehavior(this.dockOverlayHidden() ? HitTestMode.None : HitTestMode.Default)
     }
   }
 

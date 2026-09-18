@@ -171,6 +171,12 @@ export class Router {
    * 由当前可见的 Tab 页自己决定重载。
    */
   static notifyReturned(): void {
+    // 返回不止 Router.pop() 一条路：侧滑返回手势与子页标题栏返回键由
+    // Navigation 直接弹栈，Router 感知不到——而每个 NavDestination 消失时
+    // 都会回调到这里（见下注释四条路径），在这里补发深度快照，dock 态迷你条
+    // 的 ui.subPageDepth 才不会卡在 >0（真机首版实测：卡住后主页槽位迷你条
+    // 内容永久隐藏，只剩 HdsTabs 自绘的空药丸壳）。幂等重发，无副作用。
+    Router.publishDepth();
     const previous = AppStorage.get<number>(KEY_REFRESH_TICK);
     const tick = previous === undefined || previous === null ? 0 : previous;
     AppStorage.setOrCreate(KEY_REFRESH_TICK, tick + 1);
