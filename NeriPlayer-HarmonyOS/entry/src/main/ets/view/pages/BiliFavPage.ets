@@ -7,6 +7,7 @@ import { LocalPlaylistRepository } from '../../data/LocalPlaylistRepository';
 import { BiliApi } from '../../network/BiliApi';
 import { BiliFavFolderSummary, biliFavMediaToSongItem } from '../../network/BiliFavParser';
 import { PlayerManager } from '../../player/PlayerManager';
+import { resolvePlaylistPlaybackStartIndex } from '../../player/queue/QueueEngine';
 import { Theme } from '../Theme';
 import { AccentScheme } from '../theme/AccentScheme';
 import { SongRow } from '../components/SongRow';
@@ -119,8 +120,13 @@ export struct BiliFavPage {
       promptAction.openToast({ message: '收藏夹为空' });
       return;
     }
+    const startIndex = resolvePlaylistPlaybackStartIndex(
+      this.songs.length,
+      shuffle,
+      Math.floor(Math.random() * this.songs.length)
+    );
     PlayerManager.setShuffle(shuffle);
-    PlayerManager.playPlaylist(this.songs, 0);
+    PlayerManager.playPlaylist(this.songs, startIndex);
   }
 
   private openImportDialog(): void {
