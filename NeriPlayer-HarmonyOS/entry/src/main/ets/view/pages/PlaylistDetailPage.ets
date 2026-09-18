@@ -7,6 +7,7 @@ import { LocalPlaylistRepository } from '../../data/LocalPlaylistRepository';
 import { HistoryRepository } from '../../data/HistoryRepository';
 import { stableKeyOf } from '../../model/SongIdentity';
 import { PlayerManager } from '../../player/PlayerManager';
+import { resolvePlaylistPlaybackStartIndex } from '../../player/queue/QueueEngine';
 import { Theme } from '../Theme';
 import { AccentScheme } from '../theme/AccentScheme';
 import { SongRow } from '../components/SongRow';
@@ -72,8 +73,13 @@ export struct PlaylistDetailPage {
       promptAction.openToast({ message: '歌单为空' });
       return;
     }
+    const startIndex = resolvePlaylistPlaybackStartIndex(
+      playlist.songs.length,
+      shuffle,
+      Math.floor(Math.random() * playlist.songs.length)
+    );
     PlayerManager.setShuffle(shuffle);
-    PlayerManager.playPlaylist(playlist.songs, 0);
+    PlayerManager.playPlaylist(playlist.songs, startIndex);
   }
 
   private async addSong(song: SongItem): Promise<void> {

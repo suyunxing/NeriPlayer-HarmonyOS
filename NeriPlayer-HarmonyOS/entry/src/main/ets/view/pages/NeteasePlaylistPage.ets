@@ -7,6 +7,7 @@ import { LocalPlaylistRepository } from '../../data/LocalPlaylistRepository';
 import { NeteaseApi } from '../../network/NeteaseApi';
 import { NeteasePlaylistOverview } from '../../network/NeteasePlaylistParser';
 import { PlayerManager } from '../../player/PlayerManager';
+import { resolvePlaylistPlaybackStartIndex } from '../../player/queue/QueueEngine';
 import { Theme } from '../Theme';
 import { AccentScheme } from '../theme/AccentScheme';
 import { SongRow } from '../components/SongRow';
@@ -70,8 +71,13 @@ export struct NeteasePlaylistPage {
       promptAction.openToast({ message: '歌单为空' });
       return;
     }
+    const startIndex = resolvePlaylistPlaybackStartIndex(
+      overview.songs.length,
+      shuffle,
+      Math.floor(Math.random() * overview.songs.length)
+    );
     PlayerManager.setShuffle(shuffle);
-    PlayerManager.playPlaylist(overview.songs, 0);
+    PlayerManager.playPlaylist(overview.songs, startIndex);
   }
 
   private openImportDialog(): void {

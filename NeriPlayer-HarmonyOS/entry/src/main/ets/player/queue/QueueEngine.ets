@@ -510,3 +510,23 @@ export class QueueEngine {
     return out;
   }
 }
+
+/**
+ * First track for a "play playlist" action, mirroring Android
+ * resolvePlaylistPlaybackStartIndex: sequential play starts at 0, shuffle
+ * starts at the caller-supplied random pick clamped into range (the engine
+ * then keeps that track out of the shuffle bag). Returns -1 when empty.
+ */
+export function resolvePlaylistPlaybackStartIndex(
+  songCount: number,
+  shuffleEnabled: boolean,
+  randomIndex: number
+): number {
+  if (songCount <= 0) {
+    return -1;
+  }
+  if (!shuffleEnabled) {
+    return 0;
+  }
+  return Math.min(Math.max(randomIndex, 0), songCount - 1);
+}
