@@ -259,10 +259,17 @@ export struct MainShell {
       } })
         // 模态展开期间隐藏（面板占据药丸位置）；收起后半段直接淡入真实
         // 迷你条——它就是"正确位置"本身，模态卸载时零差异、不再闪烁。
+        // 子页返回是另一条时序：dock 覆盖层要飞满 DOCK_MORPH_MS 才落回
+        // 药丸位，若沿用模态节奏（220ms 起淡），dock 还在半空就会同时
+        // 显形两个控件。落位矩形与槽位迷你条同位同形，所以等 dock 落定
+        // 后在它的不透明覆盖之下再淡入，卸载时刻零差异交接（卸载延后量
+        // 与此处淡入时长配对，见 syncDockBar 尾段）。
         .opacity(this.miniBarHidden() ? 0 : 1)
         .animation(this.miniBarHidden()
           ? { duration: 0 }
-          : { duration: 220, delay: Math.round(NowPlayingMotion.COLLAPSE_MS * 0.55), curve: Curve.EaseOut })
+          : (this.dockBarMounted
+            ? { duration: 60, delay: DOCK_MORPH_MS, curve: Curve.EaseOut }
+            : { duration: 220, delay: Math.round(NowPlayingMotion.COLLAPSE_MS * 0.55), curve: Curve.EaseOut }))
         .accessibilityLevel(this.miniBarHidden() ? 'no-hide-descendants' : 'auto')
         .hitTestBehavior(this.miniBarHidden() ? HitTestMode.None : HitTestMode.Default)
     }
@@ -392,12 +399,16 @@ export struct MainShell {
       return;
     }
     this.dockBarDocked = false;
+    // 卸载延时 = 飞行 DOCK_MORPH_MS + 槽位迷你条在覆盖之下淡入 60ms
+    // （配对参数见 miniBarBuilder）再留余量。落定后覆盖层与真实迷你条
+    // 同位同形，多悬的时间不可见；但必须等淡入完成再撤走这层"盖板"，
+    // 否则露出的迷你条还差几帧不透明度，观感就是"飞到半路消失"。
     this.dockMountTimer = setTimeout(() => {
       this.dockMountTimer = -1;
       if (!this.shouldDockBar()) {
         this.dockBarMounted = false;
       }
-    }, DOCK_MORPH_MS + 60);
+    }, DOCK_MORPH_MS + 120);
   }
 
   /** 悬浮 Tab 栏的系统沉浸材质：设备不支持时保持 undefined（自绘玻璃兜底）。 */
