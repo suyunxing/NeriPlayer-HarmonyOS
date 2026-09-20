@@ -411,17 +411,22 @@ export struct MainShell {
    * 槽位迷你条的真实窗口矩形（渲染树最终帧，含 HdsTabs 对药丸的内部位移）。
    * toPillRect 的静态标定（PILL_OFFSET_Y）只对某一时点的栏内布局负责，栏内
    * 布局一变就漂移——真机实测返程 dock 曾停在药丸下缘再瞬变。getRectangleById
-   * 返回的是渲染后的最终帧，不受这类内部变换影响；实测失败（未挂载/字段
-   * 异常）时回退标定矩形 miniRect。
+   * 返回的是渲染后的最终帧，不受这类内部变换影响。
+   * 注意：ComponentInfo 的 size/offset 全部是 px（componentUtils.d.ts 明确
+   * Unit: px），必须经 px2vp 转换——上一版漏转换把落点写成 ~2000 的离屏
+   * 坐标，dock 一起飞就冲出屏幕，观感是"没有动画直接刷出迷你条"。
+   * 实测失败或明显越界（单位/坐标系再变时）回退标定矩形 miniRect。
    */
   private measuredPillRect(): NowPlayingRect {
     try {
-      const measured = this.getUIContext().getComponentUtils().getRectangleById(SLOT_PILL_ID);
-      const x = Number(measured.windowOffset.x);
-      const y = Number(measured.windowOffset.y);
-      const width = Number(measured.size.width);
-      const height = Number(measured.size.height);
-      if (Number.isFinite(x) && Number.isFinite(y) && width > 0 && height > 0) {
+      const ui = this.getUIContext();
+      const measured = ui.getComponentUtils().getRectangleById(SLOT_PILL_ID);
+      const x = ui.px2vp(Number(measured.windowOffset.x));
+      const y = ui.px2vp(Number(measured.windowOffset.y));
+      const width = ui.px2vp(Number(measured.size.width));
+      const height = ui.px2vp(Number(measured.size.height));
+      if (Number.isFinite(x) && Number.isFinite(y) && y >= 0 && y <= this.windowHeight
+        && width > 0 && width <= this.windowWidth && height > 0 && height <= 120) {
         return { x: x, y: y, width: width, height: height };
       }
     } catch (_err) {
