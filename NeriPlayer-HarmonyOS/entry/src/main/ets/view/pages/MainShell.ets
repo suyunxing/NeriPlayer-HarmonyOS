@@ -45,8 +45,6 @@ const FLOAT_BAR_BOTTOM_GAP_VP: number = 8;
 const DOCK_MINI_HEIGHT_VP: number = 62;
 /** 子页 dock 态迷你条的几何迁移时长：与 NavDestination 系统转场同一量级。 */
 const DOCK_MORPH_MS: number = 350;
-/** 槽位迷你条的组件 id：dock 返程落点用 getRectangleById 实测它的真实窗口矩形。 */
-const SLOT_PILL_ID: string = 'slotMiniPill';
 
 /**
  * 下载完成提示的壳层订阅：引擎回调无 UI 上下文，由常驻的 MainShell 统一弹
@@ -104,9 +102,6 @@ struct SlotMiniBar {
         .opacity(this.hidden ? 0 : 1)
         .accessibilityLevel(this.hidden ? 'no-hide-descendants' : 'auto')
         .hitTestBehavior(this.hidden ? HitTestMode.None : HitTestMode.Default)
-        // dock 返程以本组件的实测窗口矩形为落点（MainShell.measuredPillRect），
-        // 实测值含 HdsTabs 对药丸的内部位移，比静态标定的 miniRect 可靠。
-        .id(SLOT_PILL_ID)
     }
   }
 }
@@ -408,34 +403,6 @@ export struct MainShell {
   }
 
   /**
-   * 槽位迷你条的真实窗口矩形（渲染树最终帧，含 HdsTabs 对药丸的内部位移）。
-   * toPillRect 的静态标定（PILL_OFFSET_Y）只对某一时点的栏内布局负责，栏内
-   * 布局一变就漂移——真机实测返程 dock 曾停在药丸下缘再瞬变。getRectangleById
-   * 返回的是渲染后的最终帧，不受这类内部变换影响。
-   * 注意：ComponentInfo 的 size/offset 全部是 px（componentUtils.d.ts 明确
-   * Unit: px），必须经 px2vp 转换——上一版漏转换把落点写成 ~2000 的离屏
-   * 坐标，dock 一起飞就冲出屏幕，观感是"没有动画直接刷出迷你条"。
-   * 实测失败或明显越界（单位/坐标系再变时）回退标定矩形 miniRect。
-   */
-  private measuredPillRect(): NowPlayingRect {
-    try {
-      const ui = this.getUIContext();
-      const measured = ui.getComponentUtils().getRectangleById(SLOT_PILL_ID);
-      const x = ui.px2vp(Number(measured.windowOffset.x));
-      const y = ui.px2vp(Number(measured.windowOffset.y));
-      const width = ui.px2vp(Number(measured.size.width));
-      const height = ui.px2vp(Number(measured.size.height));
-      if (Number.isFinite(x) && Number.isFinite(y) && y >= 0 && y <= this.windowHeight
-        && width > 0 && width <= this.windowWidth && height > 0 && height <= 120) {
-        return { x: x, y: y, width: width, height: height };
-      }
-    } catch (_err) {
-      // 槽位尚未挂载等场景：回退 miniRect。
-    }
-    return this.miniRect;
-  }
-
-  /**
    * dock 态覆盖层状态机（由 subPageDepth / currentSong / breakpoint 变化驱动）：
    * 下潜 = 挂载在药丸原位 → 延迟一帧翻转到 dock 几何（属性动画起飞）；返回 =
    * 翻回药丸几何 → 动画落定后卸载，与槽位内真实迷你条（同位同形）无缝交还。
@@ -476,9 +443,13 @@ export struct MainShell {
       this.dockBarMounted = false;
       return;
     }
-    // 落点起飞前先实测：miniRect 静态标定会随栏内布局漂移，用渲染树最终帧
-    // 校正一次，保证 dock 精确落到迷你条当前位置，交接瞬变不可见。
-    this.miniRect = this.measuredPillRect();
+    // 落点用 toPillRect 的标定矩形（miniRect）。不要改回 getRectangleById
+    // "实测药丸"：HdsTabs 对药丸的向上位移是渲染变换，windowOffset/onAreaChange
+    // 返回的都是位移前的槽位布局锚点（贴悬浮栏底部、全宽）——真机视频逐帧
+    // 实测（2026-09-20）：拿它当落点，dock 返程向下沉 ~13vp 大半沉出屏幕再
+    // 瞬变，观感即"飞行方向不对"；标定矩形 slot.y-93 与真机药丸亮带吻合
+    // （预测 1541px vs 实测 1533px，误差在药丸内边距量级）。
+    // 同时禁止把实测值写回 miniRect：会污染一镜到底的展开起点。
     this.dockBarDocked = false;
     // 卸载延时只需比飞行动画（DOCK_MORPH_MS）留足余量：交接期内槽位迷
     // 你条被 slotMiniHidden() 硬性隐藏，本覆盖层是唯一可见控件；卸载那
