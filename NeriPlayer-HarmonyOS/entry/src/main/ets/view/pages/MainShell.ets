@@ -247,7 +247,12 @@ export struct MainShell {
    */
   private tabScrollers: Scroller[] = [new Scroller(), new Scroller(), new Scroller(), new Scroller()];
 
-  /** 官方 HdsTabsMiniBar 槽位：无歌时留空，有歌渲染紧凑 MiniPlayer。 */
+  /**
+   * 官方 HdsTabsMiniBar 槽位：无歌时留空，有歌渲染紧凑 MiniPlayer。
+   * 显隐一律瞬时切换，不挂 .animation：每个切换点都有"同位同形"的接替
+   * 者盖住或接住它——模态面板全程盖住药丸位、dock 覆盖层落位即迷你条
+   * 本身——任何淡入淡出都会在遮盖缝隙里露出第二个控件（真机两轮实测）。
+   */
   @Builder
   miniBarBuilder() {
     if (this.currentSongJson.length > 0) {
@@ -257,28 +262,29 @@ export struct MainShell {
           this.miniRect = MainShell.toPillRect(rect, this.windowWidth);
         }
       } })
-        // 模态展开期间隐藏（面板占据药丸位置）；收起后半段直接淡入真实
-        // 迷你条——它就是"正确位置"本身，模态卸载时零差异、不再闪烁。
-        // 子页返回是另一条时序：dock 覆盖层要飞满 DOCK_MORPH_MS 才落回
-        // 药丸位，若沿用模态节奏（220ms 起淡），dock 还在半空就会同时
-        // 显形两个控件。落位矩形与槽位迷你条同位同形，所以等 dock 落定
-        // 后在它的不透明覆盖之下再淡入，卸载时刻零差异交接（卸载延后量
-        // 与此处淡入时长配对，见 syncDockBar 尾段）。
-        .opacity(this.miniBarHidden() ? 0 : 1)
-        .animation(this.miniBarHidden()
-          ? { duration: 0 }
-          : (this.dockBarMounted
-            ? { duration: 60, delay: DOCK_MORPH_MS, curve: Curve.EaseOut }
-            : { duration: 220, delay: Math.round(NowPlayingMotion.COLLAPSE_MS * 0.55), curve: Curve.EaseOut }))
-        .accessibilityLevel(this.miniBarHidden() ? 'no-hide-descendants' : 'auto')
-        .hitTestBehavior(this.miniBarHidden() ? HitTestMode.None : HitTestMode.Default)
+        .opacity(this.slotMiniHidden() ? 0 : 1)
+        .accessibilityLevel(this.slotMiniHidden() ? 'no-hide-descendants' : 'auto')
+        .hitTestBehavior(this.slotMiniHidden() ? HitTestMode.None : HitTestMode.Default)
     }
   }
 
   /**
-   * 真实迷你条（HdsTabs 槽位内）的隐藏条件：模态挂载且处于展开方向（面板
-   * 占位），或正处于子页（迷你条已由 dock 态覆盖层接替，见 dockMiniBarOverlay）。
-   * 收起方向（closing）时提前可见并淡入；未挂载时常态可见。
+   * 槽位真实迷你条的最终隐藏条件：miniBarHidden() 之外再并入「返回交接
+   * 期」（dock 仍挂载但已回到主页）。交接期必须作为状态硬性隐藏，不能
+   * 靠动画 delay 推迟显形——HdsTabs 槽位子树一旦重建，新节点会以最终
+   * 属性直接出现，delay 被整段跳过，dock 还在半空迷你条就完整显形（真机
+   * 复测仍见双控件的成因）。dock 卸载（syncDockBar 尾段定时器）本态自动
+   * 解除：那一刻 dock 落位矩形与迷你条同位同形，瞬时接管零差异。
+   */
+  private slotMiniHidden(): boolean {
+    return this.miniBarHidden() || (this.dockBarMounted && this.subPageDepth === 0);
+  }
+
+  /**
+   * 基础隐藏条件：模态挂载且处于展开方向（面板占位），或正处于子页（迷你
+   * 条已由 dock 态覆盖层接替，见 dockMiniBarOverlay）。收起方向（closing）
+   * 时提前可见——面板全程盖住药丸位，模态卸载瞬间零差异。返回交接期由
+   * slotMiniHidden() 在此之上追加。
    */
   private miniBarHidden(): boolean {
     return (this.modalMounted && !this.closing) || this.subPageDepth > 0;
@@ -399,10 +405,10 @@ export struct MainShell {
       return;
     }
     this.dockBarDocked = false;
-    // 卸载延时 = 飞行 DOCK_MORPH_MS + 槽位迷你条在覆盖之下淡入 60ms
-    // （配对参数见 miniBarBuilder）再留余量。落定后覆盖层与真实迷你条
-    // 同位同形，多悬的时间不可见；但必须等淡入完成再撤走这层"盖板"，
-    // 否则露出的迷你条还差几帧不透明度，观感就是"飞到半路消失"。
+    // 卸载延时只需比飞行动画（DOCK_MORPH_MS）留足余量：交接期内槽位迷
+    // 你条被 slotMiniHidden() 硬性隐藏，本覆盖层是唯一可见控件；卸载那
+    // 一刻迷你条在同位同形处瞬时接管（见 miniBarBuilder），取 +120 防
+    // 个别设备动画尾帧被截。
     this.dockMountTimer = setTimeout(() => {
       this.dockMountTimer = -1;
       if (!this.shouldDockBar()) {
