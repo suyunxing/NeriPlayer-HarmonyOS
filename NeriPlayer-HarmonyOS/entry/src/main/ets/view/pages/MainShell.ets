@@ -79,6 +79,33 @@ const TITLEBAR_SPACE_VP: number = 56;
 /** 各 Tab 在壳层标题栏的标题。 */
 const TAB_TITLES: string[] = ['NeriPlayer', '探索', '资料库', '设置'];
 
+/**
+ * HdsTabs miniBar 槽位内容包装。槽位的 CustomBuilder 闭包不随 MainShell
+ * 状态变化重渲染（仅 HdsTabs 内部重建——如切 Tab——时重新执行），写在
+ * 闭包里的任何显隐表达式都收不到新值（真机三轮实测：push/pop/模态展开
+ * 全程迷你条停留在上一次渲染的可见态）。所以显隐由本组件经 AppStorage
+ * 订阅——组件级订阅与挂载上下文无关。瞬时切换、不挂动画的理由见
+ * MainShell.miniBarBuilder。
+ */
+@Component
+struct SlotMiniBar {
+  /** MainShell.publishSlotMiniHidden 发布的最终显隐门（= MainShell.slotMiniHidden()）。 */
+  @StorageLink('ui.slotMiniHidden') hidden: boolean = false;
+  @StorageLink('player.currentSong') currentSongJson: string = '';
+  onMeasured: (area: Area) => void = (area: Area): void => {};
+
+  build() {
+    if (this.currentSongJson.length > 0) {
+      MiniPlayer({ compact: true, onMeasured: (area: Area): void => {
+        this.onMeasured(area);
+      } })
+        .opacity(this.hidden ? 0 : 1)
+        .accessibilityLevel(this.hidden ? 'no-hide-descendants' : 'auto')
+        .hitTestBehavior(this.hidden ? HitTestMode.None : HitTestMode.Default)
+    }
+  }
+}
+
 @Component
 export struct MainShell {
   /**
@@ -112,12 +139,12 @@ export struct MainShell {
    * 一致（装饰器参数只收字面量）。
    */
   @StorageLink('ui.nowPlayingShown') @Watch('onNowPlayingRequested') nowPlayingShown: boolean = false;
-  @StorageLink('ui.nowPlayingMounted') modalMounted: boolean = false;
+  @StorageLink('ui.nowPlayingMounted') @Watch('publishSlotMiniHidden') modalMounted: boolean = false;
   @StorageProp('ui.windowWidthVp') windowWidth: number = 360;
   @StorageProp('ui.windowHeightVp') windowHeight: number = 800;
   @State panelAmount: number = 0;
   // 动画方向（false=展开）：决定各属性动画的时长/时延取向。
-  @State closing: boolean = false;
+  @State @Watch('publishSlotMiniHidden') closing: boolean = false;
   // 转场进行中：模态内容不响应命中，结算后恢复。
   @State transitioning: boolean = false;
   // 默认兜底值 = 360vp 宽窗口下的药丸典型位置（窗口度量发布后按实测覆盖）。
@@ -125,7 +152,7 @@ export struct MainShell {
   @State originRect: NowPlayingRect = { x: 23, y: 611, width: 314, height: 40 };
   // dock 态迷你条覆盖层的挂载与几何状态：mounted 只控制存在性，docked 驱动
   // 药丸矩形（槽位迷你条原位）↔ dock 矩形（悬浮 Tab 栏足迹）之间的属性动画。
-  @State dockBarMounted: boolean = false;
+  @State @Watch('publishSlotMiniHidden') dockBarMounted: boolean = false;
   @State dockBarDocked: boolean = false;
   // 模态内容区的窗口坐标原点：面板/迷你条副本用窗口坐标（globalPosition 实测
   // 的 mini 矩形）计算，但 position() 相对模态内容区原点——若模态因安全区有
@@ -249,35 +276,46 @@ export struct MainShell {
 
   /**
    * 官方 HdsTabsMiniBar 槽位：无歌时留空，有歌渲染紧凑 MiniPlayer。
-   * 显隐一律瞬时切换，不挂 .animation：每个切换点都有"同位同形"的接替
+   * 槽位的 CustomBuilder 闭包不随本组件状态重渲染（仅 HdsTabs 内部重建
+   * 时重新执行），显隐不能写在这里的任何表达式上——由槽内 SlotMiniBar
+   * 经 AppStorage 订阅 'ui.slotMiniHidden'，本组件经 publishSlotMiniHidden
+   * 发布。显隐一律瞬时切换、不挂动画：每个切换点都有"同位同形"的接替
    * 者盖住或接住它——模态面板全程盖住药丸位、dock 覆盖层落位即迷你条
-   * 本身——任何淡入淡出都会在遮盖缝隙里露出第二个控件（真机两轮实测）。
+   * 本身——任何淡入淡出都会在遮盖缝隙里露出第二个控件（真机三轮实测）。
    */
   @Builder
   miniBarBuilder() {
-    if (this.currentSongJson.length > 0) {
-      MiniPlayer({ compact: true, onMeasured: (area: Area): void => {
+    SlotMiniBar({
+      onMeasured: (area: Area): void => {
         const rect = MainShell.validRect(area);
         if (rect !== undefined) {
           this.miniRect = MainShell.toPillRect(rect, this.windowWidth);
         }
-      } })
-        .opacity(this.slotMiniHidden() ? 0 : 1)
-        .accessibilityLevel(this.slotMiniHidden() ? 'no-hide-descendants' : 'auto')
-        .hitTestBehavior(this.slotMiniHidden() ? HitTestMode.None : HitTestMode.Default)
-    }
+      }
+    })
   }
 
   /**
    * 槽位真实迷你条的最终隐藏条件：miniBarHidden() 之外再并入「返回交接
-   * 期」（dock 仍挂载但已回到主页）。交接期必须作为状态硬性隐藏，不能
-   * 靠动画 delay 推迟显形——HdsTabs 槽位子树一旦重建，新节点会以最终
-   * 属性直接出现，delay 被整段跳过，dock 还在半空迷你条就完整显形（真机
-   * 复测仍见双控件的成因）。dock 卸载（syncDockBar 尾段定时器）本态自动
-   * 解除：那一刻 dock 落位矩形与迷你条同位同形，瞬时接管零差异。
+   * 期」（dock 仍挂载但已回到主页）。交接期作为状态硬门控，任何时刻 dock
+   * 是唯一可见控件；dock 卸载（syncDockBar 尾段定时器）本态自动解除——
+   * 那一刻 dock 落位矩形与迷你条同位同形，瞬时接管零差异。结果经
+   * publishSlotMiniHidden 发布，供槽内 SlotMiniBar 订阅（槽位闭包不响应
+   * MainShell 状态，见 miniBarBuilder 注释）。
    */
   private slotMiniHidden(): boolean {
     return this.miniBarHidden() || (this.dockBarMounted && this.subPageDepth === 0);
+  }
+
+  /**
+   * 把 slotMiniHidden() 的结果发布到 AppStorage：HdsTabs miniBar 槽位里的
+   * CustomBuilder 闭包不随 MainShell 状态重渲染，槽内组件只能靠订阅此键
+   * 实时显隐。触发源：modalMounted/closing/dockBarMounted 各自的 @Watch，
+   * 以及 syncDockBar（subPageDepth 变化路径；其余入参最终也汇入
+   * dockBarMounted，重复发布无害）。
+   */
+  private publishSlotMiniHidden(): void {
+    AppStorage.setOrCreate('ui.slotMiniHidden', this.slotMiniHidden());
   }
 
   /**
@@ -371,6 +409,7 @@ export struct MainShell {
    * 返回动画中途再次入栈会清掉卸载计时器并直接反向重定目标。
    */
   private syncDockBar(): void {
+    this.publishSlotMiniHidden();
     if (this.shouldDockBar()) {
       if (this.dockMountTimer >= 0) {
         clearTimeout(this.dockMountTimer);
@@ -457,6 +496,8 @@ export struct MainShell {
 
   aboutToAppear(): void {
     Router.attach(this.pageStack, this.getUIContext());
+    // 槽位迷你条显隐门初值：保证 SlotMiniBar 首帧挂载前键已就位。
+    this.publishSlotMiniHidden();
     // 注册要放在启动页分支的 return 之前，任何默认页配置下都得收到完成回调。
     this.downloadListener.attach(this);
     DownloadEngine.addListener(this.downloadListener);
