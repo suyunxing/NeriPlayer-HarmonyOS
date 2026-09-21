@@ -266,6 +266,8 @@ export struct MiniPlayer {
             .blendMode(BlendMode.SRC_OVER, BlendApplyType.OFFSCREEN)
 
             // np.mini_show_lyric 开启且正在播放时，这一行优先显示当前歌词行。
+            // dock 态（embedded 非紧凑）不放作者名：用户决策 2026-09-21，二级页
+            // 播放控件只留歌名——进/出二级页时该行会以溢出/交叠形式闪现。
             if (this.showLyricLine()) {
               Text(this.lyricLineText)
                 .fontSize(11)
@@ -273,7 +275,7 @@ export struct MiniPlayer {
                 .maxLines(1)
                 .textOverflow({ overflow: TextOverflow.Ellipsis })
                 .width('100%')
-            } else {
+            } else if (!this.embedded || this.compact) {
               Text(this.song().displayArtist)
                 .fontSize(11)
                 .fontColor(Theme.textSecondary(Theme.isDark()))

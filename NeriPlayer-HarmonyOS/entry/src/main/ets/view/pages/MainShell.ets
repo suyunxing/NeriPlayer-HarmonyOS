@@ -44,12 +44,14 @@ const FLOAT_BAR_BOTTOM_GAP_VP: number = 8;
 /** dock 态迷你条高度 = 非紧凑 MiniPlayer 胶囊高度（进度条 2 + 内容行 60）。 */
 const DOCK_MINI_HEIGHT_VP: number = 62;
 /**
- * 槽位药丸顶边相对 dock 条顶边的上移量（真机视频实测：2026-09-21 返程冻结帧
- * dock 顶 1780px、药丸壳顶 1521px，差 259px ÷ 2.483px/vp ≈ 104.5vp）。药丸
- * 与 dock 都由壳层 .position() 定位、共享同一坐标映射，用相对量可自动跟随
- * bottomLift/窗口尺寸变化，不受 windowHeightVp 与可视窗口的换算差异影响。
+ * 槽位药丸顶边相对 dock 条顶边的上移量。真机视频两轮标定（2026-09-21）：
+ * 首轮按冻结帧量得 259px ≈ 104.5vp，装机实测落点还差 10px（封面带 1542 vs
+ * 槽位 1532）——.position() 的渲染映射存在约 4vp 的系统性收缩，补正后取
+ * 108.5vp。药丸与 dock 都由壳层定位、共享同一坐标映射，此相对量自动跟随
+ * bottomLift/窗口尺寸变化；若 Hds 内部布局变更，按同法（冻结帧 dock 顶与
+ * 药丸壳顶之差 + 本轮残差）重测。
  */
-const PILL_RISE_FROM_DOCK_VP: number = 104.5;
+const PILL_RISE_FROM_DOCK_VP: number = 108.5;
 /** 槽位药丸高度：HdsTabs 玻璃壳实测 94px ≈ 38vp，取设计值 40。 */
 const PILL_HEIGHT_VP: number = 40;
 /** 子页 dock 态迷你条的几何迁移时长：与 NavDestination 系统转场同一量级。 */
