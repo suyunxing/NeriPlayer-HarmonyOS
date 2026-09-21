@@ -43,6 +43,15 @@ const FLOAT_BAR_SIDE_MARGIN_VP: number = 16;
 const FLOAT_BAR_BOTTOM_GAP_VP: number = 8;
 /** dock 态迷你条高度 = 非紧凑 MiniPlayer 胶囊高度（进度条 2 + 内容行 60）。 */
 const DOCK_MINI_HEIGHT_VP: number = 62;
+/**
+ * 槽位药丸顶边相对 dock 条顶边的上移量（真机视频实测：2026-09-21 返程冻结帧
+ * dock 顶 1780px、药丸壳顶 1521px，差 259px ÷ 2.483px/vp ≈ 104.5vp）。药丸
+ * 与 dock 都由壳层 .position() 定位、共享同一坐标映射，用相对量可自动跟随
+ * bottomLift/窗口尺寸变化，不受 windowHeightVp 与可视窗口的换算差异影响。
+ */
+const PILL_RISE_FROM_DOCK_VP: number = 104.5;
+/** 槽位药丸高度：HdsTabs 玻璃壳实测 94px ≈ 38vp，取设计值 40。 */
+const PILL_HEIGHT_VP: number = 40;
 /** 子页 dock 态迷你条的几何迁移时长：与 NavDestination 系统转场同一量级。 */
 const DOCK_MORPH_MS: number = 350;
 
@@ -92,13 +101,10 @@ struct SlotMiniBar {
   /** MainShell.publishSlotMiniHidden 发布的最终显隐门（= MainShell.slotMiniHidden()）。 */
   @StorageLink('ui.slotMiniHidden') hidden: boolean = false;
   @StorageLink('player.currentSong') currentSongJson: string = '';
-  onMeasured: (area: Area) => void = (area: Area): void => {};
 
   build() {
     if (this.currentSongJson.length > 0) {
-      MiniPlayer({ compact: true, onMeasured: (area: Area): void => {
-        this.onMeasured(area);
-      } })
+      MiniPlayer({ compact: true })
         .opacity(this.hidden ? 0 : 1)
         .accessibilityLevel(this.hidden ? 'no-hide-descendants' : 'auto')
         .hitTestBehavior(this.hidden ? HitTestMode.None : HitTestMode.Default)
@@ -147,8 +153,9 @@ export struct MainShell {
   @State @Watch('publishSlotMiniHidden') closing: boolean = false;
   // 转场进行中：模态内容不响应命中，结算后恢复。
   @State transitioning: boolean = false;
-  // 默认兜底值 = 360vp 宽窗口下的药丸典型位置（窗口度量发布后按实测覆盖）。
-  @State miniRect: NowPlayingRect = { x: 23, y: 611, width: 314, height: 40 };
+  // 一镜到底展开起点。主页（含 dock 态子页）由 pillRect()/dockRect() 实时
+  // 推导（见 pillRect 注释），lg 宽屏用 wideFallbackOrigin；不再保存 @State
+  // 标定值——槽位锚点会随导航周期漂移，静态标定值会随窗口度量变化失真。
   @State originRect: NowPlayingRect = { x: 23, y: 611, width: 314, height: 40 };
   // dock 态迷你条覆盖层的挂载与几何状态：mounted 只控制存在性，docked 驱动
   // 药丸矩形（槽位迷你条原位）↔ dock 矩形（悬浮 Tab 栏足迹）之间的属性动画。
@@ -196,13 +203,13 @@ export struct MainShell {
 
   private onNowPlayingRequested(): void {
     if (this.nowPlayingShown && !this.modalMounted) {
-      // lg 宽屏（侧栏模式）没有 HdsTabsMiniBar 槽位，miniRect 永远停留在手机
-      // 窗口的兜底值：改用底部整宽条带作为展开起点（底部弹出面板观感），不再
-      // 让面板从错误的手机药丸矩形飞出。手机端子页上迷你条停在 dock 矩形
-      // （悬浮 Tab 栏足迹），展开起点随之切换，面板才从可见的条上起飞。
+      // lg 宽屏（侧栏模式）没有 HdsTabsMiniBar 槽位，pillRect() 的手机药丸
+      // 矩形无意义：改用底部整宽条带作为展开起点（底部弹出面板观感）。手机
+      // 端子页上迷你条停在 dock 矩形（悬浮 Tab 栏足迹），展开起点随之切换，
+      // 面板才从可见的条上起飞。
       this.originRect = this.wide()
         ? MainShell.wideFallbackOrigin(this.windowWidth, this.windowHeight)
-        : (this.subPageDepth > 0 ? this.dockRect() : this.miniRect);
+        : (this.subPageDepth > 0 ? this.dockRect() : this.pillRect());
       this.panelAmount = 0;
       this.closing = false;
       this.transitioning = true;
@@ -238,23 +245,26 @@ export struct MainShell {
     return undefined;
   }
 
-  /**
-   * HdsTabs 迷你条槽位的坐标标定。槽位内 builder 的 onAreaChange 返回的是
-   * 槽位布局矩形（全宽、贴在悬浮栏底部），而可见的迷你条药丸被 HdsTabs 内部
-   * 位移/裁剪到悬浮栏上部——这类变换不触发 onAreaChange，所以测量值永远偏左
-   * 下。Y 向偏移按真机实测标定；X/宽不依赖槽位（槽位宽度在两次会话间不稳定），
-   * 直接用药丸的对称设计值：左右边距各 23vp（barSideMargin 16 + 槽位内边距 7），
-   * 宽 = 窗口宽 − 46。若 Hds 调整悬浮栏内部布局需重标 Y 偏移。
-   */
   private static readonly PILL_MARGIN_X: number = 23;
-  private static readonly PILL_OFFSET_Y: number = -93;
 
-  private static toPillRect(slot: NowPlayingRect, windowWidth: number): NowPlayingRect {
+  /**
+   * 槽位药丸矩形 = dock 返程落点 & 一镜到底展开起点。
+   * 不从槽位 onAreaChange/getRectangleById 推导：HdsTabs 把可见药丸从槽位
+   * 布局锚点（全宽、贴悬浮栏底部）渲染变换上移约 117vp，这两个 API 拿到的
+   * 都是变换前的锚点——拿锚点当落点，真机两轮实测分别为「返程向下砸出屏幕」
+   * （2026-09-20）与「落点低 59px 交接跳变」（2026-09-21，锚点还会随导航
+   * 周期漂移）。改为从 dock 几何相对推导：药丸与 dock 同由壳层定位、共享
+   * 同一坐标映射，相对量免换算、自动跟随 bottomLift/窗口尺寸变化。
+   * X/宽用药丸对称设计值（barSideMargin 16 + 槽位内边距 7，实测壳宽 316vp
+   * 与设计 314vp 吻合）；若 Hds 调整悬浮栏内部布局，按 PILL_RISE_FROM_DOCK_VP
+   * 注释的方法重测。
+   */
+  private pillRect(): NowPlayingRect {
     return {
       x: MainShell.PILL_MARGIN_X,
-      y: slot.y + MainShell.PILL_OFFSET_Y,
-      width: Math.max(40, windowWidth - 2 * MainShell.PILL_MARGIN_X),
-      height: slot.height
+      y: this.dockRect().y - PILL_RISE_FROM_DOCK_VP,
+      width: Math.max(40, this.windowWidth - 2 * MainShell.PILL_MARGIN_X),
+      height: PILL_HEIGHT_VP
     };
   }
 
@@ -285,14 +295,7 @@ export struct MainShell {
    */
   @Builder
   miniBarBuilder() {
-    SlotMiniBar({
-      onMeasured: (area: Area): void => {
-        const rect = MainShell.validRect(area);
-        if (rect !== undefined) {
-          this.miniRect = MainShell.toPillRect(rect, this.windowWidth);
-        }
-      }
-    })
+    SlotMiniBar()
   }
 
   /**
@@ -343,7 +346,7 @@ export struct MainShell {
    * 尺寸并落到 Tab 栏位置）。挂在壳层根 Stack 里 HdsNavigation 之上，所以
    * 全屏 NavDestination 子页盖得住 Tab 骨架与槽位迷你条，盖不住它。
    *
-   * 几何动画：容器在「药丸矩形（miniRect，与槽位迷你条同位同形）」和「dock
+   * 几何动画：容器在「药丸矩形（pillRect()，与槽位迷你条同位同形）」和「dock
    * 矩形（悬浮 Tab 栏足迹）」之间做原生属性动画；两种紧凑/展开内容按目标
    * 形态交叉淡入淡出，规避 40↔62vp 内容重排的跳变。透明度/命中只跟随模态
    * 开合（dockOverlayHidden）：播放页模态展开期间隐藏（面板占位），收起
@@ -365,11 +368,11 @@ export struct MainShell {
           .accessibilityLevel(this.dockBarDocked ? 'auto' : 'no-hide-descendants')
           .hitTestBehavior(this.dockBarDocked ? HitTestMode.Default : HitTestMode.None)
       }
-      .width(this.dockBarDocked ? this.dockRect().width : this.miniRect.width)
-      .height(this.dockBarDocked ? this.dockRect().height : this.miniRect.height)
+      .width(this.dockBarDocked ? this.dockRect().width : this.pillRect().width)
+      .height(this.dockBarDocked ? this.dockRect().height : this.pillRect().height)
       .position({
-        x: this.dockBarDocked ? this.dockRect().x : this.miniRect.x,
-        y: this.dockBarDocked ? this.dockRect().y : this.miniRect.y
+        x: this.dockBarDocked ? this.dockRect().x : this.pillRect().x,
+        y: this.dockBarDocked ? this.dockRect().y : this.pillRect().y
       })
       // 几何段：dock 挂载/返回的起飞与落定（Friction 减速曲线，落栏手感）。
       .animation({ duration: DOCK_MORPH_MS, curve: Curve.Friction })
@@ -391,7 +394,7 @@ export struct MainShell {
   /**
    * dock 态几何：与悬浮 Tab 栏同一边距体系（barSideMargin 16、barBottomMargin
    * bottomLift+8），尺寸取非紧凑 MiniPlayer 胶囊（62vp 高）。窗口坐标与
-   * miniRect 同一坐标系，可直接作为一镜到底的展开起点。
+   * pillRect() 同一坐标系，可直接作为一镜到底的展开起点。
    */
   private dockRect(): NowPlayingRect {
     return {
@@ -443,13 +446,11 @@ export struct MainShell {
       this.dockBarMounted = false;
       return;
     }
-    // 落点用 toPillRect 的标定矩形（miniRect）。不要改回 getRectangleById
-    // "实测药丸"：HdsTabs 对药丸的向上位移是渲染变换，windowOffset/onAreaChange
-    // 返回的都是位移前的槽位布局锚点（贴悬浮栏底部、全宽）——真机视频逐帧
-    // 实测（2026-09-20）：拿它当落点，dock 返程向下沉 ~13vp 大半沉出屏幕再
-    // 瞬变，观感即"飞行方向不对"；标定矩形 slot.y-93 与真机药丸亮带吻合
-    // （预测 1541px vs 实测 1533px，误差在药丸内边距量级）。
-    // 同时禁止把实测值写回 miniRect：会污染一镜到底的展开起点。
+    // 落点用 pillRect()（从 dock 几何相对推导，见其注释）。不要改回
+    // getRectangleById/onAreaChange"实测药丸"：HdsTabs 对药丸的上移是渲染
+    // 变换，这两个 API 返回的都是变换前的槽位布局锚点（贴悬浮栏底部、全宽）
+    // ——真机两轮实测：当落点 = 返程向下砸出屏幕（2026-09-20）；写回标定值
+    // = 锚点漂移后落点低 59px、卸载交接向上跳一下（2026-09-21）。
     this.dockBarDocked = false;
     // 卸载延时只需比飞行动画（DOCK_MORPH_MS）留足余量：交接期内槽位迷
     // 你条被 slotMiniHidden() 硬性隐藏，本覆盖层是唯一可见控件；卸载那
