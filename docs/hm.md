@@ -113,7 +113,7 @@ HarmonyOS 工程当前是单 `entry` HAP、Stage 模型、ArkTS 严格模式。
 
 | 能力域 | 当前情况 | 可信度/下一步 |
 | --- | --- | --- |
-| 启动、免责声明、引导、安全模式 | `Index.ets` 和对应页面已有路径 | 静态存在；需冷启动、升级和异常恢复测试 |
+| 启动、免责声明、引导、安全模式 | `Index.ets` 和对应页面已有路径；2026-09-22 免责声明加版本门控（`util/DisclaimerConsentPolicy.ets` + 偏好键 `np.disclaimer_accepted_version`：协议正文修订时递增 `CURRENT_DISCLAIMER_VERSION`，已同意旧版的安装升级后首启重新进合规页，`DisclaimerPage` 显示更新提示行） | 静态存在；需冷启动、升级和异常恢复测试（版本门控的真机升级重弹路径未验证） |
 | 主导航和页面 | 首页、探索、资料库、设置、播放页等已存在 | `Navigation`/`NavDestination` + `NavPathStack` 已落地（2026-08-26，`Router` 保留门面）；多形态布局回归记录见 §9 |
 | 基础播放 | `PlayerManager.ets` 使用 AVPlayer，支持 URL/fd、队列、seek、倍速和错误重试骨架 | 原型/待复核；需真实设备闭环 |
 | 系统媒体控制 | `AVSessionManager.ets` 可创建并更新 AVSession | 播控中心元数据/歌词字段/seek 回灌已设备实测（2026-08-24/25 M10.1/M10.3）；锁屏、耳机与进程回收真机测试待复核 |

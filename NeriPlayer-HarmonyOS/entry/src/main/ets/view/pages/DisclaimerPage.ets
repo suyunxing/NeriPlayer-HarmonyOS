@@ -20,6 +20,8 @@ import { LEGAL_AGREEMENT, LEGAL_PRIVACY, LegalDocPage } from './LegalDocPage';
 @Component
 export struct DisclaimerPage {
   onAgree: () => void = () => {};
+  /** 协议文本较用户上次同意的版本有修订：标题下多一行更新提示。父组件传入状态变量，须用 @Prop 建立单向同步。 */
+  @Prop reconfirmAfterUpdate: boolean = false;
   @State countdown: number = 5;
   /** 空串表示未打开文档浮层，否则是 LEGAL_PRIVACY / LEGAL_AGREEMENT。 */
   @State openedDoc: string = '';
@@ -106,6 +108,12 @@ export struct DisclaimerPage {
               .fontSize(22)
               .fontWeight(FontWeight.Bold)
               .fontColor(Theme.textPrimary(Theme.isDark()))
+            if (this.reconfirmAfterUpdate) {
+              Text('《隐私政策》与《用户协议》已更新，请重新阅读并确认。')
+                .fontSize(14)
+                .fontWeight(FontWeight.Medium)
+                .fontColor(Theme.primary(Theme.isDark()))
+            }
             Text('本项目仅供学习与研究使用，请勿用于任何非法用途。')
               .fontSize(15)
               .fontColor(Theme.textPrimary(Theme.isDark()))

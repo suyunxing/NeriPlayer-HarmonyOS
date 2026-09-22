@@ -5,6 +5,7 @@ import { Router } from '../view/Router';
 import { Theme } from '../view/Theme';
 import { AccentScheme } from '../view/theme/AccentScheme';
 import { SchemeCustomTheme } from '../view/theme/SchemeCustomTheme';
+import { CURRENT_DISCLAIMER_VERSION, isDisclaimerConfirmationRequired } from '../util/DisclaimerConsentPolicy';
 import { LoadingPage } from '../view/pages/LoadingPage';
 import { DisclaimerPage } from '../view/pages/DisclaimerPage';
 import { OnboardingPage } from '../view/pages/OnboardingPage';
@@ -27,6 +28,9 @@ enum StartupPhase {
 @Component
 struct Index {
   @StorageProp('np.disclaimer_accepted') disclaimerAccepted: boolean = false;
+  // 用户上次同意的协议文本版本；版本化之前的安装为空串。与当前版本不一致时
+  // 首次启动会重新进入一次合规页。
+  @StorageProp('np.disclaimer_accepted_version') disclaimerAcceptedVersion: string = '';
   @StorageProp('np.onboarding_completed') onboardingCompleted: boolean = false;
   // The crash flag is armed asynchronously by CrashEventWatcher (fault
   // history pull on startup); watch it so a late flag still switches a
@@ -71,7 +75,7 @@ struct Index {
     if (this.lastCrashDetected) {
       return StartupPhase.SAFE_MODE;
     }
-    if (!this.disclaimerAccepted) {
+    if (isDisclaimerConfirmationRequired(this.disclaimerAccepted, this.disclaimerAcceptedVersion)) {
       return StartupPhase.DISCLAIMER;
     }
     if (!this.onboardingCompleted) {
@@ -82,6 +86,7 @@ struct Index {
 
   private onDisclaimerAgree(): void {
     SettingsRepository.setBoolean(SettingsRepository.KEY_DISCLAIMER_ACCEPTED, true);
+    SettingsRepository.setString(SettingsRepository.KEY_DISCLAIMER_ACCEPTED_VERSION, CURRENT_DISCLAIMER_VERSION);
     this.phase = this.onboardingCompleted ? StartupPhase.MAIN : StartupPhase.ONBOARDING;
   }
 
@@ -155,7 +160,9 @@ struct Index {
           LoadingPage()
         } else if (this.phase === StartupPhase.DISCLAIMER) {
           DisclaimerPage({
-            onAgree: () => this.onDisclaimerAgree()
+            onAgree: () => this.onDisclaimerAgree(),
+            // 布尔已真但版本不符时走到这里，说明是协议更新后的重新确认。
+            reconfirmAfterUpdate: this.disclaimerAccepted
           })
         } else if (this.phase === StartupPhase.ONBOARDING) {
           OnboardingPage({
