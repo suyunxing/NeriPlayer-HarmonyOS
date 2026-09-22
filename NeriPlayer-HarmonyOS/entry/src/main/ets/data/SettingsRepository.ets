@@ -12,6 +12,10 @@ import { AppPreferences } from './AppPreferences';
  */
 export class SettingsRepository {
   static readonly KEY_DISCLAIMER_ACCEPTED: string = 'np.disclaimer_accepted';
+  // Version of the disclaimer/legal docs the user last accepted, compared
+  // against util/DisclaimerConsentPolicy.CURRENT_DISCLAIMER_VERSION; empty
+  // means the acceptance predates versioning and re-prompts once.
+  static readonly KEY_DISCLAIMER_ACCEPTED_VERSION: string = 'np.disclaimer_accepted_version';
   static readonly KEY_ONBOARDING_COMPLETED: string = 'np.onboarding_completed';
   static readonly KEY_DARK_MODE: string = 'np.dark_mode'; // auto | light | dark
   static readonly KEY_DYNAMIC_COLOR: string = 'np.dynamic_color';
@@ -157,6 +161,7 @@ export class SettingsRepository {
 
   private static defaults: [string, boolean | string | number][] = [
     [SettingsRepository.KEY_DISCLAIMER_ACCEPTED, false],
+    [SettingsRepository.KEY_DISCLAIMER_ACCEPTED_VERSION, ''],
     [SettingsRepository.KEY_ONBOARDING_COMPLETED, false],
     [SettingsRepository.KEY_DARK_MODE, 'auto'],
     [SettingsRepository.KEY_DYNAMIC_COLOR, true],
