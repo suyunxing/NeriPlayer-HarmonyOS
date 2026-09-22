@@ -17,10 +17,6 @@
       "value": "Keeps the current track playing and keeps the playback controls on the notification panel and lock screen after you switch to another app or lock the screen."
     },
     {
-      "name": "legal_draft_notice",
-      "value": "草案 · 待作者复核。上架前须定稿，并在 AppGallery Connect 同步上传同一版本。"
-    },
-    {
       "name": "privacy_policy_title",
       "value": "隐私政策"
     },
