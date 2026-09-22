@@ -10,6 +10,64 @@ import { subPageTitleBar, SubPageBottomFade, SUB_TITLEBAR_SPACE_VP, SUB_BOTTOM_C
 export const LEGAL_PRIVACY: string = 'privacy';
 export const LEGAL_AGREEMENT: string = 'agreement';
 
+/** 正文块：标题（## ）、列表项（- ）或普通段落。 */
+interface LegalBlock {
+  kind: string;
+  text: string;
+}
+
+/** 行内片段：**加粗** 按段切分后的结果。 */
+interface LegalSpan {
+  text: string;
+  bold: boolean;
+}
+
+/** 把 rawfile 的 Markdown 正文按行拆成标题/列表/段落块；空行分隔段落。 */
+function parseLegalBlocks(md: string): LegalBlock[] {
+  const blocks: LegalBlock[] = [];
+  let para = '';
+  const flush = (): void => {
+    if (para.length > 0) {
+      blocks.push({ kind: 'para', text: para });
+      para = '';
+    }
+  };
+  for (const raw of md.split('\n')) {
+    const line = raw.trim();
+    if (line.length === 0) {
+      flush();
+      continue;
+    }
+    const heading = line.match(/^#+\s+(.*)$/);
+    if (heading !== null) {
+      flush();
+      blocks.push({ kind: 'heading', text: heading[1] });
+    } else if (line.startsWith('- ')) {
+      flush();
+      blocks.push({ kind: 'item', text: line.slice(2).trim() });
+    } else if (para.length > 0) {
+      para += line;
+    } else {
+      para = line;
+    }
+  }
+  flush();
+  return blocks;
+}
+
+/** 按成对 ** 切出行内片段，奇数位为加粗。 */
+function parseLegalSpans(text: string): LegalSpan[] {
+  const spans: LegalSpan[] = [];
+  const parts = text.split('**');
+  for (let i = 0; i < parts.length; i++) {
+    if (parts[i].length === 0) {
+      continue;
+    }
+    spans.push({ text: parts[i], bold: i % 2 === 1 });
+  }
+  return spans;
+}
+
 /**
  * 隐私政策 / 用户协议阅读页。
  *
@@ -35,7 +93,7 @@ export struct LegalDocPage {
   @StorageProp('ui.bottomLiftVp') bottomLift: number = Theme.bottomBarLift();
   /** 状态栏避让（util/WindowMetrics.ets 发布）；内容根从 y=0 起，让位 = topInset + 56。 */
   @StorageProp('ui.topInsetVp') topInset: number = 0;
-  @State private bodyText: string = '';
+  @State private blocks: LegalBlock[] = [];
   @State private loadFailed: boolean = false;
   /** 供 HdsNavDestination.bindToScrollable 绑定的正文滚动控制器。 */
   private scroller: Scroller = new Scroller();
@@ -63,11 +121,62 @@ export struct LegalDocPage {
       }
       const content = await ctx.resourceManager.getRawFileContent(this.rawFileName());
       const text = util.TextDecoder.create('utf-8').decodeToString(content);
-      // 去掉首行 Markdown 标题（页面已有标题栏），保留正文原样按 \n 渲染。
+      // 去掉首行 Markdown 一级标题（页面已有标题栏），其余按块解析渲染。
       const firstNewline = text.indexOf('\n');
-      this.bodyText = firstNewline >= 0 ? text.slice(firstNewline + 1).trim() : text.trim();
+      const body = firstNewline >= 0 ? text.slice(firstNewline + 1) : text;
+      this.blocks = parseLegalBlocks(body);
     } catch (e) {
       this.loadFailed = true;
+    }
+  }
+
+  @Builder
+  private blockView(block: LegalBlock) {
+    if (block.kind === 'heading') {
+      Text() {
+        ForEach(parseLegalSpans(block.text), (s: LegalSpan, idx: number) => {
+          Span(s.text)
+        }, (s: LegalSpan, idx: number) => `${idx}`)
+      }
+      .fontSize(17)
+      .fontWeight(FontWeight.Bold)
+      .lineHeight(24)
+      .fontColor(Theme.textPrimary(Theme.isDark()))
+      .width('100%')
+      .padding({ top: 12 })
+      .textAlign(TextAlign.Start)
+    } else if (block.kind === 'item') {
+      Row({ space: 8 }) {
+        Text('•')
+          .fontSize(14)
+          .lineHeight(22)
+          .fontColor(Theme.textSecondary(Theme.isDark()))
+        Text() {
+          ForEach(parseLegalSpans(block.text), (s: LegalSpan, idx: number) => {
+            Span(s.text)
+              .fontWeight(s.bold ? FontWeight.Bold : FontWeight.Normal)
+          }, (s: LegalSpan, idx: number) => `${idx}`)
+        }
+        .fontSize(14)
+        .lineHeight(22)
+        .fontColor(Theme.textPrimary(Theme.isDark()))
+        .layoutWeight(1)
+        .textAlign(TextAlign.Start)
+      }
+      .width('100%')
+      .alignItems(VerticalAlign.Top)
+    } else {
+      Text() {
+        ForEach(parseLegalSpans(block.text), (s: LegalSpan, idx: number) => {
+          Span(s.text)
+            .fontWeight(s.bold ? FontWeight.Bold : FontWeight.Normal)
+        }, (s: LegalSpan, idx: number) => `${idx}`)
+      }
+      .fontSize(14)
+      .lineHeight(22)
+      .fontColor(Theme.textPrimary(Theme.isDark()))
+      .width('100%')
+      .textAlign(TextAlign.Start)
     }
   }
 
@@ -78,26 +187,16 @@ export struct LegalDocPage {
     // 要横扫整块屏。标题栏与正文一起被约束，两者左边缘才对得上。
     Row() {
       Scroll(this.scroller) {
-        Column({ space: 12 }) {
-          Text($r('app.string.legal_draft_notice'))
-            .fontSize(12)
-            .lineHeight(18)
-            .fontColor(Theme.warning(Theme.isDark()))
-            .width('100%')
-            .padding(10)
-            .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
-            .borderRadius(10)
+        Column({ space: 8 }) {
           if (this.loadFailed) {
             Text('文档加载失败，请重启应用重试。')
               .fontSize(14)
               .fontColor(Theme.warning(Theme.isDark()))
               .width('100%')
           } else {
-            Text(this.bodyText)
-              .fontSize(14)
-              .lineHeight(22)
-              .fontColor(Theme.textPrimary(Theme.isDark()))
-              .width('100%')
+            ForEach(this.blocks, (block: LegalBlock, idx: number) => {
+              this.blockView(block)
+            }, (block: LegalBlock, idx: number) => `${idx}`)
           }
         }
         .width('100%')
