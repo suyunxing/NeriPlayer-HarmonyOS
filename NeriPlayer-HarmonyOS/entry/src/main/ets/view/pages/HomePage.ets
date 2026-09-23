@@ -54,9 +54,10 @@ export struct HomePage {
   @StorageProp('ui.bottomLiftVp') bottomLift: number = 0;
 
   private onRefreshTick(): void {
-    if (this.activeTab === TAB_INDEX) {
-      this.reload();
-    }
+    // 变动也可能发生在其它 Tab（资料库进歌单删歌后返回、播放页收藏等），
+    // 隐藏时也要把本地数据刷进来，否则切回首页时封面/曲数停在旧值；只是
+    // 隐藏时不重置 loading、不发网络推荐请求。
+    this.reload(this.activeTab === TAB_INDEX);
   }
 
   /**
@@ -67,20 +68,40 @@ export struct HomePage {
     return this.breakpoint === BP_MD || this.breakpoint === BP_LG;
   }
 
+  /**
+   * 「我的歌单」卡片封面：取歌单内第一首歌的有效封面（含用户自定义封面），
+   * 歌单为空或首曲无封面时回退歌单自身 coverUrl，仍为空则 PlaylistCard 落到
+   * 音符占位图。歌曲增删后数据层会刷新 updatedAt，配合下方 ForEach 键里的
+   * updatedAt 让卡片重建，封面即随第一首歌变化。
+   */
+  private playlistCardCover(playlist: Playlist): string {
+    if (playlist.songs.length > 0) {
+      const firstCover = playlist.songs[0].effectiveCoverUrl;
+      if (firstCover.length > 0) {
+        return firstCover;
+      }
+    }
+    return playlist.coverUrl;
+  }
+
   async aboutToAppear(): Promise<void> {
     await this.reload();
   }
 
-  private async reload(): Promise<void> {
-    this.loading = true;
-    this.offline = !(await NetworkStatus.hasNetwork());
+  private async reload(withNetwork: boolean = true): Promise<void> {
+    if (withNetwork) {
+      this.loading = true;
+      this.offline = !(await NetworkStatus.hasNetwork());
+    }
     const usage = await UsageRepository.load();
     this.usage = usage;
     const playlists = await LocalPlaylistRepository.loadAll();
     this.localPlaylists = playlists;
     this.recentSongs = await HistoryRepository.getRecent();
     this.loading = false;
-    this.loadNeteaseRecommend();
+    if (withNetwork) {
+      this.loadNeteaseRecommend();
+    }
   }
 
   /**
@@ -459,12 +480,13 @@ export struct HomePage {
                   GridCol({ span: 2 }) {
                     PlaylistCard({
                       name: playlist.name,
+                      coverUrl: this.playlistCardCover(playlist),
                       trackCount: playlist.songKeys.length,
                       isFavorite: playlist.id === LocalPlaylistRepository.FAVORITES_ID,
                       onOpen: () => Router.push(Router.PLAYLIST_DETAIL, playlist.id)
                     })
                   }
-                }, (playlist: Playlist) => playlist.id)
+                }, (playlist: Playlist) => `${playlist.id}_${playlist.updatedAt}`)
               }
               .width('100%')
               .padding({ left: 2, right: 2 })
