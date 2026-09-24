@@ -134,7 +134,7 @@ export struct PlaylistDetailPage {
             ListItem() {
               Column() {
                 PlaylistHeader({
-                  coverUrl: '',
+                  coverUrl: this.playlist.displayCoverUrl,
                   title: this.playlist.name,
                   subtitle: `${this.playlist.songKeys.length} 首`
                 }) {

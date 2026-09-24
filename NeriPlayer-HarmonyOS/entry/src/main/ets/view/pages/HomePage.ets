@@ -68,22 +68,6 @@ export struct HomePage {
     return this.breakpoint === BP_MD || this.breakpoint === BP_LG;
   }
 
-  /**
-   * 「我的歌单」卡片封面：取歌单内第一首歌的有效封面（含用户自定义封面），
-   * 歌单为空或首曲无封面时回退歌单自身 coverUrl，仍为空则 PlaylistCard 落到
-   * 音符占位图。歌曲增删后数据层会刷新 updatedAt，配合下方 ForEach 键里的
-   * updatedAt 让卡片重建，封面即随第一首歌变化。
-   */
-  private playlistCardCover(playlist: Playlist): string {
-    if (playlist.songs.length > 0) {
-      const firstCover = playlist.songs[0].effectiveCoverUrl;
-      if (firstCover.length > 0) {
-        return firstCover;
-      }
-    }
-    return playlist.coverUrl;
-  }
-
   async aboutToAppear(): Promise<void> {
     await this.reload();
   }
@@ -476,11 +460,13 @@ export struct HomePage {
                 columns: { xs: 4, sm: 4, md: 8, lg: 12 },
                 gutter: { x: 12, y: 14 }
               }) {
+                // 键拼 updatedAt：同键的卡片会被 ForEach 复用而拿不到新参数，
+                // 拼上数据层在增删歌/改名时刷新的版本号，封面/曲数必然重建。
                 ForEach(this.localPlaylists, (playlist: Playlist) => {
                   GridCol({ span: 2 }) {
                     PlaylistCard({
                       name: playlist.name,
-                      coverUrl: this.playlistCardCover(playlist),
+                      coverUrl: playlist.displayCoverUrl,
                       trackCount: playlist.songKeys.length,
                       isFavorite: playlist.id === LocalPlaylistRepository.FAVORITES_ID,
                       onOpen: () => Router.push(Router.PLAYLIST_DETAIL, playlist.id)
