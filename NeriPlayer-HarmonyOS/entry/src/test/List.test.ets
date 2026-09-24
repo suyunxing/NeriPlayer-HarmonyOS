@@ -17,6 +17,7 @@ import qrEncoderTest from './ets/test/QrEncoder.test';
 import neteaseAuthTest from './ets/test/NeteaseAuth.test';
 import neteasePlaylistParserTest from './ets/test/NeteasePlaylistParser.test';
 import playlistMergeTest from './ets/test/PlaylistMerge.test';
+import playlistDisplayCoverTest from './ets/test/PlaylistDisplayCover.test';
 import httpHeaderParserTest from './ets/test/HttpHeaderParser.test';
 import assetChunkingTest from './ets/test/AssetChunking.test';
 import biliAuthTest from './ets/test/BiliAuth.test';
@@ -110,6 +111,7 @@ export default function testsuite(): void {
   neteaseAuthTest();
   neteasePlaylistParserTest();
   playlistMergeTest();
+  playlistDisplayCoverTest();
   httpHeaderParserTest();
   assetChunkingTest();
   biliAuthTest();
