@@ -33,6 +33,8 @@ export class Router {
   static readonly ARTIST: string = 'artist';
   /** 隐私政策 / 用户协议阅读页，param 取 LEGAL_PRIVACY / LEGAL_AGREEMENT。 */
   static readonly LEGAL_DOC: string = 'legal_doc';
+  /** B 站内嵌官方登录页（WebView），无参数。 */
+  static readonly BILI_WEB_LOGIN: string = 'bili_web_login';
 
   private static pathStack: NavPathStack | null = null;
   /** attach 时由 MainShell 一并交入：NOW_PLAYING 的 animateTo 需要 UIContext 入口。 */

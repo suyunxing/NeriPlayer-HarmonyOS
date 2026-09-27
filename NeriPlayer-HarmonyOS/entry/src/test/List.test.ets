@@ -22,6 +22,7 @@ import playlistDisplayCoverTest from './ets/test/PlaylistDisplayCover.test';
 import httpHeaderParserTest from './ets/test/HttpHeaderParser.test';
 import assetChunkingTest from './ets/test/AssetChunking.test';
 import biliAuthTest from './ets/test/BiliAuth.test';
+import biliWebLoginTest from './ets/test/BiliWebLogin.test';
 import biliFavParserTest from './ets/test/BiliFavParser.test';
 import streamHeadersTest from './ets/test/StreamHeaders.test';
 import streamRefreshTest from './ets/test/StreamRefresh.test';
@@ -116,6 +117,7 @@ export default function testsuite(): void {
   httpHeaderParserTest();
   assetChunkingTest();
   biliAuthTest();
+  biliWebLoginTest();
   biliFavParserTest();
   streamHeadersTest();
   streamRefreshTest();

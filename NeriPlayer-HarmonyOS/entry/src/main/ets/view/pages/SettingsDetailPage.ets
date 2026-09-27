@@ -1388,6 +1388,12 @@ export struct SettingsDetailPage {
               pollIntervalMs: BILI_QR_POLL_INTERVAL_MS
             })
             SettingRow({
+              title: '网页登录（Bilibili）',
+              subtitle: '打开官方登录页 · 支持验证码/扫码/密码',
+              icon: '🌐',
+              onTap: () => Router.push(Router.BILI_WEB_LOGIN)
+            })
+            SettingRow({
               title: '粘贴 Cookie 导入（Bilibili）',
               subtitle: '扫码不可用时的备用登录方式',
               icon: '📋',

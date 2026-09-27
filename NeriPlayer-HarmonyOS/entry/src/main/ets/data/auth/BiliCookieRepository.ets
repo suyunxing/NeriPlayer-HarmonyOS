@@ -85,6 +85,14 @@ export class BiliCookieRepository {
     return BiliCookieRepository.saveInternal(cookies);
   }
 
+  /**
+   * Saves cookies captured from the embedded official web login page
+   * (BiliWebLoginPage: multi-domain fetchCookieSync merge of the WebView jar).
+   */
+  static async saveFromWebLogin(cookies: Map<string, string>): Promise<boolean> {
+    return BiliCookieRepository.saveInternal(cookies);
+  }
+
   /** Saves cookies parsed from user-pasted text (backup import path). */
   static async saveFromPastedText(raw: string): Promise<boolean> {
     return BiliCookieRepository.saveInternal(parseRawCookieText(raw));
