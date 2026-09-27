@@ -26,6 +26,15 @@ export struct MiniPlayer {
    * 栏的沉浸光感同族），不支持时回落自绘玻璃。
    */
   @Prop embedded: boolean = false;
+  /**
+   * 一镜到底触发组件的 id 与圆角（docs/ONETAKE_INTEGRATION_PLAN.md M3）：
+   * 使用方必须显式传入且全局唯一（槽位药丸 / dock 覆盖层两个形态各有 id，
+   * getComponentSnapshot 按 id 截图，重复 id 起点不定）。圆角须与组件视觉
+   * 圆角一致（槽位药丸 40vp→20，dock 胶囊 62vp→31），否则动画起始形态与
+   * 视觉不匹配。空串 = 不参与一镜到底（走系统默认转场）。
+   */
+  @Prop longTakeTriggerId: string = '';
+  @Prop longTakeTriggerRadius: number = 0;
   onMeasured: (area: Area) => void = (_area: Area): void => {};
   @StorageLink('player.currentSong') currentSongJson: string = '';
   @StorageLink('player.status') @Watch('onStatusChanged') status: number = PlaybackStatus.IDLE;
@@ -351,15 +360,20 @@ export struct MiniPlayer {
       .width('100%')
       .height(this.compact ? 40 : 60)
       .padding({ left: this.compact ? 8 : 12, right: this.compact ? 4 : 8 })
+      .id(this.longTakeTriggerId)
       .onClick(() => {
-        // 播放页是壳层全屏模态：打开/收起的动画状态由 MainShell 的
-        // motionProgress 统一驱动，这里只翻转开关即可。
+        // 播放页已路由化（M2）：pushNowPlaying 内部按承载形态与触发组件
+        // 生成一镜到底参数（无 id 的歌曲行入口走系统默认转场）。
         if (this.miniExpandAutoplay && this.status !== PlaybackStatus.PLAYING) {
           // np.mini_expand_autoplay：从底部播放器展开到全屏播放页时自动续播。
           PlayerManager.play().catch(() => {
           });
         }
-        Router.push(Router.NOW_PLAYING);
+        if (this.longTakeTriggerId.length > 0) {
+          Router.pushNowPlaying(this.longTakeTriggerId, this.longTakeTriggerRadius);
+        } else {
+          Router.pushNowPlaying();
+        }
       })
       .clickEffect({ level: ClickEffectLevel.LIGHT })
       .gesture(

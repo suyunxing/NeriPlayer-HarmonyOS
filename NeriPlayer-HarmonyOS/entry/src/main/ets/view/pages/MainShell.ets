@@ -108,7 +108,12 @@ struct SlotMiniBar {
 
   build() {
     if (this.currentSongJson.length > 0) {
-      MiniPlayer({ compact: true })
+      MiniPlayer({
+        compact: true,
+        // 一镜到底触发组件（M3）：槽位药丸 40vp 高，圆角 20 与视觉一致。
+        longTakeTriggerId: 'mini_bar_slot_pill',
+        longTakeTriggerRadius: 20
+      })
         .opacity(this.hidden ? 0 : 1)
         .accessibilityLevel(this.hidden ? 'no-hide-descendants' : 'auto')
         .hitTestBehavior(this.hidden ? HitTestMode.None : HitTestMode.Default)
@@ -375,13 +380,26 @@ export struct MainShell {
   dockMiniBarOverlay() {
     if (this.dockBarMounted && this.currentSongJson.length > 0) {
       Stack({ alignContent: Alignment.Top }) {
-        MiniPlayer({ compact: true, embedded: true })
+        MiniPlayer({
+          compact: true,
+          embedded: true,
+          // 触发组件 id/圆角（M3）：compact 内容 40vp 高。两个形态各持唯一
+          // id（getComponentSnapshot 按 id 截图，重复 id 起点不定）。
+          longTakeTriggerId: 'dock_mini_bar_pill',
+          longTakeTriggerRadius: 20
+        })
           .opacity(this.dockBarDocked ? 0 : 1)
           .animation({ duration: 180, curve: Curve.EaseOut })
           // 交叉淡入淡出的两份内容对读屏同样互斥，避免控件重复。
           .accessibilityLevel(this.dockBarDocked ? 'no-hide-descendants' : 'auto')
           .hitTestBehavior(this.dockBarDocked ? HitTestMode.None : HitTestMode.Default)
-        MiniPlayer({ compact: false, embedded: true })
+        MiniPlayer({
+          compact: false,
+          embedded: true,
+          // dock 展开胶囊 62vp 高，圆角 31。
+          longTakeTriggerId: 'dock_mini_bar_dock',
+          longTakeTriggerRadius: 31
+        })
           .opacity(this.dockBarDocked ? 1 : 0)
           .animation({ duration: 180, curve: Curve.EaseOut })
           .accessibilityLevel(this.dockBarDocked ? 'auto' : 'no-hide-descendants')

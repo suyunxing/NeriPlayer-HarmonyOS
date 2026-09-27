@@ -115,7 +115,7 @@ export struct RecentPage {
 
   private play(index: number): void {
     PlayerManager.playPlaylist(this.visibleSongs(), index);
-    Router.push(Router.NOW_PLAYING);
+    Router.pushNowPlaying(); // 歌曲行入口暂不带触发 id，走系统默认转场（M4 真机评估后铺 id）
   }
 
   private playAll(): void {
@@ -124,7 +124,7 @@ export struct RecentPage {
       return;
     }
     PlayerManager.playPlaylist(list, 0);
-    Router.push(Router.NOW_PLAYING);
+    Router.pushNowPlaying(); // 歌曲行入口暂不带触发 id，走系统默认转场（M4 真机评估后铺 id）
   }
 
   private toggleSort(): void {

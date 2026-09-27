@@ -249,7 +249,7 @@ export struct BiliFavPage {
                     index: index,
                     onPlay: () => {
                       PlayerManager.playPlaylist(this.songs, index);
-                      Router.push(Router.NOW_PLAYING);
+                      Router.pushNowPlaying(); // 歌曲行入口暂不带触发 id，走系统默认转场（M4 真机评估后铺 id）
                     }
                   })
                 }

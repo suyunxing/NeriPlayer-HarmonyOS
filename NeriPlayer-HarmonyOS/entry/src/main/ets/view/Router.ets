@@ -2,6 +2,7 @@
 
 import { KEY_REFRESH_TICK } from '../util/Breakpoint';
 import { ROUTE_MAIN, RoutePushAction, routePushAction } from './RouteStack';
+import { ezCustomTransition } from '@hmanimations/ezcustomtransition';
 
 /**
  * Full-screen route stack for detail overlays.
@@ -101,19 +102,32 @@ export class Router {
   }
 
   /**
-   * 播放页唯一入口（计划 M3：七处调用点统一收口于此）。两种形态：
-   * 路由形态——先置 'ui.nowPlayingShown'（双路径共用的「播放页可见」语义，
-   * 迷你条显隐门/pop 门/系统返回都消费它；归零由播放页 NavDestination 的
-   * onDisAppear 统一负责，覆盖侧滑手势路径）再真正入栈，转场参数经 route
-   * param 传给目标页；模态形态——维持原开关翻转，由 MainShell 的
-   * bindContentCover 承载。
+   * 播放页唯一入口（M3 收口：迷你条与歌曲行七处调用点统一走这里）。两种
+   * 形态：路由形态——先置 'ui.nowPlayingShown'（双路径共用的「播放页可见」
+   * 语义，迷你条显隐门/pop 门/系统返回都消费它；归零由播放页 NavDestination
+   * 的 onDisAppear 统一负责，覆盖侧滑手势路径）再真正入栈；triggerId 非空时
+   * 同步截图并生成一镜到底转场参数经 route param 传给目标页（长表单歌曲行
+   * 入口暂不传 id，走系统默认转场，M4 真机评估后再铺 id）；模态形态——维持
+   * 原开关翻转，由 MainShell 的 bindContentCover 承载。转场选项（弹簧曲线/
+   * 手势开关）库未导出选项类型，M3 用库默认值（CardLongTake + 手势开 +
+   * 默认曲线），M4 真机评估调优。
    */
-  static pushNowPlaying(param?: Record<string, Object>): void {
+  static pushNowPlaying(triggerId?: string, cornerRadius?: number): void {
     AppStorage.setOrCreate(Router.KEY_NOW_PLAYING_SHOWN, true);
     if (!Router.routeMode() || Router.pathStack === null) {
       return;
     }
-    Router.pushObject(Router.NOW_PLAYING, param ?? '');
+    const param: Record<string, Object> = {};
+    if (triggerId !== undefined && triggerId.length > 0 && Router.uiContext !== null) {
+      // 截图与矩形测量同步执行（onClick 内）：迷你条约 40vp 小组件，开销可忽略；
+      // 组件未挂载（切 Tab 重建窗口期）时库返回 undefined，回退默认转场。
+      const longTakeParam = ezCustomTransition.generateLongTakeParam(
+        Router.uiContext, triggerId, cornerRadius ?? 0);
+      if (longTakeParam !== undefined) {
+        param['longTakeTransitionParam'] = longTakeParam;
+      }
+    }
+    Router.pushObject(Router.NOW_PLAYING, param);
   }
 
   /**
