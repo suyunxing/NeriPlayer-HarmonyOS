@@ -52,8 +52,8 @@ export class SourceSyncCoordinator {
   }
 
   /** Manual entry (settings / playlist detail): ignores the throttle window. */
-  static runNow(): void {
-    SourceSyncCoordinator.run('manual');
+  static async runNow(): Promise<void> {
+    await SourceSyncCoordinator.run('manual');
   }
 
   static isRunning(): boolean {
