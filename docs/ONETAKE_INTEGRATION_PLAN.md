@@ -1,6 +1,6 @@
 # ONETAKE（一镜到底）集成计划 —— @hmanimations/ezcustomtransition
 
-> 建立日期：2026-09-27。基线：`dev` @ `9b550c4`（分支 `onetake-integration-plan`）。
+> 建立日期：2026-09-27。基线：`agreement-reconfirm` @ `b7f252b`（= dev + 5 个未合入修复，含最新的 dock 落点/槽位交接转场打磨；分支 `onetake-integration-plan` 基于该修复分支新建）。
 > 目标：将新接入的一镜到底转场技能（三方库 `@hmanimations/ezcustomtransition`，ohpm 1.3.0，Apache-2.0）落实到 NeriPlayer-HarmonyOS，替换现有 `bindContentCover` 模态 + 自绘分阶段动画的播放页呈现方案。
 > 本文档为执行计划，不含实现代码；所有现状结论均经源码核实（文件:行号），真机相关项一律标注「待真机验证」。
 
@@ -18,17 +18,17 @@
 
 ### 2.1 路由体系
 
-- 根容器：`HdsNavigation`（UIDesign Kit 壳），`view/pages/MainShell.ets:503`；`.mode(NavigationMode.Stack)`（636）、`.navDestination(this.pageMap)`（637）。
-- 栈共享：`MainShell.ets:53` `@Provide('NavPathStack') pageStack`，经 `Router.attach()`（`view/Router.ets:59-62`）交 Router 门面。
+- 根容器：`HdsNavigation`（UIDesign Kit 壳），`view/pages/MainShell.ets:746`；`.mode(NavigationMode.Stack)`（879）、`.navDestination(this.pageMap)`（880）。
+- 栈共享：`MainShell.ets:122` `@Provide('NavPathStack') pageStack`，经 `Router.attach()`（`view/Router.ets:59`）交 Router 门面。
 - 路由跳转：`Router.push()` → `stack.pushPathByName()`；页面注册走 navDestination builder，无 route_map.json。
 - 转场回调能力：原生 `Navigation.customNavContentTransition` 见 SDK `navigation.d.ts:2613`；HdsNavigation 壳亦声明 `customNavContentTransition(delegate: CustomTransitionDelegate)`（`@hms.hds.hdsBaseComponent.d.ets:2464`，since 6.0.0(20)）。工程 API 26，满足。
 
 ### 2.2 播放页呈现（改造对象）
 
-- **播放页不在路由栈上**：`MainShell.ets:658` `.bindContentCover(this.modalMounted, this.nowPlayingBuilder(), ...)` 全屏模态承载；开关是 AppStorage `'ui.nowPlayingShown'`（`Router.ets:47`，`Router.push(NOW_PLAYING)` 特殊分支只翻开关、return，不入栈，`Router.ets:63-67`）。
-- 现有转场：单一进度 `panelAmount` 分阶段原生属性动画（`view/NowPlayingMotion.ets` 几何插值纯函数 + `view/NowPlayingCurves.ets` 曲线），miniBar 槽位交接经 dock 几何推导。`geometryTransition` 共享元素方案已删（历史 commit 908d9f2 系列打磨）。
-- **历史包袱**：播放页内发起的子路由（专辑/一起听）必须先收模态再入栈，否则新页面渲染在模态之下不可见（`Router.ets:75-79` 注释）。
-- 入口共 7 处 `Router.push(Router.NOW_PLAYING)`：`view/components/MiniPlayer.ets:326`（迷你条，主入口）、`view/pages/PlaylistDetailPage.ets:185`、`ExplorePage.ets:104`、`AlbumPage.ets:78`、`RecentPage.ets:77,86`、`BiliFavPage.ets:244`、`NeteasePlaylistPage.ets:191`。
+- **播放页不在路由栈上**：`MainShell.ets:901` `.bindContentCover(this.modalMounted, this.nowPlayingBuilder(), ...)` 全屏模态承载；开关是 AppStorage `'ui.nowPlayingShown'`（`Router.ets:45`，`Router.push(NOW_PLAYING)` 特殊分支只翻开关、return，不入栈，`Router.ets:78-83`）。
+- 现有转场：单一进度 `panelAmount` 分阶段原生属性动画（`view/NowPlayingMotion.ets` 几何插值纯函数 + `view/NowPlayingCurves.ets` 曲线），miniBar 槽位交接经 dock 几何相对推导（agreement-reconfirm 上 b47d111/a095933/076ca7a 三个打磨提交）。`geometryTransition` 共享元素方案已删（历史 commit 908d9f2 系列）。
+- **历史包袱**：播放页内发起的子路由（专辑/一起听）必须先收模态再入栈，否则新页面渲染在模态之下不可见；副作用是返回时回到打开播放页之前的页面而非播放页（`Router.ets:87-93` 注释）。
+- 入口共 7 处 `Router.push(Router.NOW_PLAYING)`：`view/components/MiniPlayer.ets:362`（迷你条，主入口）、`view/pages/PlaylistDetailPage.ets:192`、`ExplorePage.ets:104`、`AlbumPage.ets:85`、`RecentPage.ets:118,127`、`BiliFavPage.ets:252`、`NeteasePlaylistPage.ets:198`。
 
 ### 2.3 Ability 层
 
@@ -40,9 +40,9 @@
 - `oh-package.json5` 两级 dependencies 均为空；引入三方库为工程首个三方运行时依赖。
 - 转场相关测试：`entry/src/test/.../RouteStack.test.ets`（路由 push 决策，**NOW_PLAYING 分支语义变化后必改**）、`NowPlayingMotion.test.ets`（动画几何纯函数，迁移后页面级用例需调整）。
 
-### 2.5 分支漂移
+### 2.5 分支基线说明
 
-`agreement-reconfirm` 相对 dev 有 5 个未合入提交，其中 3 个是 dock 落点/槽位交接打磨（076ca7a、a095933、b47d111），直接影响本计划改造的 miniBar 交接区域。**落地前先合入 dev（M0），避免在旧几何上做新转场。**
+本计划与落地分支直接基于 `agreement-reconfirm` 制定（用户指定）：该分支含 dev 全部内容外加 5 个未合入提交，其中 3 个是 dock 落点/槽位交接打磨（076ca7a、a095933、b47d111），正是本计划改造的 miniBar 交接区域，避免在旧几何上做新转场。落地期间若 `agreement-reconfirm` 有新提交，及时 rebase 同步；最终随 `agreement-reconfirm` 一并经 PR merge 汇入 `dev`。
 
 ## 3 关键决策
 
@@ -59,7 +59,7 @@
 
 ### M0 前置对齐（分支操作，无代码）
 
-- `agreement-reconfirm` 经 PR merge 进 `dev`（3 个 dock 落点提交必须先落地）；本分支 rebase 到新 dev。
+- 本分支已基于 `agreement-reconfirm`（含 3 个 dock 落点打磨提交）；`agreement-reconfirm` 经 PR merge 进 `dev` 后，本分支随之合流（若落地开始时仍未合入，直接在本分支开发，最终与 `agreement-reconfirm` 一并 merge 进 `dev`）。
 
 ### M1 Spike：HdsNavigation × ezcustomtransition 兼容性（真机，1 天）
 
