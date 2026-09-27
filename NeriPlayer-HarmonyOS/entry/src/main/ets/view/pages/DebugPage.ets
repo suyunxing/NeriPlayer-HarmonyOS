@@ -31,6 +31,12 @@ export struct DebugPage {
   @StorageProp('ui.bottomLiftVp') bottomLift: number = Theme.bottomBarLift();
   /** 状态栏避让（util/WindowMetrics.ets 发布）；内容根从 y=0 起，让位 = topInset + 56。 */
   @StorageProp('ui.topInsetVp') topInset: number = 0;
+  /**
+   * 播放页承载形态开关（D4 回退门，docs/ONETAKE_INTEGRATION_PLAN.md）：
+   * 开 = NavDestination 路由形态（一镜到底），关 = 旧 bindContentCover 模态。
+   * 非持久：重启回默认路由形态。
+   */
+  @StorageLink('ui.nowPlayingAsRoute') nowPlayingAsRoute: boolean = true;
   /** 供 HdsNavDestination.bindToScrollable 绑定的整页滚动控制器。 */
   private scroller: Scroller = new Scroller();
 
@@ -261,6 +267,20 @@ export struct DebugPage {
               .margin({ bottom: 8 })
               .id('longtake_spike_trigger')
               .onClick(() => this.pushLongTakeSpike())
+
+            // D4 回退门：播放页路由形态 ↔ 旧模态路径运行时切换。
+            Row() {
+              Text('播放页走路由形态（关 = 旧模态回退）')
+                .fontSize(14)
+                .fontColor(Theme.textSecondary(Theme.isDark()))
+                .layoutWeight(1)
+              Toggle({ type: ToggleType.Switch, isOn: this.nowPlayingAsRoute })
+                .onChange((isOn: boolean) => {
+                  this.nowPlayingAsRoute = isOn;
+                })
+            }
+            .width('100%')
+            .margin({ bottom: 8 })
 
             this.testButton('网易云 API 测试', () => this.testNetease())
             this.testButton('Bilibili API 测试', () => this.testBili())

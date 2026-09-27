@@ -49,6 +49,13 @@ export class Router {
    */
   static readonly KEY_NOW_PLAYING_SHOWN: string = 'ui.nowPlayingShown';
   /**
+   * 播放页承载形态开关（docs/ONETAKE_INTEGRATION_PLAN.md D4 回退门）：
+   * true/未设置 = 播放页以 NavDestination 入栈（一镜到底三方库路径）；
+   * false = 旧 bindContentCover 模态路径。调试开关在 DebugPage（非持久，
+   * 重启回默认路由形态）；真机验证通过一个里程碑周期后随模态路径一起拆除。
+   */
+  static readonly KEY_NOW_PLAYING_AS_ROUTE: string = 'ui.nowPlayingAsRoute';
+  /**
    * 当前 NavPathStack 深度快照（0 = Tab 骨架，>0 = 处于子页）。每次栈操作后
    * 同步发布，MainShell 用 @StorageProp 消费，驱动迷你条在子页下沉为 dock
    * 形态。push 全部经过 Router.push、返回全部经过 Index.onBackPress →
@@ -58,6 +65,11 @@ export class Router {
 
   private static nowPlayingShown(): boolean {
     return AppStorage.get<boolean>(Router.KEY_NOW_PLAYING_SHOWN) === true;
+  }
+
+  /** 播放页当前是否走路由形态（flag 未设置时默认 true，见 KEY_NOW_PLAYING_AS_ROUTE）。 */
+  static routeMode(): boolean {
+    return AppStorage.get<boolean>(Router.KEY_NOW_PLAYING_AS_ROUTE) !== false;
   }
 
   /** MainShell.aboutToAppear 把 Navigation 的栈交给 Router。 */
@@ -82,11 +94,26 @@ export class Router {
 
   static push(name: string, param: string = ''): void {
     if (name === Router.NOW_PLAYING) {
-      // The shell owns visual progress and keeps the modal mounted through exit.
-      AppStorage.setOrCreate(Router.KEY_NOW_PLAYING_SHOWN, true);
+      Router.pushNowPlaying();
       return;
     }
     Router.pushObject(name, param);
+  }
+
+  /**
+   * 播放页唯一入口（计划 M3：七处调用点统一收口于此）。两种形态：
+   * 路由形态——先置 'ui.nowPlayingShown'（双路径共用的「播放页可见」语义，
+   * 迷你条显隐门/pop 门/系统返回都消费它；归零由播放页 NavDestination 的
+   * onDisAppear 统一负责，覆盖侧滑手势路径）再真正入栈，转场参数经 route
+   * param 传给目标页；模态形态——维持原开关翻转，由 MainShell 的
+   * bindContentCover 承载。
+   */
+  static pushNowPlaying(param?: Record<string, Object>): void {
+    AppStorage.setOrCreate(Router.KEY_NOW_PLAYING_SHOWN, true);
+    if (!Router.routeMode() || Router.pathStack === null) {
+      return;
+    }
+    Router.pushObject(Router.NOW_PLAYING, param ?? '');
   }
 
   /**
@@ -101,12 +128,11 @@ export class Router {
       // 启动门阶段（免责声明/引导页）还没有 Navigation，此时不该有路由跳转。
       return;
     }
-    // 模态盖在整个 Navigation 之上，播放页内发起的路由（专辑/一起听）必须先
-    // 收掉模态再入栈，否则新页面渲染在模态下面不可见。不包 animateTo：立即
-    // 收起，不与被推入页面自身的 DEFAULT 转场叠加；副作用是返回时回到打开
-    // 播放页之前的页面而不是播放页（模态已收，与设计预期一致）。
-    // （M2 路由形态下播放页在栈内、模态不再挂载，此分支由 flag 守卫跳过。）
-    if (Router.nowPlayingShown()) {
+    // 模态路径专用：模态盖在整个 Navigation 之上，播放页内发起的路由（专辑/
+    // 一起听）必须先收掉模态再入栈，否则新页面渲染在模态下面不可见。路由形态
+    // 下播放页在栈内、模态不再挂载，跳过收起——子页直接叠上、返回即回播放页，
+    // 「返回时回到打开播放页之前的页面」的历史包袱就此消除（D1）。
+    if (!Router.routeMode() && Router.nowPlayingShown()) {
       AppStorage.setOrCreate(Router.KEY_NOW_PLAYING_SHOWN, false);
     }
     const depth = stack.size();
@@ -133,14 +159,39 @@ export class Router {
     Router.publishDepth();
   }
 
+  /** 播放页路由返回转场的时间窗防重（ms）：返回转场中重复返回不弹下一层。 */
+  private static readonly PLAYING_POP_GUARD_MS: number = 450;
+  private static lastPlayingPopMs: number = 0;
+
   static pop(): void {
+    const stack = Router.pathStack;
+    if (stack === null) {
+      return;
+    }
+    if (Router.routeMode()) {
+      // 路由形态：播放页在栈内，返回就是普通弹栈（'ui.nowPlayingShown' 由
+      // 播放页 NavDestination 的 onDisAppear 归零）。仅当模态残留（调试中
+      // 运行时切换 flag 的窗口期）时走模态关闭分支。
+      if (AppStorage.get<boolean>('ui.nowPlayingMounted') === true) {
+        AppStorage.setOrCreate(Router.KEY_NOW_PLAYING_SHOWN, false);
+        return;
+      }
+      const names = stack.getAllPathName();
+      const top = names.length > 0 ? names[names.length - 1] : '';
+      const now = Date.now();
+      if (top === Router.NOW_PLAYING && now - Router.lastPlayingPopMs < Router.PLAYING_POP_GUARD_MS) {
+        return;
+      }
+      if (top === Router.NOW_PLAYING) {
+        Router.lastPlayingPopMs = now;
+      }
+      stack.pop();
+      Router.publishDepth();
+      return;
+    }
     // Repeated back presses during exit must not pop the route underneath.
     if (Router.nowPlayingShown() || AppStorage.get<boolean>('ui.nowPlayingMounted') === true) {
       AppStorage.setOrCreate(Router.KEY_NOW_PLAYING_SHOWN, false);
-      return;
-    }
-    const stack = Router.pathStack;
-    if (stack === null) {
       return;
     }
     stack.pop();

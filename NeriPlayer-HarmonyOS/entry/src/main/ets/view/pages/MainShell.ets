@@ -23,6 +23,7 @@ import { ExplorePage } from './ExplorePage';
 import { LibraryPage } from './LibraryPage';
 import { SettingsPage } from './SettingsPage';
 import { NowPlayingPage } from './NowPlayingPage';
+import { NowPlayingRoutePage } from './NowPlayingRoutePage';
 import { PlaylistDetailPage } from './PlaylistDetailPage';
 import { NeteasePlaylistPage } from './NeteasePlaylistPage';
 import { BiliFavPage } from './BiliFavPage';
@@ -210,6 +211,13 @@ export struct MainShell {
   }
 
   private onNowPlayingRequested(): void {
+    // 路由形态（D4 flag 开，默认）：'ui.nowPlayingShown' 只作「播放页可见」
+    // 信号（迷你条显隐门/pop 门共用），模态机器全部跳过；立即重发布显隐门，
+    // 覆盖层对播放页路由的让位（dockOverlayHidden 并入了 nowPlayingShown）。
+    if (Router.routeMode()) {
+      this.publishSlotMiniHidden();
+      return;
+    }
     if (this.nowPlayingShown && !this.modalMounted) {
       // lg 宽屏（侧栏模式）没有 HdsTabsMiniBar 槽位，pillRect() 的手机药丸
       // 矩形无意义：改用底部整宽条带作为展开起点（底部弹出面板观感）。手机
@@ -346,7 +354,10 @@ export struct MainShell {
    * 不可见，只剩返回主页后槽位空药丸壳）。
    */
   private dockOverlayHidden(): boolean {
-    return this.modalMounted && !this.closing;
+    // 路由形态：播放页 NavDestination 盖不住这层覆盖层（它悬浮在 Navigation
+    // 之上），播放页可见期间（路由或模态）一律让位；模态收起方向
+    // （nowPlayingShown 已归零、modalMounted 未卸）不受影响，维持原节奏。
+    return (this.modalMounted && !this.closing) || this.nowPlayingShown;
   }
 
   /**
@@ -643,7 +654,12 @@ export struct MainShell {
    */
   @Builder
   pageMap(name: string, param: Object) {
-    if (name === Router.PLAYLIST_DETAIL) {
+    if (name === Router.NOW_PLAYING) {
+      // 播放页路由承载壳（docs/ONETAKE_INTEGRATION_PLAN.md M2）：NOW_PLAYING
+      // 重新入栈；模态回退路径（'ui.nowPlayingAsRoute' = false）不经此分支，
+      // 仍走下方 bindContentCover。
+      NowPlayingRoutePage()
+    } else if (name === Router.PLAYLIST_DETAIL) {
       PlaylistDetailPage({ playlistId: this.paramText(param) })
     } else if (name === Router.NETEASE_PLAYLIST) {
       NeteasePlaylistPage({ playlistParam: this.paramText(param) })

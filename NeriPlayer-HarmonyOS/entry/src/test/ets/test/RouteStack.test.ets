@@ -30,6 +30,10 @@ export default function routeStackTest(): void {
       // MiniPlayer 双击、或换一个 id 再进同一个歌单详情，离开时都只应按一次返回。
       expect(routePushAction('playlist_detail', 1, 'playlist_detail'))
         .assertEqual(RoutePushAction.REPLACE_TOP);
+      // 播放页路由形态（M2）同样吃这条通用规则：播放页在栈顶时迷你条已被
+      // 盖住、正常点不到，但播放入口防抖/重入仍应替换而不是叠第二层。
+      expect(routePushAction('now_playing', 1, 'now_playing'))
+        .assertEqual(RoutePushAction.REPLACE_TOP);
       // 深度 0 时栈顶为空串，同名判据不能误命中：此时只有常规入栈。
       expect(routePushAction('', 0, 'playlist_detail')).assertEqual(RoutePushAction.PUSH);
     });
