@@ -3,10 +3,12 @@
 import { LengthMetrics, promptAction } from '@kit.ArkUI';
 import { Playlist } from '../../model/Playlist';
 import { SongItem } from '../../model/SongItem';
+import { MusicPlatform } from '../../model/MusicPlatform';
 import { LocalPlaylistRepository } from '../../data/LocalPlaylistRepository';
 import { HistoryRepository } from '../../data/HistoryRepository';
 import { stableKeyOf } from '../../model/SongIdentity';
 import { PlayerManager } from '../../player/PlayerManager';
+import { SourceSyncCoordinator } from '../../sourcesync/SourceSyncCoordinator';
 import { Theme } from '../Theme';
 import { AccentScheme } from '../theme/AccentScheme';
 import { SongRow } from '../components/SongRow';
@@ -29,9 +31,46 @@ export struct PlaylistDetailPage {
   @State showAddDialog: boolean = false;
   @State showRenameDialog: boolean = false;
   @State renameValue: string = '';
+  @State syncingMirror: boolean = false;
+  /** 镜像歌单后台同步完成会自增该 tick；本页不订阅就不会刷新（背景同步无导航）。 */
+  @StorageProp('ui.refreshTick') @Watch('onRefreshTick') refreshTick: number = 0;
 
   private isFavorites(): boolean {
     return this.playlistId === LocalPlaylistRepository.FAVORITES_ID;
+  }
+
+  onRefreshTick(): void {
+    this.reload();
+  }
+
+  private isMirrored(): boolean {
+    return this.playlist !== null && this.playlist.syncSource !== null;
+  }
+
+  private mirrorSubtitle(): string {
+    const playlist = this.playlist;
+    if (playlist === null || playlist.syncSource === null) {
+      return '';
+    }
+    const platform = playlist.syncSource.platform === MusicPlatform.BILIBILI ? 'B站' : '网易云';
+    const mode = playlist.syncSource.mode === 'append' ? '仅追加' : '跟随远端';
+    return `${platform} · ${mode}`;
+  }
+
+  private async syncMirrorNow(): Promise<void> {
+    if (this.syncingMirror) {
+      return;
+    }
+    this.syncingMirror = true;
+    try {
+      await SourceSyncCoordinator.runNow();
+      await this.reload();
+      promptAction.openToast({ message: '同步完成' });
+    } catch (error) {
+      promptAction.openToast({ message: `同步失败：${(error as Error).message}` });
+    } finally {
+      this.syncingMirror = false;
+    }
   }
 
   async aboutToAppear(): Promise<void> {
@@ -135,7 +174,9 @@ export struct PlaylistDetailPage {
             PlaylistHeader({
               coverUrl: '',
               title: this.playlist.name,
-              subtitle: `${this.playlist.songKeys.length} 首`
+              subtitle: this.isMirrored() ?
+                `${this.playlist.songKeys.length} 首 · ${this.mirrorSubtitle()}` :
+                `${this.playlist.songKeys.length} 首`
             }) {
               HeaderPill({
                 label: '全部播放',
@@ -146,6 +187,14 @@ export struct PlaylistDetailPage {
                 label: '随机播放',
                 onTap: (): void => this.playAll(true)
               })
+              if (this.isMirrored()) {
+                HeaderPill({
+                  label: this.syncingMirror ? '同步中…' : '立即同步',
+                  onTap: (): void => {
+                    this.syncMirrorNow();
+                  }
+                })
+              }
             }
 
             Row() {
@@ -169,7 +218,8 @@ export struct PlaylistDetailPage {
               EmptyState({
                 icon: '♪',
                 title: '歌单为空',
-                subtitle: this.isFavorites() ? '在歌曲列表点 ♡ 收藏歌曲' : '点击「添加」从播放历史选歌'
+                subtitle: this.isFavorites() ? '在歌曲列表点 ♡ 收藏歌曲' :
+                  (this.isMirrored() ? '等待自动同步从来源拉取歌曲，也可点「立即同步」' : '点击「添加」从播放历史选歌')
               })
             } else {
               List() {

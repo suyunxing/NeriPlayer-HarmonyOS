@@ -27,6 +27,7 @@ export const SETTING_TRAFFIC: string = 'traffic';
 export const SETTING_STORAGE: string = 'storage';
 export const SETTING_ACCOUNTS: string = 'accounts';
 export const SETTING_SYNC: string = 'sync';
+export const SETTING_PLAYLIST_SYNC: string = 'playlist_sync';
 export const SETTING_DEBUG: string = 'debug';
 export const SETTING_ABOUT: string = 'about';
 
@@ -105,6 +106,12 @@ export struct SettingsPage {
             subtitle: '默认启动页与页面内容设置',
             icon: '🧭',
             onTap: () => Router.push(Router.SETTINGS_DETAIL, SETTING_NAVIGATION)
+          })
+          SettingHubRow({
+            title: '歌单同步',
+            subtitle: '网易云歌单 / B站收藏夹自动同步为镜像歌单',
+            icon: '🔁',
+            onTap: () => Router.push(Router.SETTINGS_DETAIL, SETTING_PLAYLIST_SYNC)
           })
         }
         .width('100%')
