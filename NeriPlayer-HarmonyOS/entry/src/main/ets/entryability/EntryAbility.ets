@@ -21,6 +21,7 @@ import { LocalDirectoryScanner } from '../data/LocalDirectoryScanner';
 import { AutoSyncScheduler } from '../sync/AutoSyncScheduler';
 import { SyncService } from '../sync/SyncService';
 import { SyncReport } from '../sync/SyncReport';
+import { SourceSyncCoordinator } from '../sourcesync/SourceSyncCoordinator';
 
 const TAG: string = 'EntryAbility';
 const DOMAIN: number = 0x4E50;
@@ -99,6 +100,9 @@ export default class EntryAbility extends UIAbility {
           AutoSyncScheduler.setBundleName(this.context.abilityInfo.bundleName);
           AutoSyncScheduler.scheduleStartupSync();
           AutoSyncScheduler.updateDelayedWorkRegistration();
+          // 第三方歌单镜像同步：每次冷启动节流执行一次（默认 30 分钟窗口，延迟
+          // 15s 让启动网络任务先行），无镜像来源时为纯内存检查零成本跳过。
+          SourceSyncCoordinator.scheduleStartupSync();
         });
       });
   }

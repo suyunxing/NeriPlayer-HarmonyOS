@@ -94,6 +94,7 @@ import playbackStatsRetentionTest from './ets/test/PlaybackStatsRetention.test';
 import playbackStatsAggregatorTest from './ets/test/PlaybackStatsAggregator.test';
 import volumeFaderTest from './ets/test/VolumeFader.test';
 import nowPlayingMotionTest from './ets/test/NowPlayingMotion.test';
+import sourceSyncTest from './ets/test/SourceSync.test';
 
 export default function testsuite(): void {
   lrcParserTest();
@@ -192,4 +193,5 @@ export default function testsuite(): void {
   playbackStatsAggregatorTest();
   volumeFaderTest();
   nowPlayingMotionTest();
+  sourceSyncTest();
 }
