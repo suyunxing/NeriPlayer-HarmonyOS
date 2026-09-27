@@ -230,6 +230,18 @@ export class LocalPlaylistRepository {
     return true;
   }
 
+  /** Enables/disables a mirror source for automatic sync (device-local status). */
+  static async setMirrorEnabled(playlistId: string, enabled: boolean): Promise<boolean> {
+    const playlists = await LocalPlaylistRepository.loadAll();
+    const playlist = playlists.find((item: Playlist): boolean => item.id === playlistId);
+    if (playlist === undefined || playlist.syncSource === null) {
+      return false;
+    }
+    playlist.syncSource.enabled = enabled;
+    await LocalPlaylistRepository.saveAllSilent(playlists);
+    return true;
+  }
+
   /** Batch import into an existing playlist; returns how many songs were added. */
   static async importSongs(playlistId: string, songs: SongItem[]): Promise<number> {
     const playlists = await LocalPlaylistRepository.loadAll();
