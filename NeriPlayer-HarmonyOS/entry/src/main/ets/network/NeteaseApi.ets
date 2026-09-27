@@ -63,6 +63,8 @@ interface NeteasePlaylist {
   description?: string;
   coverImgUrl?: string;
   trackCount?: number;
+  /** Playlist-level last-updated (ms). Present on /api/v6/playlist/detail; used as the source-sync fingerprint. */
+  updateTime?: number;
   tracks?: NeteaseSong[];
   trackIds?: NeteaseTrackId[];
 }
@@ -347,6 +349,27 @@ export class NeteaseApi {
   static async getPlaylistDetail(id: number): Promise<SongItem[]> {
     const overview = await NeteaseApi.getPlaylistOverview(id);
     return overview.songs;
+  }
+
+  /**
+   * Cheap playlist change fingerprint for source-sync, without resolving the
+   * songs: prefers the playlist-level updateTime (ms) and degrades to the
+   * track count when the field is absent. One /api/v6/playlist/detail request.
+   */
+  static async getPlaylistFingerprint(id: number): Promise<string> {
+    const text = await HttpClient.getText(
+      `${Constants.NETEASE_BASE}/api/v6/playlist/detail?id=${id}`,
+      NeteaseApi.headers()
+    );
+    const response = JSON.parse(text) as NeteasePlaylistResponse;
+    const playlist = response.playlist;
+    if (playlist === undefined) {
+      throw new Error(`netease playlist detail empty: id=${id}`);
+    }
+    if (playlist.updateTime !== undefined && playlist.updateTime > 0) {
+      return `u${playlist.updateTime}`;
+    }
+    return `t${playlist.trackCount ?? 0}`;
   }
 
   /**
