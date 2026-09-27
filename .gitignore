@@ -69,3 +69,6 @@ NeriPlayer-master/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# ZCode 工具自动生成的工作区排除文件（不入库，保留在本地）
+.zcodeignore

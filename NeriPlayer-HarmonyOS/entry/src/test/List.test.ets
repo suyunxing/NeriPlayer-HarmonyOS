@@ -16,10 +16,13 @@ import playbackFailurePolicyTest from './ets/test/PlaybackFailurePolicy.test';
 import qrEncoderTest from './ets/test/QrEncoder.test';
 import neteaseAuthTest from './ets/test/NeteaseAuth.test';
 import neteasePlaylistParserTest from './ets/test/NeteasePlaylistParser.test';
+import neteasePhoneLoginSeedTest from './ets/test/NeteasePhoneLoginSeed.test';
 import playlistMergeTest from './ets/test/PlaylistMerge.test';
+import playlistDisplayCoverTest from './ets/test/PlaylistDisplayCover.test';
 import httpHeaderParserTest from './ets/test/HttpHeaderParser.test';
 import assetChunkingTest from './ets/test/AssetChunking.test';
 import biliAuthTest from './ets/test/BiliAuth.test';
+import biliWebLoginTest from './ets/test/BiliWebLogin.test';
 import biliFavParserTest from './ets/test/BiliFavParser.test';
 import streamHeadersTest from './ets/test/StreamHeaders.test';
 import streamRefreshTest from './ets/test/StreamRefresh.test';
@@ -94,6 +97,7 @@ import playbackStatsRetentionTest from './ets/test/PlaybackStatsRetention.test';
 import playbackStatsAggregatorTest from './ets/test/PlaybackStatsAggregator.test';
 import volumeFaderTest from './ets/test/VolumeFader.test';
 import nowPlayingMotionTest from './ets/test/NowPlayingMotion.test';
+import disclaimerConsentPolicyTest from './ets/test/DisclaimerConsentPolicy.test';
 import sourceSyncTest from './ets/test/SourceSync.test';
 
 export default function testsuite(): void {
@@ -110,9 +114,11 @@ export default function testsuite(): void {
   neteaseAuthTest();
   neteasePlaylistParserTest();
   playlistMergeTest();
+  playlistDisplayCoverTest();
   httpHeaderParserTest();
   assetChunkingTest();
   biliAuthTest();
+  biliWebLoginTest();
   biliFavParserTest();
   streamHeadersTest();
   streamRefreshTest();
@@ -193,5 +199,7 @@ export default function testsuite(): void {
   playbackStatsAggregatorTest();
   volumeFaderTest();
   nowPlayingMotionTest();
+  disclaimerConsentPolicyTest();
+  neteasePhoneLoginSeedTest();
   sourceSyncTest();
 }

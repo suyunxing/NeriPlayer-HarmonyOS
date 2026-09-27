@@ -7,6 +7,12 @@ import { BAND_BUTTON_VP, BAND_TEXT_VP, BP_LG, BP_MD } from '../../util/Breakpoin
 import { LEGAL_AGREEMENT, LEGAL_PRIVACY, LegalDocPage } from './LegalDocPage';
 
 /**
+ * 首启页协议浮层开合状态的 AppStorage 键。系统返回只送达 @Entry（Index
+ * onBackPress），它据此区分「收起浮层」与「放行退出应用」。
+ */
+export const DISCLAIMER_OPENED_DOC_KEY: string = 'ui.disclaimer_opened_doc';
+
+/**
  * 首启合规页。
  *
  * 指南要求首次启动的隐私弹窗必须提供「不同意」选项，且不同意之后要么进入访客
@@ -20,9 +26,12 @@ import { LEGAL_AGREEMENT, LEGAL_PRIVACY, LegalDocPage } from './LegalDocPage';
 @Component
 export struct DisclaimerPage {
   onAgree: () => void = () => {};
+  /** 协议文本较用户上次同意的版本有修订：标题下多一行更新提示。父组件传入状态变量，须用 @Prop 建立单向同步。 */
+  @Prop reconfirmAfterUpdate: boolean = false;
   @State countdown: number = 5;
-  /** 空串表示未打开文档浮层，否则是 LEGAL_PRIVACY / LEGAL_AGREEMENT。 */
-  @State openedDoc: string = '';
+  /** 空串表示未打开文档浮层，否则是 LEGAL_PRIVACY / LEGAL_AGREEMENT。经
+   *  AppStorage 与 Index.onBackPress 共享：浮层开着时系统返回先收起浮层。 */
+  @StorageLink(DISCLAIMER_OPENED_DOC_KEY) openedDoc: string = '';
   /**
    * 底部固定按钮区的上抬量，由 util/WindowMetrics.ets 按真实导航指示器避让区
    * 发布；默认值是指南常量，只在还没采到样时短暂生效。
@@ -106,6 +115,12 @@ export struct DisclaimerPage {
               .fontSize(22)
               .fontWeight(FontWeight.Bold)
               .fontColor(Theme.textPrimary(Theme.isDark()))
+            if (this.reconfirmAfterUpdate) {
+              Text('《隐私政策》与《用户协议》已更新，请重新阅读并确认。')
+                .fontSize(14)
+                .fontWeight(FontWeight.Medium)
+                .fontColor(Theme.primary(Theme.isDark()))
+            }
             Text('本项目仅供学习与研究使用，请勿用于任何非法用途。')
               .fontSize(15)
               .fontColor(Theme.textPrimary(Theme.isDark()))

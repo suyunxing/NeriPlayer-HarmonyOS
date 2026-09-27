@@ -695,15 +695,21 @@ export struct NowPlayingPage {
                   .maxLines(1)
                   .textOverflow({ overflow: TextOverflow.Ellipsis })
                   .layoutWeight(1)
-                Image(this.favorite
-                  ? $r('app.media.ic_baseline_favorite_24')
-                  : $r('app.media.ic_outline_favorite_24'))
-                  .width(24)
-                  .height(24)
-                  .fillColor(this.favorite ? Theme.danger(false) : this.im().textSecondary)
-                  .padding(6)
-                  .onClick(() => this.toggleFavorite())
+                Column() {
+                  Image(this.favorite
+                    ? $r('app.media.ic_baseline_favorite_24')
+                    : $r('app.media.ic_outline_favorite_24'))
+                    .width(24)
+                    .height(24)
+                    .fillColor(this.favorite ? Theme.danger(false) : this.im().textSecondary)
+                }
+                .width(44)
+                .height(44)
+                .justifyContent(FlexAlign.Center)
+                .accessibilityText(this.favorite ? '取消收藏' : '收藏')
+                .onClick(() => this.toggleFavorite())
               }
+              .alignItems(VerticalAlign.Center)
               .width('100%')
 
               Text(this.song().displayArtist)

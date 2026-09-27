@@ -40,6 +40,23 @@ export class Playlist {
     this.syncSource = null;
   }
 
+  /**
+   * Display cover: the first song's effective cover wins (custom covers
+   * included), falling back to the playlist's own coverUrl; callers render a
+   * placeholder when both are empty. Home cards and the playlist detail header
+   * share this derivation — membership changes refresh updatedAt, and the
+   * pages reload on that signal so the cover follows the first song.
+   */
+  get displayCoverUrl(): string {
+    if (this.songs.length > 0) {
+      const firstCover = this.songs[0].effectiveCoverUrl;
+      if (firstCover.length > 0) {
+        return firstCover;
+      }
+    }
+    return this.coverUrl;
+  }
+
   toJson(): string {
     return JSON.stringify(this);
   }

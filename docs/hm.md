@@ -1,6 +1,6 @@
 # NeriPlayer HarmonyOS 开发与迁移指南
 
-> 核验日期：2026-08-14；2026-08-31 复核了 §3.1/§3.2/§8.1 的源码规模、能力域状态与用例计数；2026-09-08 复核了 §1/§2.2/§3.1/§8.1/§8.3/§9 的基线、包名、规模与用例计数（API 26 迁移与 bundleName 改名后的文档对齐）；2026-09-14 复核了 §3.1/§8.1 的规模与用例计数并补记 §7.14（2026-09-08～09-14 真机反馈修复与播放页转场波次）。本文依据华为开发者联盟文档中心、版本说明和当前工作区源码重写并复核：版本映射与官方文档核对一致；本机工具链路径按 2026-08-14 迁移后的 `D:\HarmonyOS\Tools\` 布局更新（2026-08-13 的验证记录当时基于旧布局 `D:\HarmonyOS\` 根目录）。本文面向 NeriPlayer 的 HarmonyOS 原生迁移，不是 HarmonyOS API 的完整百科。
+> 核验日期：2026-08-14；2026-08-31 复核了 §3.1/§3.2/§8.1 的源码规模、能力域状态与用例计数；2026-09-08 复核了 §1/§2.2/§3.1/§8.1/§8.3/§9 的基线、包名、规模与用例计数（API 26 迁移与 bundleName 改名后的文档对齐）；2026-09-14 复核了 §3.1/§8.1 的规模与用例计数并补记 §7.14（2026-09-08～09-14 真机反馈修复与播放页转场波次）；2026-09-17 复核了 §3.1/§3.2/§8.1 的源码规模与用例计数。本文依据华为开发者联盟文档中心、版本说明和当前工作区源码重写并复核：版本映射与官方文档核对一致；本机工具链路径按 2026-08-14 迁移后的 `D:\HarmonyOS\Tools\` 布局更新（2026-08-13 的验证记录当时基于旧布局 `D:\HarmonyOS\` 根目录）。本文面向 NeriPlayer 的 HarmonyOS 原生迁移，不是 HarmonyOS API 的完整百科。
 
 ## 1. 先看结论
 
@@ -106,14 +106,14 @@ compatibleSdkVersion ≤ targetSdkVersion ≤ compileSdkVersion
 HarmonyOS 工程当前是单 `entry` HAP、Stage 模型、ArkTS 严格模式。
 工程声明支持 phone、tablet、2in1，包名为 `moe.ouom.neriplayer.hmos`（2026-09-01 由 `moe.ouom.neriplayer` 改名），许可证沿用 GPL-3.0。
 
-源码 `entry/src/main/ets` 下 257 个 `.ets` 文件、约 5.57 万行（2026-09-14 实测 55,727 行）。`entry/src/test/` 本地单元测试已随里程碑累积到 980 用例（2026-09-14 静态清点；最近一次全量执行为 2026-08-29 的 874/874 全绿），`entry/src/ohosTest/` 建有设备测试族（21 个测试文件）；测试范围与计数沿革见 §8.1。
+源码 `entry/src/main/ets` 下 269 个 `.ets` 文件、约 6.08 万行（2026-09-17 实测 60,800 行）。`entry/src/test/` 本地单元测试已随里程碑累积到 1035 用例（2026-09-17 静态清点；最近一次全量执行为 2026-08-29 的 874/874 全绿），`entry/src/ohosTest/` 建有设备测试族（24 个测试文件）；测试范围与计数沿革见 §8.1。
 2026-08-13 已使用 `D:\HarmonyOS` 中的 6.1.1 Release 工具链从 `ohpm install --all`、`clean` 开始完成 Debug HAP 构建，随后执行 ArkTS 单元测试、调试签名、模拟器安装、冷启动和设置页 smoke test。构建与测试结果可从当前源码重复获得，不再依赖 2026-08-02 的历史日志。
 
 ### 3.2 已有代码与可信度
 
 | 能力域 | 当前情况 | 可信度/下一步 |
 | --- | --- | --- |
-| 启动、免责声明、引导、安全模式 | `Index.ets` 和对应页面已有路径 | 静态存在；需冷启动、升级和异常恢复测试 |
+| 启动、免责声明、引导、安全模式 | `Index.ets` 和对应页面已有路径；2026-09-22 免责声明加版本门控（`util/DisclaimerConsentPolicy.ets` + 偏好键 `np.disclaimer_accepted_version`：协议正文修订时递增 `CURRENT_DISCLAIMER_VERSION`，已同意旧版的安装升级后首启重新进合规页，`DisclaimerPage` 显示更新提示行） | 静态存在；需冷启动、升级和异常恢复测试（版本门控的真机升级重弹路径未验证） |
 | 主导航和页面 | 首页、探索、资料库、设置、播放页等已存在 | `Navigation`/`NavDestination` + `NavPathStack` 已落地（2026-08-26，`Router` 保留门面）；多形态布局回归记录见 §9 |
 | 基础播放 | `PlayerManager.ets` 使用 AVPlayer，支持 URL/fd、队列、seek、倍速和错误重试骨架 | 原型/待复核；需真实设备闭环 |
 | 系统媒体控制 | `AVSessionManager.ets` 可创建并更新 AVSession | 播控中心元数据/歌词字段/seek 回灌已设备实测（2026-08-24/25 M10.1/M10.3）；锁屏、耳机与进程回收真机测试待复核 |
@@ -127,7 +127,7 @@ HarmonyOS 工程当前是单 `entry` HAP、Stage 模型、ArkTS 严格模式。
 | 一起听 | `listentogether/` 全链 + 房间页（M7，2026-08-21/22） | 建房/加入/同步播放/重连/邀请分享双端设备闭环；房间设置开关等增强项未做 |
 | USB 独占 | M9.1 spike 定案**不移植**（2026-08-24，`docs/USB_M91_SPIKE.md`） | API 面可行，但 ArkTS 单 JS 线程守不住等时节拍、SDK 无公开 USB DDK；系统路径 AVPlayer→USB Audio HAL 可用 |
 | 动态取色/高级模糊 | `view/theme/`（Palette/DynamicTheme 等）+ 背景模糊/玻璃子集（M8.1/M8.4，2026-08-23） | 设备实证随封面变色；AGSL 区域掩码玻璃无平台对应（D 级降级）；壁纸取色待复核 |
-| 测试 | ArkTS 本地单元测试 874/874 通过（2026-08-29 S 阶段记录，为最近一次全量执行；2026-09-14 静态清点 980 例；最初仅 3 个 LRC 用例，随各里程碑累积）+ `ohosTest` 设备测试族 | 已建立并持续扩充；UI/Instrument 自动化仍薄 |
+| 测试 | ArkTS 本地单元测试 874/874 通过（2026-08-29 S 阶段记录，为最近一次全量执行；2026-09-17 静态清点 1035 例；最初仅 3 个 LRC 用例，随各里程碑累积）+ `ohosTest` 设备测试族 | 已建立并持续扩充；UI/Instrument 自动化仍薄 |
 
 ### 3.3 当前配置审查
 
@@ -477,7 +477,7 @@ $hdc = 'D:\HarmonyOS\Tools\command-line-tools\sdk\default\openharmony\toolchains
 
 ### 8.1 纯逻辑测试
 
-当前基线位于 `entry/src/test/`，通过 `@ohos/hypium` 和 Hvigor 本地单元测试任务执行 **980 个用例**（2026-09-14 静态清点 `it(` 声明；最近一次全量执行记录为 2026-08-29 的 874/874 全绿，`docs/FEATURE_MATRIX.md`；此前各里程碑计数 3→42→…→809→816→848→874→935→980 递增，`hvigorw test` 默认不打印计数，结果读 `entry/.test/default/intermediates/test/coverage_data/test_result.txt`）。测试不访问设备和第三方网络。该结果不替代需要安装测试包并通过 `aa test` 执行的设备侧 JsUnit/Instrument 测试。
+当前基线位于 `entry/src/test/`，通过 `@ohos/hypium` 和 Hvigor 本地单元测试任务执行 **1035 个用例**（2026-09-17 静态清点 `it(` 声明；最近一次全量执行记录为 2026-08-29 的 874/874 全绿，`docs/FEATURE_MATRIX.md`；此前各里程碑计数 3→42→…→809→816→848→874→935→980→1035 递增，`hvigorw test` 默认不打印计数，结果读 `entry/.test/default/intermediates/test/coverage_data/test_result.txt`）。测试不访问设备和第三方网络。该结果不替代需要安装测试包并通过 `aa test` 执行的设备侧 JsUnit/Instrument 测试。
 
 优先为以下模块补 JsUnit：
 
@@ -703,6 +703,32 @@ $hdc = 'D:\HarmonyOS\Tools\command-line-tools\sdk\default\openharmony\toolchains
 - **资料库收尾**（d9b209c）：统计卡片图标/新建按钮/歌单图标随封面取色重染，消除主题色残留。
 - **工程协作**（d68f4f3、cbef581、8de4ca1）：配置 Copilot 代码审查（`.github/skills/harmonyos-code-review/SKILL.md`、`.github/copilot-instructions.md`、`.github/instructions/` 按 ArkTS 与 CI workflow 两域分流）；根目录与工程 README 按上游风格重写；`NeriPlayer-master/` 解除 Git 追踪并加入 `.gitignore`（磁盘保留为只读参照快照；`NeriPlayer-ASCF/` 仍在版本控制中）。
 - **审查工具切换**（2026-09-16）：应用户要求移除上一条的 Copilot 审查 4 个配置文件（GitHub 侧 `copilot-pull-request-reviewer` 与 `chatgpt-codex-connector` 两个审查 App 由用户网页端停用）；AI 审查改走 CodeRabbit（`.coderabbit.yaml`，App 待装、仓库转公开后免费）+ gitleaks 密钥扫描（`.github/workflows/gitleaks.yml`，已上线）。
+
+### 7.15 2026-09-16 二、三级页沉浸渐变模糊标题栏统一（服务器 Linux CLT 26.0.0.105，无设备，分支 `settings-card-radius`）
+
+将 §7.14「壳层沉浸改版」的 `HdsNavigation` GRADIENT_BLUR 标题栏模式下沉到全部 12 个路由页（本地歌单/网易云歌单/B 站收藏夹/专辑/艺人/播放历史/播放统计/下载管理/一起听/调试/设置详情/协议文档），按官方 UIDesignKit「组件导航-开发实例」（`ui-design-navigation-dynamic-blur-demo`）的 HdsNavDestination 写法：
+
+- **共享配置** `view/components/HdsSubPage.ets`（新文件）：`subPageTitleBar(title, menu?, subTitle?)` 构造与外壳逐参数对齐的 titleBar（`ScrollEffectType.GRADIENT_BLUR` 0→8vp + `BlurStrategy.ADAPTIVE` + `systemMaterialEffect`（HdsLight 探测降级）+ `enableComponentSafeArea: true`）；`SubPageBottomFade` 组件复刻 MainShell 手势条渐变遮罩（页面底色 0xD9→透明，`@StorageProp('ui.bottomLiftVp')` 跟随避让区）。
+- **MainShell.pageMap**：去掉共享 `NavDestination().hideTitleBar(true)` 包装层，各路由页自身以 `HdsNavDestination` 为根（官方允许与标准 NavDestination 混用；未知路由兜底分支保留标准 NavDestination）。`onWillDisappear → Router.notifyReturned()` 返回广播随之下沉到各页。
+- **每页模式**：根 `HdsNavDestination().titleBar(...).bindToScrollable([scroller]).backgroundColor(Transparent).ignoreLayoutSafeArea([SYSTEM],[BOTTOM]).onWillDisappear(...)`；滚动容器 `.clip(false)`（内容滚入标题栏下方被渐变模糊覆盖）+ List 加 `.cachedCount(3, true)`（官方 FAQ：防穿透区列表项闪空）；`ignoreLayoutSafeArea` 底边延伸后列表尾部加 `bottomLift + 32` 让位 spacer、Scroll 类页面改 padding 尾部同高。
+- **结构归一**：原「固定头部 + 内嵌 List」的页面（三个歌单页、艺人页、历史页）把头图/搜索框/胶囊等并入同一个 List/Scroll 作首组 ListItem，保证整页内容可穿到标题栏下；StatsPage 曲目榜（≤100 行）直接平铺进外层 Scroll 免嵌套滚动。原页内头部操作迁入 titleBar 菜单（RecentPage 排序+说明/导出/导入/清除 5 项、DownloadsPage 清空记录、PlaylistDetailPage 歌单管理；sys.symbol 资源名经 `toolchains/id_defined.json` 核实存在）。LegalDocPage 双模式：新增 `asRoute` 属性，全屏路由走 HdsNavDestination，免责声明浮层保留自绘头部。
+- **模拟器风险**：S4 曾实测 HdsNavDestination 在模拟器只渲染标题栏 chrome 不挂载内容子树（8958d16 注释）；同类的 HdsNavigation 外壳问题真机不复现（2026-09-10 用户确认），子页按官方标准启用，**模拟器行为待复核、真机渲染未验证**。
+- 验证（服务器）：entry@default assembleHap **BUILD SUCCESSFUL 0 error**（首轮 10 error 为 `.margin()` 链在带尾随闭包的 `PlaylistHeader{...}` 之后的 ArkTS 语法限制，改 Column 包裹后清零）；codelinter 14 个改动文件 **0 error / 8 warn**（其中 6 warn 为 BiliFav/Netease 存量性能提示、2 warn 为 custom-component 风格提示——SubPageBottomFade 因自带 `@StorageProp` 响应式跟踪保留组件形态）。
+- **修订（2026-09-16 用户真机截图反馈后）**：首版照官方 demo 用 `enableComponentSafeArea: true` 让内容避开标题栏，真机实测标题栏底下没有页面内容，光感材质渲染出自己的暖色底板，顶部出现一条淡米黄断层（与内容区冷灰背景清晰分界）；底部渐变带过矮过黑（仅 bottomLift+8、起始即 0xD9），与首页观感差距大。修复：子页布局模型整体对齐首页外壳——titleBar 去掉 `enableComponentSafeArea`（其余参数与外壳逐字一致），`ignoreLayoutSafeArea` 补 `TOP` 把内容根拉到全窗 y=0（标题栏浮在自己页面内容之上，材质模糊采样页面自身），List 首加 56vp 让位 spacer / Scroll 内容 padding top 56（让位量随内容滚走，同首页）；底部 `SubPageBottomFade` 重做为首页复合遮罩同款（92vp 渐入 0x99 → 手势条上方 0xD9 → 屏幕底边归零，总高 92+bottomLift+8），尾部让位统一 `bottomLift + SUB_BOTTOM_CLEARANCE_VP(116)`。复验：assembleHap **BUILD SUCCESSFUL 0 error**、codelinter **0 error / 8 warn（无新增）**；真机观感待用户复测。
+- **修订二（2026-09-16 二轮真机截图：歌词设置页/网易云歌单页）**：(1) 顶部重合——内容根已在 y=0 但让位只补了 56vp，标题栏实占「状态栏 topInset + 56vp」，首卡约 1/3 被压在标题栏下；首页无此问题是因为首页内容区从状态栏下沿起算。修复：12 页统一 `@StorageProp('ui.topInsetVp')`，让位改 `topInset + SUB_TITLEBAR_SPACE_VP`（StatsPage loading 骨架同步）。(2) 底部黑雾——渐变终止色 `0x00000000` 是**透明黑**，插值穿过半透明黑，浅色主题下底部呈黑雾（首页同写法但该区被悬浮 Tab 栏 + gradientMask 盖住不可见，子页无遮挡直接露出）；修复：`SubPageBottomFade` 全部色标改用页面底色透明变体（含终止色），峰值 0xD9 移到手势带上沿之上 40% 处。复验：assembleHap **BUILD SUCCESSFUL 0 error**、codelinter **0 error / 8 warn（无新增）**；真机观感待复测。
+- **修订三（2026-09-16 三轮真机截图）**：修订二把渐变末端回退到透明后，导航指示条区域反而无覆盖，观感是「渐变从导航条上沿才开始」（避开导航条）。修复：`SubPageBottomFade` 色标简化为三段（0x00 → 92vp 处 0x99 → 屏幕最底边 0xD9），末段一路加深直达底边、不避让手势条。复验：assembleHap **BUILD SUCCESSFUL 0 error**、codelinter **0 error / 1 warn（存量）**。
+
+### 7.16 2026-09-18 子页 dock 态迷你条：进入二级页后迷你条下沉为 Tab 栏形态（服务器 Linux CLT 26.0.0.105，无设备，分支 `minibar-dock`）
+
+参照网易云 Android 客户端录屏（用户提供的参考视频）：迷你条常驻悬浮于子页之上，推入二级页时 Tab 栏被盖住，迷你条从药丸原位**扩大到 Tab 栏足迹并落到 Tab 栏位置**，返回时逆向归位。此前本工程子页是全屏 NavDestination，会把 HdsTabs 连同槽位迷你条一起盖住（子页上无任何播放条）。实现：
+
+- **深度状态源**（`view/Router.ets`）：新增 `KEY_SUB_PAGE_DEPTH ('ui.subPageDepth')`，`publishDepth()` 在 push（含 CLEAR/REPLACE_TOP/EVICT 分支）/pop/reset 每次栈操作后同步发布 `NavPathStack.size()`。所有入栈都经 `Router.push`、所有返回都经 `Index.onBackPress → Router.pop`，Router 即深度唯一事实来源（`size()` 栈操作后即时可读——push 防重决策本就依赖该语义）。
+- **MiniPlayer `embedded` 形态**（`view/components/MiniPlayer.ets`）：脱离 HdsTabs 槽位独立承载时非紧凑形态去掉自带 {10,10,8} 悬浮卡片外边距（几何由使用方给定），且 `followsBarMaterial()` 恒 false——沉浸光感材质只存在于悬浮栏内部，独立承载必须自绘玻璃。
+- **MainShell dock 态覆盖层**（`view/pages/MainShell.ets`）：根 Stack 内 `HdsNavigation` 之上挂 `dockMiniBarOverlay()`（NavDestination 盖不住它，且位于一镜到底压暗层之下）。状态机 `syncDockBar()`（由 `subPageDepth`/`currentSong`/`breakpoint` 三路 @Watch 驱动）：下潜 = 以药丸矩形（已标定的 `miniRect`）挂载 → 延迟一帧翻转到 dock 矩形（悬浮 Tab 栏边距体系：左右 16 = `barSideMargin`、底部 `bottomLift+8` = `barBottomMargin`、高 62 = 非紧凑胶囊）做原生属性动画（350ms Friction）；返回 = 翻回药丸矩形 → 落定后卸载，与槽位内真实迷你条（同位同形，延迟淡入）无缝交还；返回动画中途再次入栈会清卸载计时器并反向重定目标。紧凑/展开两份内容按目标形态交叉淡入淡出（180ms，对读屏/命中同样互斥），规避 40↔62vp 内容重排跳变。悬浮 Tab 栏边距常量提取为 `FLOAT_BAR_SIDE_MARGIN_VP`/`FLOAT_BAR_BOTTOM_GAP_VP` 两处共用。
+- **一镜到底锚点适配**：`onNowPlayingRequested` 展开起点在 `subPageDepth > 0` 时取 `dockRect()`（窗口坐标，与 `miniRect` 同系），面板从子页上可见的 dock 条起飞；dock 条透明度/命中沿用真实迷你条的模态开合同规格显隐（展开隐藏、收起后半段延迟淡入）。
+- 验证（服务器）：assembleHap **BUILD SUCCESSFUL**（1 条非阻塞 throw 警告）；codelinter 3 个改动文件 **0 error / 0 warn**。**设备侧未验证**：dock 矩形与真实 Tab 栏足迹的像素级对齐（HdsTabs 内部栏高未知，按边距体系推导）、迁移动画与 NavDestination 系统转场的节奏手感、子页列表尾部与 dock 条的遮挡关系，均待真机复测。
+- **修订一（2026-09-18 真机首测反馈，两张症状截图）**：(1) 子页上迷你条整层不显示——覆盖层容器透明度复用了 `miniBarHidden()`，而该方法为隐藏槽位真实迷你条新增了 `subPageDepth > 0` 条件，恰好把覆盖层在子页上（深度必 >0）永远置 opacity 0，自相矛盾；修复：覆盖层改用只跟随播放页模态的 `dockOverlayHidden()`（`modalMounted && !closing`）。(2) 返回主页后只剩空药丸壳（无封面/歌名/按钮）——侧滑返回手势与子页标题栏返回键由 Navigation 直接弹栈，不经过 `Router.pop()`，`ui.subPageDepth` 卡在 1，槽位 MiniPlayer 永久隐藏而 HdsTabs 自绘的槽位药丸背景（`enableMiniBarBackground`）仍可见；修复：`Router.notifyReturned()`（各 NavDestination `onWillDisappear` 统一回调，覆盖 Router.pop/系统返回键/侧滑/clear 四条路径）补发 `publishDepth()`，幂等无副作用。
+- **修订二（2026-09-18 用户要求子页播放条使用沉浸光感材质）**：SDK 勘察结论——HDS `SystemMaterialParams`（`systemMaterialEffect`）只能在 HdsTabs 悬浮栏 / HdsNavigation/HdsNavDestination 标题栏两处宿主内生效，无独立材质容器组件（无 HdsGlass/HdsFloatBar 之类）；独立悬浮组件挂系统玻璃材质的正道是 ArkUI 底座通用属性 `.systemMaterial(SystemUiMaterial)`（`@ohos.arkui.uiMaterial`，API 26 起，`uiMaterial.ImmersiveMaterial` 默认参数 REGULAR 玻璃质感 + applyShadow 自带投影，官方告诫启用后系统接管背景色/边框/阴影）。实现：`HdsLight` 门面新增 `SystemMaterialCapability`（`isImmersiveMaterialSupported()` 进程内探测缓存 + `ImmersiveMaterial` 实例缓存），`MiniPlayer` embedded 形态背景改挂 `.systemMaterial()`（材质档：背景透明、模糊 NONE、卡片阴影关闭防叠加；不支持设备保持自绘玻璃兜底；HdsTabs 槽位形态行为不变）。首轮构建报 ArkTS 静态字段与静态方法同名 `supported` 标识符冲突，字段改名 `materialSupported` 后 assembleHap **BUILD SUCCESSFUL**、codelinter 2 改动文件 **0 error / 0 warn**；真机材质观感待复测（模拟器/不支持设备走兜底，无回归风险）。
 
 每次 SDK 或上游 Android 更新，都更新本文件的核验日期、版本矩阵、源码状态和测试结果。
 
