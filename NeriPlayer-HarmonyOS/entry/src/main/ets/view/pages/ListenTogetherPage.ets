@@ -22,6 +22,8 @@ import { PlayerManager } from '../../player/PlayerManager';
 import { Theme } from '../Theme';
 import { AccentScheme } from '../theme/AccentScheme';
 import { Router } from '../Router';
+import { HdsNavDestination } from '@kit.UIDesignKit';
+import { subPageTitleBar, SubPageBottomFade, SUB_TITLEBAR_SPACE_VP, SUB_BOTTOM_CLEARANCE_VP } from '../components/HdsSubPage';
 
 /** Room creation needs a live local queue (upstream validates this too). */
 function hasPlayableQueue(): boolean {
@@ -91,6 +93,11 @@ export struct ListenTogetherPage {
    * scheme 一发布本页就随新配色重染。
    */
   @StorageProp('player.coverScheme') coverScheme: AccentScheme = AccentScheme.neutralFallback();
+  @StorageProp('ui.bottomLiftVp') bottomLift: number = Theme.bottomBarLift();
+  /** 状态栏避让（util/WindowMetrics.ets 发布）；内容根从 y=0 起，让位 = topInset + 56。 */
+  @StorageProp('ui.topInsetVp') topInset: number = 0;
+  /** 供 HdsNavDestination.bindToScrollable 绑定的整页滚动控制器。 */
+  private scroller: Scroller = new Scroller();
   // Parsing is mirrored into @State objects via @Watch instead of parsed in
   // render expressions: a state read hidden inside a method call is NOT
   // dependency-tracked on this platform, so `this.session()` in a builder
@@ -524,46 +531,39 @@ export struct ListenTogetherPage {
   }
 
   build() {
-    Column() {
-      Row({ space: 8 }) {
-        Button('‹')
-          .width(40)
-          .height(40)
-          // '‹' is punctuation to a screen reader; name the action.
-          .accessibilityText('返回')
-          .type(ButtonType.Circle)
-          .backgroundColor(Color.Transparent)
-          .fontColor(Theme.textPrimary(Theme.isDark()))
-          .fontSize(20)
-          .onClick(() => Router.pop())
-        Text('一起听')
-          .fontSize(20)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(Theme.textPrimary(Theme.isDark()))
-          .layoutWeight(1)
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
+    // 标题栏（返回 + 标题）由 HdsNavDestination 承载，滚动时表单/房间视图穿
+    // 到标题栏下方被 GRADIENT_BLUR 渐变模糊覆盖（同首页外壳）。
+    HdsNavDestination() {
+      Stack() {
+        Scroll(this.scroller) {
+          Column() {
+            if (this.sessionView.roomId !== null) {
+              this.roomView()
+            } else {
+              this.joinForm()
+            }
+          }
+          .width('100%')
+          .padding({ left: 14, right: 14, top: this.topInset + SUB_TITLEBAR_SPACE_VP, bottom: this.bottomLift + SUB_BOTTOM_CLEARANCE_VP })
+        }
+        .layoutWeight(1)
+        .scrollBar(BarState.Auto)
+        .align(Alignment.Top)
+        // 视口延伸进底部手势条区 + 放行内容画出视口上沿滚入标题栏渐变模糊区。
+        .clip(false)
+        .backgroundColor(this.schemeBg(Theme.isDark()))
+
+        SubPageBottomFade()
       }
       .width('100%')
-      .padding({ left: 8, right: 12, top: 8, bottom: 8 })
-
-      Scroll() {
-        Column() {
-          if (this.sessionView.roomId !== null) {
-            this.roomView()
-          } else {
-            this.joinForm()
-          }
-        }
-        .width('100%')
-        .padding({ left: 14, right: 14, bottom: 24 })
-      }
-      .layoutWeight(1)
-      .scrollBar(BarState.Auto)
-      .align(Alignment.Top)
+      .height('100%')
     }
-    .width('100%')
-    .height('100%')
-    .backgroundColor(this.schemeBg(Theme.isDark()))
+    .titleBar(subPageTitleBar('一起听'))
+    .bindToScrollable([this.scroller])
+    .backgroundColor(Color.Transparent)
+    .ignoreLayoutSafeArea([LayoutSafeAreaType.SYSTEM], [LayoutSafeAreaEdge.TOP, LayoutSafeAreaEdge.BOTTOM])
+    .onWillDisappear(() => {
+      Router.notifyReturned();
+    })
   }
 }

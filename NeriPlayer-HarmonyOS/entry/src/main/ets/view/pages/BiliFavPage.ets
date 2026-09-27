@@ -7,12 +7,15 @@ import { LocalPlaylistRepository } from '../../data/LocalPlaylistRepository';
 import { BiliApi } from '../../network/BiliApi';
 import { BiliFavFolderSummary, biliFavMediaToSongItem } from '../../network/BiliFavParser';
 import { PlayerManager } from '../../player/PlayerManager';
+import { resolvePlaylistPlaybackStartIndex } from '../../player/queue/QueueEngine';
 import { Theme } from '../Theme';
 import { AccentScheme } from '../theme/AccentScheme';
 import { SongRow } from '../components/SongRow';
 import { EmptyState, LoadingState } from '../components/Ui';
 import { Router } from '../Router';
 import { PlaylistHeader, HeaderPill } from '../components/PlaylistHeader';
+import { HdsNavDestination } from '@kit.UIDesignKit';
+import { subPageTitleBar, SubPageBottomFade, SUB_TITLEBAR_SPACE_VP, SUB_BOTTOM_CLEARANCE_VP } from '../components/HdsSubPage';
 
 /**
  * Bilibili favorite-folder detail: header + paged video list (loads more on
@@ -28,6 +31,9 @@ export struct BiliFavPage {
   @StorageProp('player.coverScheme') coverScheme: AccentScheme = AccentScheme.neutralFallback();
   /** 由 MainShell 的 navDestination builder 从路由参数传入。 */
   @Prop favParam: string = '';
+  @StorageProp('ui.bottomLiftVp') bottomLift: number = Theme.bottomBarLift();
+  /** 状态栏避让（util/WindowMetrics.ets 发布）；内容根从 y=0 起，让位 = topInset + 56。 */
+  @StorageProp('ui.topInsetVp') topInset: number = 0;
   @State info: BiliFavFolderSummary | null = null;
   @State songs: SongItem[] = [];
   @State totalCount: number = 0;
@@ -37,6 +43,8 @@ export struct BiliFavPage {
   @State importing: boolean = false;
   @State showImportDialog: boolean = false;
   @State importName: string = '';
+  /** 供 HdsNavDestination.bindToScrollable 绑定的收藏夹列表控制器。 */
+  private scroller: Scroller = new Scroller();
 
   private page: number = 1;
   private hasMore: boolean = false;
@@ -112,8 +120,13 @@ export struct BiliFavPage {
       promptAction.openToast({ message: '收藏夹为空' });
       return;
     }
+    const startIndex = resolvePlaylistPlaybackStartIndex(
+      this.songs.length,
+      shuffle,
+      Math.floor(Math.random() * this.songs.length)
+    );
     PlayerManager.setShuffle(shuffle);
-    PlayerManager.playPlaylist(this.songs, 0);
+    PlayerManager.playPlaylist(this.songs, startIndex);
   }
 
   private openImportDialog(): void {
@@ -165,36 +178,19 @@ export struct BiliFavPage {
   }
 
   build() {
-    Stack() {
-      Column() {
-        Row({ space: 8 }) {
-          Button('‹')
-            .width(40)
-            .height(40)
-            // '‹' is punctuation to a screen reader; name the action.
-            .accessibilityText('返回')
-            .type(ButtonType.Circle)
-            .backgroundColor(Color.Transparent)
-            .fontColor(Theme.textPrimary(Theme.isDark()))
-            .fontSize(20)
-            .onClick(() => Router.pop())
-          Text(this.info !== null && this.info.title.length > 0 ? this.info.title : 'B 站收藏夹')
-            .fontSize(20)
-            .fontWeight(FontWeight.Bold)
-            .fontColor(Theme.textPrimary(Theme.isDark()))
-            .layoutWeight(1)
-            .maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
-        }
-        .width('100%')
-        .padding({ left: 8, right: 12, top: 8, bottom: 8 })
-
+    // 标题栏（返回 + 收藏夹名）由 HdsNavDestination 承载；收藏夹头图、视频列
+    // 表与「加载更多」并入同一个 List，滚动时整页内容穿到标题栏下方被
+    // GRADIENT_BLUR 渐变模糊覆盖（同首页外壳）。
+    HdsNavDestination() {
+      Stack() {
         if (this.loading) {
           Column() {
             LoadingState()
           }
-          .layoutWeight(1)
+          .width('100%')
+          .height('100%')
           .justifyContent(FlexAlign.Center)
+          .backgroundColor(this.schemeBg(Theme.isDark()))
         } else if (this.loadError.length > 0) {
           Column() {
             EmptyState({ icon: '⚠', title: '加载失败', subtitle: this.loadError })
@@ -204,83 +200,99 @@ export struct BiliFavPage {
               .backgroundColor(Theme.primary(Theme.isDark()))
               .onClick(() => this.reload())
           }
-          .layoutWeight(1)
+          .width('100%')
+          .height('100%')
           .justifyContent(FlexAlign.Center)
+          .backgroundColor(this.schemeBg(Theme.isDark()))
         } else {
-          Column({ space: 10 }) {
-            PlaylistHeader({
-              coverUrl: this.info !== null ? this.info.coverUrl : '',
-              title: this.info !== null && this.info.title.length > 0 ? this.info.title : 'B 站收藏夹',
-              subtitle: this.totalCount > 0
-                ? `Bilibili · ${this.totalCount} 条`
-                : `Bilibili · ${this.songs.length} 条`
-            }) {
-              HeaderPill({
-                label: '全部播放',
-                filled: true,
-                onTap: (): void => this.playAll(false)
-              })
-              HeaderPill({
-                label: '随机播放',
-                onTap: (): void => this.playAll(true)
-              })
-              HeaderPill({
-                label: '导入',
-                onTap: (): void => this.openImportDialog()
-              })
+          List({ scroller: this.scroller, space: 1 }) {
+          // 顶部让位标题栏：让位量随内容滚走（同首页 Tab 页 padding top 56）。
+          ListItem() {
+            Column().height(this.topInset + SUB_TITLEBAR_SPACE_VP)
+          }
+            ListItem() {
+              Column() {
+                PlaylistHeader({
+                  coverUrl: this.info !== null ? this.info.coverUrl : '',
+                  title: this.info !== null && this.info.title.length > 0 ? this.info.title : 'B 站收藏夹',
+                  subtitle: this.totalCount > 0
+                    ? `Bilibili · ${this.totalCount} 条`
+                    : `Bilibili · ${this.songs.length} 条`
+                }) {
+                  HeaderPill({
+                    label: '全部播放',
+                    filled: true,
+                    onTap: (): void => this.playAll(false)
+                  })
+                  HeaderPill({
+                    label: '随机播放',
+                    onTap: (): void => this.playAll(true)
+                  })
+                  HeaderPill({
+                    label: '导入',
+                    onTap: (): void => this.openImportDialog()
+                  })
+                }
+              }
+              .padding({ bottom: 10 })
             }
 
             if (this.songs.length === 0) {
-              EmptyState({ icon: '📺', title: '收藏夹为空', subtitle: '该收藏夹没有可播放的视频' })
+              ListItem() {
+                EmptyState({ icon: '📺', title: '收藏夹为空', subtitle: '该收藏夹没有可播放的视频' })
+              }
             } else {
-              List({ space: 1 }) {
-                ForEach(this.songs, (song: SongItem, index: number) => {
-                  ListItem() {
-                    SongRow({
-                      songJson: song.toJson(),
-                      index: index,
-                      onPlay: () => {
-                        PlayerManager.playPlaylist(this.songs, index);
-                        Router.push(Router.NOW_PLAYING);
-                      }
-                    })
-                  }
-                }, (song: SongItem) => `${song.platform}_${song.audioId}`)
-                if (this.hasMore) {
-                  ListItem() {
-                    Column({ space: 6 }) {
-                      if (this.loadingMore) {
-                        LoadingState()
-                      } else {
-                        Button('加载更多')
-                          .height(40)
-                          .fontSize(13)
-                          .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
-                          .fontColor(Theme.textPrimary(Theme.isDark()))
-                          .onClick(() => this.loadMore())
-                      }
+              ForEach(this.songs, (song: SongItem, index: number) => {
+                ListItem() {
+                  SongRow({
+                    songJson: song.toJson(),
+                    index: index,
+                    onPlay: () => {
+                      PlayerManager.playPlaylist(this.songs, index);
+                      Router.push(Router.NOW_PLAYING);
                     }
-                    .width('100%')
-                    .padding(14)
-                    .alignItems(HorizontalAlign.Center)
+                  })
+                }
+              }, (song: SongItem) => `${song.platform}_${song.audioId}`)
+              if (this.hasMore) {
+                ListItem() {
+                  Column({ space: 6 }) {
+                    if (this.loadingMore) {
+                      LoadingState()
+                    } else {
+                      Button('加载更多')
+                        .height(40)
+                        .fontSize(13)
+                        .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+                        .fontColor(Theme.textPrimary(Theme.isDark()))
+                        .onClick(() => this.loadMore())
+                    }
                   }
+                  .width('100%')
+                  .padding(14)
+                  .alignItems(HorizontalAlign.Center)
                 }
               }
-              .layoutWeight(1)
-              .scrollBar(BarState.Off)
-              .width('100%')
-              .onReachEnd(() => this.loadMore())
+              // 尾部让位：列表延伸进底部手势条区后，末条视频滚过渐变遮罩仍可停稳。
+              ListItem() {
+                Column().height(this.bottomLift + SUB_BOTTOM_CLEARANCE_VP)
+              }
             }
           }
-          .width('100%')
-          .padding({ left: 14, right: 14, bottom: 12 })
           .layoutWeight(1)
+          .scrollBar(BarState.Off)
+          .width('100%')
+          .padding({ left: 14, right: 14 })
+          .onReachEnd(() => this.loadMore())
+          // 官方开发实例：穿透到标题栏下方的列表项预加载，避免滚入区域闪空。
+          .cachedCount(3, true)
+          .clip(false)
+          .backgroundColor(this.schemeBg(Theme.isDark()))
         }
-      }
-      .width('100%')
-      .height('100%')
 
-      if (this.showImportDialog) {
+        SubPageBottomFade()
+
+        if (this.showImportDialog) {
         Column() {
           Column({ space: 12 }) {
             Text('导入到本地歌单')
@@ -325,6 +337,16 @@ export struct BiliFavPage {
     }
     .width('100%')
     .height('100%')
+    // NavDestination 透明时短内容区会透视栈底 Tab 页，实色底由内容根补齐。
     .backgroundColor(this.schemeBg(Theme.isDark()))
+    }
+    .titleBar(subPageTitleBar(
+      this.info !== null && this.info.title.length > 0 ? this.info.title : 'B 站收藏夹'))
+    .bindToScrollable([this.scroller])
+    .backgroundColor(Color.Transparent)
+    .ignoreLayoutSafeArea([LayoutSafeAreaType.SYSTEM], [LayoutSafeAreaEdge.TOP, LayoutSafeAreaEdge.BOTTOM])
+    .onWillDisappear(() => {
+      Router.notifyReturned();
+    })
   }
 }

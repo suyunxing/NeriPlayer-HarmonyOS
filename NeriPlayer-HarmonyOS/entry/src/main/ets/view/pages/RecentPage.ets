@@ -9,9 +9,11 @@ import { PlaybackStatsRepository, StatsRoot } from '../../data/PlaybackStatsRepo
 import { PlayerManager } from '../../player/PlayerManager';
 import { Theme } from '../Theme';
 import { AccentScheme } from '../theme/AccentScheme';
-import { EmptyState, menuRadius, menuDivider } from '../components/Ui';
+import { EmptyState } from '../components/Ui';
 import { SongRow } from '../components/SongRow';
 import { Router } from '../Router';
+import { HdsNavDestination } from '@kit.UIDesignKit';
+import { subPageTitleBar, SubPageBottomFade, SubPageMenuEntry, SUB_TITLEBAR_SPACE_VP, SUB_BOTTOM_CLEARANCE_VP } from '../components/HdsSubPage';
 
 /**
  * 播放历史（参考应用历史页）：搜索、按时间/次数排序、播放全部、更多菜单
@@ -26,12 +28,51 @@ export struct RecentPage {
    * scheme 一发布本页就随新配色重染。
    */
   @StorageProp('player.coverScheme') coverScheme: AccentScheme = AccentScheme.neutralFallback();
+  @StorageProp('ui.bottomLiftVp') bottomLift: number = Theme.bottomBarLift();
+  /** 状态栏避让（util/WindowMetrics.ets 发布）；内容根从 y=0 起，让位 = topInset + 56。 */
+  @StorageProp('ui.topInsetVp') topInset: number = 0;
   @State songs: SongItem[] = [];
   @State playCounts: Record<string, number> = {};
   @State loaded: boolean = false;
   @State query: string = '';
   @State sortByCount: boolean = false;
   @State busy: boolean = false;
+  /** 供 HdsNavDestination.bindToScrollable 绑定的历史列表控制器。 */
+  private scroller: Scroller = new Scroller();
+
+  /**
+   * 标题栏菜单（原页内排序钮 + 更多菜单迁入）：排序切换 + 说明/导出/导入/清除。
+   * 超出 maxCount（默认 3）的项由 HDS 标题栏自动收进溢出菜单。
+   */
+  private titleMenu(): SubPageMenuEntry[] {
+    return [
+      {
+        label: this.sortByCount ? '改为按时间排序' : '改为按次数排序',
+        icon: $r('sys.symbol.sort'),
+        action: () => this.toggleSort()
+      },
+      {
+        label: '使用说明',
+        icon: $r('sys.symbol.questionmark_circle'),
+        action: () => this.showUsageNote()
+      },
+      {
+        label: '导出到本机',
+        icon: $r('sys.symbol.upload'),
+        action: () => this.exportHistory()
+      },
+      {
+        label: '从本机导入',
+        icon: $r('sys.symbol.square_and_arrow_down'),
+        action: () => this.importHistory()
+      },
+      {
+        label: '清除所有记录',
+        icon: $r('sys.symbol.trash'),
+        action: () => this.confirmClearAll()
+      }
+    ];
+  }
 
   async aboutToAppear(): Promise<void> {
     await this.refresh();
@@ -211,28 +252,6 @@ export struct RecentPage {
     });
   }
 
-  @Builder
-  moreMenuBuilder() {
-    // 参考截图的溢出菜单：深色磨砂玻璃浮层 + 大圆角 + 细分隔线。
-    Menu() {
-      MenuItem({ content: '使用说明' })
-        .onClick(() => this.showUsageNote())
-      MenuItem({ content: '导出到本机' })
-        .onClick(() => {
-          this.exportHistory();
-        })
-      MenuItem({ content: '从本机导入' })
-        .onClick(() => {
-          this.importHistory();
-        })
-      MenuItem({ content: '清除所有记录' })
-        .onClick(() => this.confirmClearAll())
-    }
-      .radius(menuRadius())
-      .backgroundColor(Theme.surfaceGlass(Theme.isDark()))
-      .menuItemDivider(menuDivider(Theme.isDark()))
-  }
-
   /** build 里直读被跟踪成员注册依赖；颜色本身仍由 Theme 统一决策。 */
   private schemeBg(dark: boolean): string {
     const hasScheme = this.coverScheme.light.background.length > 0;
@@ -240,144 +259,143 @@ export struct RecentPage {
   }
 
   build() {
-    Column() {
-      Row({ space: 8 }) {
-        Button('‹')
-          .width(40)
-          .height(40)
-          // '‹' is punctuation to a screen reader; name the action.
-          .accessibilityText('返回')
-          .type(ButtonType.Circle)
-          .backgroundColor(Theme.surface(Theme.isDark()))
-          .fontColor(Theme.textPrimary(Theme.isDark()))
-          .fontSize(20)
-          .onClick(() => Router.pop())
-        Text('播放历史')
-          .fontSize(20)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(Theme.textPrimary(Theme.isDark()))
-          .layoutWeight(1)
-        // 参考截图：排序为圆形图标钮，点击弹出「按时间/按次数」气泡提示。
-        Button() {
-          SymbolGlyph($r('sys.symbol.sort'))
-            .fontSize(20)
-            .fontColor([Theme.textPrimary(Theme.isDark())])
-        }
-        .width(40)
-        .height(40)
-        .type(ButtonType.Circle)
-        .backgroundColor(Theme.surface(Theme.isDark()))
-        .accessibilityText(this.sortByCount ? '按播放次数排序，点击改为按时间' : '按时间排序，点击改为按播放次数')
-        .onClick(() => this.toggleSort())
-        Button() {
-          Image($r('app.media.ic_grid_dots_24'))
-            .width(22)
-            .height(22)
-            .fillColor(Theme.textSecondary(Theme.isDark()))
-        }
-        .width(40)
-        .height(40)
-        .type(ButtonType.Circle)
-        .backgroundColor(Theme.surface(Theme.isDark()))
-        .accessibilityText('更多操作')
-        .bindMenu(this.moreMenuBuilder)
-      }
-      .width('100%')
-      .padding({ left: 8, right: 14, top: 8, bottom: 8 })
-
-      // 参考截图的搜索框：透明底 + 灰描边胶囊，非实心底。
-      Row({ space: 8 }) {
-        Image($r('app.media.ic_tab_search_24'))
-          .width(18)
-          .height(18)
-          .fillColor(Theme.textSecondary(Theme.isDark()))
-        TextInput({ placeholder: '搜索歌曲 / 歌手', text: this.query })
-          .fontSize(13)
-          .height(38)
-          .padding({ left: 0, right: 0 })
-          .backgroundColor(Color.Transparent)
-          .onChange((value: string) => {
-            this.query = value;
-          })
-      }
-      .width('100%')
-      .padding({ left: 14, right: 14, top: 4, bottom: 4 })
-      .border({
-        width: 1,
-        color: Theme.withAlpha(Theme.textSecondary(Theme.isDark()), 0x40),
-        radius: 24
-      })
-      .margin({ left: 14, right: 14, bottom: 8 })
-
-      if (this.loaded && this.songs.length > 0) {
-        // 参考截图：白色圆形播放钮 + 文字行（非彩色胶囊按钮）。
-        Row({ space: 10 }) {
-          Stack({ alignContent: Alignment.Center }) {
-            Column()
-              .width(32)
-              .height(32)
-              .borderRadius(16)
-              .backgroundColor('#FFFFFF')
-            Image($r('app.media.round_play_arrow_24'))
-              .width(18)
-              .height(18)
-              .fillColor('#111111')
+    // 标题栏（返回 + 标题 + 排序/更多菜单）由 HdsNavDestination 承载；搜索框、
+    // 播放全部与历史列表并入同一个 List，滚动时整页内容穿到标题栏下方被
+    // GRADIENT_BLUR 渐变模糊覆盖（同首页外壳）。
+    HdsNavDestination() {
+      Stack() {
+        if (!this.loaded) {
+          Column() {
+            LoadingProgress()
+              .width(36)
+              .height(36)
+              .color(Theme.primary(Theme.isDark()))
           }
-          Text(`播放全部 (${this.visibleSongs().length})`)
-            .fontSize(15)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(Theme.textPrimary(Theme.isDark()))
-        }
-        .width('100%')
-        .padding({ left: 16, right: 16, top: 4, bottom: 8 })
-        .accessibilityText('播放全部历史歌曲')
-        .onClick(() => this.playAll())
-        .clickEffect({ level: ClickEffectLevel.LIGHT })
-      }
-
-      if (!this.loaded) {
-        Column() {
-          LoadingProgress()
-            .width(36)
-            .height(36)
-            .color(Theme.primary(Theme.isDark()))
-        }
-        .layoutWeight(1)
-        .width('100%')
-        .justifyContent(FlexAlign.Center)
-      } else if (this.songs.length === 0) {
-        EmptyState({
-          icon: '⏱',
-          title: '暂无播放历史',
-          subtitle: '去「探索」找点歌吧'
-        })
-      } else if (this.visibleSongs().length === 0) {
-        EmptyState({
-          icon: '🔍',
-          title: '没有匹配的歌曲',
-          subtitle: '换个关键词试试'
-        })
-      } else {
-        List() {
-          ForEach(this.visibleSongs(), (song: SongItem, index: number) => {
+          .layoutWeight(1)
+          .width('100%')
+          .justifyContent(FlexAlign.Center)
+        } else {
+          List({ scroller: this.scroller }) {
+          // 顶部让位标题栏：让位量随内容滚走（同首页 Tab 页 padding top 56）。
+          ListItem() {
+            Column().height(this.topInset + SUB_TITLEBAR_SPACE_VP)
+          }
             ListItem() {
-              SongRow({
-                songJson: song.toJson(),
-                index: index,
-                playCount: this.playCountOf(song),
-                transparentBg: true,
-                onPlay: () => this.play(index)
+              // 参考截图的搜索框：透明底 + 灰描边胶囊，非实心底。
+              Row({ space: 8 }) {
+                Image($r('app.media.ic_tab_search_24'))
+                  .width(18)
+                  .height(18)
+                  .fillColor(Theme.textSecondary(Theme.isDark()))
+                TextInput({ placeholder: '搜索歌曲 / 歌手', text: this.query })
+                  .fontSize(13)
+                  .height(38)
+                  .padding({ left: 0, right: 0 })
+                  .backgroundColor(Color.Transparent)
+                  .onChange((value: string) => {
+                    this.query = value;
+                  })
+              }
+              .width('100%')
+              .padding({ left: 14, right: 14, top: 4, bottom: 4 })
+              .border({
+                width: 1,
+                color: Theme.withAlpha(Theme.textSecondary(Theme.isDark()), 0x40),
+                radius: 24
               })
+              .margin({ left: 14, right: 14, top: 4, bottom: 4 })
             }
-          }, (song: SongItem) => `${song.platform}_${song.audioId}_${song.id}_${song.addedAt}`)
+
+            if (this.songs.length > 0) {
+              // 参考截图：白色圆形播放钮 + 文字行（非彩色胶囊按钮）。
+              ListItem() {
+                Row({ space: 10 }) {
+                  Stack({ alignContent: Alignment.Center }) {
+                    Column()
+                      .width(32)
+                      .height(32)
+                      .borderRadius(16)
+                      .backgroundColor('#FFFFFF')
+                    Image($r('app.media.round_play_arrow_24'))
+                      .width(18)
+                      .height(18)
+                      .fillColor('#111111')
+                  }
+                  Text(`播放全部 (${this.visibleSongs().length})`)
+                    .fontSize(15)
+                    .fontWeight(FontWeight.Medium)
+                    .fontColor(Theme.textPrimary(Theme.isDark()))
+                }
+                .width('100%')
+                .padding({ left: 16, right: 16, top: 4, bottom: 8 })
+                .accessibilityText('播放全部历史歌曲')
+                .onClick(() => this.playAll())
+                .clickEffect({ level: ClickEffectLevel.LIGHT })
+              }
+            }
+
+            if (this.songs.length === 0) {
+              ListItem() {
+                Column() {
+                  EmptyState({
+                    icon: '⏱',
+                    title: '暂无播放历史',
+                    subtitle: '去「探索」找点歌吧'
+                  })
+                }
+                .padding({ top: 48 })
+                .width('100%')
+              }
+            } else if (this.visibleSongs().length === 0) {
+              ListItem() {
+                Column() {
+                  EmptyState({
+                    icon: '🔍',
+                    title: '没有匹配的歌曲',
+                    subtitle: '换个关键词试试'
+                  })
+                }
+                .padding({ top: 48 })
+                .width('100%')
+              }
+            } else {
+              ForEach(this.visibleSongs(), (song: SongItem, index: number) => {
+                ListItem() {
+                  SongRow({
+                    songJson: song.toJson(),
+                    index: index,
+                    playCount: this.playCountOf(song),
+                    transparentBg: true,
+                    onPlay: () => this.play(index)
+                  })
+                }
+              }, (song: SongItem) => `${song.platform}_${song.audioId}_${song.id}_${song.addedAt}`)
+              // 尾部让位：列表延伸进底部手势条区后，末条记录滚过渐变遮罩仍可停稳。
+              ListItem() {
+                Column().height(this.bottomLift + SUB_BOTTOM_CLEARANCE_VP)
+              }
+            }
+          }
+          .layoutWeight(1)
+          .scrollBar(BarState.Off)
+          .width('100%')
+          // 官方开发实例：穿透到标题栏下方的列表项预加载，避免滚入区域闪空。
+          .cachedCount(3, true)
+          .clip(false)
         }
-        .layoutWeight(1)
-        .scrollBar(BarState.Off)
-        .width('100%')
+
+        SubPageBottomFade()
       }
+      .width('100%')
+      .height('100%')
+      .backgroundColor(this.schemeBg(Theme.isDark()))
     }
-    .width('100%')
-    .height('100%')
-    .backgroundColor(this.schemeBg(Theme.isDark()))
+    .titleBar(subPageTitleBar('播放历史', this.titleMenu()))
+    .bindToScrollable([this.scroller])
+    .backgroundColor(Color.Transparent)
+    .ignoreLayoutSafeArea([LayoutSafeAreaType.SYSTEM], [LayoutSafeAreaEdge.TOP, LayoutSafeAreaEdge.BOTTOM])
+    .onWillDisappear(() => {
+      Router.notifyReturned();
+    })
   }
 }

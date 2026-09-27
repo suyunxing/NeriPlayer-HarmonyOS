@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0
 
 import { promptAction } from '@kit.ArkUI';
-import { common } from '@kit.AbilityKit';
+import { bundleManager, common } from '@kit.AbilityKit';
 import { SettingsRepository } from '../../data/SettingsRepository';
 import { AppColorMode } from '../../util/AppColorMode';
 import { SystemBars } from '../../util/SystemBars';
@@ -45,6 +45,8 @@ import { Theme } from '../Theme';
 import { AccentScheme } from '../theme/AccentScheme';
 import { BAND_LIST_VP } from '../../util/Breakpoint';
 import { OptionEntry, OptionRow, SettingRow, SliderRow, ToggleRow } from '../components/Ui';
+import { HdsNavDestination } from '@kit.UIDesignKit';
+import { subPageTitleBar, SubPageBottomFade, SUB_TITLEBAR_SPACE_VP, SUB_BOTTOM_CLEARANCE_VP } from '../components/HdsSubPage';
 import { LyricSettingsRows, LyricStylePreview } from '../components/LyricSettingsRows';
 import { SETTING_PLAYBACK, SETTING_DOWNLOAD, SETTING_LYRICS, SETTING_PLAYER,
   SETTING_APPEARANCE, SETTING_NAVIGATION, SETTING_TRAFFIC, SETTING_STORAGE,
@@ -105,6 +107,11 @@ export struct SettingsDetailPage {
    * scheme 一发布本页就随新配色重染。
    */
   @StorageProp('player.coverScheme') coverScheme: AccentScheme = AccentScheme.neutralFallback();
+  @StorageProp('ui.bottomLiftVp') bottomLift: number = Theme.bottomBarLift();
+  /** 状态栏避让（util/WindowMetrics.ets 发布）；内容根从 y=0 起，让位 = topInset + 56。 */
+  @StorageProp('ui.topInsetVp') topInset: number = 0;
+  /** 供 HdsNavDestination.bindToScrollable 绑定的整页滚动控制器。 */
+  private scroller: Scroller = new Scroller();
   /** 由 MainShell 的 navDestination builder 从路由参数传入。 */
   @Prop section: string = '';
 
@@ -195,6 +202,8 @@ export struct SettingsDetailPage {
   @State showNeteasePhoneLogin: boolean = false;
 
   @State cacheBytes: number = 0;
+  /** 关于页版本行文案；版本号运行时读包信息，避免与 app.json5 / 发布 tag 脱节。 */
+  @State aboutVersionLine: string = '';
 
   private neteaseQrController: QrLoginPanelController = new QrLoginPanelController();
   private biliQrController: QrLoginPanelController = new QrLoginPanelController();
@@ -272,6 +281,7 @@ export struct SettingsDetailPage {
   }
 
   async aboutToAppear(): Promise<void> {
+    this.aboutVersionLine = this.resolveAboutVersionLine();
     const catalog = await DownloadStorage.getCatalog();
     let bytes = 0;
     for (const entry of catalog) {
@@ -491,6 +501,17 @@ export struct SettingsDetailPage {
       options.push({ value: item.id, label: `绑定「${item.name}」` });
     }
     return options;
+  }
+
+  /** 读自身包信息的 versionName 拼版本行；读取异常时退化为提示文案，平台基线仍静态标注。 */
+  private resolveAboutVersionLine(): string {
+    try {
+      const info: bundleManager.BundleInfo =
+        bundleManager.getBundleInfoForSelfSync(bundleManager.BundleFlag.GET_BUNDLE_INFO_DEFAULT);
+      return `版本 ${info.versionName} (HarmonyOS 26 / API 26)`;
+    } catch (error) {
+      return `版本信息不可用 (HarmonyOS 26 / API 26)，${(error as Error).message}`;
+    }
   }
 
   // ---- Download directory (picker + persisted URI grant) ------------------
@@ -1156,28 +1177,6 @@ export struct SettingsDetailPage {
   }
 
   @Builder
-  header() {
-    Row({ space: 8 }) {
-      Button('‹')
-        .width(40)
-        .height(40)
-        // '‹' is punctuation to a screen reader; name the action.
-        .accessibilityText('返回')
-        .type(ButtonType.Circle)
-        .backgroundColor(Theme.surface(Theme.isDark()))
-        .fontColor(Theme.textPrimary(Theme.isDark()))
-        .fontSize(20)
-        .onClick(() => Router.pop())
-      Text(this.title())
-        .fontSize(20)
-        .fontWeight(FontWeight.Bold)
-        .fontColor(Theme.textPrimary(Theme.isDark()))
-    }
-    .width('100%')
-    .padding({ left: 8, right: 12, top: 8, bottom: 8 })
-  }
-
-  @Builder
   optionRow(label: string, value: string, onTap: () => void) {
     SettingRow({ title: label, subtitle: value, onTap: onTap })
   }
@@ -1469,14 +1468,15 @@ export struct SettingsDetailPage {
   }
 
   build() {
-    // 840vp 列表栏宽 + 居中。标题栏与内容区一起被约束，两者左边缘才对得上（同
-    // LegalDocPage）；约束手写在这里而不套 ContentBand，因为内容区靠
-    // layoutWeight(1) 撑满剩余高度，需要 height('100%') 一路传到被约束的那一层。
-    Row() {
-    Column() {
-      this.header()
-
-      Scroll() {
+    // 标题栏（返回 + 分区标题）由 HdsNavDestination 承载，滚动时设置项穿到
+    // 标题栏下方被 GRADIENT_BLUR 渐变模糊覆盖（同首页外壳）。840vp 列表栏宽 +
+    // 居中；约束手写在这里而不套 ContentBand，因为内容区靠 layoutWeight(1) 撑满
+    // 剩余高度，需要 height('100%') 一路传到被约束的那一层。
+    HdsNavDestination() {
+      Stack() {
+        Row() {
+          Column() {
+            Scroll(this.scroller) {
         Column({ space: 10 }) {
           if (this.section === SETTING_PLAYBACK) {
             OptionRow({
@@ -1911,6 +1911,12 @@ export struct SettingsDetailPage {
               pollIntervalMs: BILI_QR_POLL_INTERVAL_MS
             })
             SettingRow({
+              title: '网页登录（Bilibili）',
+              subtitle: '打开官方登录页 · 支持验证码/扫码/密码',
+              icon: '🌐',
+              onTap: () => Router.push(Router.BILI_WEB_LOGIN)
+            })
+            SettingRow({
               title: '粘贴 Cookie 导入（Bilibili）',
               subtitle: '扫码不可用时的备用登录方式',
               icon: '📋',
@@ -2130,7 +2136,7 @@ export struct SettingsDetailPage {
               Text('欢迎回来！')
                 .fontSize(15)
                 .fontColor(Theme.textSecondary(Theme.isDark()))
-              Text('版本 1.0.0 (HarmonyOS 26 / API 26)')
+              Text(this.aboutVersionLine)
                 .fontSize(13)
                 .fontColor(Theme.textDisabled(Theme.isDark()))
               Text('多源在线播放：网易云 / Bilibili / YouTube Music；本地音乐、歌词、歌单与统计。\n本项目仅供学习与研究使用，请勿用于任何非法用途。')
@@ -2149,23 +2155,38 @@ export struct SettingsDetailPage {
           }
         }
         .width('100%')
-        .padding({ left: 14, right: 14, bottom: 24 })
+        .padding({ left: 14, right: 14, top: this.topInset + SUB_TITLEBAR_SPACE_VP, bottom: this.bottomLift + SUB_BOTTOM_CLEARANCE_VP })
+            }
+            .layoutWeight(1)
+            .scrollBar(BarState.Off)
+            // 同 SettingsPage：Scroll 的 align 默认 Alignment.Center，tablet 实测「外观
+            // 与动效」只有 3 行时整块内容悬在屏幕正中、与顶部标题之间空出 347vp。
+            .align(Alignment.Top)
+            .width('100%')
+            // 视口延伸进底部手势条区 + 放行内容画出视口上沿滚入标题栏渐变模糊区。
+            .clip(false)
+          }
+          .width('100%')
+          .height('100%')
+          .constraintSize({ maxWidth: BAND_LIST_VP })
+        }
+        .width('100%')
+        .height('100%')
+        .justifyContent(FlexAlign.Center)
+        .backgroundColor(this.schemeBg(Theme.isDark()))
+
+        SubPageBottomFade()
       }
-      .layoutWeight(1)
-      .scrollBar(BarState.Off)
-      // 同 SettingsPage：Scroll 的 align 默认 Alignment.Center，tablet 实测「外观
-      // 与动效」只有 3 行时整块内容悬在屏幕正中、与顶部标题之间空出 347vp。
-      .align(Alignment.Top)
       .width('100%')
+      .height('100%')
     }
-    .width('100%')
-    .height('100%')
-    .constraintSize({ maxWidth: BAND_LIST_VP })
-    }
-    .width('100%')
-    .height('100%')
-    .justifyContent(FlexAlign.Center)
-    .backgroundColor(this.schemeBg(Theme.isDark()))
+    .titleBar(subPageTitleBar(this.title()))
+    .bindToScrollable([this.scroller])
+    .backgroundColor(Color.Transparent)
+    .ignoreLayoutSafeArea([LayoutSafeAreaType.SYSTEM], [LayoutSafeAreaEdge.TOP, LayoutSafeAreaEdge.BOTTOM])
+    .onWillDisappear(() => {
+      Router.notifyReturned();
+    })
   }
 }
 

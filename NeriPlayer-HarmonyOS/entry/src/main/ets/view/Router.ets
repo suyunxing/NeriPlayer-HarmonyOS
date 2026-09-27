@@ -33,6 +33,8 @@ export class Router {
   static readonly ARTIST: string = 'artist';
   /** 隐私政策 / 用户协议阅读页，param 取 LEGAL_PRIVACY / LEGAL_AGREEMENT。 */
   static readonly LEGAL_DOC: string = 'legal_doc';
+  /** B 站内嵌官方登录页（WebView），无参数。 */
+  static readonly BILI_WEB_LOGIN: string = 'bili_web_login';
 
   private static pathStack: NavPathStack | null = null;
   /** attach 时由 MainShell 一并交入：NOW_PLAYING 的 animateTo 需要 UIContext 入口。 */
@@ -43,6 +45,13 @@ export class Router {
    * 'ui.nowPlayingShown'（@StorageLink 装饰器参数不接受导入的常量引用）。
    */
   static readonly KEY_NOW_PLAYING_SHOWN: string = 'ui.nowPlayingShown';
+  /**
+   * 当前 NavPathStack 深度快照（0 = Tab 骨架，>0 = 处于子页）。每次栈操作后
+   * 同步发布，MainShell 用 @StorageProp 消费，驱动迷你条在子页下沉为 dock
+   * 形态。push 全部经过 Router.push、返回全部经过 Index.onBackPress →
+   * Router.pop，所以这里就是深度唯一的事实来源。
+   */
+  static readonly KEY_SUB_PAGE_DEPTH: string = 'ui.subPageDepth';
 
   private static nowPlayingShown(): boolean {
     return AppStorage.get<boolean>(Router.KEY_NOW_PLAYING_SHOWN) === true;
@@ -52,6 +61,15 @@ export class Router {
   static attach(stack: NavPathStack, uiContext: UIContext): void {
     Router.pathStack = stack;
     Router.uiContext = uiContext;
+  }
+
+  /**
+   * 栈操作后同步发布深度快照。NavPathStack 的 size() 在 push/pop/replace/clear
+   * 之后即时可读（Router.push 自身的防重决策就依赖这一语义），这里沿用。
+   */
+  private static publishDepth(): void {
+    const stack = Router.pathStack;
+    AppStorage.setOrCreate(Router.KEY_SUB_PAGE_DEPTH, stack === null ? 0 : stack.size());
   }
 
   static detach(): void {
@@ -86,10 +104,12 @@ export class Router {
     }
     if (action === RoutePushAction.CLEAR) {
       stack.clear();
+      Router.publishDepth();
       return;
     }
     if (action === RoutePushAction.REPLACE_TOP) {
       stack.replacePathByName(name, param);
+      Router.publishDepth();
       return;
     }
     const evict = (): void => {
@@ -99,6 +119,7 @@ export class Router {
     };
     evict();
     stack.pushPathByName(name, param);
+    Router.publishDepth();
   }
 
   static pop(): void {
@@ -112,6 +133,7 @@ export class Router {
       return;
     }
     stack.pop();
+    Router.publishDepth();
   }
 
   /** True while a full-screen route or the now-playing modal is showing, i.e. back has something to close. */
@@ -136,6 +158,7 @@ export class Router {
     const stack = Router.pathStack;
     if (stack !== null) {
       stack.clear();
+      Router.publishDepth();
     }
   }
 
@@ -150,6 +173,12 @@ export class Router {
    * 由当前可见的 Tab 页自己决定重载。
    */
   static notifyReturned(): void {
+    // 返回不止 Router.pop() 一条路：侧滑返回手势与子页标题栏返回键由
+    // Navigation 直接弹栈，Router 感知不到——而每个 NavDestination 消失时
+    // 都会回调到这里（见下注释四条路径），在这里补发深度快照，dock 态迷你条
+    // 的 ui.subPageDepth 才不会卡在 >0（真机首版实测：卡住后主页槽位迷你条
+    // 内容永久隐藏，只剩 HdsTabs 自绘的空药丸壳）。幂等重发，无副作用。
+    Router.publishDepth();
     const previous = AppStorage.get<number>(KEY_REFRESH_TICK);
     const tick = previous === undefined || previous === null ? 0 : previous;
     AppStorage.setOrCreate(KEY_REFRESH_TICK, tick + 1);

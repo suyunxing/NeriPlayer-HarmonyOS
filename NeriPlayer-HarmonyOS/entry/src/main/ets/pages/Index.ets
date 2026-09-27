@@ -5,8 +5,9 @@ import { Router } from '../view/Router';
 import { Theme } from '../view/Theme';
 import { AccentScheme } from '../view/theme/AccentScheme';
 import { SchemeCustomTheme } from '../view/theme/SchemeCustomTheme';
+import { CURRENT_DISCLAIMER_VERSION, isDisclaimerConfirmationRequired } from '../util/DisclaimerConsentPolicy';
 import { LoadingPage } from '../view/pages/LoadingPage';
-import { DisclaimerPage } from '../view/pages/DisclaimerPage';
+import { DisclaimerPage, DISCLAIMER_OPENED_DOC_KEY } from '../view/pages/DisclaimerPage';
 import { OnboardingPage } from '../view/pages/OnboardingPage';
 import { SafeModePage } from '../view/pages/SafeModePage';
 import { MainShell } from '../view/pages/MainShell';
@@ -27,6 +28,9 @@ enum StartupPhase {
 @Component
 struct Index {
   @StorageProp('np.disclaimer_accepted') disclaimerAccepted: boolean = false;
+  // 用户上次同意的协议文本版本；版本化之前的安装为空串。与当前版本不一致时
+  // 首次启动会重新进入一次合规页。
+  @StorageProp('np.disclaimer_accepted_version') disclaimerAcceptedVersion: string = '';
   @StorageProp('np.onboarding_completed') onboardingCompleted: boolean = false;
   // The crash flag is armed asynchronously by CrashEventWatcher (fault
   // history pull on startup); watch it so a late flag still switches a
@@ -71,7 +75,7 @@ struct Index {
     if (this.lastCrashDetected) {
       return StartupPhase.SAFE_MODE;
     }
-    if (!this.disclaimerAccepted) {
+    if (isDisclaimerConfirmationRequired(this.disclaimerAccepted, this.disclaimerAcceptedVersion)) {
       return StartupPhase.DISCLAIMER;
     }
     if (!this.onboardingCompleted) {
@@ -82,6 +86,7 @@ struct Index {
 
   private onDisclaimerAgree(): void {
     SettingsRepository.setBoolean(SettingsRepository.KEY_DISCLAIMER_ACCEPTED, true);
+    SettingsRepository.setString(SettingsRepository.KEY_DISCLAIMER_ACCEPTED_VERSION, CURRENT_DISCLAIMER_VERSION);
     this.phase = this.onboardingCompleted ? StartupPhase.MAIN : StartupPhase.ONBOARDING;
   }
 
@@ -104,9 +109,18 @@ struct Index {
    *
    * Consume it while the route stack has something to pop; at the root, and in
    * the startup gates (免责声明/引导/安全模式), fall through so the system
-   * default (leave the app) still applies.
+   * default (leave the app) still applies. Exception: on the disclaimer page
+   * with the legal-doc overlay open, consume back to close the overlay first —
+   * the overlay state lives in DisclaimerPage and is shared via AppStorage.
    */
   onBackPress(): boolean {
+    if (this.phase === StartupPhase.DISCLAIMER) {
+      const openedDoc = AppStorage.get<string>(DISCLAIMER_OPENED_DOC_KEY);
+      if (openedDoc !== undefined && openedDoc.length > 0) {
+        AppStorage.setOrCreate(DISCLAIMER_OPENED_DOC_KEY, '');
+        return true;
+      }
+    }
     if (this.phase === StartupPhase.MAIN && Router.canPop()) {
       Router.pop();
       return true;
@@ -155,7 +169,9 @@ struct Index {
           LoadingPage()
         } else if (this.phase === StartupPhase.DISCLAIMER) {
           DisclaimerPage({
-            onAgree: () => this.onDisclaimerAgree()
+            onAgree: () => this.onDisclaimerAgree(),
+            // 布尔已真但版本不符时走到这里，说明是协议更新后的重新确认。
+            reconfirmAfterUpdate: this.disclaimerAccepted
           })
         } else if (this.phase === StartupPhase.ONBOARDING) {
           OnboardingPage({

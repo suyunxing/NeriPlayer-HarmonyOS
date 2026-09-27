@@ -19,6 +19,13 @@ export struct MiniPlayer {
    * 显示（可见环缩到 30vp 在槽位圆角内留出空余）。独立悬浮形态才用完整卡片。
    */
   @Prop compact: boolean = false;
+  /**
+   * 脱离 HdsTabs 槽位的独立承载形态（壳层 dock 态覆盖层使用）：非紧凑形态
+   * 去掉自带的悬浮卡片外边距，几何完全由使用方给定。背景分两档：设备支持
+   * ArkUI 沉浸材质（.systemMaterial，API 26）时挂系统玻璃质感（与悬浮 Tab
+   * 栏的沉浸光感同族），不支持时回落自绘玻璃。
+   */
+  @Prop embedded: boolean = false;
   onMeasured: (area: Area) => void = (_area: Area): void => {};
   @StorageLink('player.currentSong') currentSongJson: string = '';
   @StorageLink('player.status') @Watch('onStatusChanged') status: number = PlaybackStatus.IDLE;
@@ -123,15 +130,32 @@ export struct MiniPlayer {
    * 设备（模拟器 getSystemMaterialTypes 为空）时回落。
    */
   private followsBarMaterial(): boolean {
-    return this.compact
+    return !this.embedded
+      && this.compact
       && (HdsLight.immersiveSupported() || HdsLight.adaptiveSupported());
   }
 
+  /**
+   * 独立承载（embedded）且设备支持 ArkUI 沉浸材质（API 26）时挂系统玻璃
+   * 背景。材质启用后系统接管背景色/边框/阴影（官方告诫不要与常规属性叠加
+   * 设置），所以三处分支都按本档位让位：背景透明、模糊关闭、卡片阴影关闭
+   * （材质默认 applyShadow 自带投影）。
+   */
+  private usesSystemMaterial(): boolean {
+    return this.embedded && HdsLight.systemMaterialSupported();
+  }
+
   private barBackground(): ResourceColor {
-    if (this.followsBarMaterial()) {
+    if (this.usesSystemMaterial() || this.followsBarMaterial()) {
       return Color.Transparent;
     }
     return Theme.surfaceGlass(Theme.isDark());
+  }
+
+  private barBlurStyle(): BlurStyle {
+    return this.usesSystemMaterial() || this.followsBarMaterial()
+      ? BlurStyle.NONE
+      : BlurStyle.COMPONENT_THICK;
   }
 
   build() {
@@ -140,21 +164,29 @@ export struct MiniPlayer {
         .width('100%')
         .height(this.compact ? 40 : 62)
         .backgroundColor(this.barBackground())
-        .backgroundBlurStyle(this.followsBarMaterial()
-          ? BlurStyle.NONE : BlurStyle.COMPONENT_THICK)
+        .backgroundBlurStyle(this.barBlurStyle())
+        // ArkUI 通用沉浸材质（embedded 独立承载档；设备不支持传 undefined
+        // 即无材质，走上面的自绘玻璃分支）。
+        .systemMaterial(this.usesSystemMaterial() ? HdsLight.barSystemMaterial() : undefined)
         .borderRadius(this.compact ? 20 : 16)
         .hitTestBehavior(HitTestMode.None)
       this.playerContent()
     }
     .width('100%')
-    .margin(this.compact ? { left: 0, right: 0, bottom: 0 } : { left: 10, right: 10, bottom: 8 })
+    .margin(this.compact || this.embedded
+      ? { left: 0, right: 0, bottom: 0 }
+      : { left: 10, right: 10, bottom: 8 })
     // 显隐由使用方控制（壳层在转场期间对真实迷你条做淡入/隐藏），组件自身
     // 不再持有 mounted/presentation 状态——展示副本已删除，收缩时直接淡入
     // 真实迷你条，杜绝副本与真实布局不一致导致的切换闪烁。
     .onAreaChange((_oldArea: Area, area: Area) => {
       this.onMeasured(area);
     })
-    .shadow(this.compact ? { radius: 0, color: '#00000000' } : { radius: 12, color: '#22000000', offsetY: 2 })
+    // 沉浸材质档的投影由材质自带（applyShadow），卡片阴影只在自绘玻璃档启用，
+    // 避免与系统材质的阴影层叠加。
+    .shadow(this.compact || this.usesSystemMaterial()
+      ? { radius: 0, color: '#00000000' }
+      : { radius: 12, color: '#22000000', offsetY: 2 })
     // 滑动切歌的位移/缩放挂在 Stack 根上：玻璃背景是 playerContent 的兄弟
     // 节点，变换若只挂内容行，滑动时文字按钮滑走而药丸壳纹丝不动。
     .translate({ x: this.swipeOffset })
@@ -234,6 +266,10 @@ export struct MiniPlayer {
             .blendMode(BlendMode.SRC_OVER, BlendApplyType.OFFSCREEN)
 
             // np.mini_show_lyric 开启且正在播放时，这一行优先显示当前歌词行。
+            // embedded（壳层 dock 态的两个副本）一律不放作者名：用户决策
+            // 2026-09-21，二级页播放控件及其进出场飞行全程只留歌名——紧凑副本
+            // 若保留作者行，会在返程交叠淡入时重新显形。槽位真实迷你条（主页
+            // 药丸）不受影响。
             if (this.showLyricLine()) {
               Text(this.lyricLineText)
                 .fontSize(11)
@@ -241,7 +277,7 @@ export struct MiniPlayer {
                 .maxLines(1)
                 .textOverflow({ overflow: TextOverflow.Ellipsis })
                 .width('100%')
-            } else {
+            } else if (!this.embedded) {
               Text(this.song().displayArtist)
                 .fontSize(11)
                 .fontColor(Theme.textSecondary(Theme.isDark()))

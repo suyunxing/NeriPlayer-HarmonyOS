@@ -1,5 +1,5 @@
 import { describe, it, expect } from '@ohos/hypium';
-import { QueueEngine, ShuffleIndexState, TrackEndAction } from '../../../main/ets/player/queue/QueueEngine';
+import { QueueEngine, ShuffleIndexState, TrackEndAction, resolvePlaylistPlaybackStartIndex } from '../../../main/ets/player/queue/QueueEngine';
 import { RepeatMode } from '../../../main/ets/player/PlaybackConstants';
 
 function expectList(actual: number[], expected: number[], label: string): void {
@@ -280,6 +280,30 @@ export default function queueEngineTest(): void {
       expect(engine.hasNext(false)).assertFalse();
       expect(engine.next(true)).assertEqual(-1);
       expect(engine.previous()).assertEqual(-1);
+    });
+  });
+
+  describe('PlaylistStartIndex', () => {
+    it('emptyPlaylistResolvesToMinusOne', 0, () => {
+      expect(resolvePlaylistPlaybackStartIndex(0, false, 0)).assertEqual(-1);
+      expect(resolvePlaylistPlaybackStartIndex(0, true, 5)).assertEqual(-1);
+    });
+
+    it('sequentialPlayAlwaysStartsAtZero', 0, () => {
+      expect(resolvePlaylistPlaybackStartIndex(10, false, 0)).assertEqual(0);
+      expect(resolvePlaylistPlaybackStartIndex(10, false, 7)).assertEqual(0);
+    });
+
+    it('shuffleUsesTheRandomPickWhenInRange', 0, () => {
+      expect(resolvePlaylistPlaybackStartIndex(10, true, 0)).assertEqual(0);
+      expect(resolvePlaylistPlaybackStartIndex(10, true, 3)).assertEqual(3);
+      expect(resolvePlaylistPlaybackStartIndex(10, true, 9)).assertEqual(9);
+    });
+
+    it('shuffleClampsOutOfRangePicks', 0, () => {
+      expect(resolvePlaylistPlaybackStartIndex(10, true, -1)).assertEqual(0);
+      expect(resolvePlaylistPlaybackStartIndex(10, true, 10)).assertEqual(9);
+      expect(resolvePlaylistPlaybackStartIndex(1, true, 42)).assertEqual(0);
     });
   });
 }

@@ -1868,6 +1868,19 @@ export class PlayerManager {
         PlayerManager.resumeOnFocusRegain = false;
         PlayerManager.playWhenReady = false;
         PlayerManager.volumeFader.cancel();
+        // Unlike a forced focus loss, output-device loss (REASON_OLD_DEVICE_
+        // UNAVAILABLE: BT/wired headset gone) does not stop the stream — the
+        // system reroutes it to the next device (the speaker) still sounding.
+        // The pause must be issued here (audio-output-device-change guide):
+        // a hard pause, no fade, mirroring the upstream pauseForAudioRouteLoss.
+        // A focus-loss STOP already had the stream acted on; this pause() is a
+        // harmless no-op there.
+        if (player !== null && PlayerManager.status === PlaybackStatus.PLAYING) {
+          player.pause().catch((error: Object) => {
+            const e = error as Error;
+            Logger.warn(`hard pause on device loss failed: ${e.message}`);
+          });
+        }
         PlayerManager.publishStatus(PlaybackStatus.PAUSED);
         PlayerManager.flushPlaybackStatsAsync();
         PlayerManager.persistNow();

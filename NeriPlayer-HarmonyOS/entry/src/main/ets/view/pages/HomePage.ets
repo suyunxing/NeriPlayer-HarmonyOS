@@ -54,9 +54,10 @@ export struct HomePage {
   @StorageProp('ui.bottomLiftVp') bottomLift: number = 0;
 
   private onRefreshTick(): void {
-    if (this.activeTab === TAB_INDEX) {
-      this.reload();
-    }
+    // 变动也可能发生在其它 Tab（资料库进歌单删歌后返回、播放页收藏等），
+    // 隐藏时也要把本地数据刷进来，否则切回首页时封面/曲数停在旧值；只是
+    // 隐藏时不重置 loading、不发网络推荐请求。
+    this.reload(this.activeTab === TAB_INDEX);
   }
 
   /**
@@ -71,16 +72,20 @@ export struct HomePage {
     await this.reload();
   }
 
-  private async reload(): Promise<void> {
-    this.loading = true;
-    this.offline = !(await NetworkStatus.hasNetwork());
+  private async reload(withNetwork: boolean = true): Promise<void> {
+    if (withNetwork) {
+      this.loading = true;
+      this.offline = !(await NetworkStatus.hasNetwork());
+    }
     const usage = await UsageRepository.load();
     this.usage = usage;
     const playlists = await LocalPlaylistRepository.loadAll();
     this.localPlaylists = playlists;
     this.recentSongs = await HistoryRepository.getRecent();
     this.loading = false;
-    this.loadNeteaseRecommend();
+    if (withNetwork) {
+      this.loadNeteaseRecommend();
+    }
   }
 
   /**
@@ -455,16 +460,19 @@ export struct HomePage {
                 columns: { xs: 4, sm: 4, md: 8, lg: 12 },
                 gutter: { x: 12, y: 14 }
               }) {
+                // 键拼 updatedAt：同键的卡片会被 ForEach 复用而拿不到新参数，
+                // 拼上数据层在增删歌/改名时刷新的版本号，封面/曲数必然重建。
                 ForEach(this.localPlaylists, (playlist: Playlist) => {
                   GridCol({ span: 2 }) {
                     PlaylistCard({
                       name: playlist.name,
+                      coverUrl: playlist.displayCoverUrl,
                       trackCount: playlist.songKeys.length,
                       isFavorite: playlist.id === LocalPlaylistRepository.FAVORITES_ID,
                       onOpen: () => Router.push(Router.PLAYLIST_DETAIL, playlist.id)
                     })
                   }
-                }, (playlist: Playlist) => playlist.id)
+                }, (playlist: Playlist) => `${playlist.id}_${playlist.updatedAt}`)
               }
               .width('100%')
               .padding({ left: 2, right: 2 })

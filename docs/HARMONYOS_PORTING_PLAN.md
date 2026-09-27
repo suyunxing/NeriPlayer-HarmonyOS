@@ -6,7 +6,7 @@
 
 目标是把 NeriPlayer 迁移为 HarmonyOS 普通应用，主语言 ArkTS、UI 使用 ArkUI、应用模型使用 Stage 模型。迁移以行为兼容和可测试性为目标，不逐行翻译 Kotlin，也不把 ASCF 元服务当成主实现。
 
-工程基线为 `6.1.1(24)`。官方版本映射已于 2026-08-14 复核（[所有 HarmonyOS 开发套件版本](https://developer.huawei.com/consumer/cn/doc/harmonyos-releases/overview-allversion)）：HarmonyOS 6.0.0→API 20、6.0.1→21、6.0.2→22、6.1.0→23、6.1.1→24（当前最新稳定 Release），HarmonyOS 7.0→开发套件 26.0.0（API 26，Beta；版本号自 26.0.0 起改用 SemVer）。本机两套 SDK 均已安装：API 24 Release 位于 `D:\HarmonyOS\Tools\command-line-tools\sdk`，API 26 Beta2 随 DevEco Studio 26.0.0.621。各模块迁移前仍须按官方 API 差异页逐项确认废弃接口与行为变化，不能凭目录名或记忆推断。
+工程基线现为 `26.0.0`（API 26；2026-09-07 自 `6.1.1(24)` 全量迁移，见 `hm.md` §7.12）。官方版本映射已于 2026-08-14 复核（[所有 HarmonyOS 开发套件版本](https://developer.huawei.com/consumer/cn/doc/harmonyos-releases/overview-allversion)）：HarmonyOS 6.0.0→API 20、6.0.1→21、6.0.2→22、6.1.0→23、6.1.1→24（当前最新稳定 Release），HarmonyOS 7.0→开发套件 26.0.0（API 26，Beta；版本号自 26.0.0 起改用 SemVer）。本机两套 SDK 均已安装：API 24 Release 位于 `D:\HarmonyOS\Tools\command-line-tools\sdk`，API 26 Beta2 随 DevEco Studio 26.0.0.621。各模块迁移前仍须按官方 API 差异页逐项确认废弃接口与行为变化，不能凭目录名或记忆推断。
 
 ## 建议架构
 
