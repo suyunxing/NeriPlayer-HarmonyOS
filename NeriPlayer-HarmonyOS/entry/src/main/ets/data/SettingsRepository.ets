@@ -146,6 +146,10 @@ export class SettingsRepository {
   // Auto silent sync (backlog §1.5): Android auto-sync defaults off; here it
   // covers the debounced mutation sync + throttled startup sync.
   static readonly KEY_SYNC_AUTO: string = 'np.sync_auto';
+  // Source playlist auto sync (网易云歌单/B站收藏夹 → 本地镜像歌单). The master
+  // switch only gates the automatic triggers; mirrors keep syncing manually.
+  static readonly KEY_SOURCE_SYNC_ENABLED: string = 'np.source_sync_enabled';
+  static readonly KEY_SOURCE_SYNC_THROTTLE_MINUTES: string = 'np.source_sync_throttle_minutes';
   // WebDAV credentials live in AssetStore; only endpoint metadata is persisted here.
   static readonly KEY_WEBDAV_SERVER_URL: string = 'np.webdav_server_url';
   static readonly KEY_WEBDAV_BASE_PATH: string = 'np.webdav_base_path';
@@ -238,6 +242,8 @@ export class SettingsRepository {
     // uploads JSON until the compact writer lands (M5.2b record), reads all formats.
     [SettingsRepository.KEY_GITHUB_DATA_SAVER, false],
     [SettingsRepository.KEY_SYNC_AUTO, false],
+    [SettingsRepository.KEY_SOURCE_SYNC_ENABLED, true],
+    [SettingsRepository.KEY_SOURCE_SYNC_THROTTLE_MINUTES, 30],
     [SettingsRepository.KEY_WEBDAV_SERVER_URL, ''],
     [SettingsRepository.KEY_WEBDAV_BASE_PATH, ''],
     [SettingsRepository.KEY_PROXY_HOST, ''],
