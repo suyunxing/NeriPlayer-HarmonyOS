@@ -11,6 +11,7 @@ import { SystemBars } from '../../util/SystemBars';
 import { HdsTabs, HdsBarLayoutMode, hdsMaterial, SystemMaterialParams } from '@kit.UIDesignKit';
 import { HdsTabsAttribute } from '@kit.UIDesignKit';
 import { HdsNavigation, HdsNavigationTitleMode, ScrollEffectType, BlurStrategy } from '@kit.UIDesignKit';
+import { ezCustomTransition } from '@hmanimations/ezcustomtransition';
 import { LengthMetrics } from '@kit.ArkUI';
 import { HdsLight } from '../theme/HdsLight';
 import { AccentScheme } from '../theme/AccentScheme';
@@ -26,6 +27,7 @@ import { PlaylistDetailPage } from './PlaylistDetailPage';
 import { NeteasePlaylistPage } from './NeteasePlaylistPage';
 import { BiliFavPage } from './BiliFavPage';
 import { DebugPage } from './DebugPage';
+import { LongTakeSpikePage } from './LongTakeSpikePage';
 import { DownloadsPage } from './DownloadsPage';
 import { ListenTogetherPage } from './ListenTogetherPage';
 import { RecentPage } from './RecentPage';
@@ -154,6 +156,11 @@ export struct MainShell {
   @State @Watch('publishSlotMiniHidden') closing: boolean = false;
   // 转场进行中：模态内容不响应命中，结算后恢复。
   @State transitioning: boolean = false;
+  // 一镜到底转场的交互闸门（技能 Step4）：Navigation 自定义转场回调在动画
+  // 开始/结束时切换，转场期间整棵 Navigation 子树禁交互，防止动画中误触
+  // 导致布局错乱。dock 覆盖层在 Navigation 子树之外不受影响——转场期间
+  // 它本就因播放页展开而隐藏。
+  @State transitionGate: boolean = true;
   // 一镜到底展开起点。主页（含 dock 态子页）由 pillRect()/dockRect() 实时
   // 推导（见 pillRect 注释），lg 宽屏用 wideFallbackOrigin；不再保存 @State
   // 标定值——槽位锚点会随导航周期漂移，静态标定值会随窗口度量变化失真。
@@ -658,6 +665,10 @@ export struct MainShell {
       ArtistPage({ artistParam: this.paramText(param) })
     } else if (name === Router.LISTEN_TOGETHER) {
       ListenTogetherPage()
+    } else if (name === Router.LONG_TAKE_SPIKE) {
+      // M1 spike（docs/ONETAKE_INTEGRATION_PLAN.md §4）：一镜到底兼容性验证页，
+      // 临时路由，M5 拆除。
+      LongTakeSpikePage()
     } else if (name === Router.LEGAL_DOC) {
       // 设置页入口按全屏路由打开，返回走 HdsNavDestination 标题栏返回键。
       LegalDocPage({ doc: this.paramText(param), asRoute: true, onClose: () => Router.pop() })
@@ -878,6 +889,22 @@ export struct MainShell {
     // 由 Tabs.vertical(true) 与各页的 GridRow 承担。
     .mode(NavigationMode.Stack)
     .navDestination(this.pageMap)
+    // 一镜到底转场桥（技能 Step4）：库内部按「目标页/退出页是否注册了一镜
+    // 到底 session」自动分流——未注册的普通页面返回 undefined 走系统默认
+    // 转场，无需在此按路由名过滤（计划 D3 由库内部实现兜底）。
+    .customNavContentTransition((from: NavContentInfo, to: NavContentInfo, operation: NavigationOperation) => {
+      return ezCustomTransition.customNavContentTransition(from, to, operation, {
+        onTransitionStart: (): void => {
+          this.transitionGate = false;
+        },
+        onTransitionEnd: (): void => {
+          this.transitionGate = true;
+        }
+      });
+    })
+    // 转场期间禁用整棵 Navigation 子树的交互；enabled 经 HdsNavigationAttribute
+    // 继承自 CommonMethod 可用。
+    .enabled(this.transitionGate)
     .width('100%')
     .height('100%')
     // 顶部沉浸：标题栏背板（静止底色 + 滚动渐变模糊）向上延伸进状态栏与

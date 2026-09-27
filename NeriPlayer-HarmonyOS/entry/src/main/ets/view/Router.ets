@@ -33,6 +33,11 @@ export class Router {
   static readonly ARTIST: string = 'artist';
   /** 隐私政策 / 用户协议阅读页，param 取 LEGAL_PRIVACY / LEGAL_AGREEMENT。 */
   static readonly LEGAL_DOC: string = 'legal_doc';
+  /**
+   * 一镜到底 M1 spike 验证页（docs/ONETAKE_INTEGRATION_PLAN.md §4）：
+   * HdsNavigation × ezcustomtransition 兼容性最小闭环，临时路由，M5 拆除。
+   */
+  static readonly LONG_TAKE_SPIKE: string = 'longtake_spike';
 
   private static pathStack: NavPathStack | null = null;
   /** attach 时由 MainShell 一并交入：NOW_PLAYING 的 animateTo 需要 UIContext 入口。 */
@@ -81,6 +86,16 @@ export class Router {
       AppStorage.setOrCreate(Router.KEY_NOW_PLAYING_SHOWN, true);
       return;
     }
+    Router.pushObject(name, param);
+  }
+
+  /**
+   * 以任意对象参数入栈。一镜到底转场参数（LongTakeTransitionParam 实例）
+   * 经 route param 传给目标页，字符串通道装不下，spike 起开放此入口；
+   * push(name, param) 的字符串参数也统一从这里落栈，决策规则（防重、
+   * CLEAR、REPLACE_TOP、深度上限驱逐）保持一处。
+   */
+  static pushObject(name: string, param: Object): void {
     const stack = Router.pathStack;
     if (stack === null) {
       // 启动门阶段（免责声明/引导页）还没有 Navigation，此时不该有路由跳转。
@@ -90,6 +105,7 @@ export class Router {
     // 收掉模态再入栈，否则新页面渲染在模态下面不可见。不包 animateTo：立即
     // 收起，不与被推入页面自身的 DEFAULT 转场叠加；副作用是返回时回到打开
     // 播放页之前的页面而不是播放页（模态已收，与设计预期一致）。
+    // （M2 路由形态下播放页在栈内、模态不再挂载，此分支由 flag 守卫跳过。）
     if (Router.nowPlayingShown()) {
       AppStorage.setOrCreate(Router.KEY_NOW_PLAYING_SHOWN, false);
     }
@@ -110,12 +126,9 @@ export class Router {
       Router.publishDepth();
       return;
     }
-    const evict = (): void => {
-      if (action === RoutePushAction.EVICT_THEN_PUSH) {
-        stack.removeByIndexes([0]);
-      }
-    };
-    evict();
+    if (action === RoutePushAction.EVICT_THEN_PUSH) {
+      stack.removeByIndexes([0]);
+    }
     stack.pushPathByName(name, param);
     Router.publishDepth();
   }
@@ -131,6 +144,16 @@ export class Router {
       return;
     }
     stack.pop();
+    Router.publishDepth();
+  }
+
+  /**
+   * 只重发深度快照、不发 Tab 刷新信号。给「不经 Router 的弹栈路径」（一镜
+   * 到底手势返回、NavDestination 自身的系统返回）补齐 ui.subPageDepth 用；
+   * notifyReturned() 的刷新广播对播放页不适用（会触发首页重载式闪屏，见
+   * MainShell 模态 onDisappear 注释）。
+   */
+  static syncDepth(): void {
     Router.publishDepth();
   }
 

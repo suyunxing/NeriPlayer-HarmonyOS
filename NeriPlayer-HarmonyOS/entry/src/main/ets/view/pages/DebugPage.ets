@@ -19,6 +19,7 @@ import { Logger } from '../../app/Logger';
 import { Router } from '../Router';
 import { Theme } from '../Theme';
 import { HdsSpikePanel } from './HdsSpikePanel';
+import { ezCustomTransition } from '@hmanimations/ezcustomtransition';
 import { HdsNavDestination } from '@kit.UIDesignKit';
 import { subPageTitleBar, SubPageBottomFade, SUB_TITLEBAR_SPACE_VP, SUB_BOTTOM_CLEARANCE_VP } from '../components/HdsSubPage';
 
@@ -163,6 +164,22 @@ export struct DebugPage {
     promptAction.openToast({ message: '已模拟崩溃标记，重启后进入安全模式' });
   }
 
+  /**
+   * 一镜到底 M1 spike（docs/ONETAKE_INTEGRATION_PLAN.md §4）：从本按钮以
+   * LongTakeTransitionParam 入栈 spike 页，真机验证 HdsNavigation ×
+   * ezcustomtransition。按钮自身即触发组件（.id() + .borderRadius() 与
+   * generateLongTakeParam 的圆角参数一致，技能检查清单）。
+   */
+  private pushLongTakeSpike(): void {
+    const longTakeParam = ezCustomTransition.generateLongTakeParam(
+      this.getUIContext(), 'longtake_spike_trigger', 12);
+    const routeParam: Record<string, Object> = {};
+    if (longTakeParam !== undefined) {
+      routeParam['longTakeTransitionParam'] = longTakeParam;
+    }
+    Router.pushObject(Router.LONG_TAKE_SPIKE, routeParam);
+  }
+
   private async probeDiagnostics(): Promise<void> {
     try {
       const records = await DiagnosticsStore.listRecords();
@@ -232,6 +249,18 @@ export struct DebugPage {
           Column({ space: 6 }) {
             // S0 摸底（docs/HDS_IMMERSIVE_SPIKE.md）：UIDesignKit 编译与运行探针。
             HdsSpikePanel()
+
+            // 一镜到底 M1 spike：按钮自身即一镜到底触发组件（id/圆角见
+            // pushLongTakeSpike 注释），样式对齐 testButton。
+            Button('一镜到底 Spike（M1）')
+              .width('100%')
+              .height(44)
+              .borderRadius(12)
+              .backgroundColor(Theme.surface(Theme.isDark()))
+              .fontColor(Theme.textPrimary(Theme.isDark()))
+              .margin({ bottom: 8 })
+              .id('longtake_spike_trigger')
+              .onClick(() => this.pushLongTakeSpike())
 
             this.testButton('网易云 API 测试', () => this.testNetease())
             this.testButton('Bilibili API 测试', () => this.testBili())

@@ -21,6 +21,7 @@ import { LocalDirectoryScanner } from '../data/LocalDirectoryScanner';
 import { AutoSyncScheduler } from '../sync/AutoSyncScheduler';
 import { SyncService } from '../sync/SyncService';
 import { SyncReport } from '../sync/SyncReport';
+import { ezCustomTransition } from '@hmanimations/ezcustomtransition';
 
 const TAG: string = 'EntryAbility';
 const DOMAIN: number = 0x4E50;
@@ -77,6 +78,10 @@ export default class EntryAbility extends UIAbility {
     // 必须在 loadContent 之前：首帧就要拿到断点与真实避让区，否则大屏设备会先
     // 按窄屏画一帧底部 Tab 栏再跳成侧边栏，而跨断点重建会白丢一次页面状态。
     WindowMetrics.start(windowStage);
+    // 一镜到底转场框架全局初始化（@hmanimations/ezcustomtransition）：登记
+    // windowStage 供转场期间取窗口尺寸/避让区。缺它则 Navigation 的自定义
+    // 转场回调链不生效（技能 Step2，docs/ONETAKE_INTEGRATION_PLAN.md M3）。
+    ezCustomTransition.init(windowStage);
     // 同样在 loadContent 之前等待登录凭据恢复：每个页面的 aboutToAppear 都在
     // loadContent 之后执行，凭据先就位才能保证首屏请求带上 MUSIC_U（否则
     // 冷启动首个 weapi 请求以匿名会话发出，杀进程重启后表现为掉登录）。
