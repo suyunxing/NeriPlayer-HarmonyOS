@@ -132,3 +132,13 @@
 
 - 每里程碑完成：在本文件 §8 追加一行记录（日期、commit、验证状态、未验证项），随代码同 commit 提交。
 - 受阻：按全局规则发介入邮件，本文件记录受阻原因与已试措施。
+
+## 8 进度记录
+
+- 2026-09-27 **M0**：基线即 `agreement-reconfirm`（b7f252b），无需对齐动作。
+- 2026-09-27 **M1**（commit 881235b）：全链路代码落地——依赖 1.3.0 + EntryAbility init + AbilityStage（module.srcEntry）+ HdsNavigation 转场桥（读库源码确认其内部按 session 注册自动分流，D3 过滤由库兜底，比计划的手工过滤更简）+ DebugPage spike 入口 + spike 页。assembleHap 通过；**spike 真机验证（R1）待手机执行**。偏差：原文「spike 代码不进 dev」调整为随分支保留至 M5 拆除（本机无真机关卡，保留 spike 页供真机隔离定位）。
+- 2026-09-27 **M2**（commit 95516e8）：播放页迁 NavDestination——路由形态默认开启（D4 flag `ui.nowPlayingAsRoute`，DebugPage 可切回模态）；新增 NowPlayingRoutePage 承载壳（NowPlayingPage 本体零改动）；pop 路由分支 + 播放页返回 450ms 时间窗防重；dockOverlayHidden 并入播放页可见期让位；RouteStack.test 补播放页顶替换断言。assembleHap 通过；真机 smoke 待执行（转场为系统默认的观感中间态属预期）。
+- 2026-09-27 **M3**（commit a1c7260）：迷你条主入口接线——MiniPlayer 增触发 id/圆角 props（槽位 mini_bar_slot_pill r20、dock 两形态 r20/31，id 全局唯一）；Router.pushNowPlaying(triggerId, cornerRadius) 收口全部入口，带 id 时同步截图生成参数、组件未挂载自动回退默认转场；六页歌曲行入口改走 pushNowPlaying()。assembleHap 通过。**偏差**：歌曲行暂不带触发 id（走默认转场），真机验证迷你条主场景后再铺 id（原文为七处全部补 id；列表行形态各异且主场景未验证，避免一次性铺开）；返回对齐因触发 id 即返回目标，无需显式 updateSnapshotComponentId（D6 天然满足）。
+- 2026-09-27 **收尾验证**：codelinter 0 error（23 warn + 3 suggestion，均为存量基线）；`build-signed.sh` 签名包已发布内网下载 http://100.73.184.27:8000/NeriPlayer-signed.hap（含 M1-M3 全量，可直接 `hdc install -r` 真机验证）。**下载服务承载目录为 /tmp/neri-download（仅 HAP），不再以 signing/ 为服务根——避免口令与证书材料暴露在内网 HTTP 下**。
+- 待真机清单（对应 §5 风险/§6 验证矩阵）：R1 HdsNavigation 兼容性（spike 页）、迷你条一镜到底展开/收起/折返、路由形态功能完整性与模态回退可用性、播放页内子路由（专辑/一起听）返回、深浅色切换、宽屏形态、后台播放与耳机断开回归（R5）、转场中手势冲突。Windows 工作站补跑单测全量（本机 hvigorw test 编译级通过、执行阶段挂死）。
+- M4/M5：未开始，待真机验证结果。
