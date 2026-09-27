@@ -31,6 +31,7 @@ import { ListenTogetherPage } from './ListenTogetherPage';
 import { RecentPage } from './RecentPage';
 import { StatsPage } from './StatsPage';
 import { SettingsDetailPage } from './SettingsDetailPage';
+import { BiliWebLoginPage } from './BiliWebLoginPage';
 import { LegalDocPage } from './LegalDocPage';
 import { AlbumPage } from './AlbumPage';
 import { ArtistPage } from './ArtistPage';
@@ -648,6 +649,8 @@ export struct MainShell {
       StatsPage()
     } else if (name === Router.SETTINGS_DETAIL) {
       SettingsDetailPage({ section: this.paramText(param) })
+    } else if (name === Router.BILI_WEB_LOGIN) {
+      BiliWebLoginPage()
     } else if (name === Router.DEBUG) {
       DebugPage()
     } else if (name === Router.DOWNLOADS) {
