@@ -11,6 +11,7 @@ import { Theme } from '../Theme';
 import { AccentScheme } from '../theme/AccentScheme';
 import { EmptyState } from '../components/Ui';
 import { SongRow } from '../components/SongRow';
+import { SongListDataSource } from '../components/SongListDataSource';
 import { Router } from '../Router';
 import { HdsNavDestination } from '@kit.UIDesignKit';
 import { subPageTitleBar, SubPageBottomFade, SubPageMenuEntry, SUB_TITLEBAR_SPACE_VP, SUB_BOTTOM_CLEARANCE_VP } from '../components/HdsSubPage';
@@ -31,14 +32,25 @@ export struct RecentPage {
   @StorageProp('ui.bottomLiftVp') bottomLift: number = Theme.bottomBarLift();
   /** 状态栏避让（util/WindowMetrics.ets 发布）；内容根从 y=0 起，让位 = topInset + 56。 */
   @StorageProp('ui.topInsetVp') topInset: number = 0;
-  @State songs: SongItem[] = [];
-  @State playCounts: Record<string, number> = {};
+  @Watch('onVisibleSongsChanged') @State songs: SongItem[] = [];
+  @Watch('onVisibleSongsChanged') @State playCounts: Record<string, number> = {};
   @State loaded: boolean = false;
-  @State query: string = '';
-  @State sortByCount: boolean = false;
+  @Watch('onVisibleSongsChanged') @State query: string = '';
+  @Watch('onVisibleSongsChanged') @State sortByCount: boolean = false;
   @State busy: boolean = false;
   /** 供 HdsNavDestination.bindToScrollable 绑定的历史列表控制器。 */
   private scroller: Scroller = new Scroller();
+
+  /**
+   * 历史列表走 LazyForEach 按需建行。可见集合由 songs/playCounts/query/
+   * sortByCount 四个状态共同决定，任一重赋值都经 @Watch 把 visibleSongs()
+   * 快照同步进数据源。
+   */
+  private songsDs: SongListDataSource = new SongListDataSource();
+
+  onVisibleSongsChanged(): void {
+    this.songsDs.reset(this.visibleSongs());
+  }
 
   /**
    * 标题栏菜单（原页内排序钮 + 更多菜单迁入）：排序切换 + 说明/导出/导入/清除。
@@ -359,7 +371,7 @@ export struct RecentPage {
                 .width('100%')
               }
             } else {
-              ForEach(this.visibleSongs(), (song: SongItem, index: number) => {
+              LazyForEach(this.songsDs, (song: SongItem, index: number) => {
                 ListItem() {
                   SongRow({
                     songJson: song.toJson(),
@@ -369,7 +381,10 @@ export struct RecentPage {
                     onPlay: () => this.play(index)
                   })
                 }
-              }, (song: SongItem) => `${song.platform}_${song.audioId}_${song.id}_${song.addedAt}`)
+              // key 含 index + 播放次数：过滤/排序/次数更新后行内缓存的 index、
+              // playCount 会过期，靠 key 变化强制重建受影响行。
+              }, (song: SongItem, index: number) =>
+                `${index}_${song.platform}_${song.audioId}_${song.id}_${song.addedAt}_${this.playCountOf(song)}`)
               // 尾部让位：列表延伸进底部手势条区后，末条记录滚过渐变遮罩仍可停稳。
               ListItem() {
                 Column().height(this.bottomLift + SUB_BOTTOM_CLEARANCE_VP)

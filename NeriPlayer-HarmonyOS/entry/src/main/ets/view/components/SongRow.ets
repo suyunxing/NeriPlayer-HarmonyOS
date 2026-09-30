@@ -6,7 +6,7 @@ import { DownloadEngine } from '../../download/DownloadEngine';
 import { Theme } from '../Theme';
 import { AccentScheme } from '../theme/AccentScheme';
 
-import { formatDuration } from './Ui';
+import { formatDuration, coverThumbnailUrl } from './Ui';
 
 @Component
 export struct SongRow {
@@ -25,8 +25,20 @@ export struct SongRow {
   @State menuOpen: boolean = false;
   @State favorite: boolean = false;
 
+  /**
+   * build 与 aboutToAppear 会多次读 song()；入参是整只歌的 JSON 串，无缓存时
+   * 每次读都是一次完整 JSON.parse（旧实现单次 build 触发 5+ 次解析，列表页
+   * 进场即成千次）。按 songJson 串比较做惰性缓存，@Prop 重同步后自动失效。
+   */
+  private cachedJson: string = '';
+  private cachedSong: SongItem | null = null;
+
   private song(): SongItem {
-    return this.songJson.length > 0 ? SongItem.fromJson(this.songJson) : new SongItem();
+    if (this.cachedSong === null || this.cachedJson !== this.songJson) {
+      this.cachedJson = this.songJson;
+      this.cachedSong = this.songJson.length > 0 ? SongItem.fromJson(this.songJson) : new SongItem();
+    }
+    return this.cachedSong;
   }
 
   async aboutToAppear(): Promise<void> {
@@ -67,7 +79,11 @@ export struct SongRow {
         // Pinning the box and aligning to a corner is font-size independent.
         Stack({ alignContent: Alignment.TopEnd }) {
           if (this.song().effectiveCoverUrl.length > 0) {
-            Image(this.song().effectiveCoverUrl)
+            // autoResize(true)：52vp 缩略图按显示尺寸降采样解码。ArkUI Image
+            // 默认 false 按原图解码（网易云原图 1000px+ 单张数十 MB），是列表
+            // 滑动掉帧主因之一；?param 由 coverThumbnailUrl 再砍下载体积。
+            Image(coverThumbnailUrl(this.song().effectiveCoverUrl, 200))
+              .autoResize(true)
               .width(52)
               .height(52)
               .borderRadius(8)
