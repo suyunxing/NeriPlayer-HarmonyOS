@@ -8,7 +8,7 @@ import { PANEL_CURVE } from '../NowPlayingCurves';
 import { Theme } from '../Theme';
 import { common } from '@kit.AbilityKit';
 import { SystemBars } from '../../util/SystemBars';
-import { HdsTabs, HdsBarLayoutMode, hdsMaterial, SystemMaterialParams } from '@kit.UIDesignKit';
+import { HdsTabs, HdsBarLayoutMode, hdsMaterial, SystemMaterialParams, HdsTabsController, HdsAnimationMode } from '@kit.UIDesignKit';
 import { HdsTabsAttribute } from '@kit.UIDesignKit';
 import { HdsNavigation, HdsNavigationTitleMode, ScrollEffectType, BlurStrategy } from '@kit.UIDesignKit';
 import { LengthMetrics } from '@kit.ArkUI';
@@ -44,6 +44,11 @@ const FLOAT_BAR_SIDE_MARGIN_VP: number = 16;
 const FLOAT_BAR_BOTTOM_GAP_VP: number = 8;
 /** dock 态迷你条高度 = 非紧凑 MiniPlayer 胶囊高度（进度条 2 + 内容行 60）。 */
 const DOCK_MINI_HEIGHT_VP: number = 62;
+/**
+ * 滚动自适应让位的位移阈值：内容滚过此值后再向下滚动才隐藏悬浮栏组，
+ * 避免停在顶部时轻扫一像素就吞掉底栏（参考网易云观感：滚入正文才让位）。
+ */
+const FLOAT_BAR_YIELD_OFFSET_VP: number = 64;
 /**
  * 槽位药丸顶边相对 dock 条顶边的上移量。真机视频三轮标定（2026-09-21）：
  * 104.5vp 差 10px 不到位 → 108.5vp 过 2px（+4vp 实测位移 9.9px，与
@@ -287,6 +292,15 @@ export struct MainShell {
   private tabScrollers: Scroller[] = [new Scroller(), new Scroller(), new Scroller(), new Scroller()];
 
   /**
+   * 悬浮 HdsTabs 的控制器：滚动自适应显隐（applyHide/ShowAnimation）的入口。
+   * 只挂窄屏悬浮形态（lg 侧栏形态不传，两个分支各挂各的或都不挂，避免一个
+   * controller 同时绑两个 Tabs）。
+   */
+  private tabsController: HdsTabsController = new HdsTabsController();
+  /** 悬浮栏组是否已因下滚让位。非响应式：只在本类的事件回调里读写。 */
+  private barYielded: boolean = false;
+
+  /**
    * 官方 HdsTabsMiniBar 槽位：无歌时留空，有歌渲染紧凑 MiniPlayer。
    * 槽位的 CustomBuilder 闭包不随本组件状态重渲染（仅 HdsTabs 内部重建
    * 时重新执行），显隐不能写在这里的任何表达式上——由槽内 SlotMiniBar
@@ -414,6 +428,9 @@ export struct MainShell {
    * 返回动画中途再次入栈会清掉卸载计时器并直接反向重定目标。
    */
   private syncDockBar(): void {
+    // 切歌/子页进出/断点切换都会路过这里：悬浮栏若处于滚动让位态，借这些
+    // 时机唤回（列表点播后迷你条必须立刻可见；返回主页不应面对空底栏）。
+    this.showYieldedBar();
     this.publishSlotMiniHidden();
     if (this.shouldDockBar()) {
       if (this.dockMountTimer >= 0) {
@@ -466,9 +483,44 @@ export struct MainShell {
     }, DOCK_MORPH_MS + 120);
   }
 
+  /**
+   * 滚动自适应悬浮栏（参考 UIDesignKit 官方示例 Spatialization 沉浸光感场景
+   * 的 handleTabBarAnimation）：各 Tab 页根滚动容器经 onScrollFrameBegin 把
+   * 纵向增量上报到这里。下滚（yDelta>0）且内容已滚过 FLOAT_BAR_YIELD_OFFSET_VP
+   * 时，整组悬浮胶囊（Tab 栏 + 迷你条）以 SCROLL_ANIMATION 让位沉浸；上滚
+   * （yDelta<0）即回。页面触底时按示例同款传 -1 兜底唤回。滞回由 barYielded
+   * 承担，重复 hide/show 不叠加。
+   */
+  private handleTabBarScroll(yDelta: number): void {
+    if (this.wide()) {
+      return;
+    }
+    const yOffset = this.tabScrollers[this.currentTab].currentOffset().yOffset;
+    if (!this.barYielded) {
+      if (yDelta > 0 && yOffset > FLOAT_BAR_YIELD_OFFSET_VP) {
+        this.barYielded = true;
+        this.tabsController.applyHideAnimation(HdsAnimationMode.SCROLL_ANIMATION);
+      }
+    } else if (yDelta < 0 || yOffset <= FLOAT_BAR_YIELD_OFFSET_VP) {
+      this.barYielded = false;
+      this.tabsController.applyShowAnimation(HdsAnimationMode.SCROLL_ANIMATION);
+    }
+  }
+
+  /**
+   * 强制唤回让位中的悬浮栏：切歌、子页返回、播放页关闭共用（见 syncDockBar
+   * 与 bindContentCover.onDisappear）。未让位或 lg 侧栏形态时无副作用。
+   */
+  private showYieldedBar(): void {
+    if (this.wide() || !this.barYielded) {
+      return;
+    }
+    this.barYielded = false;
+    this.tabsController.applyShowAnimation(HdsAnimationMode.SCROLL_ANIMATION);
+  }
+
   /** 悬浮 Tab 栏的系统沉浸材质：设备不支持时保持 undefined（自绘玻璃兜底）。 */
-  private systemMaterialEffect(): SystemMaterialParams | undefined {
-    if (!HdsLight.immersiveSupported() && !HdsLight.adaptiveSupported()) {
+  private systemMaterialEffect(): SystemMaterialParams | undefined {    if (!HdsLight.immersiveSupported() && !HdsLight.adaptiveSupported()) {
       return undefined;
     }
     const params: SystemMaterialParams = {
@@ -585,7 +637,7 @@ export struct MainShell {
   @Builder
   tabPages() {
     TabContent() {
-      HomePage({ scroller: this.tabScrollers[0] })
+      HomePage({ scroller: this.tabScrollers[0], onBarScroll: (yDelta: number) => this.handleTabBarScroll(yDelta) })
     }
     // 首页滚动内容要钻到状态栏后被标题栏渐变模糊覆盖：TabContent 默认
     // clip(true) 会把向上滚出视口的内容裁掉（官方 FAQ faqs-arkui-1095），
@@ -597,7 +649,7 @@ export struct MainShell {
       : this.bottomTabBar(0, '首页', $r('app.media.ic_tab_home_24')))
 
     TabContent() {
-      ExplorePage({ scroller: this.tabScrollers[1] })
+      ExplorePage({ scroller: this.tabScrollers[1], onBarScroll: (yDelta: number) => this.handleTabBarScroll(yDelta) })
     }
     // 与首页 TabContent 同理：放行页内滚动内容向上穿透到状态栏后被渐变模糊覆盖。
     .clip(false)
@@ -606,7 +658,7 @@ export struct MainShell {
       : this.bottomTabBar(1, '探索', $r('app.media.ic_tab_search_24')))
 
     TabContent() {
-      LibraryPage({ scroller: this.tabScrollers[2] })
+      LibraryPage({ scroller: this.tabScrollers[2], onBarScroll: (yDelta: number) => this.handleTabBarScroll(yDelta) })
     }
     // 同探索页：放行内容向上穿透。
     .clip(false)
@@ -615,7 +667,7 @@ export struct MainShell {
       : this.bottomTabBar(2, '资料库', $r('app.media.ic_tab_library_24')))
 
     TabContent() {
-      SettingsPage({ scroller: this.tabScrollers[3] })
+      SettingsPage({ scroller: this.tabScrollers[3], onBarScroll: (yDelta: number) => this.handleTabBarScroll(yDelta) })
     }
     // 同探索页：放行内容向上穿透。
     .clip(false)
@@ -772,8 +824,9 @@ export struct MainShell {
           } else {
             // S3b-2: 悬浮胶囊 Tab 栏 + 官方 MiniBar 槽位。barOverlap 后
             // 内容延伸到栏下，四个 Tab 页的滚动尾部加了 FLOAT_TAB_CLEARANCE
-            // 避让；系统材质在不支持的设备上回落自绘玻璃。
-            HdsTabs({ barPosition: BarPosition.End, index: this.currentTab }) {
+            // 避让；系统材质在不支持的设备上回落自绘玻璃。滚动自适应显隐
+            // （下滚让位/上滚唤回）经 tabsController 驱动，见 handleTabBarScroll。
+            HdsTabs({ barPosition: BarPosition.End, index: this.currentTab, controller: this.tabsController }) {
               this.tabPages()
             }
             .vertical(false)
@@ -939,6 +992,9 @@ export struct MainShell {
         if (context !== undefined) {
           SystemBars.apply(context as common.UIAbilityContext, this.resolveDark());
         }
+        // 收起时悬浮栏组可能仍处于滚动让位态（藏在模态之下）：唤回，避免
+        // 关闭播放页后面对空底栏。
+        this.showYieldedBar();
       },
       onWillDismiss: (action: DismissContentCoverAction) => {
         this.pendingDismiss = action;
