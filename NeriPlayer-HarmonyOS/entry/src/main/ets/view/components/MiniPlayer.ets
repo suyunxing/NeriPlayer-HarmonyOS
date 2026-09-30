@@ -9,6 +9,7 @@ import { Router } from '../Router';
 import { Theme } from '../Theme';
 import { AccentScheme, SchemeMode } from '../theme/AccentScheme';
 import { HdsLight } from '../theme/HdsLight';
+import { MarqueeText } from './MarqueeText';
 
 @Component
 export struct MiniPlayer {
@@ -237,33 +238,15 @@ export struct MiniPlayer {
 
         Row() {
           Column({ space: 2 }) {
-            // 标题右端渐隐截断。迷你条背景是毛玻璃非纯色，不能叠一层同色渐变假装
-            // 淡出，必须做真 alpha 蒙版：Stack 先离屏（OFFSCREEN）把文字隔离进自身
-            // 缓冲，渐变层再用 DST_IN 把文字 alpha 乘上渐变 alpha——渐变不透明处
-            // 保留文字，右端透明处文字平滑淡出（Text 无原生渐隐截断，fadeout 仅
-            // 跑马灯适用）。短标题不进入渐变区，不受影响。
-            Stack() {
-              Text(this.song().displayName)
-                .fontSize(14)
-                .fontWeight(FontWeight.Medium)
-                .fontColor(Theme.textPrimary(Theme.isDark()))
-                .maxLines(1)
-                .textOverflow({ overflow: TextOverflow.Clip })
-                .width('100%')
-              Column()
-                .width('100%')
-                .height('100%')
-                .linearGradient({
-                  direction: GradientDirection.Right,
-                  colors: [[0xFF000000, 0], [0xFF000000, 0.8], [0x00000000, 1]]
-                })
-                // DST_IN 只取渐变的 alpha 做蒙版，颜色通道被丢弃；遮罩层不得拦截点击。
-                .blendMode(BlendMode.DST_IN)
-                .hitTestBehavior(HitTestMode.None)
-            }
-            .width('100%')
-            .clip(true)
-            .blendMode(BlendMode.SRC_OVER, BlendApplyType.OFFSCREEN)
+            // 标题超宽时跑马灯滚动，引擎级 fadeout 两端渐隐在毛玻璃背景上
+            // 成立——替代旧版手写离屏 DST_IN 渐隐蒙版（那套方案只做静态
+            // 截断淡出，长标题永远看不全）；未超宽时静止显示，不受影响。
+            MarqueeText({
+              text: this.song().displayName,
+              fontSize: 14,
+              fontWeight: FontWeight.Medium,
+              fontColor: Theme.textPrimary(Theme.isDark())
+            })
 
             // np.mini_show_lyric 开启且正在播放时，这一行优先显示当前歌词行。
             // embedded（壳层 dock 态的两个副本）一律不放作者名：用户决策
