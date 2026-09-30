@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
+
 import { fileIo, fileUri } from '@kit.CoreFileKit';
 import { util } from '@kit.ArkTS';
 import { common } from '@kit.AbilityKit';
@@ -190,6 +193,79 @@ export class DownloadStorage {
     }
   }
 
+  /**
+   * Cheap payload sanity check over the first bytes: every real audio
+   * container starts with a known magic value or frame sync (see
+   * isPlausibleAudioHead), never with HTML/JSON error payloads from expiring
+   * CDNs or arbitrary binary. Guards the completed-task short-circuit and the
+   * commit path against pinning or committing unplayable bytes.
+   */
+  static hasPlausibleAudioHeader(path: string): boolean {
+    try {
+      const file = fileIo.openSync(path, fileIo.OpenMode.READ_ONLY);
+      try {
+        // 192 bytes so the MPEG-TS two-packet sync check (0x47 at 0 and 188)
+        // can see both packets.
+        const head = new ArrayBuffer(192);
+        const read = fileIo.readSync(file.fd, head);
+        return isPlausibleAudioHead(new Uint8Array(head, 0, read));
+      } finally {
+        fileIo.closeSync(file);
+      }
+    } catch (error) {
+      return false;
+    }
+  }
+
+  /**
+   * Streaming scan for filler corruption (see fillerRunCoverage): reads the
+   * file in 1 MiB blocks with a 1 KiB overlap so runs up to 1024 bytes are
+   * seen intact by at least one block. True when non-pad filler runs cover
+   * more than 0.5% of the file — clean transfers measure ~0%, the poisoned
+   * NetEase weapi AAC payloads measure ~1.2%.
+   *
+   * Fails closed: an unreadable file or an incomplete scan reports corrupted
+   * (true) rather than silently passing the integrity gate.
+   */
+  static async hasExcessiveFillerRuns(path: string): Promise<boolean> {
+    const CHUNK = 1024 * 1024;
+    const OVERLAP = 1024;
+    try {
+      const file = fileIo.openSync(path, fileIo.OpenMode.READ_ONLY);
+      try {
+        // Stat through the opened fd: a path-level statSync failure would
+        // otherwise surface as size 0 ("nothing to scan") and pass the gate.
+        const size = fileIo.statSync(file.fd).size;
+        let covered = 0;
+        let scanned = 0;
+        let offset = 0;
+        let incomplete = false;
+        const buffer = new ArrayBuffer(CHUNK + OVERLAP);
+        while (offset < size) {
+          const readLen = Math.min(CHUNK + OVERLAP, size - offset);
+          const read = fileIo.readSync(file.fd, buffer, { offset: offset, length: readLen });
+          if (read <= 0) {
+            incomplete = true;
+            break;
+          }
+          covered += Math.round(fillerRunCoverage(new Uint8Array(buffer, 0, read)) * read);
+          scanned += Math.min(read, CHUNK);
+          offset += CHUNK;
+        }
+        if (incomplete || (size > 0 && scanned < size)) {
+          return true;
+        }
+        return scanned > 0 && covered / scanned > 0.005;
+      } finally {
+        fileIo.closeSync(file);
+      }
+    } catch (error) {
+      const e = error as Error;
+      Logger.warn(`hasExcessiveFillerRuns scan failed (fail closed): ${e.message}`);
+      return true;
+    }
+  }
+
   /** Number of files (audio + sidecars) parked in the staging directory. */
   static stagingFileCount(): number {
     try {
@@ -199,7 +275,13 @@ export class DownloadStorage {
     }
   }
 
-  /** Appends a chunk to the working file, creating it when absent. */
+  /**
+   * Appends a chunk to the working file, creating it when absent. The file
+   * must be opened with OpenMode.APPEND and written without an offset:
+   * WriteOptions.offset is an absolute file position, so passing the chunk
+   * size there pinned every chunk to the same offset and committed
+   * zero-holed containers AVPlayer rejects with 5400106.
+   */
   static appendChunk(workingPath: string, chunk: ArrayBuffer): number {
     try {
       const exists = fileIo.accessSync(workingPath);
@@ -207,8 +289,7 @@ export class DownloadStorage {
         ? fileIo.openSync(workingPath, fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.APPEND)
         : fileIo.openSync(workingPath, fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE);
       try {
-        fileIo.writeSync(file.fd, chunk, { offset: chunk.byteLength });
-        return chunk.byteLength;
+        return fileIo.writeSync(file.fd, chunk);
       } finally {
         fileIo.closeSync(file);
       }
@@ -310,6 +391,12 @@ export class DownloadStorage {
     await SchemaStore.save('downloaded_catalog', json, (value: string) => value);
   }
 
+  /** Wholesale catalog rewrite (stable-key migration); keeps the store key encapsulated. */
+  static async replaceCatalog(entries: DownloadedSongEntry[]): Promise<void> {
+    const json = JSON.stringify(entries);
+    await SchemaStore.save('downloaded_catalog', json, (value: string) => value);
+  }
+
   static async getCatalog(): Promise<DownloadedSongEntry[]> {
     return SchemaStore.load<DownloadedSongEntry[]>('downloaded_catalog', [], (json: string): DownloadedSongEntry[] | null => {
       const rawList = JSON.parse(json) as Object[];
@@ -340,11 +427,87 @@ export class DownloadStorage {
   }
 
   static async removeCatalogEntry(song: SongItem): Promise<void> {
-    const key = stableKeyOf(song);
+    await DownloadStorage.removeCatalogEntryByKey(stableKeyOf(song));
+  }
+
+  static async removeCatalogEntryByKey(stableKey: string): Promise<void> {
     const entries = await DownloadStorage.getCatalog();
-    const next = entries.filter((entry: DownloadedSongEntry) => entry.stableKey !== key);
+    const next = entries.filter((entry: DownloadedSongEntry) => entry.stableKey !== stableKey);
     const json = JSON.stringify(next);
     await SchemaStore.save('downloaded_catalog', json, (value: string) => value);
+  }
+
+  /**
+   * Resolves a catalog address into an openable sandbox path: rows committed
+   * against a user-picked download directory hold file:// URIs, which
+   * CoreFileKit open/stat calls do not accept directly. Returns '' when the
+   * URI cannot be converted; plain sandbox paths pass through unchanged.
+   */
+  static resolveFilePath(path: string): string {
+    if (!path.startsWith('file://')) {
+      return path;
+    }
+    try {
+      const converted = new fileUri.FileUri(path).path;
+      return converted.length > 0 ? converted : '';
+    } catch (error) {
+      const e = error as Error;
+      Logger.warn(`resolveFilePath failed: ${e.message}`);
+      return '';
+    }
+  }
+
+  /**
+   * Deletes a committed download file, tolerating missing paths and
+   * user-picked file:// URI directories. Never throws.
+   */
+  static deleteFileQuiet(audioPath: string): void {
+    DownloadStorage.deleteSidecarQuiet(audioPath);
+    if (audioPath.length === 0) {
+      return;
+    }
+    const target = DownloadStorage.resolveFilePath(audioPath);
+    if (target.length === 0) {
+      return;
+    }
+    try {
+      if (fileIo.accessSync(target)) {
+        fileIo.unlinkSync(target);
+      }
+    } catch (error) {
+      const e = error as Error;
+      Logger.warn(`deleteFileQuiet failed: ${e.message}`);
+    }
+  }
+
+  /** Writes a `<audio>.lrc` companion (DownloadLyricSidecar); never throws. */
+  static writeSidecarText(path: string, text: string): void {
+    if (text.trim().length === 0) {
+      return;
+    }
+    DownloadStorage.writeTextFile(path, text);
+  }
+
+  /** Removes the `<audio>.lrc` companion when its audio file is deleted. */
+  static deleteSidecarQuiet(audioPath: string): void {
+    if (audioPath.length === 0) {
+      return;
+    }
+    const dot = audioPath.lastIndexOf('.');
+    const slash = audioPath.lastIndexOf('/');
+    const withoutExt = dot > slash ? audioPath.substring(0, dot) : audioPath;
+    const sidecar = DownloadStorage.resolveFilePath(`${withoutExt}.lrc`);
+    if (sidecar.length === 0) {
+      return;
+    }
+    try {
+      if (fileIo.accessSync(sidecar)) {
+        fileIo.unlinkSync(sidecar);
+      }
+    } catch (error) {
+      const e = error as Error;
+      Logger.debug(`deleteSidecarQuiet ignored: ${e.message}`);
+    }
   }
 
   // ------------------------------------------------------------------
@@ -396,6 +559,111 @@ export class DownloadStorage {
       Logger.warn(`writeTextFile(${path}) failed: ${e.message}`);
     }
   }
+}
+
+/**
+ * Pure byte decision behind hasPlausibleAudioHeader (unit-testable): a head
+ * counts as audio only when it carries a known container magic or frame sync.
+ * The broken staging writer produced NUL-holed files, expiring CDNs answer
+ * with HTML/JSON (leading '<'/'{'/'[', optionally after whitespace), and any
+ * other binary (e.g. 'abcd') must not pass — none carry these signatures.
+ */
+const AUDIO_HEAD_MAGICS: number[][] = [
+  [0x49, 0x44, 0x33],             // ID3 (tagged mp3)
+  [0x66, 0x4C, 0x61, 0x43],       // fLaC
+  [0x4F, 0x67, 0x67, 0x53],       // OggS (ogg/opus/vorbis)
+  [0x52, 0x49, 0x46, 0x46],       // RIFF (wav)
+  [0x30, 0x26, 0xB2, 0x75],       // ASF (wma)
+  [0x23, 0x21, 0x41, 0x4D, 0x52], // #!AMR
+  [0x1A, 0x45, 0xDF, 0xA3]        // EBML (webm/mkv audio)
+];
+
+function matchesMagicAt(head: Uint8Array, offset: number, magic: number[]): boolean {
+  if (head.length < offset + magic.length) {
+    return false;
+  }
+  for (let i = 0; i < magic.length; i++) {
+    if (head[offset + i] !== magic[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+export function isPlausibleAudioHead(head: Uint8Array): boolean {
+  if (head.length < 4) {
+    return false;
+  }
+  for (const magic of AUDIO_HEAD_MAGICS) {
+    if (matchesMagicAt(head, 0, magic)) {
+      return true;
+    }
+  }
+  // MPEG audio / ADTS AAC frame sync: the first 11 bits are all set.
+  if (head[0] === 0xFF && (head[1] & 0xE0) === 0xE0) {
+    return true;
+  }
+  // ISO-BMFF (m4a/mp4/3gp): 4-byte box size (may lead with NULs) + 'ftyp'.
+  if (matchesMagicAt(head, 4, [0x66, 0x74, 0x79, 0x70])) {
+    return true;
+  }
+  // MPEG-TS: 0x47 sync byte at every 188-byte packet boundary; a single
+  // leading 0x47 is not enough (GIF also starts with it).
+  if (head[0] === 0x47 && head.length > 188 && head[188] === 0x47) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Offset of the first run of `minRun` identical bytes in the buffer, or -1.
+ * Pure and unit-testable; used to flag the periodic filler runs that poison
+ * otherwise valid-looking downloads (5400106 CONTAINER_ERR on play).
+ */
+export function findLongIdenticalRun(bytes: Uint8Array, minRun: number): number {
+  const n = bytes.length;
+  if (minRun <= 1 && n > 0) {
+    return 0;
+  }
+  let runStart = 0;
+  for (let i = 1; i < n; i++) {
+    if (bytes[i] !== bytes[runStart]) {
+      if (i - runStart >= minRun) {
+        return runStart;
+      }
+      runStart = i;
+    }
+  }
+  return n - runStart >= minRun ? runStart : -1;
+}
+
+/** Benign long runs: ID3/encoder padding and VBR filler patterns. */
+const BENIGN_PAD_BYTES: Set<number> = new Set<number>([0x00, 0xFF, 0xAA, 0x55]);
+
+/**
+ * Share of the buffer (0..1) covered by runs of >=64 identical bytes whose
+ * value is not a benign pad. Pure and unit-testable: the NetEase weapi AAC
+ * CDN injects periodic filler (~1.2% of bytes, values in a small non-pad
+ * cycle) that streams fine but breaks committed local playback, while clean
+ * mp3/m4a transfers stay at ~0% under this metric.
+ */
+export function fillerRunCoverage(bytes: Uint8Array): number {
+  const n = bytes.length;
+  if (n === 0) {
+    return 0;
+  }
+  let covered = 0;
+  let runStart = 0;
+  for (let i = 1; i <= n; i++) {
+    if (i === n || bytes[i] !== bytes[runStart]) {
+      const runLen = i - runStart;
+      if (runLen >= 64 && !BENIGN_PAD_BYTES.has(bytes[runStart])) {
+        covered += runLen;
+      }
+      runStart = i;
+    }
+  }
+  return covered / n;
 }
 
 // Re-export for callers that use the preferences-backed store directly.

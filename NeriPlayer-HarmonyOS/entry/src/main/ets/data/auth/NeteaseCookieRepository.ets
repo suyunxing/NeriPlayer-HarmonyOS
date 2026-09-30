@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 import { Logger } from '../../app/Logger';
 import { Constants } from '../../app/Constants';
 import { SettingsRepository } from '../SettingsRepository';
@@ -86,6 +88,11 @@ export class NeteaseCookieRepository {
   /** Saves cookies parsed from user-pasted text (backup import path). */
   static async saveFromPastedText(raw: string): Promise<boolean> {
     return NeteaseCookieRepository.saveInternal(parseRawCookieText(raw));
+  }
+
+  /** Saves cookies obtained from the phone/captcha login flow (backlog §3.3). */
+  static async saveFromPhoneLogin(cookies: Map<string, string>): Promise<boolean> {
+    return NeteaseCookieRepository.saveInternal(cookies);
   }
 
   /**

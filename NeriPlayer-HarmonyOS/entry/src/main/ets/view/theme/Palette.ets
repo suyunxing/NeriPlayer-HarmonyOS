@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 /**
  * Cover-art color extraction, ported from Android's androidx.palette usage in
  * CoverArtColorCache.kt. Android relies on Palette.from(bitmap)

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
+
 import { Constants } from '../app/Constants';
 import { Logger } from '../app/Logger';
 import { SongItem } from '../model/SongItem';
@@ -15,6 +18,9 @@ import {
   shouldFallbackRecommendToAnonymous,
   neteaseSongToSongItem
 } from './NeteasePlaylistParser';
+import { AudioQualityPolicy } from '../player/AudioQualityPolicy';
+import { NetworkStatus } from '../util/NetworkStatus';
+import { MusicPlatform } from '../model/MusicPlatform';
 
 interface NeteaseSearchResponse {
   code: number;
@@ -34,6 +40,8 @@ interface NeteaseLyricResponse {
   lrc?: NeteaseLyricBlock;
   tlyric?: NeteaseLyricBlock;
   romalrc?: NeteaseLyricBlock;
+  yrc?: NeteaseLyricBlock;
+  ytlrc?: NeteaseLyricBlock;
 }
 
 interface NeteaseLyricBlock {
@@ -55,6 +63,8 @@ interface NeteasePlaylist {
   description?: string;
   coverImgUrl?: string;
   trackCount?: number;
+  /** Playlist-level last-updated (ms). Present on /api/v6/playlist/detail; used as the source-sync fingerprint. */
+  updateTime?: number;
   tracks?: NeteaseSong[];
   trackIds?: NeteaseTrackId[];
 }
@@ -258,10 +268,17 @@ export class NeteaseApi {
 
   /**
    * Tries quality levels from highest to lowest, mirroring the Android
-   * quality-fallback behavior.
+   * quality-fallback behavior. The starting tier follows the per-network +
+   * per-platform policy (backlog §7).
    */
-  static async getSongUrl(id: number, levels: string[] = ['exhigh', 'high', 'standard']): Promise<string> {
-    for (const level of levels) {
+  static async getSongUrl(id: number, levels: string[] = []): Promise<string> {
+    let ladder = levels;
+    if (ladder.length === 0) {
+      const chosen = AudioQualityPolicy.effectiveForPlatform(await NetworkStatus.isWifi(),
+        MusicPlatform.NETEASE);
+      ladder = NeteaseApi.qualityLadderFrom(chosen);
+    }
+    for (const level of ladder) {
       try {
         const url = await NeteaseApi.requestSongUrl(id, level);
         if (url.length > 0) {
@@ -273,6 +290,26 @@ export class NeteaseApi {
       }
     }
     // Legacy fallback endpoint (no weapi) for resilient clients.
+    return NeteaseApi.getSongUrlLegacy(id);
+  }
+
+  /** Ordered fallback ladder starting at the chosen tier (Android parity). */
+  static qualityLadderFrom(chosen: string): string[] {
+    const ladder = ['lossless', 'exhigh', 'high', 'standard'];
+    const index = ladder.indexOf(chosen);
+    if (index < 0) {
+      return ['exhigh', 'high', 'standard'];
+    }
+    return ladder.slice(index);
+  }
+
+  /**
+   * Anonymous legacy URL endpoint (320k mp3 on the jdymusic CDN). The download
+   * path prefers this source: the weapi AAC CDN (jdyyaac) serves payloads with
+   * periodic filler runs (~1.2% of bytes) that stream fine but fail local
+   * playback with 5400106 CONTAINER_ERR once committed to disk.
+   */
+  static async getSongUrlLegacy(id: number): Promise<string> {
     try {
       const legacy = await HttpClient.getText(
         `${Constants.NETEASE_BASE}/api/song/enhance/player/url?ids=[${id}]&br=320000`,
@@ -291,13 +328,20 @@ export class NeteaseApi {
 
   static async getLyric(id: number): Promise<LyricPayload> {
     const text = await HttpClient.getText(
-      `${Constants.NETEASE_BASE}/api/song/lyric?id=${id}&lv=-1&kv=-1&tv=-1&roma=-1`,
+      `${Constants.NETEASE_BASE}/api/song/lyric?id=${id}&lv=-1&kv=-1&tv=-1&roma=-1&yv=-1&ytv=-1&yrv=-1`,
       NeteaseApi.headers()
     );
     const response = JSON.parse(text) as NeteaseLyricResponse;
+    // Android extractPreferredNeteaseLyricContent: word-timed YRC wins over
+    // plain LRC; its translation (ytlrc) wins over tlyric. LrcParser
+    // auto-detects YRC-shaped lines, so downstream stays format-agnostic.
+    const yrc = response.yrc?.lyric ?? '';
+    const ytlrc = response.ytlrc?.lyric ?? '';
+    const lrc = yrc.length > 0 ? yrc : (response.lrc?.lyric ?? '');
+    const translated = ytlrc.length > 0 ? ytlrc : (response.tlyric?.lyric ?? '');
     return new LyricPayload(
-      response.lrc?.lyric ?? '',
-      response.tlyric?.lyric ?? '',
+      lrc,
+      translated,
       response.romalrc?.lyric ?? ''
     );
   }
@@ -305,6 +349,27 @@ export class NeteaseApi {
   static async getPlaylistDetail(id: number): Promise<SongItem[]> {
     const overview = await NeteaseApi.getPlaylistOverview(id);
     return overview.songs;
+  }
+
+  /**
+   * Cheap playlist change fingerprint for source-sync, without resolving the
+   * songs: prefers the playlist-level updateTime (ms) and degrades to the
+   * track count when the field is absent. One /api/v6/playlist/detail request.
+   */
+  static async getPlaylistFingerprint(id: number): Promise<string> {
+    const text = await HttpClient.getText(
+      `${Constants.NETEASE_BASE}/api/v6/playlist/detail?id=${id}`,
+      NeteaseApi.headers()
+    );
+    const response = JSON.parse(text) as NeteasePlaylistResponse;
+    const playlist = response.playlist;
+    if (playlist === undefined) {
+      throw new Error(`netease playlist detail empty: id=${id}`);
+    }
+    if (playlist.updateTime !== undefined && playlist.updateTime > 0) {
+      return `u${playlist.updateTime}`;
+    }
+    return `t${playlist.trackCount ?? 0}`;
   }
 
   /**
@@ -510,6 +575,136 @@ export class NeteaseApi {
     // short ar/al shape; the pure mapper in NeteasePlaylistParser covers both.
     return neteaseSongToSongItem(song);
   }
+
+  // ---- 专辑 / 艺人详情（backlog §3.4，Android getAlbumDetail /
+  // getArtistSongs / getArtistHead / getArtistAlbums） -----------------------
+
+  /** Album detail + full track list (weapi /weapi/v1/album/{id}). */
+  static async getAlbumDetail(albumId: number): Promise<SongItem[]> {
+    if (albumId <= 0) {
+      return [];
+    }
+    try {
+      const payload: Record<string, Object> = {};
+      payload['n'] = '100000';
+      payload['s'] = '8';
+      const params = await NeteaseCrypto.weapiParams(payload);
+      const url = await NeteaseApi.weapiUrl(`/weapi/v1/album/${albumId}`);
+      const text = await HttpClient.postForm(url, params, 15000, NeteaseApi.headers(), true);
+      const response = JSON.parse(text) as Record<string, Object>;
+      if (Number(response['code'] ?? -1) !== 200) {
+        Logger.warn(`NeteaseApi album detail code=${Number(response['code'] ?? -1)}`);
+        return [];
+      }
+      const album = response['album'] as Record<string, Object> | undefined;
+      const songs = response['songs'] as Object[] | undefined;
+      const items: SongItem[] = [];
+      if (songs !== undefined && Array.isArray(songs)) {
+        for (const raw of songs) {
+          items.push(NeteaseApi.toSongItem(raw as NeteaseSong));
+        }
+      }
+      // The weapi album payload omits per-song covers; the album art covers all.
+      if (album !== undefined && album['picUrl'] !== undefined) {
+        const pic = String(album['picUrl']);
+        for (const item of items) {
+          if (item.coverUrl.length === 0) {
+            item.coverUrl = pic;
+          }
+        }
+      }
+      return items;
+    } catch (error) {
+      const e = error as Error;
+      Logger.warn(`NeteaseApi album detail failed: ${e.message}`);
+      return [];
+    }
+  }
+
+  /** Artist hot/new songs (legacy /api/v1/artist/songs, POST form). */
+  static async getArtistSongs(artistId: number, order: string = 'hot', limit: number = 50): Promise<SongItem[]> {
+    if (artistId <= 0) {
+      return [];
+    }
+    try {
+      const form: Record<string, string> = {};
+      form['id'] = `${artistId}`;
+      form['private_cloud'] = 'true';
+      form['work_type'] = '1';
+      form['order'] = order;
+      form['offset'] = '0';
+      form['limit'] = `${limit}`;
+      const text = await HttpClient.postForm(
+        `${Constants.NETEASE_BASE}/api/v1/artist/songs`,
+        form,
+        15000,
+        NeteaseApi.headers(),
+        true
+      );
+      const response = JSON.parse(text) as Record<string, Object>;
+      if (Number(response['code'] ?? -1) !== 200) {
+        Logger.warn(`NeteaseApi artist songs code=${Number(response['code'] ?? -1)}`);
+        return [];
+      }
+      const songs = response['songs'] as Object[] | undefined;
+      const items: SongItem[] = [];
+      if (songs !== undefined && Array.isArray(songs)) {
+        for (const raw of songs) {
+          items.push(NeteaseApi.toSongItem(raw as NeteaseSong));
+        }
+      }
+      return items;
+    } catch (error) {
+      const e = error as Error;
+      Logger.warn(`NeteaseApi artist songs failed: ${e.message}`);
+      return [];
+    }
+  }
+
+  /** Artist head info (name/cover/fans) for the artist page header. */
+  static async getArtistHead(artistId: number): Promise<NeteaseArtistHead | null> {
+    if (artistId <= 0) {
+      return null;
+    }
+    try {
+      const form: Record<string, string> = {};
+      form['id'] = `${artistId}`;
+      const text = await HttpClient.postForm(
+        `${Constants.NETEASE_BASE}/api/artist/head/info/get`,
+        form,
+        15000,
+        NeteaseApi.headers(),
+        true
+      );
+      const response = JSON.parse(text) as Record<string, Object>;
+      if (Number(response['code'] ?? -1) !== 200) {
+        return null;
+      }
+      const data = response['data'] as Record<string, Object> | undefined;
+      const artist = data === undefined ? undefined : data['artist'] as Record<string, Object> | undefined;
+      const head = new NeteaseArtistHead();
+      if (artist !== undefined) {
+        head.name = String(artist['name'] ?? '');
+        head.coverUrl = String(artist['cover'] ?? '');
+        head.albumCount = Number(artist['albumCount'] ?? 0);
+        head.songCount = Number(artist['songCount'] ?? 0);
+        head.fansCount = Number(artist['fansCount'] ?? 0);
+      }
+      return head.name.length > 0 ? head : null;
+    } catch (error) {
+      const e = error as Error;
+      Logger.warn(`NeteaseApi artist head failed: ${e.message}`);
+      return null;
+    }
+  }
+}
+
+export class NeteaseArtistHead {
+  name: string = '';
+  coverUrl: string = '';
+  albumCount: number = 0;
+  songCount: number = 0;
+  fansCount: number = 0;
 }
 
 export class LyricPayload {

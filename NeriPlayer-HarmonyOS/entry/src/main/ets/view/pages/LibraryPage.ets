@@ -1,5 +1,8 @@
+// SPDX-License-Identifier: GPL-3.0
+
 import { promptAction } from '@kit.ArkUI';
 import { common } from '@kit.AbilityKit';
+import { picker, fileShare } from '@kit.CoreFileKit';
 import { Playlist } from '../../model/Playlist';
 import { SongItem } from '../../model/SongItem';
 import { LocalPlaylistRepository } from '../../data/LocalPlaylistRepository';
@@ -7,6 +10,10 @@ import { HistoryRepository } from '../../data/HistoryRepository';
 import { DownloadStorage } from '../../download/DownloadStorage';
 import { PlaybackStatsRepository } from '../../data/PlaybackStatsRepository';
 import { LocalMediaScanner } from '../../data/LocalMediaScanner';
+import { LocalDirectoryScanner } from '../../data/LocalDirectoryScanner';
+import { SettingsRepository } from '../../data/SettingsRepository';
+import { DownloadDirectory } from '../../download/DownloadDirectory';
+import { DownloadDirectoryManager } from '../../download/DownloadDirectoryManager';
 import { PlayerManager } from '../../player/PlayerManager';
 import { NeteaseApi } from '../../network/NeteaseApi';
 import { NeteasePlaylistSummary } from '../../network/NeteasePlaylistParser';
@@ -25,8 +32,13 @@ import { SETTING_ACCOUNTS } from './SettingsPage';
 /** 本页在 MainShell 的 Tabs 里的下标，用于过滤刷新信号。 */
 const TAB_INDEX: number = 2;
 
+/** MINI 标题栏标准高度（MainShell 同名常量）：内容顶部让位。 */
+const TITLEBAR_SPACE_VP: number = 56;
+
 @Component
 export struct LibraryPage {
+  /** 滚动控制器：实例由 MainShell 下发，壳层标题栏 bindToScrollable 绑定当前 Tab 的它。 */
+  scroller: Scroller = new Scroller();
   /**
    * S5: 订阅封面配色。Theme.*() 读 AppStorage 是无跟踪调用（M7.4），换歌后
    * 坐在本页的组件不会重建；有了这个成员并在 build 里经 schemeBg() 直读，
@@ -37,6 +49,7 @@ export struct LibraryPage {
   @State favorites: Playlist | null = null;
   @State downloadCount: number = 0;
   @State localSongCount: number = 0;
+  @State scanning: boolean = false;
   @State playCount: number = 0;
   @State listenHours: number = 0;
   @State listenMinutes: number = 0;
@@ -56,11 +69,23 @@ export struct LibraryPage {
    */
   @StorageProp('np.default_start_tab') activeTab: number = 0;
   @StorageProp('ui.refreshTick') @Watch('onRefreshTick') refreshTick: number = 0;
+  /**
+   * 下载引擎的目录变更信号（DownloadEngine.KEY_CATALOG_TICK，装饰器只收字面量）。
+   * 停在本页时后台下载完成/删除也能实时刷新「已下载」计数，不必等返回信号。
+   */
+  @StorageProp('download.catalogTick') @Watch('onCatalogTick') catalogTick: number = 0;
 
   private onRefreshTick(): void {
     if (this.activeTab === TAB_INDEX) {
       this.reload();
     }
+  }
+
+  private onCatalogTick(): void {
+    // 只刷新计数，不整页 reload（目录读失败时维持旧值，与 DownloadsPage 同策略）。
+    DownloadStorage.getCatalog().then((catalog) => {
+      this.downloadCount = catalog.length;
+    }).catch(() => {});
   }
 
   async aboutToAppear(): Promise<void> {
@@ -73,7 +98,11 @@ export struct LibraryPage {
     this.favorites = playlists.find((item: Playlist) => item.id === LocalPlaylistRepository.FAVORITES_ID) ?? null;
     const catalog = await DownloadStorage.getCatalog();
     this.downloadCount = catalog.length;
-    this.localSongCount = (await LocalMediaScanner.loadCached()).length;
+    // Directory library cache (persisted) wins; picker imports stay in the
+    // session memory cache as before.
+    const persisted = await LocalDirectoryScanner.loadCached();
+    this.localSongCount = persisted.length > 0 ? persisted.length
+      : (await LocalMediaScanner.loadCached()).length;
     this.playCount = await PlaybackStatsRepository.getTotalPlayCount();
     const listenMs = await PlaybackStatsRepository.getTotalListenMs();
     this.listenHours = Math.floor(listenMs / 3600000);
@@ -160,6 +189,21 @@ export struct LibraryPage {
         promptAction.openToast({ message: '应用上下文未就绪' });
         return;
       }
+      // Directory library first (backlog §8): a persisted scan root triggers a
+      // recursive refresh; without one fall back to the audio picker.
+      const dirUri = SettingsRepository.getString(SettingsRepository.KEY_LOCAL_SCAN_DIRECTORY_URI, '');
+      if (dirUri.length > 0) {
+        this.scanning = true;
+        try {
+          const songs = await LocalDirectoryScanner.scanPersistedDirectory(dirUri);
+          this.localSongCount = songs.length;
+          promptAction.openToast({ message: `本地音乐库已刷新：${songs.length} 首` });
+        } finally {
+          this.scanning = false;
+        }
+        await this.reload();
+        return;
+      }
       const songs = await LocalMediaScanner.scan(context);
       this.localSongCount = songs.length;
       promptAction.openToast({ message: `已导入 ${songs.length} 首本地音乐` });
@@ -170,6 +214,56 @@ export struct LibraryPage {
     }
   }
 
+  /** Picks the library scan root (DocumentViewPicker FOLDER + persist). */
+  private localScanDirLabel(): string {
+    return SettingsRepository.getString(SettingsRepository.KEY_LOCAL_SCAN_DIRECTORY_LABEL, '');
+  }
+
+  private async playLocalLibrary(): Promise<void> {
+    const songs = await LocalDirectoryScanner.loadCached();
+    if (songs.length === 0) {
+      promptAction.openToast({ message: '本地音乐库为空' });
+      return;
+    }
+    PlayerManager.playPlaylist(songs, 0);
+  }
+
+  private async pickLocalScanDirectory(): Promise<void> {
+    try {
+      const context = AppStorage.get<common.UIAbilityContext>('abilityContext');
+      if (context === undefined) {
+        promptAction.openToast({ message: '应用上下文未就绪' });
+        return;
+      }
+      if (!DownloadDirectoryManager.folderPickerSupported()) {
+        promptAction.openToast({ message: '当前系统不支持选择文件夹' });
+        return;
+      }
+      const options = new picker.DocumentSelectOptions();
+      options.selectMode = picker.DocumentSelectMode.FOLDER;
+      options.maxSelectNumber = 1;
+      const documentPicker = new picker.DocumentViewPicker(context);
+      const uris: string[] = await documentPicker.select(options);
+      if (uris.length === 0) {
+        return;
+      }
+      const dirUri = uris[0];
+      const policy: fileShare.PolicyInfo = {
+        uri: dirUri,
+        operationMode: fileShare.OperationMode.READ_MODE
+      };
+      await fileShare.persistPermission([policy]);
+      SettingsRepository.setString(SettingsRepository.KEY_LOCAL_SCAN_DIRECTORY_URI, dirUri);
+      SettingsRepository.setString(SettingsRepository.KEY_LOCAL_SCAN_DIRECTORY_LABEL,
+        DownloadDirectory.labelFromUri(dirUri));
+      promptAction.openToast({ message: '已设置本地音乐库目录，正在扫描...' });
+      await this.scanLocal();
+    } catch (error) {
+      const e = error as Error;
+      promptAction.openToast({ message: `设置目录失败：${e.message}` });
+    }
+  }
+
 
   /** build 里直读被跟踪成员注册依赖；颜色本身仍由 Theme 统一决策。 */
   private schemeBg(dark: boolean): string {
@@ -177,19 +271,25 @@ export struct LibraryPage {
     return hasScheme ? Theme.background(dark) : Theme.background(dark);
   }
 
+  /**
+   * 同 schemeBg：强调色节点（统计卡片图标、新建/创建/重试按钮、歌单占位
+   * 图标）直接写 Theme.primary() 是无跟踪调用（M7.4），换歌后不会重染；
+   * 先摸被跟踪的 coverScheme 注册依赖，取值依旧交给 Theme 统一决策。
+   */
+  private accentPrimary(dark: boolean): string {
+    const hasScheme = this.coverScheme.light.primary.length > 0;
+    return hasScheme ? Theme.primary(dark) : Theme.primary(dark);
+  }
+
   build() {
     Stack() {
-      Scroll() {
+      // 标题「资料库」由 MainShell 的 HdsNavigation MINI 标题栏承载，页内不再
+      // 重复；列表顶部让位标题栏高度，滚动时从标题栏背后滚过。
+      Scroll(this.scroller) {
         // 840vp 栏宽约束：tablet 1440vp 下这些设置行的文本原本被拉到 1300vp 以上，
         // 一行要横扫整块屏。窄屏不触发约束，布局与改造前逐像素一致。
         ContentBand({ maxWidth: BAND_LIST_VP }) {
         Column({ space: 12 }) {
-        Text('资料库')
-          .fontSize(26)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(Theme.textPrimary(Theme.isDark()))
-          .width('100%')
-          .margin({ top: 12 })
 
         Row({ space: 10 }) {
           StatCard({
@@ -240,12 +340,6 @@ export struct LibraryPage {
             icon: '📊',
             onTap: () => Router.push(Router.STATS)
           })
-          SettingRow({
-            title: '下载管理',
-            subtitle: this.downloadCount > 0 ? `已下载 ${this.downloadCount} 首` : '暂无下载内容',
-            icon: '⤓',
-            onTap: () => Router.push(Router.DOWNLOADS)
-          })
         }
         .width('100%')
         .backgroundColor(Theme.surface(Theme.isDark()))
@@ -261,7 +355,7 @@ export struct LibraryPage {
           Button('＋ 新建')
             .height(40)
             .fontSize(13)
-            .backgroundColor(Theme.primary(Theme.isDark()))
+            .backgroundColor(this.accentPrimary(Theme.isDark()))
             .onClick(() => this.createPlaylist())
         }
         .width('100%')
@@ -280,7 +374,7 @@ export struct LibraryPage {
                 Image($r('app.media.ic_library_music_24'))
                   .width(22)
                   .height(22)
-                  .fillColor(Theme.primary(Theme.isDark()))
+                  .fillColor(this.accentPrimary(Theme.isDark()))
                   .margin({ left: 11, right: 11, top: 11, bottom: 11 })
                   .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
                   .borderRadius(8)
@@ -339,7 +433,7 @@ export struct LibraryPage {
               Button('重试')
                 .height(40)
                 .fontSize(13)
-                .backgroundColor(Theme.primary(Theme.isDark()))
+                .backgroundColor(this.accentPrimary(Theme.isDark()))
                 .onClick(() => this.refreshNeteasePlaylists())
             }
             .width('100%')
@@ -365,7 +459,7 @@ export struct LibraryPage {
                     Image($r('app.media.ic_music_note_24'))
                       .width(22)
                       .height(22)
-                      .fillColor(Theme.primary(Theme.isDark()))
+                      .fillColor(this.accentPrimary(Theme.isDark()))
                       .margin({ left: 11, right: 11, top: 11, bottom: 11 })
                       .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
                       .borderRadius(8)
@@ -426,7 +520,7 @@ export struct LibraryPage {
               Button('重试')
                 .height(40)
                 .fontSize(13)
-                .backgroundColor(Theme.primary(Theme.isDark()))
+                .backgroundColor(this.accentPrimary(Theme.isDark()))
                 .onClick(() => this.refreshBiliFavFolders())
             }
             .width('100%')
@@ -503,11 +597,27 @@ export struct LibraryPage {
         .margin({ top: 12 })
 
         SettingRow({
-          title: '本地音乐库',
-          subtitle: this.localSongCount > 0 ? `已收录 ${this.localSongCount} 首本地音频` : '点击扫描手机上的音频文件',
+          title: '本地音乐库目录',
+          subtitle: this.localScanDirLabel().length > 0
+            ? `${this.localScanDirLabel()} · 点击重新扫描` : '选择文件夹后自动递归收录音频（含同名 .lrc 歌词）',
           icon: '🗂',
-          onTap: () => this.scanLocal()
+          onTap: () => this.pickLocalScanDirectory()
         })
+
+        if (SettingsRepository.getString(SettingsRepository.KEY_LOCAL_SCAN_DIRECTORY_URI, '').length > 0) {
+          SettingRow({
+            title: this.scanning ? '正在扫描本地音乐库...' : '扫描本地音乐库',
+            subtitle: this.localSongCount > 0 ? `已收录 ${this.localSongCount} 首 · 点击立即播放` : '点击扫描所选目录',
+            icon: '♫',
+            onTap: () => {
+              if (this.localSongCount > 0) {
+                this.playLocalLibrary();
+                return;
+              }
+              this.scanLocal();
+            }
+          })
+        }
 
         Text('平台')
           .fontSize(18)
@@ -558,13 +668,19 @@ export struct LibraryPage {
         .clip(true)
       }
           .width('100%')
-          .padding({ left: 14, right: 14, bottom: 24 + FLOAT_TAB_CLEARANCE })
+          .padding({ top: TITLEBAR_SPACE_VP, left: 14, right: 14, bottom: 24 + FLOAT_TAB_CLEARANCE })
         }
       }
       .layoutWeight(1)
       .scrollBar(BarState.Off)
       .width('100%')
       .height('100%')
+      // 顶部沉浸：视口向上延伸进状态栏区，列表滚过标题栏后继续钻到状态栏
+      // 被渐变模糊覆盖（与首页统一）；clip(false) 放行内容画出视口上沿，
+      // expandSafeArea 只扩绘制区不改布局，首屏让位不变。新建歌单弹窗是
+      // Stack 中声明在后的兄弟，仍在列表之上。
+      .clip(false)
+      .expandSafeArea([SafeAreaType.SYSTEM, SafeAreaType.CUTOUT], [SafeAreaEdge.TOP])
       .backgroundColor(this.schemeBg(Theme.isDark()))
 
       if (this.showCreateDialog) {
@@ -588,7 +704,7 @@ export struct LibraryPage {
                 })
               Button('创建')
                 .layoutWeight(1)
-                .backgroundColor(Theme.primary(Theme.isDark()))
+                .backgroundColor(this.accentPrimary(Theme.isDark()))
                 .onClick(() => this.confirmCreate())
             }
             .width('100%')
@@ -614,17 +730,27 @@ export struct LibraryPage {
 
 @Component
 struct StatCard {
-  icon: string = '';
-  value: string = '';
-  label: string = '';
+  /** 订阅封面配色：图标直接写 Theme.primary() 是无跟踪调用（M7.4），不订阅则换歌后停留回退色。 */
+  @StorageProp('player.coverScheme') coverScheme: AccentScheme = AccentScheme.neutralFallback();
+  // 入参必须 @Prop：普通成员只在组件创建时赋值一次，已下载/收藏数等运行期
+  // 会变的值随后续刷新永远停在首帧。
+  @Prop icon: string = '';
+  @Prop value: string = '';
+  @Prop label: string = '';
   onTap: () => void = () => {};
+
+  /** 同 LibraryPage.accentPrimary：先摸被跟踪成员注册依赖，取值交给 Theme。 */
+  private accentPrimary(dark: boolean): string {
+    const hasScheme = this.coverScheme.light.primary.length > 0;
+    return hasScheme ? Theme.primary(dark) : Theme.primary(dark);
+  }
 
   build() {
     Column({ space: 4 }) {
       Image(iconForLegacy(this.icon, $r('app.media.ic_music_note_24')))
         .width(22)
         .height(22)
-        .fillColor(Theme.primary(Theme.isDark()))
+        .fillColor(this.accentPrimary(Theme.isDark()))
       Text(this.value)
         .fontSize(14)
         .fontWeight(FontWeight.Bold)

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 /**
  * Pure ArkTS QR code encoder (byte mode, error correction level M, versions
  * 1..10, max payload 213 bytes) used to render the NetEase QR login code.

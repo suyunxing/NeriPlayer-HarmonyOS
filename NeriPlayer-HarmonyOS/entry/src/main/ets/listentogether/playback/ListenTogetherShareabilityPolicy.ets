@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
+
 /**
  * Port of listentogether/playback/ListenTogetherShareabilityPolicy.kt: a song is
  * shareable exactly when it maps onto a wire track (local files do not).

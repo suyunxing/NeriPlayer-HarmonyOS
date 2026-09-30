@@ -109,7 +109,7 @@
 
 - 本工程不自带项目级 hvigor wrapper；构建工具链随 DevEco Studio / command-line-tools 分发，调用入口以各机器全局配置为准。
 - 依赖同步由构建入口自动处理（ohpm 安装/同步），不要在每轮构建前重复手动 `ohpm install --all`；只有需要证明干净状态可重现时才先 clean，普通局部迭代保留增量缓存。
-- 本地单元测试：`entry/src/test/`（`@ohos/hypium` 1.0.28，随里程碑累积至 935 用例——2026-09-08 静态清点，最近一次全量执行为 2026-08-29 的 874/874 全绿，沿革见 `docs/hm.md` §8.1），经 `hvigorw test --mode module -p product=default -p buildMode=debug --no-daemon` 执行。
+- 本地单元测试：`entry/src/test/`（`@ohos/hypium` 1.0.28，随里程碑累积至 1035 用例——2026-09-17 静态清点，最近一次全量执行为 2026-08-29 的 874/874 全绿，沿革见 `docs/hm.md` §8.1），经 `hvigorw test --mode module -p product=default -p buildMode=debug --no-daemon` 执行。
 - 设备侧测试：`entry/src/ohosTest/`（TestAbility + OpenHarmonyTestRunner，含播放/下载/同步/一起听/诊断等 Acts* 用例，各轮实测记录见 `docs/PORTING_EXECUTION_PLAN.md` §6）。先构建并签名 ohosTest HAP（对 `entry-ohosTest-unsigned.hap` 执行与 `sign-local.ps1` 相同的 sign-app 命令），安装后执行：
 
 ```powershell
@@ -186,6 +186,8 @@ git push
 ## GitHub CI/CD（.github/workflows/）
 
 - `harmonyos-ci.yml`：push/PR 到 main/dev/su 时跑构建与单测诊断（API 26 工具链 `ErBWs/setup-ohos@v2` version `26.0.0.821`）。工程 2026-09-07 起全量迁移 API 26（`compatibleSdkVersion: "26.0.0"`），CI 工具链必须与之一致，低于 26.0.0.821 会在 hvigor 配置校验报 00306042。
+- `gitleaks.yml`：**密钥泄漏扫描（2026-09-16 新增）**。每次 push/PR 跑 gitleaks（内建默认规则），扫描新增提交中疑似密钥/Token，命中即失败；不设 paths 过滤。存量误报基线（公开 Web 客户端常量、UI dump 控件 key、WBI 测试向量）在 `.gitleaksignore`（指纹=commit:file:rule:line，仅对历史那一行生效），`.gitleaks.toml` 只做 `[extend] useDefault`。
+- 仓库根 `.coderabbit.yaml`：CodeRabbit AI 审查配置（path_filters 排除参照快照/ASCF/解包目录，path_instructions 注入 ArkTS 审查规则）。生效需在 GitHub 安装 CodeRabbit App；私有仓库收费、公开仓库免费——未安装前该文件不生效。
 - `harmonyos-release.yml`：**发布流水线（2026-09-08 新增）**。push `vX.Y.Z` 格式 tag（或 workflow_dispatch 指定已存在 tag）→ 把版本号写入 `AppScope/app.json5`（versionName=tag 去 v，versionCode=三段乘权，如 1.0.1→1000001）→ release 构建 → 未签名 HAP + `SHA256SUMS.txt` + `INSTALL.md`（自行签名安装指南）上传为 GitHub Release。
 - **发布红线**：Release 产物永远是 **unsigned** HAP；签名材料、口令、设备 UDID 不得进 GitHub（含 Secrets）。接收人按 `INSTALL.md` 用自己的调试证书签名安装。AGC 正式发布证书属用户个人资产，未经用户明确操作不引入流水线。
 - 打正式 tag 属「修改版本号/生成发布产物」级别操作，须用户明确要求；测试验证用 `-rc` 后缀 tag 且事后清理。

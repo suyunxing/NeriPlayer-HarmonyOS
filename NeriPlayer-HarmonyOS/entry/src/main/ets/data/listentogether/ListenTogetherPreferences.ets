@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 /**
  * Port of data/listentogether/ListenTogetherPreferences.kt: the identity
  * (user id / uuid / nickname) and the three room settings, plus the config
@@ -24,6 +26,7 @@ import {
   normalizeListenTogetherSnapshotForRestore,
   resolveStoredListenTogetherNickname
 } from '../../listentogether/settings/ListenTogetherConfigSnapshot';
+import { ListenTogetherRoomSettings } from '../../listentogether/protocol/ListenTogetherRoomModels';
 import { buildDefaultListenTogetherNickname, buildListenTogetherUserUuid } from '../../listentogether/invite/ListenTogetherIdentity';
 import { sanitizeListenTogetherNicknameOrNull } from '../../listentogether/validation/ListenTogetherFieldValidation';
 
@@ -133,6 +136,15 @@ export class ListenTogetherPreferences {
 
   static setShareAudioLinks(value: boolean): void {
     SettingsRepository.setBoolean(SettingsRepository.KEY_LISTEN_TOGETHER_SHARE_AUDIO_LINKS, value);
+  }
+
+  /** The persisted triple as one room-settings payload (room creation default). */
+  static roomSettings(): ListenTogetherRoomSettings {
+    const settings = new ListenTogetherRoomSettings();
+    settings.allowMemberControl = ListenTogetherPreferences.allowMemberControl();
+    settings.autoPauseOnMemberChange = ListenTogetherPreferences.autoPauseOnMemberChange();
+    settings.shareAudioLinks = ListenTogetherPreferences.shareAudioLinks();
+    return settings;
   }
 
   // ---- snapshot / restore ------------------------------------------------

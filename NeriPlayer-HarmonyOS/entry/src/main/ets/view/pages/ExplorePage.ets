@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 import { LengthMetrics } from '@kit.ArkUI';
 import { SongItem } from '../../model/SongItem';
 import { NeteaseApi } from '../../network/NeteaseApi';
@@ -17,11 +19,16 @@ import { EmptyState, LoadingState, FLOAT_TAB_CLEARANCE } from '../components/Ui'
 /** 本页在 MainShell 的 Tabs 里的下标，用于过滤刷新信号。 */
 const TAB_INDEX: number = 1;
 
+/** MINI 标题栏标准高度（MainShell 同名常量）：内容顶部让位。 */
+const TITLEBAR_SPACE_VP: number = 56;
+
 @Component
 export struct ExplorePage {
+  /** 滚动控制器：实例由 MainShell 下发，绑定结果列表，壳层标题栏按当前 Tab 取用。 */
+  scroller: Scroller = new Scroller();
   /**
    * S5: 订阅封面配色。Theme.*() 读 AppStorage 是无跟踪调用（M7.4），换歌后
-   * 坐在本页的组件不会重建；有了这个成员并在 build 里经 schemeBg() 直读，
+   * 坐在本页的组件不会重建；有了这个成员并经 schemeBg()/accent*() 直读，
    * scheme 一发布本页就随新配色重染。
    */
   @StorageProp('player.coverScheme') coverScheme: AccentScheme = AccentScheme.neutralFallback();
@@ -122,11 +129,11 @@ export struct ExplorePage {
         .height(18)
       Text(label)
         .fontSize(13)
-        .fontColor(this.platform === index ? Theme.onPrimary(Theme.isDark()) : Theme.textSecondary(Theme.isDark()))
+        .fontColor(this.platform === index ? this.accentOnPrimary(Theme.isDark()) : Theme.textSecondary(Theme.isDark()))
     }
     .height(40)
     .padding({ left: 14, right: 14 })
-    .backgroundColor(this.platform === index ? Theme.primary(Theme.isDark()) : Theme.surface(Theme.isDark()))
+    .backgroundColor(this.platform === index ? this.accentPrimary(Theme.isDark()) : this.accentSurface(Theme.isDark()))
     .borderRadius(17)
     .clickEffect({ level: ClickEffectLevel.LIGHT })
     .onClick(() => {
@@ -144,19 +151,39 @@ export struct ExplorePage {
     return hasScheme ? Theme.background(dark) : Theme.background(dark);
   }
 
+  /**
+   * M7.4 的另一半：强调色与卡片底色节点直接写 Theme.*() 仍是无跟踪调用，
+   * 换歌后不动。读法与 schemeBg 相同——先摸被跟踪的 coverScheme 注册依赖，
+   * 取值依旧交给 Theme 统一决策（动态取色关闭、legacy seed 等回退路径不变）。
+   */
+  private accentPrimary(dark: boolean): string {
+    const hasScheme = this.coverScheme.light.primary.length > 0;
+    return hasScheme ? Theme.primary(dark) : Theme.primary(dark);
+  }
+
+  private accentOnPrimary(dark: boolean): string {
+    const hasScheme = this.coverScheme.light.primary.length > 0;
+    return hasScheme ? Theme.onPrimary(dark) : Theme.onPrimary(dark);
+  }
+
+  private accentSurfaceVariant(dark: boolean): string {
+    const hasScheme = this.coverScheme.light.primary.length > 0;
+    return hasScheme ? Theme.surfaceVariant(dark) : Theme.surfaceVariant(dark);
+  }
+
+  private accentSurface(dark: boolean): string {
+    const hasScheme = this.coverScheme.light.primary.length > 0;
+    return hasScheme ? Theme.surface(dark) : Theme.surface(dark);
+  }
+
   build() {
     // 栏宽约束手写在这里而不套 ContentBand：结果列表靠 layoutWeight(1) 撑满剩余
     // 高度，需要 height('100%') 一路传到被约束的那一层，而 ContentBand 是按内容
     // 自适应高度的。Row 只负责把这条内容带在宽屏上居中。
     Row() {
+    // 页内大标题「探索」由 MainShell 的 HdsNavigation MINI 标题栏承载，不再重复；
+    // 内容顶部让位见下方 Column 的 padding({ top })。
     Column({ space: 10 }) {
-      Text('探索')
-        .fontSize(32)
-        .fontWeight(FontWeight.Bold)
-        .fontColor(Theme.textPrimary(Theme.isDark()))
-        .width('100%')
-        .margin({ top: 12 })
-
       // S5: 参考图搜索条——胶囊输入框 + 重点色圆形搜索键（触达 44vp）。
       Row({ space: 10 }) {
         Row({ space: 8 }) {
@@ -179,22 +206,25 @@ export struct ExplorePage {
         .layoutWeight(1)
         .height(44)
         .padding({ left: 14, right: 8 })
-        .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+        .backgroundColor(this.accentSurfaceVariant(Theme.isDark()))
         .borderRadius(22)
 
         Button() {
           SymbolGlyph($r('sys.symbol.magnifyingglass'))
             .fontSize(20)
-            .fontColor([Theme.onPrimary(Theme.isDark())])
+            .fontColor([this.accentOnPrimary(Theme.isDark())])
         }
         .width(44)
         .height(44)
         .type(ButtonType.Circle)
-        .backgroundColor(Theme.primary(Theme.isDark()))
+        .backgroundColor(this.accentPrimary(Theme.isDark()))
         .accessibilityText('搜索')
         .clickEffect({ level: ClickEffectLevel.LIGHT })
         .onClick(() => this.search())
       }
+      // 结果列表向上穿透时从这排固定控件背后滚过：列表声明在后、默认会盖住
+      // 先声明的兄弟，这里提升搜索条的绘制次序保持其可见可点。
+      .zIndex(1)
       .width('100%')
 
       // Wraps instead of a plain Row: at 1.45x system font the third chip
@@ -205,6 +235,8 @@ export struct ExplorePage {
         this.platformButton(1, 'Bilibili', $r('app.media.ic_bilibili'))
         this.platformButton(2, 'YouTube Music', $r('app.media.ic_youtube'))
       }
+      // 同搜索条：平台切换 chips 固定，需压在穿透列表之上。
+      .zIndex(1)
       .width('100%')
 
       if (!this.searched && this.history.length > 0) {
@@ -228,7 +260,7 @@ export struct ExplorePage {
                 .fontSize(13)
                 .fontColor(Theme.textPrimary(Theme.isDark()))
                 .padding({ left: 12, right: 12, top: 7, bottom: 7 })
-                .backgroundColor(Theme.surface(Theme.isDark()))
+                .backgroundColor(this.accentSurface(Theme.isDark()))
                 .borderRadius(16)
                 .margin({ right: 8, bottom: 8 })
                 .onClick(() => this.useHistory(keyword))
@@ -244,7 +276,7 @@ export struct ExplorePage {
       } else if (this.error.length > 0) {
         EmptyState({ icon: '!', title: this.error })
       } else if (this.searched && this.results.length > 0) {
-        List() {
+        List({ scroller: this.scroller }) {
           ForEach(this.results, (item: SongItem, index: number) => {
             ListItem() {
               SongRow({
@@ -257,6 +289,10 @@ export struct ExplorePage {
         }
         .layoutWeight(1)
         .scrollBar(BarState.Off)
+        // 顶部沉浸：结果列表向上穿透，滚过固定搜索区、标题栏后钻到状态栏
+        // 被渐变模糊覆盖（与首页统一）；clip(false) 放行内容画出视口上沿。
+        .clip(false)
+        .expandSafeArea([SafeAreaType.SYSTEM, SafeAreaType.CUTOUT], [SafeAreaEdge.TOP])
         .width('100%')
       } else if (!this.searched) {
         Column({ space: 12 }) {
@@ -264,7 +300,7 @@ export struct ExplorePage {
             Image($r('app.media.ic_music_note_24'))
               .width(26)
               .height(26)
-              .fillColor(Theme.primary(Theme.isDark()))
+              .fillColor(this.accentPrimary(Theme.isDark()))
             Column({ space: 2 }) {
               Text('搜索歌曲')
                 .fontSize(15)
@@ -282,14 +318,14 @@ export struct ExplorePage {
           }
           .width('100%')
           .padding(14)
-          .backgroundColor(Theme.surface(Theme.isDark()))
+          .backgroundColor(this.accentSurface(Theme.isDark()))
           .borderRadius(Theme.cardRadius())
 
           Row({ space: 12 }) {
             Image($r('app.media.ic_queue_music_24'))
               .width(26)
               .height(26)
-              .fillColor(Theme.primary(Theme.isDark()))
+              .fillColor(this.accentPrimary(Theme.isDark()))
             Column({ space: 2 }) {
               Text('搜索歌单')
                 .fontSize(15)
@@ -307,7 +343,7 @@ export struct ExplorePage {
           }
           .width('100%')
           .padding(14)
-          .backgroundColor(Theme.surface(Theme.isDark()))
+          .backgroundColor(this.accentSurface(Theme.isDark()))
           .borderRadius(Theme.cardRadius())
         }
         .width('100%')
@@ -320,7 +356,7 @@ export struct ExplorePage {
     .width('100%')
     .height('100%')
     .constraintSize({ maxWidth: BAND_LIST_VP })
-    .padding({ left: 16, right: 16 })
+    .padding({ top: TITLEBAR_SPACE_VP, left: 16, right: 16 })
     }
     .width('100%')
     .height('100%')

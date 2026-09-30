@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 import { AppPreferences } from './AppPreferences';
 import { SchemaStore } from './schema/SchemaStore';
 import { SyncPendingState } from './AndroidDataParser';
@@ -7,8 +9,15 @@ import { SongItem } from '../model/SongItem';
 import { stableKeyOf } from '../model/SongIdentity';
 import { util } from '@kit.ArkTS';
 import { SyncDeletionStore } from '../sync/SyncDeletionStore';
+import { AutoSyncScheduler } from '../sync/AutoSyncScheduler';
 import { SyncPlaylistSongDeletion, songIdKeyText, syncSongIdentity } from '../sync/SyncModels';
 import { playlistIdToSync, syncSongFromSongItem } from '../sync/SyncSongConvert';
+import {
+  PlaylistSyncSource,
+  SOURCE_SYNC_MODE_APPEND,
+  mirrorPlaylistId
+} from '../sourcesync/SourceSyncModels';
+import { appendDiff, mirrorDiff } from '../sourcesync/SourceSyncDiff';
 
 export class LocalPlaylistTombstone {
   id: string;
@@ -81,15 +90,25 @@ export class LocalPlaylistRepository {
   }
 
   private static async saveAll(playlists: Playlist[], changedIds: string[] = []): Promise<void> {
-    const json = JSON.stringify(playlists.map((item: Playlist) => Playlist.fromJson(item.toJson())));
-    await SchemaStore.save(LocalPlaylistRepository.KEY, json, (value: string) => value);
+    await LocalPlaylistRepository.saveAllSilent(playlists);
     if (changedIds.length > 0) {
       let ids = await LocalPlaylistRepository.getSyncPendingIds();
       for (const changedId of changedIds) {
         ids = SyncPendingState.markPending(ids, changedId);
       }
       await AppPreferences.putString(SyncPendingState.KEY, SyncPendingState.toJson(ids));
+      AutoSyncScheduler.scheduleMutationSync();
     }
+  }
+
+  /**
+   * Persists the whole table without touching cross-device pending marks —
+   * for device-local bookkeeping only (mirror check timestamps), so a no-op
+   * source check does not trigger an upload.
+   */
+  private static async saveAllSilent(playlists: Playlist[]): Promise<void> {
+    const json = JSON.stringify(playlists.map((item: Playlist) => Playlist.fromJson(item.toJson())));
+    await SchemaStore.save(LocalPlaylistRepository.KEY, json, (value: string) => value);
   }
 
   /** Applies a merged remote snapshot without creating another pending marker. */
@@ -138,6 +157,91 @@ export class LocalPlaylistRepository {
     return playlist;
   }
 
+  /**
+   * Source-sync: finds the deterministic mirror playlist for a remote source
+   * or creates it (with optional seed songs) in one save. Re-adding the same
+   * source converges on the existing playlist and only refreshes the binding
+   * metadata — membership stays under applyMirrorSync's control.
+   */
+  static async createOrGetMirrorPlaylist(source: PlaylistSyncSource, songs: SongItem[] = []): Promise<Playlist> {
+    const id = mirrorPlaylistId(source.platform, source.remoteId);
+    const playlists = await LocalPlaylistRepository.loadAll();
+    const existing = playlists.find((item: Playlist): boolean => item.id === id);
+    if (existing !== undefined) {
+      const bound = existing.syncSource;
+      if (bound === null) {
+        existing.syncSource = source;
+      } else {
+        bound.remoteName = source.remoteName;
+        bound.mode = source.mode;
+        bound.enabled = source.enabled;
+      }
+      await LocalPlaylistRepository.saveAll(playlists, [id]);
+      return existing;
+    }
+    const playlist = new Playlist(id, source.remoteName, MusicPlatform.LOCAL);
+    playlist.syncSource = source;
+    if (songs.length > 0) {
+      const seedStamped = await LocalPlaylistRepository.stampSongsForInsert(songs, Date.now());
+      const seedMerge = mergePlaylistSongs(playlist.songKeys, playlist.songs, seedStamped);
+      playlist.songKeys = seedMerge.keys;
+      playlist.songs = seedMerge.songs;
+    }
+    playlists.unshift(playlist);
+    await LocalPlaylistRepository.saveAll(playlists, [playlist.id]);
+    return playlist;
+  }
+
+  /** Attaches a sync source to an existing local playlist (绑定已有歌单). */
+  static async bindMirrorSource(playlistId: string, source: PlaylistSyncSource): Promise<boolean> {
+    const playlists = await LocalPlaylistRepository.loadAll();
+    const playlist = playlists.find((item: Playlist): boolean => item.id === playlistId);
+    if (playlist === undefined) {
+      return false;
+    }
+    playlist.syncSource = source;
+    playlist.updatedAt = Date.now();
+    await LocalPlaylistRepository.saveAll(playlists, [playlistId]);
+    return true;
+  }
+
+  /** Detaches the sync source; the playlist itself and its songs stay untouched. */
+  static async unbindMirrorSource(playlistId: string): Promise<boolean> {
+    const playlists = await LocalPlaylistRepository.loadAll();
+    const playlist = playlists.find((item: Playlist): boolean => item.id === playlistId);
+    if (playlist === undefined || playlist.syncSource === null) {
+      return false;
+    }
+    playlist.syncSource = null;
+    playlist.updatedAt = Date.now();
+    await LocalPlaylistRepository.saveAll(playlists, [playlistId]);
+    return true;
+  }
+
+  /** Clears the remembered user deletions of a mirror playlist (device-local status). */
+  static async resetMirrorSkips(playlistId: string): Promise<boolean> {
+    const playlists = await LocalPlaylistRepository.loadAll();
+    const playlist = playlists.find((item: Playlist): boolean => item.id === playlistId);
+    if (playlist === undefined || playlist.syncSource === null) {
+      return false;
+    }
+    playlist.syncSource.skipKeys = [];
+    await LocalPlaylistRepository.saveAllSilent(playlists);
+    return true;
+  }
+
+  /** Enables/disables a mirror source for automatic sync (device-local status). */
+  static async setMirrorEnabled(playlistId: string, enabled: boolean): Promise<boolean> {
+    const playlists = await LocalPlaylistRepository.loadAll();
+    const playlist = playlists.find((item: Playlist): boolean => item.id === playlistId);
+    if (playlist === undefined || playlist.syncSource === null) {
+      return false;
+    }
+    playlist.syncSource.enabled = enabled;
+    await LocalPlaylistRepository.saveAllSilent(playlists);
+    return true;
+  }
+
   /** Batch import into an existing playlist; returns how many songs were added. */
   static async importSongs(playlistId: string, songs: SongItem[]): Promise<number> {
     const playlists = await LocalPlaylistRepository.loadAll();
@@ -153,6 +257,113 @@ export class LocalPlaylistRepository {
     playlist.updatedAt = Date.now();
     await LocalPlaylistRepository.saveAll(playlists, [playlistId]);
     return merge.addedCount;
+  }
+
+  /**
+   * Source-sync: applies one fetched remote snapshot to a mirror playlist in
+   * a single save. Mirror mode aligns membership and order to the remote list
+   * (skipKeys — user deletions — are never resurrected); append mode only adds
+   * missing songs at the tail. Returns true when local content changed.
+   */
+  static async applyMirrorSync(playlistId: string, remoteSongs: SongItem[], fingerprint: string): Promise<boolean> {
+    const playlists = await LocalPlaylistRepository.loadAll();
+    const playlist = playlists.find((item: Playlist): boolean => item.id === playlistId);
+    if (playlist === undefined || playlist.syncSource === null) {
+      return false;
+    }
+    const syncSource = playlist.syncSource;
+    const now = Date.now();
+    let applied = false;
+    const addedSongs: SongItem[] = [];
+    const removedSongs: SongItem[] = [];
+
+    if (syncSource.mode === SOURCE_SYNC_MODE_APPEND) {
+      const diff = appendDiff(playlist.songKeys, remoteSongs, syncSource.skipKeys);
+      if (diff.toAdd.length > 0) {
+        const stamped = await LocalPlaylistRepository.stampSongsForInsert(diff.toAdd,
+          Math.max(now, LocalPlaylistRepository.latestAddedAt(playlist) + 1));
+        const merge = mergePlaylistSongs(playlist.songKeys, playlist.songs, stamped);
+        playlist.songKeys = merge.keys;
+        playlist.songs = merge.songs;
+        for (const song of stamped) {
+          addedSongs.push(song);
+        }
+        applied = true;
+      }
+    } else {
+      const diff = mirrorDiff(playlist.songKeys, remoteSongs, syncSource.skipKeys);
+      if (diff.changed) {
+        const byKey = new Map<string, SongItem>();
+        for (let i = 0; i < playlist.songs.length; i++) {
+          byKey.set(playlist.songKeys[i], playlist.songs[i]);
+        }
+        const addedByKey = new Map<string, SongItem>();
+        for (const song of diff.toAdd) {
+          addedByKey.set(stableKeyOf(song), song);
+        }
+        for (const key of diff.toRemoveKeys) {
+          const removed = byKey.get(key);
+          if (removed !== undefined) {
+            removedSongs.push(removed);
+          }
+        }
+        const nextSongs: SongItem[] = [];
+        for (const key of diff.finalOrder) {
+          const existingSong = byKey.get(key);
+          if (existingSong !== undefined) {
+            nextSongs.push(existingSong);
+          } else {
+            const addedSong = addedByKey.get(key);
+            if (addedSong !== undefined) {
+              nextSongs.push(addedSong);
+            }
+          }
+        }
+        // Re-stamp addedAt along the remote order: the sync layer displays
+        // songs by addedAt-descending (normalizedForDisplayOrder), so this is
+        // what keeps the remote order intact on every device. Stored metadata
+        // of kept songs is preserved; runs only on actual changes.
+        const newestAt = Math.max(now, LocalPlaylistRepository.latestAddedAt(playlist) + 1);
+        const stamped: SongItem[] = [];
+        for (let index = 0; index < nextSongs.length; index++) {
+          const copy = SongItem.fromJson(nextSongs[index].toJson());
+          copy.addedAt = Math.max(newestAt - index, 1);
+          stamped.push(copy);
+        }
+        playlist.songKeys = diff.finalOrder.slice();
+        playlist.songs = stamped;
+        for (const song of stamped) {
+          if (addedByKey.has(stableKeyOf(song))) {
+            addedSongs.push(song);
+          }
+        }
+        applied = true;
+      }
+    }
+
+    syncSource.lastCheckedAt = now;
+    if (applied) {
+      playlist.updatedAt = now;
+      syncSource.lastSyncAt = now;
+      syncSource.lastFingerprint = fingerprint;
+      await LocalPlaylistRepository.saveAll(playlists, [playlistId]);
+      for (const removed of removedSongs) {
+        await LocalPlaylistRepository.recordSongDeletionTombstone(playlistId, removed);
+      }
+      for (const added of addedSongs) {
+        const syncSong = syncSongFromSongItem(added);
+        if (syncSong !== null) {
+          await SyncDeletionStore.clearPlaylistSongDeletion(
+            playlistIdToSync(playlistId), syncSongIdentity(syncSong).stableKey());
+        }
+      }
+    } else {
+      // No-op check: persist the check bookkeeping silently so cross-device
+      // pending marks (and the upload they trigger) stay untouched.
+      syncSource.lastFingerprint = fingerprint;
+      await LocalPlaylistRepository.saveAllSilent(playlists);
+    }
+    return applied;
   }
 
   static async addSong(playlistId: string, song: SongItem): Promise<boolean> {
@@ -193,17 +404,28 @@ export class LocalPlaylistRepository {
     playlist.songKeys.splice(index, 1);
     playlist.songs.splice(index, 1);
     playlist.updatedAt = Date.now();
-    await LocalPlaylistRepository.saveAll(playlists, [playlistId]);
-    const syncSong = syncSongFromSongItem(removedSong);
-    if (syncSong !== null) {
-      const deviceId = await SyncDeletionStore.getOrCreateDeviceId(
-        (): string => util.generateRandomUUID(false));
-      await SyncDeletionStore.recordPlaylistSongDeletion(new SyncPlaylistSongDeletion(
-        playlistIdToSync(playlistId), syncSong.id, syncSong.album, syncSong.mediaUri,
-        Date.now(), deviceId, syncSong.syncMembershipTokens, songIdKeyText(syncSong)
-      ));
+    if (playlist.syncSource !== null && playlist.syncSource.skipKeys.indexOf(songKey) < 0) {
+      // Remember user deletions so auto sync never resurrects the song (both
+      // mirror and append modes) until the sync state is reset.
+      playlist.syncSource.skipKeys.push(songKey);
     }
+    await LocalPlaylistRepository.saveAll(playlists, [playlistId]);
+    await LocalPlaylistRepository.recordSongDeletionTombstone(playlistId, removedSong);
     return true;
+  }
+
+  /** Cross-device deletion tombstone, shared by the manual and mirror removal paths. */
+  private static async recordSongDeletionTombstone(playlistId: string, song: SongItem): Promise<void> {
+    const syncSong = syncSongFromSongItem(song);
+    if (syncSong === null) {
+      return;
+    }
+    const deviceId = await SyncDeletionStore.getOrCreateDeviceId(
+      (): string => util.generateRandomUUID(false));
+    await SyncDeletionStore.recordPlaylistSongDeletion(new SyncPlaylistSongDeletion(
+      playlistIdToSync(playlistId), syncSong.id, syncSong.album, syncSong.mediaUri,
+      Date.now(), deviceId, syncSong.syncMembershipTokens, songIdKeyText(syncSong)
+    ));
   }
 
   static async addFavorite(song: SongItem): Promise<boolean> {

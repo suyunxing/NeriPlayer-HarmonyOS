@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
+
 /**
  * Port of ListenTogetherSessionManager.kt's clock-sync half: the estimated
  * offset between this client's wall clock and the room server's, which

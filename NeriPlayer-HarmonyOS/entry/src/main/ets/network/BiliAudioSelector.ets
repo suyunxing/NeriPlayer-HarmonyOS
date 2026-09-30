@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
+
 /**
  * Pure Bilibili DASH audio-track selection, ported from Android
  * data/platform/bili/BiliAudioSelector.kt (simplified: the HarmonyOS client

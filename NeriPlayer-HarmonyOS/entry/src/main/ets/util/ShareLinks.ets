@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 import { SongItem } from '../model/SongItem';
 import { MusicPlatform } from '../model/MusicPlatform';
 import { extractYouTubeMusicVideoId } from '../model/SongIdentity';

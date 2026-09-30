@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
+
 /**
  * Protobuf wire-format reading primitives for the sync binary channel.
  *
@@ -233,4 +236,105 @@ function utf8DecodeRange(bytes: Uint8Array, start: number, end: number): string 
 
 function isContinuation(b: number): boolean {
   return (b & 0xC0) === 0x80;
+}
+
+// ---------------------------------------------------------------------------
+// Write primitives (encode direction). Schema-level omit-defaults semantics
+// (kotlinx encodeDefaults=false) live in SyncDataProtoCodec, not here: this
+// writer emits exactly what it is asked to.
+// ---------------------------------------------------------------------------
+
+function encodeUtf8(text: string): number[] {
+  const bytes: number[] = [];
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    if (code < 0x80) {
+      bytes.push(code);
+    } else if (code < 0x800) {
+      bytes.push(0xC0 | (code >> 6), 0x80 | (code & 0x3F));
+    } else if (code >= 0xD800 && code <= 0xDBFF && i + 1 < text.length) {
+      const low = text.charCodeAt(i + 1);
+      const cp = 0x10000 + ((code - 0xD800) << 10) + (low - 0xDC00);
+      bytes.push(
+        0xF0 | (cp >> 18),
+        0x80 | ((cp >> 12) & 0x3F),
+        0x80 | ((cp >> 6) & 0x3F),
+        0x80 | (cp & 0x3F)
+      );
+      i++;
+    } else {
+      bytes.push(0xE0 | (code >> 12), 0x80 | ((code >> 6) & 0x3F), 0x80 | (code & 0x3F));
+    }
+  }
+  return bytes;
+}
+
+export class ProtoWriter {
+  private bytes: number[] = [];
+
+  private writeVarintValue(value: bigint): void {
+    let rest = BigInt.asUintN(64, value);
+    if (rest === 0n) {
+      this.bytes.push(0);
+      return;
+    }
+    while (rest > 0n) {
+      let byte = Number(rest & 0x7Fn);
+      rest >>= 7n;
+      if (rest > 0n) {
+        byte |= 0x80;
+      }
+      this.bytes.push(byte);
+    }
+  }
+
+  private writeTag(field: number, wireType: number): void {
+    this.writeVarintValue(BigInt((field << 3) | wireType));
+  }
+
+  /** int64/uint64 varint; negatives use the 10-byte two's-complement form. */
+  writeInt64Field(field: number, value: bigint): void {
+    this.writeTag(field, WIRE_VARINT);
+    this.writeVarintValue(value);
+  }
+
+  /** int32/enum/timestamp varint (numbers are always in the safe range). */
+  writeNumberField(field: number, value: number): void {
+    this.writeInt64Field(field, BigInt(value));
+  }
+
+  writeBoolField(field: number, value: boolean): void {
+    this.writeTag(field, WIRE_VARINT);
+    this.bytes.push(value ? 1 : 0);
+  }
+
+  writeStringField(field: number, value: string): void {
+    const payload = encodeUtf8(value);
+    this.writeTag(field, WIRE_LEN);
+    this.writeVarintValue(BigInt(payload.length));
+    for (const byte of payload) {
+      this.bytes.push(byte);
+    }
+  }
+
+  writeMessageField(field: number, nested: ProtoWriter): void {
+    const payload = nested.toBytes();
+    this.writeTag(field, WIRE_LEN);
+    this.writeVarintValue(BigInt(payload.length));
+    this.appendBytes(payload);
+  }
+
+  appendBytes(payload: Uint8Array): void {
+    for (let i = 0; i < payload.length; i++) {
+      this.bytes.push(payload[i]);
+    }
+  }
+
+  byteLength(): number {
+    return this.bytes.length;
+  }
+
+  toBytes(): Uint8Array {
+    return Uint8Array.from(this.bytes);
+  }
 }

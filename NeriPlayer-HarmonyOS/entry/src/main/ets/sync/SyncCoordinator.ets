@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
+
 /** Coordinates snapshot, three-way merge, optimistic upload and local apply. */
 
 import { SyncData } from './SyncModels';
@@ -53,6 +56,11 @@ export class SyncCoordinatorOptions {
   lastRemoteVersion: string = '';
   maxConflictRetries: number = 3;
   favoritesPlaylistId: number = -1;
+  /**
+   * Upload serialization (backlog §1.3): default JSON; the data-saver mode
+   * injects the GZIP(Protobuf) writer, matching Android SyncDataSerializer.
+   */
+  serialize: (data: SyncData) => Uint8Array = (data: SyncData): Uint8Array => serializeSyncDataJson(data);
 }
 
 class CoordinatorMergeRemote {
@@ -75,15 +83,18 @@ class CoordinatorRetryCallbacks implements
   private readonly startFingerprint: string;
   private readonly lastSyncTime: number;
   private readonly favoritesPlaylistId: number;
+  private readonly serialize: (data: SyncData) => Uint8Array;
 
   constructor(local: SyncData, backend: SyncBackend, localStore: SyncLocalStore,
-    startFingerprint: string, lastSyncTime: number, favoritesPlaylistId: number) {
+    startFingerprint: string, lastSyncTime: number, favoritesPlaylistId: number,
+    serialize: (data: SyncData) => Uint8Array) {
     this.local = local;
     this.backend = backend;
     this.localStore = localStore;
     this.startFingerprint = startFingerprint;
     this.lastSyncTime = lastSyncTime;
     this.favoritesPlaylistId = favoritesPlaylistId;
+    this.serialize = serialize;
   }
 
   merge(remote: CoordinatorMergeRemote): SyncMergeResult {
@@ -102,7 +113,7 @@ class CoordinatorRetryCallbacks implements
     if (currentFingerprint !== this.startFingerprint) {
       throw new Error('同步期间本地数据发生变化，已保留修改并将在下次同步上传');
     }
-    return this.backend.upload(serializeSyncDataJson(merged.data), version.version);
+    return this.backend.upload(this.serialize(merged.data), version.version);
   }
 
   async refetch(_version: CoordinatorRemoteVersion):
@@ -170,7 +181,7 @@ export class SyncCoordinator {
     const remoteChanged = initial !== null && options.lastRemoteVersion.length > 0 &&
       options.lastRemoteVersion !== initial.marker;
     const callbacks = new CoordinatorRetryCallbacks(local, this.backend, this.localStore,
-      startFingerprint, options.lastSyncTime, options.favoritesPlaylistId);
+      startFingerprint, options.lastSyncTime, options.favoritesPlaylistId, options.serialize);
     const resolution = await executeUploadWithRetry(
       initialData, remoteVersion, remoteChanged, callbacks, options.maxConflictRetries);
     const currentFingerprint = await this.localStore.stateFingerprint();

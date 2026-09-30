@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
+
 import { common } from '@kit.AbilityKit';
 import { connection } from '@kit.NetworkKit';
 import { Logger } from '../app/Logger';
@@ -6,22 +9,28 @@ import { stableKeyOf } from '../model/SongIdentity';
 import { SchemaStore } from '../data/schema/SchemaStore';
 import { SettingsRepository } from '../data/SettingsRepository';
 import { StreamResolver } from '../network/StreamResolver';
+import { NeteaseApi } from '../network/NeteaseApi';
+import { MusicPlatform } from '../model/MusicPlatform';
 import { BiliApi } from '../network/BiliApi';
+import { DownloadLyricSidecar } from './DownloadLyricSidecar';
 import { HttpClient } from '../network/HttpClient';
 import { HttpStreamDownloader, StreamDownloadHeaders } from '../network/HttpStreamDownloader';
 import {
   DownloadProgress,
   DownloadStage,
   DownloadStatus,
-  DownloadTask
+  DownloadTask,
+  isDownloadTaskClearable
 } from './DownloadModels';
 import { DownloadTaskStore } from './DownloadTaskStore';
-import { DownloadRetryPolicy } from './DownloadSupport';
-import { DownloadStorage, ResumeFingerprint, HlsResumeState } from './DownloadStorage';
+import { DownloadRetryPolicy, redactUrlForLog } from './DownloadSupport';
+import { DownloadStorage, ResumeFingerprint, HlsResumeState, DownloadedSongEntry, findLongIdenticalRun } from './DownloadStorage';
 import { DownloadDirectoryManager } from './DownloadDirectoryManager';
 
 export interface DownloadEngineListener {
   onTasksChanged(): void;
+  /** 单首歌落盘完成（含命中本地缓存直接结算）时回调；完成提示由常驻壳层统一弹出。 */
+  onDownloadCompleted(song: SongItem, fromCache: boolean): void;
 }
 
 /** Parsed HLS playlist with the segment list and its fingerprint. */
@@ -72,6 +81,12 @@ export class DownloadEngine {
   private static context: common.Context | null = null;
   private static netConnection: connection.NetConnection | null = null;
   private static initialized: boolean = false;
+  /**
+   * 已下载目录的变更信号：资料库页 @StorageProp 订阅它实时刷新「已下载」计数
+   * （同 Router.notifyReturned 的 tick 机制）。装饰器参数只收字面量，订阅侧
+   * 必须写同名字符串 'download.catalogTick'。
+   */
+  static readonly KEY_CATALOG_TICK: string = 'download.catalogTick';
 
   static init(context: common.Context): void {
     if (DownloadEngine.initialized) {
@@ -130,6 +145,27 @@ export class DownloadEngine {
     DownloadEngine.notifyChanged();
   }
 
+  /**
+   * User-facing delete of one download: removes the committed file and its
+   * catalog row (the source of the library "已下载" count) plus any terminal
+   * task record. Active attempts are untouched (cancel them first).
+   */
+  static async deleteDownload(songKey: string): Promise<void> {
+    const entries = await DownloadStorage.getCatalog();
+    const entry = entries.find((item: DownloadedSongEntry) => item.stableKey === songKey) ?? null;
+    if (entry !== null) {
+      await DownloadStorage.removeCatalogEntryByKey(songKey);
+      DownloadStorage.deleteFileQuiet(entry.audioPath);
+      DownloadEngine.bumpCatalogTick();
+    }
+    const task = DownloadEngine.store.getTask(songKey);
+    if (task !== null && isDownloadTaskClearable(task.status)) {
+      DownloadEngine.store.removeTask(songKey, task.attemptId);
+      DownloadEngine.persistQueue();
+    }
+    DownloadEngine.notifyChanged();
+  }
+
   /** Debug/reset path: drops every task regardless of status (files stay). */
   static clearAllTasks(): void {
     DownloadEngine.store.clearAll();
@@ -170,6 +206,19 @@ export class DownloadEngine {
     }
   }
 
+  private static notifyCompleted(song: SongItem, fromCache: boolean): void {
+    for (const listener of DownloadEngine.listeners) {
+      listener.onDownloadCompleted(song, fromCache);
+    }
+  }
+
+  /** 目录行数真正增减时自增；进度回调等高频路径不得调用。 */
+  private static bumpCatalogTick(): void {
+    const previous = AppStorage.get<number>(DownloadEngine.KEY_CATALOG_TICK);
+    const tick = previous === undefined || previous === null ? 0 : previous;
+    AppStorage.setOrCreate(DownloadEngine.KEY_CATALOG_TICK, tick + 1);
+  }
+
   // ----------------------------------------------------------------------
   // Single task execution
   // ----------------------------------------------------------------------
@@ -179,18 +228,42 @@ export class DownloadEngine {
     DownloadEngine.store.registerActive(songKey, task.attemptId);
     DownloadEngine.notifyChanged();
 
-    // Already in the catalog with a readable file: skip re-transferring.
+    // Already in the catalog with a readable audio file: skip re-transferring.
+    // A size-only check once pinned a corrupt zero-holed copy forever: every
+    // re-download short-circuited to COMPLETED and offline play kept failing,
+    // so a file that fails either integrity gate is purged and re-transferred.
     const cached = await DownloadStorage.findCatalogEntry(task.song);
     if (cached !== null && DownloadStorage.fileSize(cached.audioPath) > 0) {
-      DownloadEngine.store.updateStatus(songKey, task.attemptId, DownloadStatus.COMPLETED);
-      DownloadEngine.persistQueue();
-      DownloadEngine.notifyChanged();
-      return;
+      const cachedClean = DownloadStorage.hasPlausibleAudioHeader(cached.audioPath)
+        && !(await DownloadStorage.hasExcessiveFillerRuns(cached.audioPath));
+      if (cachedClean) {
+        DownloadEngine.store.updateStatus(songKey, task.attemptId, DownloadStatus.COMPLETED);
+        DownloadEngine.persistQueue();
+        DownloadEngine.notifyChanged();
+        // 目录行数不变，不发 tick；但对用户仍是一次「已存在」的结算反馈。
+        DownloadEngine.notifyCompleted(task.song, true);
+        return;
+      }
+      Logger.warn('DownloadEngine: cached copy failed payload check, re-downloading');
+      DownloadStorage.deleteFileQuiet(cached.audioPath);
+      await DownloadStorage.removeCatalogEntry(task.song);
+      DownloadEngine.bumpCatalogTick();
     }
 
     let url = '';
     try {
-      url = await StreamResolver.resolve(task.song);
+      if (task.song.platform === MusicPlatform.NETEASE) {
+        // Download-priority source: the weapi AAC CDN serves filler-corrupted
+        // payloads that stream fine but fail committed local playback. The
+        // anonymous legacy endpoint returns a clean 320k mp3.
+        const numericId = Number(task.song.audioId);
+        if (!Number.isNaN(numericId) && numericId > 0) {
+          url = await NeteaseApi.getSongUrlLegacy(numericId);
+        }
+      }
+      if (url.length === 0) {
+        url = await StreamResolver.resolve(task.song);
+      }
     } catch (error) {
       const e = error as Error;
       Logger.warn(`download resolve failed: ${e.message}`);
@@ -217,11 +290,26 @@ export class DownloadEngine {
     // Bilibili CDN requires Referer/UA on stream fetches (Android download
     // path sends the same headers); harmless null for other platforms.
     const streamHeaders = BiliApi.streamHeadersFor(url) ?? {};
+    // Redacted: resolved CDN URLs embed expiring signatures in the query.
+    Logger.info(`DownloadEngine: GET ${redactUrlForLog(url)} ext=${ext}`);
 
     let resumeStart = 0;
     let validator = '';
     const existing = DownloadStorage.readFingerprint(workingPath);
     if (existing !== null && existing.sourceUrl === url && DownloadStorage.fileSize(workingPath) > 0) {
+      if (existing.expectedContentLength > 0
+        && DownloadStorage.fileSize(workingPath) === existing.expectedContentLength) {
+        if (DownloadEngine.isCancelled(songKey, task.attemptId)) {
+          return;
+        }
+        // Already complete per the length the server advertised when this
+        // fingerprint was written: skip the resume probe (a full-length
+        // request only earns a 416) and let completeTask's integrity gates
+        // decide. A partial or stale-oversized copy never matches exactly,
+        // so it still goes through the ranged resume below.
+        await DownloadEngine.completeTask(songKey, task.attemptId, task.song, workingPath, ext);
+        return;
+      }
       resumeStart = DownloadStorage.fileSize(workingPath);
       validator = existing.validator();
     } else {
@@ -237,8 +325,13 @@ export class DownloadEngine {
       try {
         const code = await HttpStreamDownloader.download(url, resumeStart, validator, {
           onHeaders: (headers: StreamDownloadHeaders) => {
-            if (resumeStart > 0 && headers.contentRangeStart >= 0 && headers.contentRangeStart !== resumeStart) {
-              // Server ignored the offset; restart from zero.
+            Logger.info(`DownloadEngine: headers len=${headers.contentLength}`
+              + ` range=${headers.contentRangeStart} etag=${headers.etag}`);
+            if (resumeStart > 0 && headers.contentRangeStart !== resumeStart) {
+              // Not a 206 continuation (Range ignored -> full 200 body, or a
+              // 416/4xx error page): appending would corrupt or the fingerprint
+              // would be overwritten with error-page lengths, so restart from
+              // zero and never treat this response as authoritative.
               restartRequired = true;
               return;
             }
@@ -262,6 +355,12 @@ export class DownloadEngine {
             if (DownloadEngine.isCancelled(songKey, task.attemptId) || restartRequired) {
               return false;
             }
+            const bytes = new Uint8Array(chunk);
+            const garbageAt = findLongIdenticalRun(bytes, 64);
+            if (garbageAt >= 0) {
+              Logger.warn(`DownloadEngine: filler run in stream chunk at +${garbageAt}/${bytes.length}`
+                + ` byte=0x${bytes[garbageAt].toString(16)} received=${received}`);
+            }
             DownloadStorage.appendChunk(workingPath, chunk);
             const progress = new DownloadProgress();
             progress.attemptId = task.attemptId;
@@ -280,10 +379,15 @@ export class DownloadEngine {
           resumeStart = 0;
           validator = '';
           failure = 'restart: range mismatch';
-        } else if (code === 416 && resumeStart > 0) {
-          // Already complete on the server side.
-          await DownloadEngine.completeTask(songKey, task.attemptId, task.song, workingPath, ext);
-          return;
+        } else if (code === 416) {
+          // Reachable only when the response carried no headers event: the
+          // onHeaders guard above already flags every 416 as a range mismatch.
+          // A local copy alone proves nothing about completeness (it may be a
+          // stale partial longer than the shrunk source), so restart.
+          DownloadStorage.deleteWorkingSet(workingPath);
+          resumeStart = 0;
+          validator = '';
+          failure = 'restart: range exhausted';
         } else if (code === 0 || code === 206 || (code >= 200 && code < 300)) {
           // code 0: the stream completed via dataEnd before the response
           // code settled — validate by received size (Android
@@ -303,7 +407,17 @@ export class DownloadEngine {
         const e = error as Error;
         failure = e.message;
         if (failure === 'aborted') {
-          return;
+          if (!restartRequired) {
+            return;
+          }
+          // The onData guard rejects the stream as 'aborted' once a range
+          // mismatch is seen mid-body: fall through to the retry gate with
+          // the same restart cleanup as the post-resolve path, instead of
+          // leaving the attempt parked on the old partial file.
+          DownloadStorage.deleteWorkingSet(workingPath);
+          resumeStart = 0;
+          validator = '';
+          failure = 'restart: range mismatch';
         }
       }
       // Retryable failure: back off, or park on network loss.
@@ -412,6 +526,23 @@ export class DownloadEngine {
     DownloadEngine.store.updateProgress(songKey, attemptId, finalizing);
     DownloadEngine.notifyChanged();
 
+    // Last integrity gate before the catalog: a transfer that "completed"
+    // with NUL-holed or error-page bytes must never become a downloadable,
+    // offline-playable catalog row (AVPlayer would reject it with 5400106).
+    if (!DownloadStorage.hasPlausibleAudioHeader(workingPath)) {
+      DownloadStorage.deleteWorkingSet(workingPath);
+      await DownloadEngine.failTask(songKey, attemptId, song, 'downloaded payload is not audio');
+      return;
+    }
+    // CDN filler corruption (weapi AAC payloads carry periodic non-pad runs)
+    // passes the header check yet breaks local playback; fail instead of
+    // committing a file the offline path can never play.
+    if (await DownloadStorage.hasExcessiveFillerRuns(workingPath)) {
+      DownloadStorage.deleteWorkingSet(workingPath);
+      await DownloadEngine.failTask(songKey, attemptId, song, 'downloaded payload has filler corruption');
+      return;
+    }
+
     const finalPath = DownloadStorage.commit(song, workingPath, ext);
     if (finalPath.length === 0) {
       DownloadEngine.store.updateStatus(songKey, attemptId, DownloadStatus.FAILED);
@@ -427,8 +558,13 @@ export class DownloadEngine {
       return;
     }
     DownloadEngine.persistQueue();
+    DownloadEngine.bumpCatalogTick();
     DownloadEngine.notifyChanged();
+    DownloadEngine.notifyCompleted(song, false);
     Logger.info(`DownloadEngine: completed ${song.displayName} -> ${finalPath}`);
+    // Companion lyric sidecar (backlog §3.5): fire-and-forget, the download
+    // itself already succeeded — a lyric miss must never turn into a failure.
+    DownloadLyricSidecar.writeFor(song, finalPath);
   }
 
   private static async failTask(songKey: string, attemptId: number, song: SongItem, reason: string): Promise<void> {

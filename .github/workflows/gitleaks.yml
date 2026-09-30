@@ -1,0 +1,36 @@
+# gitleaks 密钥泄漏扫描：每次 push 与 PR 扫描新增提交中疑似密钥/Token/证书，命中即失败。
+# 不设 paths 过滤——任何路径（文档、工作流、工具脚本）进密钥都要拦。
+# 规则：gitleaks 内建默认规则（见 .gitleaks.toml）；存量误报基线见 .gitleaksignore。
+# gitleaks-action 对个人账号仓库免费，无需 GITLEAKS_LICENSE（仅组织账号强制）。
+name: gitleaks
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+  # pull_request 事件下 gitleaks-action 需读 PR 提交列表（pulls/commits API）
+  pull-requests: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scan:
+    name: secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          # gitleaks 依赖完整历史定位新增提交
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,5 +1,8 @@
+// SPDX-License-Identifier: GPL-3.0
+
 import { curves, SymbolGlyphModifier, LengthMetrics, window } from '@kit.ArkUI';
 import { SongItem } from '../../model/SongItem';
+import { MusicPlatform } from '../../model/MusicPlatform';
 import { stableKeyOf } from '../../model/SongIdentity';
 import { LyricLine } from '../../model/LyricLine';
 import { QueueState } from '../../model/QueueState';
@@ -10,6 +13,7 @@ import { PlaybackStatus, RepeatMode } from '../../player/PlaybackConstants';
 import { Theme } from '../Theme';
 import { DynamicTheme } from '../theme/DynamicTheme';
 import { AccentScheme, SchemeMode } from '../theme/AccentScheme';
+import { ColorScience } from '../theme/ColorScience';
 import { LyricView } from '../components/LyricView';
 import { WaveformSlider } from '../components/WaveformSlider';
 import { LyricShareSheet } from '../components/LyricShareSheet';
@@ -22,6 +26,8 @@ import { DownloadEngine } from '../../download/DownloadEngine';
 import { DownloadStorage } from '../../download/DownloadStorage';
 import { AlbumSongs } from '../../util/AlbumSongs';
 import { Router } from '../Router';
+import { NowPlayingMotion } from '../NowPlayingMotion';
+import { ROW_CURVE } from '../NowPlayingCurves';
 import { formatDuration } from '../components/Ui';
 
 const SPEED_STEPS: number[] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
@@ -40,6 +46,9 @@ const IMMERSIVE_EDGES: SafeAreaEdge[] = [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM];
 
 @Component
 export struct NowPlayingPage {
+  @Prop transitionProgress: number = 1;
+  // 收起方向：行错峰次序反转、时长取 COLLAPSE_MS。
+  @Prop closing: boolean = false;
   @StorageLink('player.currentSong') @Watch('onSongJsonChanged') currentSongJson: string = '';
   @StorageLink('player.status') @Watch('onSpinStatusChanged') status: number = PlaybackStatus.IDLE;
   @StorageLink('player.positionMs') positionMs: number = 0;
@@ -75,6 +84,11 @@ export struct NowPlayingPage {
   @StorageLink('player.sleepRemainingMin') sleepRemainingMin: number = 0;
   /** 底部控件行的上抬量，由 util/WindowMetrics.ets 按真实避让区发布。 */
   @StorageProp('ui.bottomLiftVp') bottomLift: number = Theme.bottomBarLift();
+  /**
+   * 状态栏高度（vp），由 WindowMetrics 按 TYPE_SYSTEM.topRect 发布。模态
+   * enableSafeArea:false 后页面铺满窗口，头部控件行用它自行避让状态栏。
+   */
+  @StorageProp('ui.topInsetVp') topInset: number = 0;
   @State previewMs: number = -1;
   // Cover-seed backdrop (Android NowPlayingAccentBackdrop). The raw seed is
   // mirrored into a @State accent computed via @Watch because minimal-update
@@ -93,7 +107,6 @@ export struct NowPlayingPage {
   // its fade finishes it collapses into layer A without animation. 两层都是
   // 整屏主背景，blur 强度跟随设置项且整体增强（毛玻璃突出控件与歌词）。
   @StorageProp('np.nowplaying_blur_strength') blurStrength: number = 300;
-  @StorageProp('np.glass_effect') glassEffect: boolean = true;
   // 播放器设置（np.nowplaying_bg_style / np.keep_screen_on / np.circular_cover /
   // np.lyric_page_controls）。
   @StorageProp('np.nowplaying_bg_style') bgStyle: string = 'blur';
@@ -129,6 +142,7 @@ export struct NowPlayingPage {
     this.bgOverOpacity = 0;
     this.startGradientFlow();
     this.syncCoverSpinTimer();
+    this.applySystemBarContentColor();
     await this.applyKeepScreenOn();
     await this.reloadSongData();
   }
@@ -259,9 +273,34 @@ export struct NowPlayingPage {
 
   private onCoverSeedChanged(): void {
     this.recomputeAccent();
+    this.applySystemBarContentColor();
   }
 
   private onCoverSchemeChanged(): void {
+    this.applySystemBarContentColor();
+  }
+
+  /**
+   * 播放页是「背景铺满窗口 + 透明系统栏」的沉浸结构，状态栏/导航条图标直接
+   * 叠在封面取色背景上：深底配浅色图标、浅底配深色图标，按背景基本色亮度
+   * 判定。恢复回主页配色由 MainShell 的模态 onDisappear 在收起动画结束后
+   * 执行（立即恢复会让飞行半程的图标压在错误背景上）。
+   */
+  private applySystemBarContentColor(): void {
+    const context = this.getUIContext().getHostContext();
+    if (context === undefined) {
+      return;
+    }
+    const base = this.accentHex.length > 0 ? this.accentHex : this.im().background;
+    const content = ColorScience.relativeLuminance(base) > 0.5 ? '#000000' : '#FFFFFF';
+    window.getLastWindow(context).then((win: window.Window) => {
+      win.setWindowSystemBarProperties({
+        statusBarContentColor: content,
+        navigationBarContentColor: content
+      }).catch(() => {
+      });
+    }).catch(() => {
+    });
   }
 
   /** The automatic「匹配歌曲信息」landed on the current song: reload lyrics. */
@@ -407,6 +446,15 @@ export struct NowPlayingPage {
     this.getUIContext().getPromptAction().showToast({ message: '暂无专辑信息', duration: 2000 });
   }
 
+  private openArtist(): void {
+    const song = this.song();
+    if (song.platform === MusicPlatform.NETEASE && song.artistId > 0) {
+      Router.push(Router.ARTIST, JSON.stringify({ artist: song.displayArtist, artistId: song.artistId }));
+      return;
+    }
+    this.getUIContext().getPromptAction().showToast({ message: '暂无艺人信息', duration: 2000 });
+  }
+
   @Builder
   songMenuBuilder() {
     Menu() {
@@ -447,12 +495,28 @@ export struct NowPlayingPage {
         this.openAlbum();
       })
       MenuItem({
+        symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.music_note_list')).fontSize(22),
+        content: '查看艺人'
+      }).onClick(() => {
+        this.openArtist();
+      })
+      MenuItem({
         symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.share')).fontSize(22),
         content: '分享'
       }).onClick(() => {
         this.showSongShare = true;
       })
     }
+  }
+
+  private rowDelay(row: number): number {
+    // 收起时行要在面板明显缩小前清空文字（否则行文字会从收缩窗口边缘
+    // 露出），错峰压缩到 10ms 步进、总时长 100ms；展开保持 18ms 错峰。
+    return (this.closing ? 5 - row : row) * (this.closing ? 10 : 18);
+  }
+
+  private rowDuration(): number {
+    return this.closing ? 100 : NowPlayingMotion.EXPAND_MS;
   }
 
   build() {
@@ -465,58 +529,66 @@ export struct NowPlayingPage {
       // 背景先铺封面取色，再以半透明模糊封面补充明暗纹理。浅色模式使用白色
       // wash 保持通透，深色模式再适度压暗；双层封面的交叉淡化仍由
       // transitionCover 维护。
-      Column()
-        .width('100%')
-        .height('100%')
-        .backgroundColor(this.accentHex.length > 0 ? this.accentHex : this.im().background)
-        .expandSafeArea(IMMERSIVE_TYPES, IMMERSIVE_EDGES)
-      // 流光（np.nowplaying_bg_style = 'gradient'）：封面取色 scheme 的三段渐变
-      // 随 gradientAngle 缓慢旋转；不支持角度动画的设备上退化为静态渐变。
-      if (this.bgStyle === 'gradient') {
+      Stack() {
         Column()
           .width('100%')
           .height('100%')
-          .linearGradient({
-            angle: this.gradientAngle,
-            colors: [
-              [this.im().primary, 0],
-              [this.im().secondary, 0.5],
-              [this.im().background, 1]
-            ]
-          })
+          .backgroundColor(this.accentHex.length > 0 ? this.accentHex : this.im().background)
           .expandSafeArea(IMMERSIVE_TYPES, IMMERSIVE_EDGES)
-      }
-      // 封面模糊（默认）：双层封面交叉淡化 + 取强度可调的高斯模糊。
-      Stack() {
-        if (this.bgUnderUrl.length > 0 && this.bgStyle === 'blur') {
-          Image(this.bgUnderUrl)
+        // 流光（np.nowplaying_bg_style = 'gradient'）：封面取色 scheme 的三段渐变
+        // 随 gradientAngle 缓慢旋转；不支持角度动画的设备上退化为静态渐变。
+        if (this.bgStyle === 'gradient') {
+          Column()
             .width('100%')
             .height('100%')
-            .objectFit(ImageFit.Cover)
-            .blur(this.blurStrength * 120 / 500)
-            .scale({ x: 1.35, y: 1.35 })
+            .linearGradient({
+              angle: this.gradientAngle,
+              colors: [
+                [this.im().primary, 0],
+                [this.im().secondary, 0.5],
+                [this.im().background, 1]
+              ]
+            })
             .expandSafeArea(IMMERSIVE_TYPES, IMMERSIVE_EDGES)
         }
-        if (this.bgOverUrl.length > 0 && this.bgStyle === 'blur') {
-          Image(this.bgOverUrl)
-            .width('100%')
-            .height('100%')
-            .objectFit(ImageFit.Cover)
-            .blur(this.blurStrength * 120 / 500)
-            .scale({ x: 1.35, y: 1.35 })
-            .opacity(this.bgOverOpacity)
-            .expandSafeArea(IMMERSIVE_TYPES, IMMERSIVE_EDGES)
+        // 封面模糊（默认）：双层封面交叉淡化 + 取强度可调的高斯模糊。
+        Stack() {
+          if (this.bgUnderUrl.length > 0 && this.bgStyle === 'blur') {
+            Image(this.bgUnderUrl)
+              .width('100%')
+              .height('100%')
+              .objectFit(ImageFit.Cover)
+              .blur(this.blurStrength * 120 / 500)
+              .scale({ x: 1.35, y: 1.35 })
+              .expandSafeArea(IMMERSIVE_TYPES, IMMERSIVE_EDGES)
+          }
+          if (this.bgOverUrl.length > 0 && this.bgStyle === 'blur') {
+            Image(this.bgOverUrl)
+              .width('100%')
+              .height('100%')
+              .objectFit(ImageFit.Cover)
+              .blur(this.blurStrength * 120 / 500)
+              .scale({ x: 1.35, y: 1.35 })
+              .opacity(this.bgOverOpacity)
+              .expandSafeArea(IMMERSIVE_TYPES, IMMERSIVE_EDGES)
+          }
         }
+        .width('100%')
+        .height('100%')
+        .opacity(this.bgStyle === 'blur' ? (Theme.isDark() ? 0.82 : 0.44) : 0)
+        .expandSafeArea(IMMERSIVE_TYPES, IMMERSIVE_EDGES)
+        Column()
+          .width('100%')
+          .height('100%')
+          .backgroundColor(Theme.isDark() ? '#52000000' : '#28FFFFFF')
+          .expandSafeArea(IMMERSIVE_TYPES, IMMERSIVE_EDGES)
       }
       .width('100%')
       .height('100%')
-      .opacity(this.bgStyle === 'blur' ? (Theme.isDark() ? 0.82 : 0.44) : 0)
+      .clip(true)
+      // Blur the cover itself, never sample the home page behind this panel.
+      .backgroundColor(this.im().background)
       .expandSafeArea(IMMERSIVE_TYPES, IMMERSIVE_EDGES)
-      Column()
-        .width('100%')
-        .height('100%')
-        .backgroundColor(Theme.isDark() ? '#52000000' : '#28FFFFFF')
-        .expandSafeArea(IMMERSIVE_TYPES, IMMERSIVE_EDGES)
 
       Column() {
         Row() {
@@ -538,7 +610,7 @@ export struct NowPlayingPage {
           .backgroundColor(Theme.tagBg(Theme.isDark()))
           .accessibilityText(this.lyricsMode ? '收起歌词' : '返回')
           .onClick(() => {
-            // 歌词页的返回先滑回封面页；系统返回键/侧滑才 pop 路由。
+            // 歌词页的返回先滑回封面页；系统返回键/侧滑才收起播放页模态。
             if (this.lyricsMode) {
               this.paneSwiper.showPrevious();
             } else {
@@ -580,6 +652,10 @@ export struct NowPlayingPage {
         }
         .width('100%')
         .padding({ left: 10, right: 10, top: 8 })
+        .translate({ y: NowPlayingMotion.rowOffset(this.transitionProgress, 0) })
+        .animation({ duration: this.rowDuration(), curve: ROW_CURVE, delay: this.rowDelay(0) })
+        .opacity(NowPlayingMotion.rowOpacity(this.transitionProgress, 0))
+        .animation({ duration: 130, curve: Curve.EaseOut, delay: this.rowDelay(0) })
 
         // 播放页↔歌词页横向分页。LyricView 的根节点是 layoutWeight(1) 的
         // Scroll，在 Swiper item 里必须包一层定高 Column，否则高度塌 0。
@@ -596,10 +672,6 @@ export struct NowPlayingPage {
                   .rotate({ angle: this.coverSpinAngle })
                   .objectFit(ImageFit.Cover)
                   .shadow({ radius: 24, color: '#66000000', offsetY: 8 })
-                  // S6 一镜到底：与迷你条封面共享元素；.id() 防打断重影。
-                  .geometryTransition('np.cover')
-                  .id('np_cover_full')
-                  .transition(TransitionEffect.OPACITY)
               } else {
                 Image($r('app.media.ic_music_note_24'))
                   .width('78%')
@@ -623,15 +695,21 @@ export struct NowPlayingPage {
                   .maxLines(1)
                   .textOverflow({ overflow: TextOverflow.Ellipsis })
                   .layoutWeight(1)
-                Image(this.favorite
-                  ? $r('app.media.ic_baseline_favorite_24')
-                  : $r('app.media.ic_outline_favorite_24'))
-                  .width(24)
-                  .height(24)
-                  .fillColor(this.favorite ? Theme.danger(false) : this.im().textSecondary)
-                  .padding(6)
-                  .onClick(() => this.toggleFavorite())
+                Column() {
+                  Image(this.favorite
+                    ? $r('app.media.ic_baseline_favorite_24')
+                    : $r('app.media.ic_outline_favorite_24'))
+                    .width(24)
+                    .height(24)
+                    .fillColor(this.favorite ? Theme.danger(false) : this.im().textSecondary)
+                }
+                .width(44)
+                .height(44)
+                .justifyContent(FlexAlign.Center)
+                .accessibilityText(this.favorite ? '取消收藏' : '收藏')
+                .onClick(() => this.toggleFavorite())
               }
+              .alignItems(VerticalAlign.Center)
               .width('100%')
 
               Text(this.song().displayArtist)
@@ -643,6 +721,10 @@ export struct NowPlayingPage {
             }
             .width('100%')
             .padding({ left: 24, right: 24 })
+            .translate({ y: NowPlayingMotion.rowOffset(this.transitionProgress, 2) })
+            .animation({ duration: this.rowDuration(), curve: ROW_CURVE, delay: this.rowDelay(2) })
+            .opacity(NowPlayingMotion.rowOpacity(this.transitionProgress, 2))
+            .animation({ duration: 130, curve: Curve.EaseOut, delay: this.rowDelay(2) })
           }
           .width('100%')
           .height('100%')
@@ -653,6 +735,7 @@ export struct NowPlayingPage {
             // often have no remote lyric source, Android shows an empty state).
             LyricView({
               lyrics: this.lyrics,
+              lyricPlatform: this.song().platform,
               onSeek: (timeMs: number) => PlayerManager.seekTo(timeMs),
               // Lyric scrubbing previews the centered line's time in the shared
               // label channel (same previewMs the waveform drag uses); playback
@@ -674,6 +757,10 @@ export struct NowPlayingPage {
         .layoutWeight(1)
         .width('100%')
         .onChange((index: number) => this.switchPane(index))
+        .translate({ y: NowPlayingMotion.rowOffset(this.transitionProgress, 1) })
+        .animation({ duration: this.rowDuration(), curve: ROW_CURVE, delay: this.rowDelay(1) })
+        .opacity(NowPlayingMotion.rowOpacity(this.transitionProgress, 1))
+        .animation({ duration: 130, curve: Curve.EaseOut, delay: this.rowDelay(1) })
 
         // 控制区只有一个（在 Swiper 外），歌词页通过 lyricsMode 收拢成
         // 无底控件行：传输键不重复实现，单一数据源。控件直接叠在毛玻璃
@@ -696,6 +783,10 @@ export struct NowPlayingPage {
                   this.previewMs = fraction >= 0 ? Math.round(fraction * Math.max(1, this.durationMs)) : -1;
                 }
               })
+              .translate({ y: NowPlayingMotion.rowOffset(this.transitionProgress, 3) })
+              .animation({ duration: this.rowDuration(), curve: ROW_CURVE, delay: this.rowDelay(3) })
+              .opacity(NowPlayingMotion.rowOpacity(this.transitionProgress, 3))
+              .animation({ duration: 130, curve: Curve.EaseOut, delay: this.rowDelay(3) })
 
               Row() {
                 Text(formatDuration(this.previewMs >= 0 ? this.previewMs : this.positionMs))
@@ -707,6 +798,10 @@ export struct NowPlayingPage {
                   .fontColor(this.im().textSecondary)
               }
               .width('100%')
+              .translate({ y: NowPlayingMotion.rowOffset(this.transitionProgress, 3) })
+              .animation({ duration: this.rowDuration(), curve: ROW_CURVE, delay: this.rowDelay(3) })
+              .opacity(NowPlayingMotion.rowOpacity(this.transitionProgress, 3))
+              .animation({ duration: 130, curve: Curve.EaseOut, delay: this.rowDelay(3) })
 
               // 传输行只保留上一曲/播放暂停/下一曲；播放模式收进下方控件行。
               // 上一曲/下一曲放大到 58/30，与 64/34 的主播放键形成尺寸梯度。
@@ -744,6 +839,10 @@ export struct NowPlayingPage {
               .width('100%')
               .padding({ top: 6 })
               .justifyContent(FlexAlign.SpaceEvenly)
+              .translate({ y: NowPlayingMotion.rowOffset(this.transitionProgress, 4) })
+              .animation({ duration: this.rowDuration(), curve: ROW_CURVE, delay: this.rowDelay(4) })
+              .opacity(NowPlayingMotion.rowOpacity(this.transitionProgress, 4))
+              .animation({ duration: 130, curve: Curve.EaseOut, delay: this.rowDelay(4) })
 
               // 无背景裸图标行（鸿蒙标准符号）；去背景后状态靠颜色区分，
               // 文字信息（1.0x、剩余分钟）由无障碍文案补偿。
@@ -818,9 +917,12 @@ export struct NowPlayingPage {
               // 页面最底部的固定控件行：相对系统导航指示器上抬，抬升量取自真实
               // 避让区（见 util/WindowMetrics.ets），无指示器的形态为 0。
               .padding({ top: 12, bottom: this.bottomLift })
+              .translate({ y: NowPlayingMotion.rowOffset(this.transitionProgress, 5) })
+              .animation({ duration: this.rowDuration(), curve: ROW_CURVE, delay: this.rowDelay(5) })
+              .opacity(NowPlayingMotion.rowOpacity(this.transitionProgress, 5))
+              .animation({ duration: 130, curve: Curve.EaseOut, delay: this.rowDelay(5) })
             }
             .width('100%')
-            .transition(TransitionEffect.OPACITY.animation({ duration: 280, curve: Curve.Friction }))
           } else if (this.lyricPageControls) {
             // 歌词页控件行（np.lyric_page_controls 关闭时整行隐藏）：歌词 / 上一首 /
             // 播放暂停 / 下一首 / 收藏。The reference uses one outlined, translucent
@@ -845,10 +947,10 @@ export struct NowPlayingPage {
                 showClose: false,
                 // API 24 上半模态的官方材质入口（since 12）。COMPONENT 系列
                 // 跟随组件圆角取景，即「沉浸光感」玻璃观感；设备材质能力
-                // 不足或用户关闭毛玻璃时用不透明 surface 兜底（HdsLight 探针
-                // 在模拟器恒为空，故不做运行时材质探测）。
-                blurStyle: this.glassEffect ? BlurStyle.COMPONENT_ULTRA_THICK : BlurStyle.NONE,
-                backgroundColor: this.glassEffect ? Theme.surfaceGlass(Theme.isDark()) : Theme.surface(Theme.isDark()),
+                // 不足时用不透明 surface 兜底（HdsLight 探针在模拟器恒为
+                // 空，故不做运行时材质探测）。
+                blurStyle: BlurStyle.COMPONENT_ULTRA_THICK,
+                backgroundColor: Theme.surfaceGlass(Theme.isDark()),
                 onDisappear: () => {
                   this.showLyricSettings = false;
                 }
@@ -911,7 +1013,10 @@ export struct NowPlayingPage {
             .border({ width: 1, color: '#52FFFFFF', radius: 32 })
             .borderRadius(32)
             .margin({ bottom: 8 })
-            .transition(TransitionEffect.OPACITY.animation({ duration: 280, curve: Curve.Friction }))
+            .translate({ y: NowPlayingMotion.rowOffset(this.transitionProgress, 4) })
+            .animation({ duration: this.rowDuration(), curve: ROW_CURVE, delay: this.rowDelay(4) })
+            .opacity(NowPlayingMotion.rowOpacity(this.transitionProgress, 4))
+            .animation({ duration: 130, curve: Curve.EaseOut, delay: this.rowDelay(4) })
           }
         }
         .width('100%')
@@ -919,6 +1024,9 @@ export struct NowPlayingPage {
       }
       .width('100%')
       .height('100%')
+      // 模态全屏铺满窗口（enableSafeArea:false），头部控件行以真实状态栏
+      // 高度避让；底部由控件行自身的 bottomLift 处理。
+      .padding({ top: this.topInset })
 
 
       if (this.showShare) {
@@ -1019,7 +1127,7 @@ export struct NowPlayingPage {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor(Theme.background(Theme.isDark()))
+    // Keep the subtree alive on the same timeline as its shared geometry.
     // S4: 播放列表走原生半模态（官方手势关闭与档位吸附），替代手工覆盖层。
     .bindSheet($$this.showQueue, this.queueSheetBuilder(), {
       detents: [SheetSize.MEDIUM, SheetSize.LARGE],

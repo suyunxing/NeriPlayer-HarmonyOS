@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 // ReplaceSymbolEffect/EffectScope 是 symbolglyph.d.ts 的全局 ambient 类
 // （与 VisualEffect 同类），不从 kit 导入。
 import { SongItem } from '../../model/SongItem';
@@ -17,10 +19,24 @@ export struct MiniPlayer {
    * 显示（可见环缩到 30vp 在槽位圆角内留出空余）。独立悬浮形态才用完整卡片。
    */
   @Prop compact: boolean = false;
+  /**
+   * 脱离 HdsTabs 槽位的独立承载形态（壳层 dock 态覆盖层使用）：非紧凑形态
+   * 去掉自带的悬浮卡片外边距，几何完全由使用方给定。背景分两档：设备支持
+   * ArkUI 沉浸材质（.systemMaterial，API 26）时挂系统玻璃质感（与悬浮 Tab
+   * 栏的沉浸光感同族），不支持时回落自绘玻璃。
+   */
+  @Prop embedded: boolean = false;
+  onMeasured: (area: Area) => void = (_area: Area): void => {};
   @StorageLink('player.currentSong') currentSongJson: string = '';
   @StorageLink('player.status') @Watch('onStatusChanged') status: number = PlaybackStatus.IDLE;
-  /** ReplaceSymbolEffect 触发计数：播放/暂停切换时 +1 驱动交叉淡入。 */
-  @State symbolTrigger: number = 0;
+  /**
+   * ReplaceSymbolEffect 触发计数：播放/暂停切换时 +1 驱动交叉淡入。初值必须
+   * 为 -1（官方语义：triggerValue 变更才触发动效，「首次不希望触发动效，
+   * 设置 -1」）——HdsTabs 切 Tab 时会重建 miniBar 槽位内容（CustomBuilder
+   * remount），新 SymbolGlyph 以非 -1 的 trigger 挂载会被当成一次变更，误放
+   * 替换动效，播放键随每次切页闪烁。
+   */
+  @State symbolTrigger: number = -1;
   private replaceEffect: ReplaceSymbolEffect = new ReplaceSymbolEffect(EffectScope.WHOLE);
   @StorageLink('player.positionMs') positionMs: number = 0;
   @StorageLink('player.durationMs') durationMs: number = 0;
@@ -32,8 +48,9 @@ export struct MiniPlayer {
   // expressions: AppStorage reads hidden inside Theme.* calls are invisible
   // to minimal-update tracking (M7.4 pitfall), so the raw copy is required.
   @StorageProp('player.coverSeedHex') @Watch('onCoverSeedChanged') coverSeedHex: string = '';
-  @StorageProp('np.glass_effect') glassEffect: boolean = true;
   @State seedHex: string = '';
+  // 播放页模态显示状态：控制右侧非封面元素在展开/收起时平滑显隐。
+  @StorageProp('ui.nowPlayingShown') nowPlayingShown: boolean = false;
   // 播放器设置（np.mini_next_button / np.mini_show_lyric / np.mini_expand_autoplay）。
   @StorageProp('np.mini_next_button') miniNextButton: boolean = true;
   @StorageProp('np.mini_show_lyric') miniShowLyric: boolean = true;
@@ -71,6 +88,14 @@ export struct MiniPlayer {
     this.lyricLineText = this.lyricLineFeed;
   }
 
+  aboutToAppear(): void {
+    // @Watch 在初始化时不回调：槽位被切 Tab 重建时，下面的镜像 @State 若从
+    // 空值起步，歌词副行会回退成歌手行、封面取色回退默认主色，直到下一次
+    // 数据变更才恢复。挂载时先从 AppStorage 源补齐，重建与首挂同观感。
+    this.seedHex = this.coverSeedHex;
+    this.lyricLineText = this.lyricLineFeed;
+  }
+
   /** np.mini_show_lyric：有当前歌词行且正在播放时，副行换成歌词。 */
   private showLyricLine(): boolean {
     return this.miniShowLyric && this.lyricLineText.length > 0
@@ -102,21 +127,74 @@ export struct MiniPlayer {
    * 光感材质（MainShell 的 barFloatingStyle.systemMaterialEffect 作用于
    * 整条栏，enableMiniBarBackground 让槽位背景跟随栏身，lightColor 随
    * 封面取色）。自绘玻璃会盖在系统材质上把光感挡掉，仅在不支持材质的
-   * 设备（模拟器 getSystemMaterialTypes 为空）或用户关闭毛玻璃时回落。
+   * 设备（模拟器 getSystemMaterialTypes 为空）时回落。
    */
   private followsBarMaterial(): boolean {
-    return this.compact && this.glassEffect
+    return !this.embedded
+      && this.compact
       && (HdsLight.immersiveSupported() || HdsLight.adaptiveSupported());
   }
 
+  /**
+   * 独立承载（embedded）且设备支持 ArkUI 沉浸材质（API 26）时挂系统玻璃
+   * 背景。材质启用后系统接管背景色/边框/阴影（官方告诫不要与常规属性叠加
+   * 设置），所以三处分支都按本档位让位：背景透明、模糊关闭、卡片阴影关闭
+   * （材质默认 applyShadow 自带投影）。
+   */
+  private usesSystemMaterial(): boolean {
+    return this.embedded && HdsLight.systemMaterialSupported();
+  }
+
   private barBackground(): ResourceColor {
-    if (this.followsBarMaterial()) {
+    if (this.usesSystemMaterial() || this.followsBarMaterial()) {
       return Color.Transparent;
     }
-    return this.glassEffect ? Theme.surfaceGlass(Theme.isDark()) : Theme.surface(Theme.isDark());
+    return Theme.surfaceGlass(Theme.isDark());
+  }
+
+  private barBlurStyle(): BlurStyle {
+    return this.usesSystemMaterial() || this.followsBarMaterial()
+      ? BlurStyle.NONE
+      : BlurStyle.COMPONENT_THICK;
   }
 
   build() {
+    Stack() {
+      Column()
+        .width('100%')
+        .height(this.compact ? 40 : 62)
+        .backgroundColor(this.barBackground())
+        .backgroundBlurStyle(this.barBlurStyle())
+        // ArkUI 通用沉浸材质（embedded 独立承载档；设备不支持传 undefined
+        // 即无材质，走上面的自绘玻璃分支）。
+        .systemMaterial(this.usesSystemMaterial() ? HdsLight.barSystemMaterial() : undefined)
+        .borderRadius(this.compact ? 20 : 16)
+        .hitTestBehavior(HitTestMode.None)
+      this.playerContent()
+    }
+    .width('100%')
+    .margin(this.compact || this.embedded
+      ? { left: 0, right: 0, bottom: 0 }
+      : { left: 10, right: 10, bottom: 8 })
+    // 显隐由使用方控制（壳层在转场期间对真实迷你条做淡入/隐藏），组件自身
+    // 不再持有 mounted/presentation 状态——展示副本已删除，收缩时直接淡入
+    // 真实迷你条，杜绝副本与真实布局不一致导致的切换闪烁。
+    .onAreaChange((_oldArea: Area, area: Area) => {
+      this.onMeasured(area);
+    })
+    // 沉浸材质档的投影由材质自带（applyShadow），卡片阴影只在自绘玻璃档启用，
+    // 避免与系统材质的阴影层叠加。
+    .shadow(this.compact || this.usesSystemMaterial()
+      ? { radius: 0, color: '#00000000' }
+      : { radius: 12, color: '#22000000', offsetY: 2 })
+    // 滑动切歌的位移/缩放挂在 Stack 根上：玻璃背景是 playerContent 的兄弟
+    // 节点，变换若只挂内容行，滑动时文字按钮滑走而药丸壳纹丝不动。
+    .translate({ x: this.swipeOffset })
+    .scale(this.swiping ? { x: 0.975, y: 0.975 } : { x: 1, y: 1 })
+  }
+
+  @Builder
+  playerContent() {
     Column() {
       if (!this.compact) {
         // Progress 的 total 不给就是 100，原来喂进去的是 0..1 的比例，播到一半也只
@@ -144,10 +222,6 @@ export struct MiniPlayer {
               .height(this.compact ? 32 : 44)
               .borderRadius(this.compact ? 16 : 8)
               .objectFit(ImageFit.Cover)
-              // S6 一镜到底：与播放页封面共享元素（打断保护靠 .id()）。
-              .geometryTransition('np.cover')
-              .id('np_cover_mini')
-              .transition(TransitionEffect.OPACITY)
           } else {
             Image($r('app.media.ic_music_note_24'))
               .width(this.compact ? 16 : 22)
@@ -161,62 +235,61 @@ export struct MiniPlayer {
           }
         }
 
-        Column({ space: 2 }) {
-          // 标题右端渐隐截断。迷你条背景是毛玻璃非纯色，不能叠一层同色渐变假装
-          // 淡出，必须做真 alpha 蒙版：Stack 先离屏（OFFSCREEN）把文字隔离进自身
-          // 缓冲，渐变层再用 DST_IN 把文字 alpha 乘上渐变 alpha——渐变不透明处
-          // 保留文字，右端透明处文字平滑淡出（Text 无原生渐隐截断，fadeout 仅
-          // 跑马灯适用）。短标题不进入渐变区，不受影响。
+        Row() {
+          Column({ space: 2 }) {
+            // 标题右端渐隐截断。迷你条背景是毛玻璃非纯色，不能叠一层同色渐变假装
+            // 淡出，必须做真 alpha 蒙版：Stack 先离屏（OFFSCREEN）把文字隔离进自身
+            // 缓冲，渐变层再用 DST_IN 把文字 alpha 乘上渐变 alpha——渐变不透明处
+            // 保留文字，右端透明处文字平滑淡出（Text 无原生渐隐截断，fadeout 仅
+            // 跑马灯适用）。短标题不进入渐变区，不受影响。
+            Stack() {
+              Text(this.song().displayName)
+                .fontSize(14)
+                .fontWeight(FontWeight.Medium)
+                .fontColor(Theme.textPrimary(Theme.isDark()))
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Clip })
+                .width('100%')
+              Column()
+                .width('100%')
+                .height('100%')
+                .linearGradient({
+                  direction: GradientDirection.Right,
+                  colors: [[0xFF000000, 0], [0xFF000000, 0.8], [0x00000000, 1]]
+                })
+                // DST_IN 只取渐变的 alpha 做蒙版，颜色通道被丢弃；遮罩层不得拦截点击。
+                .blendMode(BlendMode.DST_IN)
+                .hitTestBehavior(HitTestMode.None)
+            }
+            .width('100%')
+            .clip(true)
+            .blendMode(BlendMode.SRC_OVER, BlendApplyType.OFFSCREEN)
+
+            // np.mini_show_lyric 开启且正在播放时，这一行优先显示当前歌词行。
+            // embedded（壳层 dock 态的两个副本）一律不放作者名：用户决策
+            // 2026-09-21，二级页播放控件及其进出场飞行全程只留歌名——紧凑副本
+            // 若保留作者行，会在返程交叠淡入时重新显形。槽位真实迷你条（主页
+            // 药丸）不受影响。
+            if (this.showLyricLine()) {
+              Text(this.lyricLineText)
+                .fontSize(11)
+                .fontColor(Theme.primary(Theme.isDark()))
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+                .width('100%')
+            } else if (!this.embedded) {
+              Text(this.song().displayArtist)
+                .fontSize(11)
+                .fontColor(Theme.textSecondary(Theme.isDark()))
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+                .width('100%')
+            }
+          }
+          .layoutWeight(1)
+          .alignItems(HorizontalAlign.Start)
+
           Stack() {
-            Text(this.song().displayName)
-              .fontSize(14)
-              .fontWeight(FontWeight.Medium)
-              .fontColor(Theme.textPrimary(Theme.isDark()))
-              .maxLines(1)
-              .textOverflow({ overflow: TextOverflow.Clip })
-              .width('100%')
-            Column()
-              .width('100%')
-              .height('100%')
-              .linearGradient({
-                direction: GradientDirection.Right,
-                colors: [[0xFF000000, 0], [0xFF000000, 0.8], [0x00000000, 1]]
-              })
-              // DST_IN 只取渐变的 alpha 做蒙版，颜色通道被丢弃；遮罩层不得拦截点击。
-              .blendMode(BlendMode.DST_IN)
-              .hitTestBehavior(HitTestMode.None)
-          }
-          .width('100%')
-          .clip(true)
-          .blendMode(BlendMode.SRC_OVER, BlendApplyType.OFFSCREEN)
-
-          // np.mini_show_lyric 开启且正在播放时，这一行优先显示当前歌词行。
-          if (this.showLyricLine()) {
-            Text(this.lyricLineText)
-              .fontSize(11)
-              .fontColor(Theme.primary(Theme.isDark()))
-              .maxLines(1)
-              .textOverflow({ overflow: TextOverflow.Ellipsis })
-              .width('100%')
-          } else {
-            Text(this.song().displayArtist)
-              .fontSize(11)
-              .fontColor(Theme.textSecondary(Theme.isDark()))
-              .maxLines(1)
-              .textOverflow({ overflow: TextOverflow.Ellipsis })
-              .width('100%')
-          }
-        }
-        .layoutWeight(1)
-        .alignItems(HorizontalAlign.Start)
-
-        Button() {
-          Stack({ alignContent: Alignment.Center }) {
-            // 紧凑形态：播放键改为透明圆 + 着色三角，外圈 2vp 细环作进度
-            // 显示。已播放 primary 与播放页一致；未播放用主色低透明度
-            // （secondary 明度与 primary 过近，细环上无法区分，见
-            // ringTrackColor 注释）。可见环 30vp（槽位 40vp 行内留出空余
-            // 不被圆角裁），触控热区仍是整个 40vp Button。
             if (this.compact) {
               Progress({
                 value: this.positionMs,
@@ -228,52 +301,59 @@ export struct MiniPlayer {
                 .style({ strokeWidth: 2 })
                 .color(this.scheme().primary)
                 .backgroundColor(this.ringTrackColor())
+                .hitTestBehavior(HitTestMode.None)
             }
-            // S6: 官方符号替换动效（CROSS_FADE），播放/暂停切换不再是硬切。
-            SymbolGlyph(this.status === PlaybackStatus.PLAYING
-              ? $r('sys.symbol.pause_fill')
-              : $r('sys.symbol.play_fill'))
-              .fontSize(this.compact ? 15 : 22)
-              .fontColor([this.compact ? this.scheme().primary : '#FFFFFF'])
-              .symbolEffect(this.replaceEffect, this.symbolTrigger)
-          }
-        }
-        .width(40)
-        .height(40)
-        .type(ButtonType.Circle)
-        .backgroundColor(this.compact ? Color.Transparent : this.playBackground())
-        // Icon-only control: without an explicit label a screen reader reads
-        // nothing at all (device audit 2026-08-24 found 9 such buttons).
-        .accessibilityText(this.status === PlaybackStatus.PLAYING ? '暂停' : '播放')
-        .onClick(() => {
-          PlayerManager.togglePlayPause();
-        })
-
-        if (this.miniNextButton) {
           Button() {
-            Image($r('app.media.round_skip_next_24'))
-              .width(this.compact ? 20 : 22)
-              .height(this.compact ? 20 : 22)
-              .fillColor(Theme.textPrimary(Theme.isDark()))
+            Stack({ alignContent: Alignment.Center }) {
+              // S6: 官方符号替换动效（CROSS_FADE），播放/暂停切换不再是硬切。
+              SymbolGlyph(this.status === PlaybackStatus.PLAYING
+                ? $r('sys.symbol.pause_fill')
+                : $r('sys.symbol.play_fill'))
+                .fontSize(this.compact ? 15 : 22)
+                .fontColor([this.compact ? this.scheme().primary : '#FFFFFF'])
+                .symbolEffect(this.replaceEffect, this.symbolTrigger)
+            }
           }
-          // 36vp measured on device; 40vp is the touch-target floor this port holds to.
           .width(40)
           .height(40)
           .type(ButtonType.Circle)
-          .backgroundColor(Color.Transparent)
-          .accessibilityText('下一首')
+          .backgroundColor(this.compact ? Color.Transparent : this.playBackground())
+          // Icon-only control: without an explicit label a screen reader reads
+          // nothing at all (device audit 2026-08-24 found 9 such buttons).
+          .accessibilityText(this.status === PlaybackStatus.PLAYING ? '暂停' : '播放')
           .onClick(() => {
-            PlayerManager.next(false);
+            PlayerManager.togglePlayPause();
           })
+          }
+          .width(40)
+          .height(40)
+
+          if (this.miniNextButton) {
+            Button() {
+              Image($r('app.media.round_skip_next_24'))
+                .width(this.compact ? 20 : 22)
+                .height(this.compact ? 20 : 22)
+                .fillColor(Theme.textPrimary(Theme.isDark()))
+            }
+            // 36vp measured on device; 40vp is the touch-target floor this port holds to.
+            .width(40)
+            .height(40)
+            .type(ButtonType.Circle)
+            .backgroundColor(Color.Transparent)
+            .accessibilityText('下一首')
+            .onClick(() => {
+              PlayerManager.next(false);
+            })
+          }
         }
+        .layoutWeight(1)
       }
       .width('100%')
       .height(this.compact ? 40 : 60)
       .padding({ left: this.compact ? 8 : 12, right: this.compact ? 4 : 8 })
       .onClick(() => {
-        // 一镜到底：push/pop 的动画上下文统一收在 Router（NOW_PLAYING 系统
-        // 转场为 NONE，animateTo + geometryTransition('np.cover') 接管封面过渡），
-        // 这里裸 push 即可，各入口的正反半程动画因此一致。
+        // 播放页是壳层全屏模态：打开/收起的动画状态由 MainShell 的
+        // motionProgress 统一驱动，这里只翻转开关即可。
         if (this.miniExpandAutoplay && this.status !== PlaybackStatus.PLAYING) {
           // np.mini_expand_autoplay：从底部播放器展开到全屏播放页时自动续播。
           PlayerManager.play().catch(() => {
@@ -308,18 +388,7 @@ export struct MiniPlayer {
             });
           })
       )
-      .translate({ x: this.swipeOffset })
-      .scale(this.swiping ? { x: 0.975, y: 0.975 } : { x: 1, y: 1 })
     }
     .width('100%')
-    .backgroundColor(this.barBackground())
-    // 槽位形态透出栏身沉浸光感材质时不得再叠组件级模糊（NONE 关掉，
-    // 否则 COMPONENT_THICK 会在透明底上自取一框内容，重新变成玻璃卡片）。
-    .backgroundBlurStyle(this.followsBarMaterial() || !this.glassEffect
-      ? BlurStyle.NONE : BlurStyle.COMPONENT_THICK)
-    .borderRadius(this.compact ? 20 : 16)
-    .clip(true)
-    .margin(this.compact ? { left: 0, right: 0, bottom: 0 } : { left: 10, right: 10, bottom: 8 })
-    .shadow(this.compact ? { radius: 0, color: '#00000000' } : { radius: 12, color: '#22000000', offsetY: 2 })
   }
 }

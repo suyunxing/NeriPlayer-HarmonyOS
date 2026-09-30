@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 /**
  * Pure byte-level chunking for CredentialStore on @ohos.security.asset:
  * ASSET_TAG_SECRET accepts 1-1024 bytes per record (official Asset Store Kit

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 /**
  * Scores a「匹配歌曲信息」candidate against the expected title/artist/duration
  * for AUTO-apply (player/AutoSongMatcher). Same scoring style as the AMLL

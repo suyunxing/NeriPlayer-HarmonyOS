@@ -1,0 +1,9 @@
+# gitleaks 密钥扫描配置（CI 工作流 .github/workflows/gitleaks.yml 消费）。
+# 规则库直接继承 gitleaks 内建默认规则。
+# 存量误报基线在 .gitleaksignore（指纹 = commit:file:rule:line，只对历史上那一行生效；
+# 同文件新增/改动的真实泄漏仍会正常告警）。误报构成：
+#   - 网易云/YouTube Music 公开 Web 客户端常量（Constants.ets、NeteaseCrypto.kt、ASCF crypto.js 等）
+#   - UI 自动化控件树 dump 中 "key":"..." 字段（tools/.m9/*.json）
+#   - WBI 签名测试向量（BiliWbi.test.ets）与设置项 key 名（AutoSettingsSchema.kt）
+[extend]
+useDefault = true

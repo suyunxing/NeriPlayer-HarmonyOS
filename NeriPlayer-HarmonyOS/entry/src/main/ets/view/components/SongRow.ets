@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 import { SongItem } from '../../model/SongItem';
 import { LocalPlaylistRepository } from '../../data/LocalPlaylistRepository';
 import { DownloadEngine } from '../../download/DownloadEngine';
@@ -46,6 +48,9 @@ export struct SongRow {
   private download(): void {
     DownloadEngine.enqueue([this.song()]);
     this.menuOpen = false;
+    // 与 NowPlayingPage.downloadCurrentSong 同文案；若歌曲已在下载库，
+    // 引擎结算路径还会再发「已在下载库中」的完成提示。
+    this.getUIContext().getPromptAction().showToast({ message: '已加入下载队列', duration: 2000 });
   }
 
 

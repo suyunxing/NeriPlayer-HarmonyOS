@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
+
 import { SongItem } from '../model/SongItem';
 import { stableKeyOf } from '../model/SongIdentity';
 import { DownloadTransportKind } from './DownloadModels';
@@ -40,6 +43,32 @@ export class DownloadRetryPolicy {
       || lowered.indexOf('ssl') >= 0
       || lowered.indexOf('connection reset') >= 0;
   }
+}
+
+/**
+ * Log-safe rendering of a resolved CDN URL: scheme and host only. Query
+ * strings carry expiring signatures/token parameters (NetEase, Bilibili),
+ * and even paths can embed opaque ticket segments, so neither may reach
+ * hilog or collected diagnostics. Pure and unit-testable.
+ */
+export function redactUrlForLog(url: string): string {
+  const schemeEnd = url.indexOf('://');
+  if (schemeEnd < 0) {
+    return `<no-scheme:${url.length}>`;
+  }
+  // The authority ends at the first '/', but also at '?'/'#': a query-only
+  // URL (https://host?authKey=SECRET) has no path, and searching for '/'
+  // alone would leak the whole query into the log.
+  const authorityStart = schemeEnd + 3;
+  let authorityEnd = url.length;
+  for (let i = authorityStart; i < url.length; i++) {
+    const ch = url[i];
+    if (ch === '/' || ch === '?' || ch === '#') {
+      authorityEnd = i;
+      break;
+    }
+  }
+  return `${url.substring(0, authorityEnd)}/<path:${url.length - authorityEnd}>`;
 }
 
 /**

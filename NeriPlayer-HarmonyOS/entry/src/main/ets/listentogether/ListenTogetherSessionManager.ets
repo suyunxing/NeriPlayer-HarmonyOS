@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
+
 /**
  * Runtime owner for an active Listen Together room.
  *
@@ -375,7 +378,10 @@ export class ListenTogetherSessionManager implements ListenTogetherPlaybackDeleg
     currentIndex: number = PlayerManager.getCurrentQueueIndex(),
     positionMs: number = PlayerManager.getPositionMs(),
     isPlaying: boolean = PlayerManager.getStatus() === PlaybackStatus.PLAYING,
-    settings: ListenTogetherRoomSettings = this.roomState?.settings ?? new ListenTogetherRoomSettings()
+    // New rooms start from the persisted preference triple (backlog §4.2);
+    // re-creating while already in a room keeps that room's live settings.
+    settings: ListenTogetherRoomSettings = this.roomState?.settings
+      ?? ListenTogetherPreferences.roomSettings()
   ): Promise<ListenTogetherRoomResponse> {
     const operationGeneration = this.operationGate.begin();
     requireValidListenTogetherRoomCreation(queue, currentIndex, PlayerManager.getCurrentSong());
@@ -572,6 +578,29 @@ export class ListenTogetherSessionManager implements ListenTogetherPlaybackDeleg
     this.clockOffset.reset();
     PlayerManager.resetListenTogetherSyncPlaybackRate();
     this.publishStates();
+  }
+
+  /**
+   * Controller-only room permission update (backlog §4.1, Android
+   * updateRoomSettings): sends UPDATE_SETTINGS; the server's room_state
+   * broadcast applies the new settings room-wide. Mirrors the persisted
+   * preference triple so the next room starts with the same defaults.
+   */
+  async updateRoomSettings(settings: ListenTogetherRoomSettings): Promise<boolean> {
+    if (!this.isListenTogetherActive() || !this.isCurrentUserController()) {
+      this.sessionState.lastError = '只有房主可以修改房间设置';
+      this.publishStates();
+      return false;
+    }
+    const event = this.eventFactory.buildUpdateSettingsEvent(settings);
+    this.markOutbound(event.eventId);
+    const sent = await this.sendEvent(event);
+    if (sent) {
+      ListenTogetherPreferences.setAllowMemberControl(settings.allowMemberControl);
+      ListenTogetherPreferences.setAutoPauseOnMemberChange(settings.autoPauseOnMemberChange);
+      ListenTogetherPreferences.setShareAudioLinks(settings.shareAudioLinks);
+    }
+    return sent;
   }
 
   onPlaybackCommand(command: ListenTogetherPlaybackCommand): void {

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
+
 import { SongItem } from '../model/SongItem';
 import { MusicPlatform } from '../model/MusicPlatform';
 
@@ -163,6 +166,7 @@ export class NeteasePlaylistOverview {
  */
 export interface NeteaseArtist {
   name: string;
+  id?: number;
 }
 
 export interface NeteaseAlbum {
@@ -216,5 +220,6 @@ export function neteaseSongToSongItem(song: NeteaseSong): SongItem {
   );
   item.channelId = 'netease';
   item.audioId = `${song.id}`;
+  item.artistId = artists.length > 0 ? (artists[0].id ?? 0) : 0;
   return item;
 }

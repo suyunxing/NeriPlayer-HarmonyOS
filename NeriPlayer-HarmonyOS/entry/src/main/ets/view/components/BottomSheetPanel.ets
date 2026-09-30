@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 import { Theme } from '../Theme';
 
 @Builder
@@ -15,7 +17,6 @@ export struct BottomSheetPanel {
   @Prop title: string = '';
   onClose: () => void = () => {};
   @BuilderParam content: () => void = emptyContent;
-  @StorageProp('np.glass_effect') glassEffect: boolean = true;
 
   build() {
     Column() {
@@ -44,8 +45,8 @@ export struct BottomSheetPanel {
       }
       .width('100%')
       .padding(16)
-      .backgroundColor(this.glassEffect ? Theme.surfaceGlass(Theme.isDark()) : Theme.surface(Theme.isDark()))
-      .backgroundBlurStyle(this.glassEffect ? BlurStyle.COMPONENT_THICK : BlurStyle.NONE)
+      .backgroundColor(Theme.surfaceGlass(Theme.isDark()))
+      .backgroundBlurStyle(BlurStyle.COMPONENT_THICK)
       .borderRadius({ topLeft: 22, topRight: 22 })
       .onClick(() => {
       })

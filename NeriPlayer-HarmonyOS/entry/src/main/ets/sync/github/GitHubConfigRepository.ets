@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
+
 /**
  * GitHub sync configuration (Android SecureTokenStorage subset).
  *
@@ -8,9 +11,10 @@
  * - lastRemoteSha / lastSyncTime -> plain preferences (runtime state);
  * - deviceId -> SyncDeletionStore (shared with the deletion tombstones).
  *
- * Android defaults data saver to true (uploads GZIP+proto); this port uploads
- * JSON while the compact writer is unimplemented (M5.2b record) and reads all
- * three formats, so the default here is false.
+ * Android defaults data saver to true (uploads GZIP+proto); since the compact
+ * writer landed (backlog §1.3: serializeSyncDataBinary) both directions speak
+ * all three formats, but this port keeps defaulting to false so existing
+ * setups do not silently switch their remote payload format.
  */
 
 import { util } from '@kit.ArkTS';

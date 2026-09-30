@@ -37,6 +37,14 @@
         ]
       }
     ],
+    "extensionAbilities": [
+      {
+        "name": "SyncWorkSchedulerAbility",
+        "srcEntry": "./ets/sync/SyncWorkSchedulerAbility.ets",
+        "type": "workScheduler",
+        "exported": false
+      }
+    ],
     "requestPermissions": [
       {
         "name": "ohos.permission.INTERNET"

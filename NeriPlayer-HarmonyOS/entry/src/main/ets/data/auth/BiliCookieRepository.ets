@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 import { Logger } from '../../app/Logger';
 import { Constants } from '../../app/Constants';
 import { SettingsRepository } from '../SettingsRepository';
@@ -80,6 +82,14 @@ export class BiliCookieRepository {
    * (no usable SESSDATA).
    */
   static async saveFromQrLogin(cookies: Map<string, string>): Promise<boolean> {
+    return BiliCookieRepository.saveInternal(cookies);
+  }
+
+  /**
+   * Saves cookies captured from the embedded official web login page
+   * (BiliWebLoginPage: multi-domain fetchCookieSync merge of the WebView jar).
+   */
+  static async saveFromWebLogin(cookies: Map<string, string>): Promise<boolean> {
     return BiliCookieRepository.saveInternal(cookies);
   }
 

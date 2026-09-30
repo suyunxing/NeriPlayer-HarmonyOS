@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
+
 import { media } from '@kit.MediaKit';
 import { audio } from '@kit.AudioKit';
 import { BusinessError } from '@kit.BasicServicesKit';
@@ -12,6 +15,7 @@ import { StreamResolver } from '../network/StreamResolver';
 import { streamHeadersFor } from '../network/StreamHeaders';
 import { BiliCookieRepository } from '../data/auth/BiliCookieRepository';
 import { buildBiliCookieHeader } from '../data/auth/BiliAuth';
+import { DownloadEngine } from '../download/DownloadEngine';
 import { DownloadStorage } from '../download/DownloadStorage';
 import { HistoryRepository } from '../data/HistoryRepository';
 import { PlaybackStatsRepository } from '../data/PlaybackStatsRepository';
@@ -31,8 +35,10 @@ import { AudioInterruptPolicy, InterruptAction } from './AudioInterruptPolicy';
 import { SleepTimer, SleepTimerMode } from './SleepTimer';
 import { PlaybackConstants, PlaybackStatus, RepeatMode } from './PlaybackConstants';
 import { effectivePlaybackRate, toPlaybackSpeedStep } from './PlaybackSpeedMap';
+import { VolumeFader, FADE_IN_DURATION_MS, FADE_OUT_DURATION_MS } from './VolumeFader';
 import { AvPlaylistBridge } from './AvPlaylistBridge';
 import { advanceForceFor, peekNextIndex, shouldPrimeNext } from './AvPlaylistPolicy';
+import { decideLoadFailureAction, LoadFailureAction } from './PlaybackFailurePolicy';
 import { PlaybackCacheManager } from './PlaybackCacheManager';
 import {
   ListenTogetherPlaybackCommand,
@@ -50,6 +56,18 @@ const DURATION_RECONCILE_TOLERANCE_MS = 300;
 
 export interface PlayerListener {
   onSnapshotChanged(): void;
+}
+
+/**
+ * Resolved stream for one load chain: the player URL plus the download
+ * catalog provenance. The caller commits `catalogKey` only after its own
+ * generation check — assigning it inside the resolver would let a superseded
+ * chain overwrite the live chain's key and make a later failure self-heal
+ * delete the wrong download.
+ */
+interface ResolvedStream {
+  url: string;
+  catalogKey: string;
 }
 
 /** Bridges AutoSongMatcher back into the queue without a circular import at
@@ -141,6 +159,9 @@ export class PlayerManager {
   private static player: media.AVPlayer | null = null;
   // Keeps the opened local audio file descriptor alive while AVPlayer reads it.
   private static localFile: fileIo.File | null = null;
+  // Descriptor for the current local source, consumed by loadSong via the
+  // player's fdSrc property (MediaSourceWithUrl cannot carry a raw fd).
+  private static pendingLocalDescriptor: media.AVFileDescriptor | null = null;
   private static listeners: PlayerListener[] = [];
   private static queue: SongItem[] = [];
   private static engine: QueueEngine = new QueueEngine();
@@ -149,6 +170,23 @@ export class PlayerManager {
   private static positionMs: number = 0;
   private static durationMs: number = 0;
   private static errorAttempts: number = 0;
+  // Consecutive auto-skips after load failures, reset on every successful
+  // start and on user-driven queue moves; bounds the skip path in
+  // PlaybackFailurePolicy so a fully broken queue stops instead of wrapping.
+  private static autoSkipFailures: number = 0;
+  // Generation whose load failure is currently being recovered: the AVPlayer
+  // error callback and the rejected load chain both report the same failure,
+  // and handling it twice double-incremented the retry budget and raced two
+  // recovery chains onto one AVPlayer.
+  private static failureGeneration: number = -1;
+  // Catalog provenance of the currently loaded fd:// source: a failure while
+  // reading it means the local copy is broken and must be dropped (self-heal).
+  private static catalogSourceKey: string = '';
+  // The fd:// URL the key was committed with. The AVPlayer 'error' event
+  // carries no source identity, so self-heal only fires when the error
+  // surfaced against exactly this URL — a late error from a superseded load
+  // must not delete the newer song's catalog row.
+  private static catalogSourceUrl: string = '';
   /**
    * Supersession token for in-flight loads: listener state application can
    * trigger several loadSong calls in quick succession (join snapshot, then
@@ -196,6 +234,17 @@ export class PlayerManager {
       PlayerManager.publishSleepState();
     }
   );
+  // Volume fade behind play/pause/track-switch. Every interpolated step is
+  // routed into the live AVPlayer through the applier below.
+  private static volumeFader: VolumeFader = new VolumeFader(
+    (volume: number) => {
+      PlayerManager.applyPlayerVolume(volume);
+    },
+    () => Date.now()
+  );
+  // Supersession token for fade-out pauses: play() and loadSong() bump it so
+  // a stale fade completion can never pause freshly started playback.
+  private static pauseGeneration: number = 0;
 
   static initialize(context: common.UIAbilityContext): void {
     PlayerManager.context = context;
@@ -426,9 +475,33 @@ export class PlayerManager {
         return currentUrls;
       }
     }
-    const resolved = await PlayerManager.resolveStreamUrl(song);
-    const lowered = resolved.trim().toLowerCase();
-    return lowered.startsWith('http://') || lowered.startsWith('https://') ? [resolved.trim()] : [];
+    // Share probes run outside a load chain and need http(s) only: resolve
+    // the network paths directly. A *usable* offline copy short-circuits to
+    // [] (its fd:// URLs are not shareable, and resolving would recycle the
+    // file descriptor live playback holds); a stale, deleted or corrupt row
+    // falls through to the network resolvers so sharing keeps working.
+    if (song.platform === MusicPlatform.LOCAL) {
+      return [];
+    }
+    const downloaded = await DownloadStorage.findCatalogEntry(song);
+    if (downloaded !== null) {
+      const localPath = DownloadStorage.resolveFilePath(downloaded.audioPath);
+      if (localPath.length > 0 && DownloadStorage.fileSize(localPath) > 0
+        && DownloadStorage.hasPlausibleAudioHeader(localPath)) {
+        return [];
+      }
+    }
+    const authoritativeUrls = PlayerManager.listenTogetherDelegate?.resolveAuthoritativeStreamUrls(song) ?? [];
+    if (authoritativeUrls.length > 0) {
+      return PlayerManager.httpShareableOnly(authoritativeUrls[0]);
+    }
+    return PlayerManager.httpShareableOnly(await StreamResolver.resolveWithNeteaseAutoFallback(song));
+  }
+
+  private static httpShareableOnly(url: string): string[] {
+    const trimmed = url.trim();
+    const lowered = trimmed.toLowerCase();
+    return lowered.startsWith('http://') || lowered.startsWith('https://') ? [trimmed] : [];
   }
 
   private static setCurrentMediaUrl(url: string | null): void {
@@ -496,6 +569,7 @@ export class PlayerManager {
     PlayerManager.queue = songs.slice();
     PlayerManager.engine.setQueueSize(songs.length);
     PlayerManager.engine.start(startIndex, PlayerManager.engine.shuffle, PlayerManager.engine.repeatMode);
+    PlayerManager.autoSkipFailures = 0;
     PlayerManager.publishQueue();
     PlayerManager.playWhenReady = true;
     const command = createListenTogetherPlaybackCommand('PLAY_PLAYLIST', source, Date.now());
@@ -517,9 +591,25 @@ export class PlayerManager {
     command.positionMs = Math.max(0, PlayerManager.positionMs);
     PlayerManager.emitPlaybackCommand(command);
     const player = PlayerManager.player;
-    if (player !== null && PlayerManager.status === PlaybackStatus.PAUSED) {
+    if (player !== null &&
+      (PlayerManager.status === PlaybackStatus.PAUSED || PlayerManager.volumeFader.isFadingOut())) {
+      // Resume, or reverse a fade-out pause that has not landed yet. The
+      // generation bumps also abort a track-switch fade, so play() keeps the
+      // current song instead of letting its load chain reset it.
+      PlayerManager.pauseGeneration++;
+      PlayerManager.loadGeneration++;
+      AvPlaylistBridge.abandon();
+      PlayerManager.volumeFader.cancel();
+      const fadeInMs = PlayerManager.getFadeInMs();
+      // With a fade armed: paused audio is silent anyway, so snapping to 0 is
+      // inaudible and playback starts from true silence. Without one, land
+      // directly on the set volume.
+      PlayerManager.volumeFader.snapTo(fadeInMs > 0 ? 0 : PlayerManager.getTargetVolume());
       try {
         await player.play();
+        if (fadeInMs > 0) {
+          PlayerManager.volumeFader.fadeTo(PlayerManager.getTargetVolume(), fadeInMs);
+        }
         // Publish immediately so the UI toggles without waiting for the
         // async AVPlayer stateChange event (which may lag on some streams).
         PlayerManager.publishStatus(PlaybackStatus.PLAYING);
@@ -527,6 +617,8 @@ export class PlayerManager {
       } catch (error) {
         const e = error as Error;
         Logger.warn(`PlayerManager.play failed: ${e.message}`);
+        // A failed resume must not leave the player muted at the fade start.
+        PlayerManager.volumeFader.snapTo(PlayerManager.getTargetVolume());
       }
     }
     if (PlayerManager.getCurrentSong() === null) {
@@ -560,6 +652,23 @@ export class PlayerManager {
     PlayerManager.emitPlaybackCommand(command);
     const player = PlayerManager.player;
     if (player === null) {
+      return;
+    }
+    const fadeOutMs = PlayerManager.getFadeOutMs();
+    if (PlayerManager.isAudiblyPlaying() && fadeOutMs > 0) {
+      // Fade to silence first; the real pause lands when the fade completes.
+      // Status stays PLAYING until then so the surfaces keep describing the
+      // audio that is still audible (the stateChange event confirms later).
+      const generation = ++PlayerManager.pauseGeneration;
+      PlayerManager.volumeFader.fadeTo(0, fadeOutMs, (completed: boolean) => {
+        if (!completed || generation !== PlayerManager.pauseGeneration ||
+          PlayerManager.player !== player) {
+          return;
+        }
+        player.pause().catch((error: Object) => {
+          Logger.warn(`fade-out pause failed: ${(error as Error).message}`);
+        });
+      });
       return;
     }
     try {
@@ -598,6 +707,9 @@ export class PlayerManager {
       return;
     }
     PlayerManager.playWhenReady = true;
+    if (!auto) {
+      PlayerManager.autoSkipFailures = 0;
+    }
     const command = createListenTogetherPlaybackCommand('NEXT', source, Date.now());
     command.positionMs = Math.max(0, PlayerManager.positionMs);
     PlayerManager.emitPlaybackCommand(command);
@@ -612,6 +724,7 @@ export class PlayerManager {
       return;
     }
     PlayerManager.playWhenReady = true;
+    PlayerManager.autoSkipFailures = 0;
     const command = createListenTogetherPlaybackCommand('PREVIOUS', source, Date.now());
     command.positionMs = Math.max(0, PlayerManager.positionMs);
     PlayerManager.emitPlaybackCommand(command);
@@ -627,6 +740,7 @@ export class PlayerManager {
   ): Promise<void> {
     PlayerManager.engine.playAt(queueIndex);
     PlayerManager.playWhenReady = true;
+    PlayerManager.autoSkipFailures = 0;
     const command = createListenTogetherPlaybackCommand('PLAY_FROM_QUEUE', source, Date.now());
     command.currentIndex = queueIndex;
     PlayerManager.emitPlaybackCommand(command);
@@ -660,6 +774,8 @@ export class PlayerManager {
   static async clearQueue(): Promise<void> {
     PlayerManager.playWhenReady = false;
     PlayerManager.loadGeneration++;
+    PlayerManager.pauseGeneration++;
+    PlayerManager.volumeFader.cancel();
     AvPlaylistBridge.abandon();
     const player = PlayerManager.player;
     if (player !== null) {
@@ -844,14 +960,77 @@ export class PlayerManager {
   static setVolume(volume: number): void {
     const clamped = Math.min(1, Math.max(0, volume));
     SettingsRepository.setNumber(SettingsRepository.KEY_PLAYBACK_VOLUME, clamped);
+    // An explicit volume change cancels any fade in flight and lands on the
+    // requested value through the fader, so its internal state stays in sync
+    // with what the player actually renders.
+    PlayerManager.volumeFader.snapTo(clamped);
+  }
+
+  /** Routes one interpolated fade step into the live AVPlayer (any state). */
+  private static applyPlayerVolume(volume: number): void {
     const player = PlayerManager.player;
-    if (player !== null) {
-      try {
-        player.setVolume(clamped);
-      } catch (error) {
-        const e = error as Error;
-        Logger.warn(`PlayerManager.setVolume failed: ${e.message}`);
-      }
+    if (player === null) {
+      return;
+    }
+    try {
+      player.setVolume(volume);
+    } catch (error) {
+      const e = error as Error;
+      Logger.debug(`apply fade volume failed: ${e.message}`);
+    }
+  }
+
+  /** The persisted app-level soft volume (np.playback_volume), clamped. */
+  private static getTargetVolume(): number {
+    return Math.min(1, Math.max(0, SettingsRepository.getNumber(SettingsRepository.KEY_PLAYBACK_VOLUME, 1.0)));
+  }
+
+  /** Volume fade master switch (np.playback_fade, Android playback_fade_in). */
+  private static isFadeEnabled(): boolean {
+    return SettingsRepository.getBoolean(SettingsRepository.KEY_PLAYBACK_FADE, true);
+  }
+
+  /**
+   * Effective fade-in length. A 0ms duration (or master off) disables the
+   * fade entirely, mirroring Android's shouldFade* duration gate.
+   */
+  private static getFadeInMs(): number {
+    if (!PlayerManager.isFadeEnabled()) {
+      return 0;
+    }
+    return Math.max(0, Math.round(
+      SettingsRepository.getNumber(SettingsRepository.KEY_PLAYBACK_FADE_IN_MS, FADE_IN_DURATION_MS)
+    ));
+  }
+
+  private static getFadeOutMs(): number {
+    if (!PlayerManager.isFadeEnabled()) {
+      return 0;
+    }
+    return Math.max(0, Math.round(
+      SettingsRepository.getNumber(SettingsRepository.KEY_PLAYBACK_FADE_OUT_MS, FADE_OUT_DURATION_MS)
+    ));
+  }
+
+  /**
+   * True only when audio is actually sounding: the published PLAYING status
+   * alone is stale between the 'completed' event and the next track's start
+   * (auto-advance fallback), where a fade-out would only delay the switch.
+   */
+  private static isAudiblyPlaying(): boolean {
+    if (PlayerManager.status !== PlaybackStatus.PLAYING) {
+      return false;
+    }
+    const player = PlayerManager.player;
+    if (player === null) {
+      return false;
+    }
+    try {
+      return player.state === 'playing';
+    } catch (error) {
+      const e = error as Error;
+      Logger.debug(`read AVPlayer state for fade gate failed: ${e.message}`);
+      return false;
     }
   }
 
@@ -960,10 +1139,16 @@ export class PlayerManager {
     PlayerManager.positionMs = state.positionMs;
     PlayerManager.restoredPositionMs = state.positionMs;
     const startQueueIndex = Math.min(state.queueIndex, state.songs.length - 1);
+    // keep_playback_mode_state (backlog §2.2, Android default on): when off,
+    // loop/shuffle reset to list-loop defaults instead of being restored.
+    const keepModeState = SettingsRepository.getBoolean(
+      SettingsRepository.KEY_KEEP_PLAYBACK_MODE_STATE, true);
     // Mirrors Android applyRestoredStateSnapshot: shuffle restarts from a
     // fresh bag around the restored track; history/future are not persisted.
     PlayerManager.engine.setQueueSize(state.songs.length);
-    PlayerManager.engine.start(startQueueIndex, state.shuffle, state.repeatMode);
+    PlayerManager.engine.start(startQueueIndex,
+      keepModeState ? state.shuffle : false,
+      keepModeState ? state.repeatMode : RepeatMode.ALL);
     PlayerManager.publishQueue();
     PlayerManager.publishPosition();
     AppStorage.setOrCreate(PlaybackConstants.KEY_SPEED, PlayerManager.speed);
@@ -987,6 +1172,11 @@ export class PlayerManager {
     // Any explicit load invalidates a primed native-playlist entry: the
     // bridge's source was predicted for the previous queue position.
     AvPlaylistBridge.abandon();
+    // Any failure self-heal from here on belongs to this load only; the
+    // resolved provenance is committed below after the generation check, so a
+    // superseded chain can never leave a stale key behind.
+    PlayerManager.catalogSourceKey = '';
+    PlayerManager.catalogSourceUrl = '';
     const song = PlayerManager.getCurrentSong();
     if (song === null) {
       return;
@@ -996,6 +1186,19 @@ export class PlayerManager {
     // flooding the stream API fast enough to trip platform risk control.
     if (!isRetry) {
       PlayerManager.errorAttempts = 0;
+    }
+    // Manual/natural switch while audible: fade the current track out before
+    // the load chain's reset() cuts it. A superseding play()/load bumps the
+    // generations, which both aborts this fade and discards this chain.
+    const switchFadeOutMs = PlayerManager.getFadeOutMs();
+    if (switchFadeOutMs > 0 && PlayerManager.isAudiblyPlaying()) {
+      PlayerManager.pauseGeneration++;
+      await new Promise<void>((resolve) => {
+        PlayerManager.volumeFader.fadeTo(0, switchFadeOutMs, () => resolve());
+      });
+      if (generation !== PlayerManager.loadGeneration) {
+        return;
+      }
     }
     PlayerManager.beginTrackTransition(song, startPositionMs);
 
@@ -1016,38 +1219,55 @@ export class PlayerManager {
           return;
         }
       }
-      let source: media.MediaSource;
+      let source: media.MediaSource | null = null;
       let playedUrl: string = '';
       let playedHeaders: Record<string, string> = {};
       if (cachedSource !== null) {
         await player.reset();
         source = cachedSource;
       } else {
-        const uri = await PlayerManager.resolveStreamUrl(song);
+        const resolved = await PlayerManager.resolveStreamUrl(song);
         if (generation !== PlayerManager.loadGeneration) {
+          // Superseded mid-resolution: the fd/pending descriptor opened for
+          // this chain stays until the next openLocalFd recycles it, but no
+          // catalog provenance is committed (the failure self-heal of the
+          // *current* chain must not see this chain's key).
           return;
         }
-        if (uri.length === 0) {
+        if (resolved.url.length === 0) {
           throw new Error(`No playable stream for ${song.displayName}`);
         }
-        PlayerManager.setCurrentMediaUrl(uri);
-        playedUrl = uri;
+        PlayerManager.catalogSourceKey = resolved.catalogKey;
+        // Pair the key with the exact fd:// URL it came from: the self-heal
+        // only acts when the player's current media still is this source.
+        PlayerManager.catalogSourceUrl = resolved.catalogKey.length > 0 ? resolved.url : '';
+        PlayerManager.setCurrentMediaUrl(resolved.url);
+        playedUrl = resolved.url;
         await player.reset();
         if (generation !== PlayerManager.loadGeneration) {
           return;
         }
-        // Bilibili CDN hosts require a web Referer + desktop UA (plus the login
-        // cookie when present) or the player's own fetch is rejected with 403.
-        const biliCookie = BiliCookieRepository.isLoggedIn()
-          ? buildBiliCookieHeader(BiliCookieRepository.getCookies())
-          : '';
-        const headers = streamHeadersFor(uri, biliCookie);
-        playedHeaders = headers;
-        source = Object.keys(headers).length > 0
-          ? media.createMediaSourceWithUrl(uri, headers)
-          : media.createMediaSourceWithUrl(uri);
+        if (resolved.url.startsWith('fd://') && PlayerManager.pendingLocalDescriptor !== null) {
+          // Local sources bypass MediaSource entirely: the descriptor goes
+          // through the player's fdSrc property (see openLocalFd).
+          player.fdSrc = PlayerManager.pendingLocalDescriptor;
+          PlayerManager.pendingLocalDescriptor = null;
+        } else {
+          // Bilibili CDN hosts require a web Referer + desktop UA (plus the login
+          // cookie when present) or the player's own fetch is rejected with 403.
+          const biliCookie = BiliCookieRepository.isLoggedIn()
+            ? buildBiliCookieHeader(BiliCookieRepository.getCookies())
+            : '';
+          const headers = streamHeadersFor(resolved.url, biliCookie);
+          playedHeaders = headers;
+          source = Object.keys(headers).length > 0
+            ? media.createMediaSourceWithUrl(resolved.url, headers)
+            : media.createMediaSourceWithUrl(resolved.url);
+        }
       }
-      await player.setMediaSource(source);
+      if (source !== null) {
+        await player.setMediaSource(source);
+      }
       await PlayerManager.waitForState(['initialized']);
       // Pin the stream to the music usage. This is the only window the SDK
       // accepts it in: the initialized state, before the first prepare().
@@ -1085,13 +1305,13 @@ export class PlayerManager {
       player.audioInterruptMode = SettingsRepository.getBoolean(SettingsRepository.KEY_MIX_AUDIO, true)
         ? audio.InterruptMode.SHARE_MODE
         : audio.InterruptMode.INDEPENDENT_MODE;
-      // Re-apply the app-level soft volume to every freshly prepared source.
-      try {
-        player.setVolume(SettingsRepository.getNumber(SettingsRepository.KEY_PLAYBACK_VOLUME, 1.0));
-      } catch (error) {
-        const e = error as Error;
-        Logger.debug(`apply playback volume failed: ${e.message}`);
-      }
+      // Re-apply the app-level soft volume to every freshly prepared source:
+      // an auto-played start begins silent and fades in; anything else (e.g.
+      // a pause that landed mid-switch) restores the set volume directly.
+      const fadeInMs = PlayerManager.getFadeInMs();
+      PlayerManager.volumeFader.snapTo(PlayerManager.playWhenReady && fadeInMs > 0
+        ? 0
+        : PlayerManager.getTargetVolume());
       // First correction point for the catalog-declared duration; playing and
       // timeUpdate reconcile later if the demuxer only reports the length then.
       PlayerManager.reconcileStreamDuration();
@@ -1113,7 +1333,16 @@ export class PlayerManager {
           Logger.warn(`seek to restored position failed: ${e.message}`);
         }
       }
+      if (!PlayerManager.playWhenReady) {
+        // A pause that landed mid-switch armed this load before dying; leave
+        // the new track prepared and paused instead of playing over the pause.
+        PlayerManager.publishStatus(PlaybackStatus.PAUSED);
+        return;
+      }
       await player.play();
+      if (fadeInMs > 0) {
+        PlayerManager.volumeFader.fadeTo(PlayerManager.getTargetVolume(), fadeInMs);
+      }
       Logger.info(`PlayerManager playback started: ${song.displayName}`);
       if (generation === PlayerManager.loadGeneration) {
         // Both accelerators are strictly fire-and-forget: playback already
@@ -1165,7 +1394,8 @@ export class PlayerManager {
     AutoSongMatcher.maybeAutoMatch(song, new PlayerManagerAutoMatchEnv());
   }
 
-  private static async resolveStreamUrl(song: SongItem): Promise<string> {
+  private static async resolveStreamUrl(song: SongItem): Promise<ResolvedStream> {
+    const resolved: ResolvedStream = { url: '', catalogKey: '' };
     if (song.platform !== MusicPlatform.LOCAL) {
       // A completed download short-circuits network resolution so catalog
       // tracks stay playable offline (Android offline-first semantics).
@@ -1173,21 +1403,26 @@ export class PlayerManager {
       if (downloaded !== null) {
         const localUrl = PlayerManager.openLocalFd(downloaded.audioPath);
         if (localUrl.length > 0) {
-          return localUrl;
+          resolved.url = localUrl;
+          resolved.catalogKey = stableKeyOf(song);
+          return resolved;
         }
       }
       // A listener may consume the controller's already-resolved stream after
       // the offline catalog has had a chance to satisfy the request.
       const authoritativeUrls = PlayerManager.listenTogetherDelegate?.resolveAuthoritativeStreamUrls(song) ?? [];
       if (authoritativeUrls.length > 0) {
-        return authoritativeUrls[0];
+        resolved.url = authoritativeUrls[0];
+        return resolved;
       }
       // NetEase songs fall back to a matched Bilibili source when the direct
       // stream is unavailable and the setting is on.
-      return StreamResolver.resolveWithNeteaseAutoFallback(song);
+      resolved.url = await StreamResolver.resolveWithNeteaseAutoFallback(song);
+      return resolved;
     }
     const uri = song.localFilePath.length > 0 ? song.localFilePath : song.mediaUri;
-    return PlayerManager.openLocalFd(uri);
+    resolved.url = PlayerManager.openLocalFd(uri);
+    return resolved;
   }
 
   /** Opens a sandbox audio file for AVPlayer; '' when unreadable. */
@@ -1195,11 +1430,23 @@ export class PlayerManager {
     if (uri.length === 0) {
       return '';
     }
+    // Catalog rows from a user-picked download directory hold file:// URIs;
+    // CoreFileKit needs the converted sandbox path for open/stat.
+    const path = DownloadStorage.resolveFilePath(uri);
+    if (path.length === 0) {
+      return '';
+    }
     try {
       PlayerManager.closeLocalFile();
-      const file = fileIo.openSync(uri, fileIo.OpenMode.READ_ONLY);
+      const file = fileIo.openSync(path, fileIo.OpenMode.READ_ONLY);
       PlayerManager.localFile = file;
-      return `fd://${file.fd}`;
+      // The descriptor is applied through the player's fdSrc property, not
+      // through MediaSourceWithUrl: feeding the fd URL into a network-shaped
+      // MediaSource makes the container sniffer fail with 5400106 even for
+      // clean transfers. size pins the exact payload length for the sniffer.
+      const size = fileIo.statSync(path).size;
+      PlayerManager.pendingLocalDescriptor = { fd: file.fd, offset: 0, length: size };
+      return `fd://${file.fd}?offset=0&size=${size}`;
     } catch (error) {
       const e = error as Error;
       Logger.warn(`open local audio fd failed: ${e.message}`);
@@ -1220,18 +1467,65 @@ export class PlayerManager {
   }
 
   private static async handleLoadFailure(): Promise<void> {
+    if (PlayerManager.failureGeneration === PlayerManager.loadGeneration) {
+      return;
+    }
+    PlayerManager.failureGeneration = PlayerManager.loadGeneration;
+    // A source opened from the download catalog but rejected by the player
+    // means the local copy is broken (e.g. zero-holed staging writes). Drop
+    // the stale catalog row, the file and the finished task record: the
+    // library count stays truthful and the engine's completed-task
+    // short-circuit no longer pins the bad file against a re-download.
+    // The AVPlayer error event carries no source identity, so act only when
+    // the current media still is the exact fd:// URL the key was committed
+    // with — a late error from a superseded load must not delete the newer
+    // song's catalog row.
+    if (PlayerManager.catalogSourceKey.length > 0
+      && PlayerManager.catalogSourceUrl.length > 0
+      && PlayerManager.catalogSourceUrl === PlayerManager.currentMediaUrl) {
+      const staleKey = PlayerManager.catalogSourceKey;
+      PlayerManager.catalogSourceKey = '';
+      PlayerManager.catalogSourceUrl = '';
+      try {
+        await DownloadEngine.deleteDownload(staleKey);
+        Logger.warn('PlayerManager: dropped corrupt download from catalog');
+      } catch (error) {
+        const e = error as Error;
+        Logger.warn(`catalog self-heal failed: ${e.message}`);
+      }
+    }
     PlayerManager.errorAttempts += 1;
     const song = PlayerManager.getCurrentSong();
     if (song === null) {
       return;
     }
-    if (PlayerManager.errorAttempts < 2) {
-      Logger.warn(`Retrying playback for ${song.displayName} (attempt ${PlayerManager.errorAttempts})`);
+    const action = decideLoadFailureAction({
+      errorAttempts: PlayerManager.errorAttempts,
+      autoSkipFailures: PlayerManager.autoSkipFailures,
+      queueLength: PlayerManager.queue.length,
+      nextTarget: peekNextIndex(PlayerManager.engine, PlayerManager.engine.repeatMode === RepeatMode.ALL),
+      currentIndex: PlayerManager.engine.getCurrentQueueIndex()
+    });
+    if (action === LoadFailureAction.RETRY_SAME) {
+      // URL re-sign first (backlog §2.1): direct links carry TTLs, and both
+      // the per-song cache and the YTM resolver cache would happily serve
+      // the same expired URL to the retry.
+      StreamResolver.invalidateResolvedUrl(song);
+      Logger.warn(`Retrying playback with a fresh stream for ${song.displayName} `
+        + `(attempt ${PlayerManager.errorAttempts})`);
       await PlayerManager.loadSong(0, true);
       return;
     }
-    Logger.warn(`Giving up on ${song.displayName}, skipping to next`);
-    await PlayerManager.next(true);
+    if (action === LoadFailureAction.SKIP_NEXT) {
+      PlayerManager.autoSkipFailures += 1;
+      Logger.warn(`Giving up on ${song.displayName}, skipping to next`);
+      await PlayerManager.next(true);
+      return;
+    }
+    Logger.warn(`Giving up on ${song.displayName}; playback stopped`);
+    PlayerManager.playWhenReady = false;
+    PlayerManager.stopContinuousTask();
+    PlayerManager.publishStatus(PlaybackStatus.ERROR);
   }
 
   private static async ensurePlayer(): Promise<media.AVPlayer> {
@@ -1278,6 +1572,7 @@ export class PlayerManager {
     switch (state) {
       case 'playing':
         PlayerManager.publishStatus(PlaybackStatus.PLAYING);
+        PlayerManager.autoSkipFailures = 0;
         PlayerManager.reconcileStreamDuration();
         if (PlayerManager.context !== null) {
           BackgroundTaskRunner.start(PlayerManager.context);
@@ -1402,6 +1697,13 @@ export class PlayerManager {
       PlayerManager.beginTrackTransition(song, 0);
       PlayerManager.setCurrentMediaUrl(mediaUrl);
     }
+    // The kernel swapped to the primed offline source; the failure self-heal
+    // must now point at THIS song's catalog row, not the previous track's
+    // (a loadSong would have reset the key, but the native advance skips it).
+    PlayerManager.catalogSourceKey = song !== null && song.platform !== MusicPlatform.LOCAL
+      ? stableKeyOf(song)
+      : '';
+    PlayerManager.catalogSourceUrl = PlayerManager.catalogSourceKey.length > 0 ? mediaUrl : '';
     // The kernel already swapped the media; nudge the transport in case it
     // parked, and re-apply the speed the new source did not inherit.
     const player = PlayerManager.player;
@@ -1556,12 +1858,29 @@ export class PlayerManager {
       case InterruptAction.PAUSE_TRANSIENT:
         PlayerManager.resumeOnFocusRegain = true;
         PlayerManager.playWhenReady = false;
+        // The system owns this pause (and any ducking ramp); stop our fade
+        // ticks instead of racing its volume handling.
+        PlayerManager.volumeFader.cancel();
         PlayerManager.publishStatus(PlaybackStatus.PAUSED);
         PlayerManager.flushPlaybackStatsAsync();
         break;
       case InterruptAction.PAUSE_PERMANENT:
         PlayerManager.resumeOnFocusRegain = false;
         PlayerManager.playWhenReady = false;
+        PlayerManager.volumeFader.cancel();
+        // Unlike a forced focus loss, output-device loss (REASON_OLD_DEVICE_
+        // UNAVAILABLE: BT/wired headset gone) does not stop the stream — the
+        // system reroutes it to the next device (the speaker) still sounding.
+        // The pause must be issued here (audio-output-device-change guide):
+        // a hard pause, no fade, mirroring the upstream pauseForAudioRouteLoss.
+        // A focus-loss STOP already had the stream acted on; this pause() is a
+        // harmless no-op there.
+        if (player !== null && PlayerManager.status === PlaybackStatus.PLAYING) {
+          player.pause().catch((error: Object) => {
+            const e = error as Error;
+            Logger.warn(`hard pause on device loss failed: ${e.message}`);
+          });
+        }
         PlayerManager.publishStatus(PlaybackStatus.PAUSED);
         PlayerManager.flushPlaybackStatsAsync();
         PlayerManager.persistNow();
@@ -1569,6 +1888,11 @@ export class PlayerManager {
       case InterruptAction.RESUME:
         PlayerManager.resumeOnFocusRegain = false;
         PlayerManager.playWhenReady = true;
+        PlayerManager.volumeFader.cancel();
+        // A fade cut short by the interrupt must not resume into a muted or
+        // half-faded player. Direct restore, no fade: the system may be
+        // un-ducking at the same time and owns its own ramp.
+        PlayerManager.volumeFader.snapTo(PlayerManager.getTargetVolume());
         if (player !== null && PlayerManager.status === PlaybackStatus.PAUSED) {
           player.play().catch((error: Object) => {
             const e = error as Error;

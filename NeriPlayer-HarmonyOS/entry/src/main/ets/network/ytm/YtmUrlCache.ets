@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
+
 /**
  * Short-lived googlevideo URL cache porting Android
  * resolvePlayableAudioCacheExpiresAtMs + playableAudioCache semantics:
@@ -114,6 +117,20 @@ export class YtmUrlCache {
 
   clear(): void {
     this.entries.clear();
+  }
+
+  /** Drops every quality variant cached for the video (URL re-sign path). */
+  evictVideo(videoId: string): void {
+    const prefix = `${videoId}|`;
+    const stale: string[] = [];
+    this.entries.forEach((_entry, key) => {
+      if (key.startsWith(prefix)) {
+        stale.push(key);
+      }
+    });
+    for (const key of stale) {
+      this.entries.delete(key);
+    }
   }
 
   size(): number {

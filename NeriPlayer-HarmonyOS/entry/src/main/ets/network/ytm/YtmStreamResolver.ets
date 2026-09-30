@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
+
 import { Logger } from '../../app/Logger';
 import {
   YtmPlayerResponseNode,
@@ -98,6 +101,11 @@ export class YtmStreamResolver {
     );
     YtmStreamResolver.cache.put(videoId, qualityKey, url, Date.now());
     return url;
+  }
+
+  /** Drops every cached URL variant for a video (load-failure re-sign path). */
+  static evictCachedUrl(videoId: string): void {
+    YtmStreamResolver.cache.evictVideo(videoId);
   }
 
   /**

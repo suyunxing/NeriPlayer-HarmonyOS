@@ -1,17 +1,7 @@
-import { curves } from '@kit.ArkUI';
+// SPDX-License-Identifier: GPL-3.0
+
 import { KEY_REFRESH_TICK } from '../util/Breakpoint';
 import { ROUTE_MAIN, RoutePushAction, routePushAction } from './RouteStack';
-
-/**
- * 一镜到底（NOW_PLAYING）的转场弹簧：push/pop 共用同一条曲线，封面沿
- * geometryTransition('np.cover') 往返的节奏才对称。该路由的系统转场是
- * NavigationSystemTransitionType.NONE，动画完全靠把栈操作包进 animateTo
- * 闭包驱动（MiniPlayer S6 引入，现收敛到 Router 统一提供）。闭包内的路由
- * 操作必须带 animated=false（官方共享元素范式，见 Navigation 转场指南与
- * faqs-arkui-991）：系统转场管线一旦参与（NONE = 零时长），会在第 0 帧同步
- * 结束并卸载退场页，把 animateTo 的共享元素动画掐死。
- */
-const NOW_PLAYING_SPRING: AnimateParam = { curve: curves.interpolatingSpring(0, 1, 328, 36) };
 
 /**
  * Full-screen route stack for detail overlays.
@@ -39,17 +29,47 @@ export class Router {
   static readonly LISTEN_TOGETHER: string = 'listen_together';
   /** 专辑页，param 为 JSON：{ album: string, albumId: number }。 */
   static readonly ALBUM: string = 'album';
+  /** 网易云艺人页，param 为 JSON：{ artist: string, artistId: number }。 */
+  static readonly ARTIST: string = 'artist';
   /** 隐私政策 / 用户协议阅读页，param 取 LEGAL_PRIVACY / LEGAL_AGREEMENT。 */
   static readonly LEGAL_DOC: string = 'legal_doc';
+  /** B 站内嵌官方登录页（WebView），无参数。 */
+  static readonly BILI_WEB_LOGIN: string = 'bili_web_login';
 
   private static pathStack: NavPathStack | null = null;
   /** attach 时由 MainShell 一并交入：NOW_PLAYING 的 animateTo 需要 UIContext 入口。 */
   private static uiContext: UIContext | null = null;
+  /**
+   * 全屏播放页模态的开关键（Router 写、MainShell 的 bindContentCover 读）。
+   * MainShell/MiniPlayer 侧装饰器只收字符串字面量，须与此常量保持同名字面量
+   * 'ui.nowPlayingShown'（@StorageLink 装饰器参数不接受导入的常量引用）。
+   */
+  static readonly KEY_NOW_PLAYING_SHOWN: string = 'ui.nowPlayingShown';
+  /**
+   * 当前 NavPathStack 深度快照（0 = Tab 骨架，>0 = 处于子页）。每次栈操作后
+   * 同步发布，MainShell 用 @StorageProp 消费，驱动迷你条在子页下沉为 dock
+   * 形态。push 全部经过 Router.push、返回全部经过 Index.onBackPress →
+   * Router.pop，所以这里就是深度唯一的事实来源。
+   */
+  static readonly KEY_SUB_PAGE_DEPTH: string = 'ui.subPageDepth';
+
+  private static nowPlayingShown(): boolean {
+    return AppStorage.get<boolean>(Router.KEY_NOW_PLAYING_SHOWN) === true;
+  }
 
   /** MainShell.aboutToAppear 把 Navigation 的栈交给 Router。 */
   static attach(stack: NavPathStack, uiContext: UIContext): void {
     Router.pathStack = stack;
     Router.uiContext = uiContext;
+  }
+
+  /**
+   * 栈操作后同步发布深度快照。NavPathStack 的 size() 在 push/pop/replace/clear
+   * 之后即时可读（Router.push 自身的防重决策就依赖这一语义），这里沿用。
+   */
+  private static publishDepth(): void {
+    const stack = Router.pathStack;
+    AppStorage.setOrCreate(Router.KEY_SUB_PAGE_DEPTH, stack === null ? 0 : stack.size());
   }
 
   static detach(): void {
@@ -58,10 +78,22 @@ export class Router {
   }
 
   static push(name: string, param: string = ''): void {
+    if (name === Router.NOW_PLAYING) {
+      // The shell owns visual progress and keeps the modal mounted through exit.
+      AppStorage.setOrCreate(Router.KEY_NOW_PLAYING_SHOWN, true);
+      return;
+    }
     const stack = Router.pathStack;
     if (stack === null) {
       // 启动门阶段（免责声明/引导页）还没有 Navigation，此时不该有路由跳转。
       return;
+    }
+    // 模态盖在整个 Navigation 之上，播放页内发起的路由（专辑/一起听）必须先
+    // 收掉模态再入栈，否则新页面渲染在模态下面不可见。不包 animateTo：立即
+    // 收起，不与被推入页面自身的 DEFAULT 转场叠加；副作用是返回时回到打开
+    // 播放页之前的页面而不是播放页（模态已收，与设计预期一致）。
+    if (Router.nowPlayingShown()) {
+      AppStorage.setOrCreate(Router.KEY_NOW_PLAYING_SHOWN, false);
     }
     const depth = stack.size();
     const names = stack.getAllPathName();
@@ -72,10 +104,12 @@ export class Router {
     }
     if (action === RoutePushAction.CLEAR) {
       stack.clear();
+      Router.publishDepth();
       return;
     }
     if (action === RoutePushAction.REPLACE_TOP) {
       stack.replacePathByName(name, param);
+      Router.publishDepth();
       return;
     }
     const evict = (): void => {
@@ -83,62 +117,48 @@ export class Router {
         stack.removeByIndexes([0]);
       }
     };
-    if (name === Router.NOW_PLAYING && Router.uiContext !== null) {
-      // 一镜到底 push 半程：该路由系统转场为 NONE，动画由这个 animateTo 闭包
-      // 提供，geometryTransition 才能把封面从迷你条飞到播放页。所有入口统一
-      // 在这里包 —— 此前只有 MiniPlayer 自己包了，其余入口 push 是硬切。
-      // pushPathByName 带 animated=false，关掉系统 push 管线，转场完全交给
-      // animateTo（pop 方向不这么做会硬切，见 pop() 内注释）。
-      Router.uiContext.animateTo(NOW_PLAYING_SPRING, () => {
-        evict();
-        stack.pushPathByName(name, param, false);
-      });
-      return;
-    }
     evict();
     stack.pushPathByName(name, param);
+    Router.publishDepth();
   }
 
   static pop(): void {
+    // Repeated back presses during exit must not pop the route underneath.
+    if (Router.nowPlayingShown() || AppStorage.get<boolean>('ui.nowPlayingMounted') === true) {
+      AppStorage.setOrCreate(Router.KEY_NOW_PLAYING_SHOWN, false);
+      return;
+    }
     const stack = Router.pathStack;
     if (stack === null) {
       return;
     }
-    const names = stack.getAllPathName();
-    const top = names.length > 0 ? names[names.length - 1] : '';
-    if (top === Router.NOW_PLAYING && Router.uiContext !== null) {
-      // 一镜到底 pop 半程。仅包 animateTo 还不够（b404c3f 实测真机仍硬切）：
-      // pop 默认 animated=true，系统 pop 管线（NONE = 零时长）同步结束后立即
-      // 卸载退场的 NavDestination，组件级 .transition() 保得住自身、保不住父
-      // 容器，geometryTransition('np.cover') 的 out 端在第 0 帧就被销毁。官方
-      // 共享元素范式要求路由操作本身 animated=false（Navigation 转场指南 /
-      // faqs-arkui-991），退场页存活到 animateTo 闭包动画结束，封面才沿共享
-      // 元素飞回迷你条；侧滑手势由 MainShell 的 onBackPressed 拦截后也汇入这里。
-      Router.uiContext.animateTo(NOW_PLAYING_SPRING, () => {
-        stack.pop(false);
-      });
-      return;
-    }
     stack.pop();
+    Router.publishDepth();
   }
 
-  /** True while a full-screen route is showing, i.e. back has something to pop. */
+  /** True while a full-screen route or the now-playing modal is showing, i.e. back has something to close. */
   static canPop(): boolean {
+    if (Router.nowPlayingShown() || AppStorage.get<boolean>('ui.nowPlayingMounted') === true) {
+      return true;
+    }
     const stack = Router.pathStack;
     return stack !== null && stack.size() > 0;
   }
 
-  /** Current depth (0 = the tab shell); for diagnostics and tests. */
+  /** Current Navigation depth (0 = the tab shell), for diagnostics and tests. */
   static depth(): number {
     const stack = Router.pathStack;
     return stack === null ? 0 : stack.size();
   }
 
-  /** Drops every level and returns to the tab shell. */
+  /** Drops every route level and closes the now-playing modal. */
   static reset(): void {
+    // 播放页模态不在 Navigation 栈里，reset 需要一并收掉。
+    AppStorage.setOrCreate(Router.KEY_NOW_PLAYING_SHOWN, false);
     const stack = Router.pathStack;
     if (stack !== null) {
       stack.clear();
+      Router.publishDepth();
     }
   }
 
@@ -153,6 +173,12 @@ export class Router {
    * 由当前可见的 Tab 页自己决定重载。
    */
   static notifyReturned(): void {
+    // 返回不止 Router.pop() 一条路：侧滑返回手势与子页标题栏返回键由
+    // Navigation 直接弹栈，Router 感知不到——而每个 NavDestination 消失时
+    // 都会回调到这里（见下注释四条路径），在这里补发深度快照，dock 态迷你条
+    // 的 ui.subPageDepth 才不会卡在 >0（真机首版实测：卡住后主页槽位迷你条
+    // 内容永久隐藏，只剩 HdsTabs 自绘的空药丸壳）。幂等重发，无副作用。
+    Router.publishDepth();
     const previous = AppStorage.get<number>(KEY_REFRESH_TICK);
     const tick = previous === undefined || previous === null ? 0 : previous;
     AppStorage.setOrCreate(KEY_REFRESH_TICK, tick + 1);

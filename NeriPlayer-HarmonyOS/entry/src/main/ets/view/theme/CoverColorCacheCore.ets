@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 /**
  * In-memory LRU + single-flight dedup cache for cover seed colors, mirroring
  * CoverArtColorCache.kt: LruCache(64), no TTL, no disk persistence, and

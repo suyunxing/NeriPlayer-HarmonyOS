@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 /**
  * Seed-color driven theme overlay, the HarmonyOS counterpart of Android's
  * material-kolor rememberDynamicColorScheme(seedColor, isDark) plus

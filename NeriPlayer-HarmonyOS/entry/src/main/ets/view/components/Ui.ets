@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 import { Theme } from '../Theme';
 import { AccentScheme } from '../theme/AccentScheme';
 import { LengthMetrics } from '@kit.ArkUI';
@@ -138,22 +140,12 @@ export struct LoadingState {
 
 @Component
 export struct PlaylistCard {
-  /**
-   * S5: 订阅封面配色（M7.4：build 里读成员才追得上换歌重染色）。
-   */
-  @StorageProp('player.coverScheme') coverScheme: AccentScheme = AccentScheme.neutralFallback();
-
   @Prop name: string;
   @Prop subtitle: string = '';
   @Prop coverUrl: string = '';
   @Prop trackCount: number = 0;
   @Prop isFavorite: boolean = false;
   onOpen: () => void = () => {};
-
-  private schemeSurface(): string {
-    const hasScheme = this.coverScheme.light.background.length > 0;
-    return hasScheme ? Theme.surface(Theme.isDark()) : Theme.surface(Theme.isDark());
-  }
 
   build() {
     Column({ space: 6 }) {
@@ -209,7 +201,6 @@ export struct PlaylistCard {
     }
     .onClick(() => this.onOpen())
     .clickEffect({ level: ClickEffectLevel.LIGHT })
-    .backgroundColor(this.schemeSurface())
   }
 }
 
@@ -573,6 +564,7 @@ export struct OptionRow {
     .width('100%')
     .padding({ left: 16, right: 16, top: 12, bottom: 12 })
     .backgroundColor(this.transparentBg ? Color.Transparent : this.schemeSurface())
+    .borderRadius(this.transparentBg ? 0 : Theme.cardRadius())
     .onClick(() => {
       this.menuShow = true;
     })

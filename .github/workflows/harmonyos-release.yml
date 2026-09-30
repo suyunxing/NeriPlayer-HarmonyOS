@@ -74,7 +74,12 @@ jobs:
         uses: ErBWs/setup-ohos@v2
         with:
           version: 26.0.0.821
-          cache: true
+          # 发布岗位禁用 SDK 缓存（2026-09-18 v1.1.19 实证）：setup-ohos 的
+          # post 步骤会把数 GB 的 ~/ohos-sdk 打 tar 存 GitHub cache，全量
+          # 检出 + 构建产物把 runner 磁盘占满后 zstd 写爆（No space left on
+          # device），发布本身成功却整 job 判红。发布跑得少，重下 SDK 的
+          # 分钟数远低于偶发红盘的排障成本；CI 岗位磁盘余量大，保持缓存。
+          cache: false
 
       - name: Cache ohpm / hvigor user packages
         uses: actions/cache@v6

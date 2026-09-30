@@ -1,6 +1,9 @@
+// SPDX-License-Identifier: GPL-3.0
+
 import { MusicPlatform } from './MusicPlatform';
 import { SongItem } from './SongItem';
 import { stableKeyOf } from './SongIdentity';
+import { PlaylistSyncSource } from '../sourcesync/SourceSyncModels';
 
 /**
  * Playlist model shared by local playlists, favorites, and remote platform playlists.
@@ -17,6 +20,12 @@ export class Playlist {
   songs: SongItem[];
   createdAt: number;
   updatedAt: number;
+  /**
+   * Sync binding for source-mirrored playlists (网易云歌单/B站收藏夹自动同步).
+   * Null for plain local playlists; snapshots without the field parse back as
+   * null, so the addition needs no storage migration.
+   */
+  syncSource: PlaylistSyncSource | null;
 
   constructor(id: string = '', name: string = '', source: MusicPlatform = MusicPlatform.LOCAL) {
     this.id = id;
@@ -28,6 +37,24 @@ export class Playlist {
     this.songs = [];
     this.createdAt = Date.now();
     this.updatedAt = Date.now();
+    this.syncSource = null;
+  }
+
+  /**
+   * Display cover: the first song's effective cover wins (custom covers
+   * included), falling back to the playlist's own coverUrl; callers render a
+   * placeholder when both are empty. Home cards and the playlist detail header
+   * share this derivation — membership changes refresh updatedAt, and the
+   * pages reload on that signal so the cover follows the first song.
+   */
+  get displayCoverUrl(): string {
+    if (this.songs.length > 0) {
+      const firstCover = this.songs[0].effectiveCoverUrl;
+      if (firstCover.length > 0) {
+        return firstCover;
+      }
+    }
+    return this.coverUrl;
   }
 
   toJson(): string {
@@ -56,6 +83,7 @@ export class Playlist {
     } else {
       playlist.songs = [];
     }
+    playlist.syncSource = PlaylistSyncSource.fromJson(raw['syncSource'] ?? null);
     return playlist;
   }
 }

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 import { promptAction } from '@kit.ArkUI';
 import { NeteaseApi } from '../../network/NeteaseApi';
 import { BiliApi } from '../../network/BiliApi';
@@ -17,12 +19,19 @@ import { Logger } from '../../app/Logger';
 import { Router } from '../Router';
 import { Theme } from '../Theme';
 import { HdsSpikePanel } from './HdsSpikePanel';
+import { HdsNavDestination } from '@kit.UIDesignKit';
+import { subPageTitleBar, SubPageBottomFade, SUB_TITLEBAR_SPACE_VP, SUB_BOTTOM_CLEARANCE_VP } from '../components/HdsSubPage';
 
 @Component
 export struct DebugPage {
   @State result: string = '';
   @State proxyHost: string = '';
   @State proxyPort: string = '';
+  @StorageProp('ui.bottomLiftVp') bottomLift: number = Theme.bottomBarLift();
+  /** 状态栏避让（util/WindowMetrics.ets 发布）；内容根从 y=0 起，让位 = topInset + 56。 */
+  @StorageProp('ui.topInsetVp') topInset: number = 0;
+  /** 供 HdsNavDestination.bindToScrollable 绑定的整页滚动控制器。 */
+  private scroller: Scroller = new Scroller();
 
   aboutToAppear(): void {
     this.proxyHost = SettingsRepository.getString(SettingsRepository.KEY_PROXY_HOST, '');
@@ -215,101 +224,98 @@ export struct DebugPage {
   }
 
   build() {
-    Column({ space: 10 }) {
-      Row({ space: 8 }) {
-        Button('‹')
-          .width(40)
-          .height(40)
-          // '‹' is punctuation to a screen reader; name the action.
-          .accessibilityText('返回')
-          .type(ButtonType.Circle)
-          .backgroundColor(Color.Transparent)
-          .fontColor(Theme.textPrimary(Theme.isDark()))
-          .fontSize(22)
-          .onClick(() => Router.pop())
-        Text('调试')
-          .fontSize(18)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(Theme.textPrimary(Theme.isDark()))
-      }
-      .width('100%')
-      .padding({ left: 12, right: 12, top: 8, bottom: 8 })
+    // 标题栏（返回 + 标题）由 HdsNavDestination 承载，滚动时探针面板穿到
+    // 标题栏下方被 GRADIENT_BLUR 渐变模糊覆盖（同首页外壳）。
+    HdsNavDestination() {
+      Stack() {
+        Scroll(this.scroller) {
+          Column({ space: 6 }) {
+            // S0 摸底（docs/HDS_IMMERSIVE_SPIKE.md）：UIDesignKit 编译与运行探针。
+            HdsSpikePanel()
 
-      Scroll() {
-        Column({ space: 6 }) {
-          // S0 摸底（docs/HDS_IMMERSIVE_SPIKE.md）：UIDesignKit 编译与运行探针。
-          HdsSpikePanel()
+            this.testButton('网易云 API 测试', () => this.testNetease())
+            this.testButton('Bilibili API 测试', () => this.testBili())
+            this.testButton('YouTube Music API 测试', () => this.testYoutube())
+            this.testButton('YTM 取流探针', () => this.probeYtmStream())
+            this.testButton('播放统计', () => this.showStats())
+            this.testButton('清空继续收听', () => this.clearUsage())
+            this.testButton('清空搜索历史', () => this.clearSearchHistory())
+            this.testButton('清空下载任务', () => this.clearDownloads())
+            this.testButton('下载管线探针', () => this.probeDownloads())
+            this.testButton('诊断记录探针', () => this.probeDiagnostics())
+            this.testButton('导出诊断报告', () => this.exportDiagnostics())
+            this.testButton('清空诊断记录', () => this.clearDiagnostics())
+            this.testButton('触发真实 JS 崩溃', () => this.confirmRealCrash())
+            this.testButton('模拟崩溃 → 安全模式', () => this.simulateCrash())
 
-          this.testButton('网易云 API 测试', () => this.testNetease())
-          this.testButton('Bilibili API 测试', () => this.testBili())
-          this.testButton('YouTube Music API 测试', () => this.testYoutube())
-          this.testButton('YTM 取流探针', () => this.probeYtmStream())
-          this.testButton('播放统计', () => this.showStats())
-          this.testButton('清空继续收听', () => this.clearUsage())
-          this.testButton('清空搜索历史', () => this.clearSearchHistory())
-          this.testButton('清空下载任务', () => this.clearDownloads())
-          this.testButton('下载管线探针', () => this.probeDownloads())
-          this.testButton('诊断记录探针', () => this.probeDiagnostics())
-          this.testButton('导出诊断报告', () => this.exportDiagnostics())
-          this.testButton('清空诊断记录', () => this.clearDiagnostics())
-          this.testButton('触发真实 JS 崩溃', () => this.confirmRealCrash())
-          this.testButton('模拟崩溃 → 安全模式', () => this.simulateCrash())
-
-          Text('HTTP 代理（模拟器填宿主机 10.0.2.2:7897；同时用于接口请求与媒体拉流）')
-            .fontSize(12)
-            .fontColor(Theme.textSecondary(Theme.isDark()))
+            Text('HTTP 代理（模拟器填宿主机 10.0.2.2:7897；同时用于接口请求与媒体拉流）')
+              .fontSize(12)
+              .fontColor(Theme.textSecondary(Theme.isDark()))
+              .width('100%')
+            TextInput({ placeholder: '代理主机（如 10.0.2.2）', text: this.proxyHost })
+              .height(40)
+              .fontSize(13)
+              .onChange((value: string) => {
+                this.proxyHost = value;
+              })
+            TextInput({ placeholder: '代理端口（如 7897）', text: this.proxyPort })
+              .height(40)
+              .fontSize(13)
+              .onChange((value: string) => {
+                this.proxyPort = value;
+              })
+            Row({ space: 10 }) {
+              Button('应用代理')
+                .layoutWeight(1)
+                .height(40)
+                .backgroundColor(Theme.primary(Theme.isDark()))
+                .onClick(() => this.applyProxy())
+              Button('清除')
+                .layoutWeight(1)
+                .height(40)
+                .backgroundColor(Theme.surface(Theme.isDark()))
+                .fontColor(Theme.textPrimary(Theme.isDark()))
+                .onClick(() => this.clearProxy())
+            }
             .width('100%')
-          TextInput({ placeholder: '代理主机（如 10.0.2.2）', text: this.proxyHost })
-            .height(40)
-            .fontSize(13)
-            .onChange((value: string) => {
-              this.proxyHost = value;
-            })
-          TextInput({ placeholder: '代理端口（如 7897）', text: this.proxyPort })
-            .height(40)
-            .fontSize(13)
-            .onChange((value: string) => {
-              this.proxyPort = value;
-            })
-          Row({ space: 10 }) {
-            Button('应用代理')
-              .layoutWeight(1)
-              .height(40)
-              .backgroundColor(Theme.primary(Theme.isDark()))
-              .onClick(() => this.applyProxy())
-            Button('清除')
-              .layoutWeight(1)
-              .height(40)
+            .margin({ bottom: 8 })
+
+            Text('USB 独占播放按 M9.1 spike 结论不移植（USB DAC 走系统音频路径，见 docs/USB_M91_SPIKE.md）；YTM 完整播放待 D2 决策')
+              .fontSize(12)
+              .fontColor(Theme.textSecondary(Theme.isDark()))
+              .width('100%')
+              .padding(12)
+
+            Text(this.result)
+              .fontSize(13)
+              .fontColor(Theme.primary(Theme.isDark()))
+              .width('100%')
+              .padding(12)
               .backgroundColor(Theme.surface(Theme.isDark()))
-              .fontColor(Theme.textPrimary(Theme.isDark()))
-              .onClick(() => this.clearProxy())
+              .borderRadius(12)
           }
+          .padding({ left: 16, right: 16, top: this.topInset + SUB_TITLEBAR_SPACE_VP, bottom: this.bottomLift + SUB_BOTTOM_CLEARANCE_VP })
           .width('100%')
-          .margin({ bottom: 8 })
-
-          Text('USB 独占播放按 M9.1 spike 结论不移植（USB DAC 走系统音频路径，见 docs/USB_M91_SPIKE.md）；YTM 完整播放待 D2 决策')
-            .fontSize(12)
-            .fontColor(Theme.textSecondary(Theme.isDark()))
-            .width('100%')
-            .padding(12)
-
-          Text(this.result)
-            .fontSize(13)
-            .fontColor(Theme.primary(Theme.isDark()))
-            .width('100%')
-            .padding(12)
-            .backgroundColor(Theme.surface(Theme.isDark()))
-            .borderRadius(12)
         }
-        .padding({ left: 16, right: 16 })
+        .layoutWeight(1)
+        .scrollBar(BarState.Off)
+        .align(Alignment.Top)
         .width('100%')
+        // 视口延伸进底部手势条区 + 放行内容画出视口上沿滚入标题栏渐变模糊区。
+        .clip(false)
+        .backgroundColor(Theme.background(Theme.isDark()))
+
+        SubPageBottomFade()
       }
-      .layoutWeight(1)
-      .scrollBar(BarState.Off)
       .width('100%')
+      .height('100%')
     }
-    .width('100%')
-    .height('100%')
-    .backgroundColor(Theme.background(Theme.isDark()))
+    .titleBar(subPageTitleBar('调试'))
+    .bindToScrollable([this.scroller])
+    .backgroundColor(Color.Transparent)
+    .ignoreLayoutSafeArea([LayoutSafeAreaType.SYSTEM], [LayoutSafeAreaEdge.TOP, LayoutSafeAreaEdge.BOTTOM])
+    .onWillDisappear(() => {
+      Router.notifyReturned();
+    })
   }
 }

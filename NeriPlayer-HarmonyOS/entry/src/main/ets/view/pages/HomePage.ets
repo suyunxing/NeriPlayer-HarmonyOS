@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 import { SongItem } from '../../model/SongItem';
 import { Playlist } from '../../model/Playlist';
 import { UsageRepository, UsageEntry } from '../../data/UsageRepository';
@@ -15,12 +17,15 @@ import { BAND_LIST_VP, BP_LG, BP_MD } from '../../util/Breakpoint';
 import { SectionHeader, EmptyState, LoadingState, PlaylistCard, ContentBand , FLOAT_TAB_CLEARANCE } from '../components/Ui';
 import { promptAction } from '@kit.ArkUI';
 
-const BRAND_TITLES: string[] = ['NeriPlayer', '欢迎回来', 'NeriPlayer', '继续听歌'];
 /** 本页在 MainShell 的 Tabs 里的下标，用于过滤刷新信号。 */
 const TAB_INDEX: number = 0;
+/** MINI 标题栏标准高度（MainShell 同名常量）：内容顶部让位，滚动时从标题栏背后滚过。 */
+const TITLEBAR_SPACE_VP: number = 56;
 
 @Component
 export struct HomePage {
+  /** 滚动控制器：实例由 MainShell 下发，壳层标题栏 bindToScrollable 绑定当前 Tab 的它。 */
+  scroller: Scroller = new Scroller();
   /**
    * S5: 订阅封面配色。Theme.*() 读 AppStorage 是无跟踪调用（M7.4），换歌后
    * 坐在本页的组件不会重建；有了这个成员并在 build 里经 schemeBg() 直读，
@@ -35,7 +40,6 @@ export struct HomePage {
   @State offline: boolean = false;
   /** 每日推荐 FAB 开播进行中：按钮转圈并禁触，防止重复拉歌单。 */
   @State heroPlayBusy: boolean = false;
-  @State titleIndex: number = 0;
   /** 由 util/WindowMetrics.ets 发布，决定网格列数与推荐区形态。 */
   @StorageProp('ui.breakpoint') breakpoint: string = 'sm';
   /**
@@ -46,11 +50,14 @@ export struct HomePage {
    */
   @StorageProp('np.default_start_tab') activeTab: number = 0;
   @StorageProp('ui.refreshTick') @Watch('onRefreshTick') refreshTick: number = 0;
+  // 手势条避让：Scroll 延伸进底部安全区后，列表尾部的额外让位高度。
+  @StorageProp('ui.bottomLiftVp') bottomLift: number = 0;
 
   private onRefreshTick(): void {
-    if (this.activeTab === TAB_INDEX) {
-      this.reload();
-    }
+    // 变动也可能发生在其它 Tab（资料库进歌单删歌后返回、播放页收藏等），
+    // 隐藏时也要把本地数据刷进来，否则切回首页时封面/曲数停在旧值；只是
+    // 隐藏时不重置 loading、不发网络推荐请求。
+    this.reload(this.activeTab === TAB_INDEX);
   }
 
   /**
@@ -65,16 +72,20 @@ export struct HomePage {
     await this.reload();
   }
 
-  private async reload(): Promise<void> {
-    this.loading = true;
-    this.offline = !(await NetworkStatus.hasNetwork());
+  private async reload(withNetwork: boolean = true): Promise<void> {
+    if (withNetwork) {
+      this.loading = true;
+      this.offline = !(await NetworkStatus.hasNetwork());
+    }
     const usage = await UsageRepository.load();
     this.usage = usage;
     const playlists = await LocalPlaylistRepository.loadAll();
     this.localPlaylists = playlists;
     this.recentSongs = await HistoryRepository.getRecent();
     this.loading = false;
-    this.loadNeteaseRecommend();
+    if (withNetwork) {
+      this.loadNeteaseRecommend();
+    }
   }
 
   /**
@@ -92,11 +103,6 @@ export struct HomePage {
       .catch(() => {
         this.neteaseRecommend = [];
       });
-  }
-
-  private refresh(): void {
-    this.titleIndex = (this.titleIndex + 1) % BRAND_TITLES.length;
-    this.reload();
   }
 
   private openEntry(entry: UsageEntry): void {
@@ -260,30 +266,10 @@ export struct HomePage {
   }
 
   build() {
-    Column() {
-      Row() {
-        Text(BRAND_TITLES[this.titleIndex])
-          .fontSize(32)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(Theme.textPrimary(Theme.isDark()))
-          .layoutWeight(1)
-        Button() {
-          Image($r('app.media.outline_refresh_24'))
-            .width(22)
-            .height(22)
-            .fillColor(Theme.textPrimary(Theme.isDark()))
-        }
-        .width(40)
-        .height(40)
-        .type(ButtonType.Circle)
-        .backgroundColor(Theme.surface(Theme.isDark()))
-        .accessibilityText('刷新推荐')
-        .onClick(() => this.refresh())
-      }
-      .width('100%')
-      .padding({ left: 16, right: 16, top: 10, bottom: 8 })
-
-      Scroll() {
+    // 页内不再自绘标题栏：标题与刷新动作由 MainShell 的 HdsNavigation MINI
+    // 标题栏（GRADIENT_BLUR 渐变模糊）承载，本页只做内容 + 顶部让位，滚动时
+    // 内容从标题栏背后滚过。
+    Scroll(this.scroller) {
         Column() {
           if (this.loading) {
             LoadingState()
@@ -474,16 +460,19 @@ export struct HomePage {
                 columns: { xs: 4, sm: 4, md: 8, lg: 12 },
                 gutter: { x: 12, y: 14 }
               }) {
+                // 键拼 updatedAt：同键的卡片会被 ForEach 复用而拿不到新参数，
+                // 拼上数据层在增删歌/改名时刷新的版本号，封面/曲数必然重建。
                 ForEach(this.localPlaylists, (playlist: Playlist) => {
                   GridCol({ span: 2 }) {
                     PlaylistCard({
                       name: playlist.name,
+                      coverUrl: playlist.displayCoverUrl,
                       trackCount: playlist.songKeys.length,
                       isFavorite: playlist.id === LocalPlaylistRepository.FAVORITES_ID,
                       onOpen: () => Router.push(Router.PLAYLIST_DETAIL, playlist.id)
                     })
                   }
-                }, (playlist: Playlist) => playlist.id)
+                }, (playlist: Playlist) => `${playlist.id}_${playlist.updatedAt}`)
               }
               .width('100%')
               .padding({ left: 2, right: 2 })
@@ -499,15 +488,19 @@ export struct HomePage {
           }
         }
         .width('100%')
-        .padding({ left: 14, right: 14, bottom: 24 + FLOAT_TAB_CLEARANCE })
+        .padding({ top: TITLEBAR_SPACE_VP, left: 14, right: 14, bottom: 24 + FLOAT_TAB_CLEARANCE + this.bottomLift })
       }
-      .layoutWeight(1)
       .scrollBar(BarState.Off)
       .align(Alignment.Top)
       .width('100%')
-    }
-    .width('100%')
-    .height('100%')
-    .backgroundColor(this.schemeBg(Theme.isDark()))
+      .height('100%')
+      // 视口延伸进底部手势条区域：滚动内容真实透到系统指示条后面，配
+      // MainShell 底部渐变遮罩保证可读性（不再垫纯色带）。顶部同向延伸：
+      // 滚过标题栏的内容继续钻到状态栏后被渐变模糊覆盖（沉浸顶栏）；
+      // clip(false) 放行内容画出视口上沿，否则像素在标题栏下缘被裁掉。
+      // expandSafeArea 只扩绘制区不改布局，首屏仍从 TITLEBAR_SPACE_VP 让位。
+      .clip(false)
+      .expandSafeArea([SafeAreaType.SYSTEM, SafeAreaType.CUTOUT], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
+      .backgroundColor(this.schemeBg(Theme.isDark()))
   }
 }

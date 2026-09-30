@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
+
 /**
  * Port of listentogether/control/ListenTogetherEventFactory.kt: every outbound
  * room event is built here and nowhere else, so the wire shape has exactly one
@@ -32,7 +35,11 @@ import {
   ListenTogetherEvent,
   createListenTogetherEvent
 } from '../protocol/ListenTogetherEventModels';
-import { ListenTogetherRoomState } from '../protocol/ListenTogetherRoomModels';
+import {
+  ListenTogetherRoomSettings,
+  ListenTogetherRoomState,
+  cloneListenTogetherRoomSettings
+} from '../protocol/ListenTogetherRoomModels';
 import { ListenTogetherSocketEnvelope } from '../protocol/ListenTogetherSocketEnvelope';
 import { ListenTogetherTrack } from '../protocol/ListenTogetherTrack';
 import {
@@ -218,6 +225,17 @@ export class ListenTogetherEventFactory {
     event.track = track;
     event.requestTrackStableKey = stableKey;
     event.forceRefresh = forceRefresh ? true : null;
+    return event;
+  }
+
+  /**
+   * Controller-only room permission update (backlog §4.1/§4.2, Android
+   * updateRoomSettings): carries the normalized settings triple; the server
+   * answers with a room_state the whole room applies.
+   */
+  buildUpdateSettingsEvent(settings: ListenTogetherRoomSettings): ListenTogetherEvent {
+    const event = this.newEnvelope('UPDATE_SETTINGS');
+    event.roomSettings = cloneListenTogetherRoomSettings(settings);
     return event;
   }
 

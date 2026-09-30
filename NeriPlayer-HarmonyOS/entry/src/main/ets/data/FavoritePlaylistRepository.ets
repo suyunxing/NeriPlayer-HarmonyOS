@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 /** Persists Android-compatible favorite-playlist snapshots for synchronization. */
 
 import { SchemaStore } from './schema/SchemaStore';

@@ -1,5 +1,9 @@
+// SPDX-License-Identifier: GPL-3.0
+// Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
+
 import { Constants } from '../app/Constants';
 import { SongItem } from '../model/SongItem';
+import { MusicPlatform } from '../model/MusicPlatform';
 import { AudioQualityPolicy } from '../player/AudioQualityPolicy';
 import { NetworkStatus } from '../util/NetworkStatus';
 import { HttpClient } from './HttpClient';
@@ -61,7 +65,8 @@ export class YouTubeMusicApi {
 
   /** M6.1 primary path: IOS client direct stream (see network/ytm/). */
   static async resolveStream(videoId: string): Promise<string> {
-    const quality = AudioQualityPolicy.effective(await NetworkStatus.isWifi());
+    const quality = AudioQualityPolicy.effectiveForPlatform(await NetworkStatus.isWifi(),
+      MusicPlatform.YOUTUBE_MUSIC);
     return YtmStreamResolver.resolveStreamUrl(videoId, quality);
   }
 

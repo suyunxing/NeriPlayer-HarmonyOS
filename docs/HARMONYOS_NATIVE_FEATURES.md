@@ -4,6 +4,7 @@
 > 工程基线：HarmonyOS 6.1.1 Release / **API 24**（`build-profile.json5` 的 `compatibleSdkVersion` 与 `targetSdkVersion` 均为 `6.1.1(24)`）
 >
 > **2026年08月26日修订**：本文最初编制时的四项 P1 现状描述已过时，按实际落地情况回填。受影响章节：§1 摘要表（`Navigation` 迁移、分层图标、多语言资源三行）、§6（`Navigation` 迁移已落地，并记录「`NavigationMode.Auto` 分栏被主动放弃」与「M9.3 回归作废」两条与原预期不符的实际结果）、§7.2（tablet/2in1 已回归 + 11 条大屏密度问题已整改）、§8.1（分层图标已落地）、§8.2（多语言部分落地）、§11 决策表、§12 M10.4/M10.5 里程碑。原文内容以「迁移前的现状（保留以备复查）」形式保留，不删除。改造与验证的一手数字见 `UX_COMPLIANCE_AUDIT.md` §10.2/§11.5 与 `RELEASE_CHECKLIST.md` §7.3。
+> **2026年09月17日修订**：工程基线已于 2026-09-07 自 `6.1.1(24)` 全量迁移为 `26.0.0`（API 26，纯 SemVer；`build-profile.json5` 的 `compatibleSdkVersion`/`targetSdkVersion` 均为 `26.0.0`），上文「6.1.1(24)」为成文时点基线，迁移记录见 `hm.md` §7.12。
 
 ## 0. 本文定位
 

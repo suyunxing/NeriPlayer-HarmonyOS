@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 /**
  * Pure color-science primitives for the dynamic cover scheme: sRGB → CIELAB,
  * LCh(uv-free polar Lab) round-trips, CIEDE2000 color difference and WCAG

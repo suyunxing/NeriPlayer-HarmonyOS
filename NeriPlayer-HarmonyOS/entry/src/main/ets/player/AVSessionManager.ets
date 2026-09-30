@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
+
 import { avSession } from '@kit.AVSessionKit';
 import { common, wantAgent, Want, WantAgent } from '@kit.AbilityKit';
 import { Logger } from '../app/Logger';

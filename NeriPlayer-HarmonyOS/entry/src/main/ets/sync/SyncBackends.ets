@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
+
 /** Concrete coordinator adapters for the two supported backup transports. */
 
 import {
@@ -91,8 +94,11 @@ export class WebDavSyncBackend implements SyncBackend {
     } else {
       version.createOnly = true;
     }
-    const result = await this.client.uploadBackup(this.remoteUrl, content,
-      'application/json; charset=utf-8', version);
+    // Binary (data-saver) payloads upload as octet-stream, JSON stays textual
+    // — matches Android WebDavSyncManager's media type selection.
+    const isGzip = content.length >= 2 && content[0] === 0x1F && content[1] === 0x8B;
+    const mediaType = isGzip ? 'application/octet-stream' : 'application/json; charset=utf-8';
+    const result = await this.client.uploadBackup(this.remoteUrl, content, mediaType, version);
     return new CoordinatorRemoteVersion(
       encodeWebDavVersion(result.fingerprint, result.version), result.fingerprint);
   }
