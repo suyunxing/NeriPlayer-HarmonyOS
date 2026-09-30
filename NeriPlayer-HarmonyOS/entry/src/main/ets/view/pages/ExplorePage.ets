@@ -14,6 +14,7 @@ import { Theme } from '../Theme';
 import { AccentScheme } from '../theme/AccentScheme';
 import { BAND_LIST_VP, BP_LG, BP_MD } from '../../util/Breakpoint';
 import { SongRow } from '../components/SongRow';
+import { SongListDataSource } from '../components/SongListDataSource';
 import { EmptyState, LoadingState, FLOAT_TAB_CLEARANCE } from '../components/Ui';
 
 /** 本页在 MainShell 的 Tabs 里的下标，用于过滤刷新信号。 */
@@ -34,7 +35,7 @@ export struct ExplorePage {
   @StorageProp('player.coverScheme') coverScheme: AccentScheme = AccentScheme.neutralFallback();
   @State query: string = '';
   @State platform: number = 0;
-  @State results: SongItem[] = [];
+  @Watch('onResultsChanged') @State results: SongItem[] = [];
   @State loading: boolean = false;
   @State error: string = '';
   @State history: string[] = [];
@@ -47,6 +48,16 @@ export struct ExplorePage {
 
   async aboutToAppear(): Promise<void> {
     await this.reload();
+  }
+
+  /**
+   * 搜索结果列表走 LazyForEach 按需建行。@State results 整体重赋值时由
+   * @Watch 同步进数据源。
+   */
+  private resultsDs: SongListDataSource = new SongListDataSource();
+
+  onResultsChanged(): void {
+    this.resultsDs.reset(this.results);
   }
 
   private async reload(): Promise<void> {
@@ -277,7 +288,7 @@ export struct ExplorePage {
         EmptyState({ icon: '!', title: this.error })
       } else if (this.searched && this.results.length > 0) {
         List({ scroller: this.scroller }) {
-          ForEach(this.results, (item: SongItem, index: number) => {
+          LazyForEach(this.resultsDs, (item: SongItem, index: number) => {
             ListItem() {
               SongRow({
                 songJson: item.toJson(),
@@ -285,10 +296,14 @@ export struct ExplorePage {
                 onPlay: () => this.play(index)
               })
             }
-          }, (item: SongItem) => `${item.platform}_${item.audioId}_${item.id}`)
+          // key 含 index：新搜索后行内缓存的 index（onPlay 定位）会过期，
+          // 靠 key 变化强制重建受影响行。
+          }, (item: SongItem, index: number) => `${index}_${item.platform}_${item.audioId}_${item.id}`)
         }
         .layoutWeight(1)
         .scrollBar(BarState.Off)
+        // LazyForEach 视口外预建行数（与其他歌曲列表页一致）。
+        .cachedCount(3, true)
         // 顶部沉浸：结果列表向上穿透，滚过固定搜索区、标题栏后钻到状态栏
         // 被渐变模糊覆盖（与首页统一）；clip(false) 放行内容画出视口上沿。
         .clip(false)

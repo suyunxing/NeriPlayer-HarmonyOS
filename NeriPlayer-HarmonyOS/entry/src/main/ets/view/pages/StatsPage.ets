@@ -24,6 +24,7 @@ import { Router } from '../Router';
 import { iconForLegacy } from '../../util/IconCatalog';
 import { HdsNavDestination } from '@kit.UIDesignKit';
 import { subPageTitleBar, SubPageBottomFade, SUB_TITLEBAR_SPACE_VP, SUB_BOTTOM_CLEARANCE_VP } from '../components/HdsSubPage';
+import { coverThumbnailUrl } from '../components/Ui';
 
 /**
  * 播放统计（backlog §5.1，对齐 Android PlaybackStatsScreen）：日/周/月/年/全部
@@ -239,7 +240,8 @@ export struct StatsPage {
                       .fontWeight(FontWeight.Bold)
                       .fontColor(Theme.textSecondary(Theme.isDark()))
                       .width(20)
-                    Image(track.coverUrl.length > 0 ? track.coverUrl : $r('app.media.ic_music_note_24'))
+                    Image(track.coverUrl.length > 0 ? coverThumbnailUrl(track.coverUrl, 160) : $r('app.media.ic_music_note_24'))
+                      .autoResize(true)
                       .width(38)
                       .height(38)
                       .borderRadius(8)
