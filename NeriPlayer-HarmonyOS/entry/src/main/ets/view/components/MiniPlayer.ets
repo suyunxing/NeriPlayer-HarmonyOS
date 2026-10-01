@@ -7,7 +7,7 @@ import { PlaybackStatus } from '../../player/PlaybackConstants';
 import { PlayerManager } from '../../player/PlayerManager';
 import { Router } from '../Router';
 import { Theme } from '../Theme';
-import { coverThumbnailUrl } from './Ui';
+import { coverThumbnailUrl } from '../../util/CoverUrls';
 import { AccentScheme, SchemeMode } from '../theme/AccentScheme';
 import { HdsLight } from '../theme/HdsLight';
 

@@ -24,7 +24,7 @@ import { Router } from '../Router';
 import { iconForLegacy } from '../../util/IconCatalog';
 import { HdsNavDestination } from '@kit.UIDesignKit';
 import { subPageTitleBar, SubPageBottomFade, SUB_TITLEBAR_SPACE_VP, SUB_BOTTOM_CLEARANCE_VP } from '../components/HdsSubPage';
-import { coverThumbnailUrl } from '../components/Ui';
+import { coverThumbnailUrl } from '../../util/CoverUrls';
 
 /**
  * 播放统计（backlog §5.1，对齐 Android PlaybackStatsScreen）：日/周/月/年/全部

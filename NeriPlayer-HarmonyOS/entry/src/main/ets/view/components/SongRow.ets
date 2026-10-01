@@ -6,7 +6,8 @@ import { DownloadEngine } from '../../download/DownloadEngine';
 import { Theme } from '../Theme';
 import { AccentScheme } from '../theme/AccentScheme';
 
-import { formatDuration, coverThumbnailUrl } from './Ui';
+import { formatDuration } from './Ui';
+import { CoverImage } from './CoverImage';
 
 @Component
 export struct SongRow {
@@ -79,16 +80,13 @@ export struct SongRow {
         // Pinning the box and aligning to a corner is font-size independent.
         Stack({ alignContent: Alignment.TopEnd }) {
           if (this.song().effectiveCoverUrl.length > 0) {
-            // autoResize(true)：52vp 缩略图按显示尺寸降采样解码。ArkUI Image
-            // 默认 false 按原图解码（网易云原图 1000px+ 单张数十 MB），是列表
-            // 滑动掉帧主因之一；?param 由 coverThumbnailUrl 再砍下载体积。
-            Image(coverThumbnailUrl(this.song().effectiveCoverUrl, 200))
-              .autoResize(true)
-              .width(52)
-              .height(52)
-              .borderRadius(8)
-              .objectFit(ImageFit.Cover)
-              .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+            // 走进程内封面 LRU（CoverCache）：行被 LazyForEach 销毁重建时
+            // 直接命中已解码 PixelMap，不再重新下载/解码导致滚动反复卡顿。
+            CoverImage({
+              url: this.song().effectiveCoverUrl,
+              sideVp: 52,
+              radiusVp: 8
+            })
           } else {
             Image($r('app.media.ic_music_note_24'))
               .width(22)
