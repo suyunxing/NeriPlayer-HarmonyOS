@@ -2,7 +2,7 @@
 
 import { LengthMetrics } from '@kit.ArkUI';
 import { Theme } from '../Theme';
-import { coverThumbnailUrl } from './Ui';
+import { coverThumbnailUrl } from '../../util/CoverUrls';
 
 /**
  * S5: 三张歌单页（本地 / 网易云 / B 站收藏夹）共用的参考图头部：

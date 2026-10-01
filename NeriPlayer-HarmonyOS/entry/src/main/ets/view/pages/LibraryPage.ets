@@ -26,7 +26,8 @@ import { Theme } from '../Theme';
 import { AccentScheme } from '../theme/AccentScheme';
 import { BAND_LIST_VP } from '../../util/Breakpoint';
 import { iconForLegacy } from '../../util/IconCatalog';
-import { SettingRow, EmptyState, SongCountChip, ContentBand, FLOAT_TAB_CLEARANCE, coverThumbnailUrl } from '../components/Ui';
+import { SettingRow, EmptyState, SongCountChip, ContentBand, FLOAT_TAB_CLEARANCE } from '../components/Ui';
+import { coverThumbnailUrl } from '../../util/CoverUrls';
 import { SETTING_ACCOUNTS } from './SettingsPage';
 
 /** 本页在 MainShell 的 Tabs 里的下标，用于过滤刷新信号。 */
