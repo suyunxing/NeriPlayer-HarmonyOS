@@ -155,9 +155,14 @@ export struct MiniPlayer {
     return 40;
   }
 
-  /** row 形态封面左缩进：封面≈药丸高时同心即贴边，公式自然收敛为 0。 */
+  /**
+   * row 形态封面左缩进（同心）：像素标定 2026-10-02（九轮截图，ffmpeg 解码
+   * + 亮度/饱和分类测量，hm.md §7.20 修订十）——展开药丸高≈191px≈55-56vp、
+   * 封面 168px≈48vp，同心间隙 = (H-48)/2 ≈ 3.3vp；此前 inset 0（贴边）左缘
+   * 0 间隙 vs 上缘 15px 间隙，即用户所见「歪」。取 3.5。
+   */
   private rowCoverInset(): number {
-    return Math.max(0, (this.rowContentHeight() - this.coverSize()) / 2);
+    return 3.5;
   }
 
   /**
@@ -277,10 +282,11 @@ export struct MiniPlayer {
               .borderRadius(this.coverRadius())
           }
         }
-        // row 形态：封面顶边贴药丸上缘（2026-10-02 用户指定恢复的「大圆嵌弧」
-        // 观感——底缘没入药丸下弧被自然裁切）；40 行内垂直居中会使其顶边
-        // 探出药丸上缘 4vp，故 +4 归位。其余形态随 Row 默认垂直居中。
-        .offset({ y: this.row ? 4 : 0 })
+        // row 形态：封面圆心对准药丸左端半圆圆心（像素标定 2026-10-02：内容
+        // 原点在药丸顶下方 ~4.3vp，同心圆心距内容顶 ~23vp，40 行内居中圆心
+        // 在 20vp，故 +3；底缘没入药丸下弧被自然裁切）。其余形态随 Row 默认
+        // 垂直居中。
+        .offset({ y: this.row ? 3 : 0 })
 
         Row() {
           Column({ space: 2 }) {
