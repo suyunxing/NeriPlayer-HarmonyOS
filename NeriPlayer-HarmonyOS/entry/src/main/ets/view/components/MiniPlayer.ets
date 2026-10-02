@@ -141,12 +141,11 @@ export struct MiniPlayer {
   }
 
   /**
-   * row 形态内容行高（40 = 展开态药丸内容区高度）：七轮真机截图交叉定位的
-   * 模型（hm.md §7.20 修订七）——展开态 builder 盒零高度、内容顶部对齐、
-   * 超出 ~40vp 的部分被药丸底部裁切（修订五/六的 48/56 内容下半部即被此线
-   * 吃掉：作者行消失、进度环残弧、文字贴顶）。builder 无法实测该值（盒为
-   * 零高度，H= 读数恒 0），取堆叠态药丸同高 40（两者同族胶囊，堆叠态 40
-   * 内容实测完美贴合）。文字块在行内垂直居中，中线与药丸中线齐平。
+   * row 形态内容行高（40 = 展开态药丸内容区高度，2026-10-02 真机红框调试
+   * 定案，hm.md §7.20 修订七/八）：展开态 builder 盒零高度、内容顶部对齐、
+   * 超出内容区的部分被药丸底部裁切。builder 无法实测该值（盒零高度），
+   * 取堆叠态药丸同高 40（真机验证：40 内容完整落于药丸内，两行文字/进度
+   * 环/同心封面全部恢复）。文字块在行内垂直居中，中线与药丸中线齐平。
    */
   private rowContentHeight(): number {
     return 40;
@@ -403,9 +402,6 @@ export struct MiniPlayer {
       .width('100%')
       .height(this.row ? this.rowContentHeight() : (this.compact ? 40 : 60))
       .padding({ left: this.row ? this.rowCoverInset() : (this.compact ? 8 : 12), right: (this.compact || this.row) ? 4 : 8 })
-      // 临时调试边框（真机定版后删除，hm.md §7.20 修订七）：可视化内容盒
-      // 边界与药丸裁切线的关系，配合 SlotMiniBar 的 H= 读数一次定稿。
-      .border(this.row ? { width: 1, color: '#80FF3B30' } : { width: 0, color: 'transparent' })
       .onClick(() => {
         // 播放页是壳层全屏模态：打开/收起的动画状态由 MainShell 的
         // motionProgress 统一驱动，这里只翻转开关即可。
