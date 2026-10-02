@@ -130,9 +130,9 @@ export struct MiniPlayer {
     return '#45' + this.scheme().primary.substring(1);
   }
 
-  /** 封面边长：row 48（圆，≈折叠药丸高 85%）/ compact 32（圆）/ 完整 44（圆角方形）。 */
+  /** 封面边长：row 34（圆，40 内容区内最大同心圆）/ compact 32（圆）/ 完整 44（圆角方形）。 */
   private coverSize(): number {
-    return this.row ? 48 : (this.compact ? 32 : 44);
+    return this.row ? 34 : (this.compact ? 32 : 44);
   }
 
   /** 封面圆角：圆形形态（compact/row）取半边长，完整形态保留 8 圆角方形。 */
@@ -141,17 +141,18 @@ export struct MiniPlayer {
   }
 
   /**
-   * row 形态内容行高（56 = HDS 悬浮栏标准高度，官方示例 miniBar 内容按此
-   * 规格自然撑高）：弃实测链路——槽位不约束 builder 高度，onAreaChange 量
-   * 到的是内容自身高度（2026-10-02 真机佐证：封面左缩进算出≈0 = 量到了
-   * 48 的内容高，修订四/五因此无效，见 hm.md §7.20 修订六）。文字块在行
-   * 内垂直居中，歌名与作者名之间的中线与药丸中线齐平（用户要求）。
+   * row 形态内容行高（40 = 展开态药丸内容区高度）：七轮真机截图交叉定位的
+   * 模型（hm.md §7.20 修订七）——展开态 builder 盒零高度、内容顶部对齐、
+   * 超出 ~40vp 的部分被药丸底部裁切（修订五/六的 48/56 内容下半部即被此线
+   * 吃掉：作者行消失、进度环残弧、文字贴顶）。builder 无法实测该值（盒为
+   * 零高度，H= 读数恒 0），取堆叠态药丸同高 40（两者同族胶囊，堆叠态 40
+   * 内容实测完美贴合）。文字块在行内垂直居中，中线与药丸中线齐平。
    */
   private rowContentHeight(): number {
-    return 56;
+    return 40;
   }
 
-  /** row 形态封面左缩进：与药丸左端圆弧同心 = (行高-封面)/2 = 4。 */
+  /** row 形态封面左缩进：与药丸左端圆弧同心 = (40-34)/2 = 3。 */
   private rowCoverInset(): number {
     return Math.max(0, (this.rowContentHeight() - this.coverSize()) / 2);
   }
@@ -267,7 +268,7 @@ export struct MiniPlayer {
               .margin(this.compact
                 ? { left: 8, right: 8, top: 8, bottom: 8 }
                 : (this.row
-                  ? { left: 13, right: 13, top: 13, bottom: 13 }
+                  ? { left: 6, right: 6, top: 6, bottom: 6 }
                   : { left: 11, right: 11, top: 11, bottom: 11 }))
               .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
               .borderRadius(this.coverRadius())
@@ -281,28 +282,40 @@ export struct MiniPlayer {
             // 缓冲，渐变层再用 DST_IN 把文字 alpha 乘上渐变 alpha——渐变不透明处
             // 保留文字，右端透明处文字平滑淡出（Text 无原生渐隐截断，fadeout 仅
             // 跑马灯适用）。短标题不进入渐变区，不受影响。
-            Stack() {
+            if (this.row) {
+              // row 形态弃渐隐蒙版：展开行药丸更窄，80% 处开始的渐隐让标题
+              // 可读段过短（三轮反馈「标题截取太短」），改普通省略号。
               Text(this.song().displayName)
                 .fontSize(14)
                 .fontWeight(FontWeight.Medium)
                 .fontColor(Theme.textPrimary(Theme.isDark()))
                 .maxLines(1)
-                .textOverflow({ overflow: TextOverflow.Clip })
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
                 .width('100%')
-              Column()
-                .width('100%')
-                .height('100%')
-                .linearGradient({
-                  direction: GradientDirection.Right,
-                  colors: [[0xFF000000, 0], [0xFF000000, 0.8], [0x00000000, 1]]
-                })
-                // DST_IN 只取渐变的 alpha 做蒙版，颜色通道被丢弃；遮罩层不得拦截点击。
-                .blendMode(BlendMode.DST_IN)
-                .hitTestBehavior(HitTestMode.None)
+            } else {
+              Stack() {
+                Text(this.song().displayName)
+                  .fontSize(14)
+                  .fontWeight(FontWeight.Medium)
+                  .fontColor(Theme.textPrimary(Theme.isDark()))
+                  .maxLines(1)
+                  .textOverflow({ overflow: TextOverflow.Clip })
+                  .width('100%')
+                Column()
+                  .width('100%')
+                  .height('100%')
+                  .linearGradient({
+                    direction: GradientDirection.Right,
+                    colors: [[0xFF000000, 0], [0xFF000000, 0.8], [0x00000000, 1]]
+                  })
+                  // DST_IN 只取渐变的 alpha 做蒙版，颜色通道被丢弃；遮罩层不得拦截点击。
+                  .blendMode(BlendMode.DST_IN)
+                  .hitTestBehavior(HitTestMode.None)
+              }
+              .width('100%')
+              .clip(true)
+              .blendMode(BlendMode.SRC_OVER, BlendApplyType.OFFSCREEN)
             }
-            .width('100%')
-            .clip(true)
-            .blendMode(BlendMode.SRC_OVER, BlendApplyType.OFFSCREEN)
 
             // np.mini_show_lyric 开启且正在播放时，这一行优先显示当前歌词行。
             // embedded（壳层 dock 态的两个副本）一律不放作者名：用户决策
@@ -335,8 +348,8 @@ export struct MiniPlayer {
                 total: this.durationMs > 0 ? this.durationMs : 1,
                 type: ProgressType.Ring
               })
-                .width(this.row ? 34 : 30)
-                .height(this.row ? 34 : 30)
+                .width(30)
+                .height(30)
                 .style({ strokeWidth: 2 })
                 .color(this.scheme().primary)
                 .backgroundColor(this.ringTrackColor())
@@ -348,7 +361,7 @@ export struct MiniPlayer {
               SymbolGlyph(this.status === PlaybackStatus.PLAYING
                 ? $r('sys.symbol.pause_fill')
                 : $r('sys.symbol.play_fill'))
-                .fontSize(this.compact ? 15 : (this.row ? 20 : 22))
+                .fontSize(this.compact ? 15 : (this.row ? 16 : 22))
                 .fontColor([this.compact || this.row ? this.scheme().primary : '#FFFFFF'])
                 .symbolEffect(this.replaceEffect, this.symbolTrigger)
             }
@@ -390,6 +403,9 @@ export struct MiniPlayer {
       .width('100%')
       .height(this.row ? this.rowContentHeight() : (this.compact ? 40 : 60))
       .padding({ left: this.row ? this.rowCoverInset() : (this.compact ? 8 : 12), right: (this.compact || this.row) ? 4 : 8 })
+      // 临时调试边框（真机定版后删除，hm.md §7.20 修订七）：可视化内容盒
+      // 边界与药丸裁切线的关系，配合 SlotMiniBar 的 H= 读数一次定稿。
+      .border(this.row ? { width: 1, color: '#80FF3B30' } : { width: 0, color: 'transparent' })
       .onClick(() => {
         // 播放页是壳层全屏模态：打开/收起的动画状态由 MainShell 的
         // motionProgress 统一驱动，这里只翻转开关即可。
