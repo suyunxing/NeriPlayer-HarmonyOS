@@ -3,7 +3,6 @@
 // ReplaceSymbolEffect/EffectScope 是 symbolglyph.d.ts 的全局 ambient 类
 // （与 VisualEffect 同类），不从 kit 导入。
 import { SongItem } from '../../model/SongItem';
-import { platformName } from '../../model/MusicPlatform';
 import { PlaybackStatus } from '../../player/PlaybackConstants';
 import { PlayerManager } from '../../player/PlayerManager';
 import { Router } from '../Router';
@@ -30,9 +29,11 @@ export struct MiniPlayer {
   @Prop row: boolean = false;
   /**
    * row 形态下槽位壳的实际高度（SlotMiniBar 经 onAreaChange 实测下发）：
-   * 用于封面与药丸左端圆弧同心——左缩进 = (壳高-封面)/2，封面圆心落在药丸
-   * 左端半圆的圆心上，封面左半边每一点与药丸边缘等距（2026-10-02 用户
-   * 要求）。0 = 尚未测量，按 56vp 标准壳取值。
+   * (1) 封面与药丸左端圆弧同心——左缩进 = (壳高-封面)/2，封面圆心落在药丸
+   * 左端半圆的圆心上，封面左半边每一点与药丸边缘等距；(2) 内容行直接填满
+   * 壳高、文字块在壳内垂直居中（歌名与作者名之间的中线与药丸中线齐平，
+   * 2026-10-02 用户要求）——此前固定 48vp 内容 + 外层居中的两段式在壳高
+   * 与内容高不一致时把作者行排出可视范围。0 = 尚未测量，按 56vp 标准壳。
    */
   @Prop rowShellHeight: number = 0;
   /**
@@ -154,6 +155,11 @@ export struct MiniPlayer {
     return Math.max(0, (shell - this.coverSize()) / 2);
   }
 
+  /** row 形态内容行高度：填满实测壳高（文字块中线才能与药丸中线齐平）；未测量按 56。 */
+  private rowContentHeight(): number {
+    return this.rowShellHeight > 0 ? this.rowShellHeight : 56;
+  }
+
   /**
    * 官方槽位形态（非 embedded）且设备支持系统材质：不自绘背景，透出悬浮
    * Tab 栏的沉浸光感材质（MainShell 的 barFloatingStyle.systemMaterialEffect
@@ -195,7 +201,7 @@ export struct MiniPlayer {
     Stack() {
       Column()
         .width('100%')
-        .height(this.row ? 48 : (this.compact ? 40 : 62))
+        .height(this.row ? this.rowContentHeight() : (this.compact ? 40 : 62))
         .backgroundColor(this.barBackground())
         .backgroundBlurStyle(this.barBlurStyle())
         // ArkUI 通用沉浸材质（embedded 独立承载档；设备不支持传 undefined
@@ -315,11 +321,7 @@ export struct MiniPlayer {
                 .textOverflow({ overflow: TextOverflow.Ellipsis })
                 .width('100%')
             } else if (!this.embedded) {
-              // 作者为空（如 B 站音频常无作者字段）时回退平台名，第二行恒在
-              // ——row/紧凑两行布局依赖它（2026-10-02 真机反馈：作者行整体消失）。
-              Text(this.song().displayArtist.length > 0
-                ? this.song().displayArtist
-                : platformName(this.song().platform))
+              Text(this.song().displayArtist)
                 .fontSize(11)
                 .fontColor(Theme.textSecondary(Theme.isDark()))
                 .maxLines(1)
@@ -390,7 +392,7 @@ export struct MiniPlayer {
         .layoutWeight(1)
       }
       .width('100%')
-      .height(this.row ? 48 : (this.compact ? 40 : 60))
+      .height(this.row ? this.rowContentHeight() : (this.compact ? 40 : 60))
       .padding({ left: this.row ? this.rowCoverInset() : (this.compact ? 8 : 12), right: (this.compact || this.row) ? 4 : 8 })
       .onClick(() => {
         // 播放页是壳层全屏模态：打开/收起的动画状态由 MainShell 的

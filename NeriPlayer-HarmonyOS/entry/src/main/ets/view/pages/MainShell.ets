@@ -123,8 +123,9 @@ struct SlotMiniBar {
 
   build() {
     if (this.currentSongJson.length > 0) {
-      // Stack 垂直居中包裹：折叠行壳（约 56vp）高于内容时居中呈现，堆叠态
-      // 壳与内容同高时无感。
+      // Stack 包裹并下发实测壳高：row 形态内容行填满壳高（文字块中线与
+      // 药丸中线齐平，见 MiniPlayer.rowContentHeight），居中退化为兜底；
+      // 堆叠态壳与内容同高，无感。
       Stack({ alignContent: Alignment.Center }) {
         MiniPlayer({ compact: !this.expanded, row: this.expanded, rowShellHeight: this.shellHeight })
           .opacity(this.hidden ? 0 : 1)
