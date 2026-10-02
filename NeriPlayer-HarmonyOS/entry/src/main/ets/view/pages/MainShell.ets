@@ -111,19 +111,22 @@ struct SlotMiniBar {
   /** MainShell.publishSlotMiniHidden 发布的最终显隐门（= MainShell.slotMiniHidden()）。 */
   @StorageLink('ui.slotMiniHidden') hidden: boolean = false;
   @StorageLink('player.currentSong') currentSongJson: string = '';
-  /**
-   * MainShell.onBarStyleChange 发布：迷你条展开（页签栏折叠、两行并一行）时
-   * 槽位药丸变大，内容随之切到非紧凑 MiniPlayer。槽位闭包不响应 MainShell
-   * 状态（见 miniBarBuilder 注释），只能经 AppStorage 订阅。
-   */
-  @StorageLink('ui.miniBarExpanded') expanded: boolean = false;
 
   build() {
     if (this.currentSongJson.length > 0) {
-      MiniPlayer({ compact: !this.expanded })
-        .opacity(this.hidden ? 0 : 1)
-        .accessibilityLevel(this.hidden ? 'no-hide-descendants' : 'auto')
-        .hitTestBehavior(this.hidden ? HitTestMode.None : HitTestMode.Default)
+      // 两种形态统一紧凑内容（2026-10-02 用户决策）：滚动展开行同样要圆形
+      // 封面 + 播放键外圈进度环，与堆叠态药丸同观感；上版切非紧凑内容的
+      // 问题——62vp 内容在展开行壳内上下不居中、封面变圆角方形、播放键
+      // 无进度环。Stack 垂直居中包裹：展开行壳高于 40vp 内容时居中呈现，
+      // 堆叠态壳与内容同高时无感。
+      Stack({ alignContent: Alignment.Center }) {
+        MiniPlayer({ compact: true })
+          .opacity(this.hidden ? 0 : 1)
+          .accessibilityLevel(this.hidden ? 'no-hide-descendants' : 'auto')
+          .hitTestBehavior(this.hidden ? HitTestMode.None : HitTestMode.Default)
+      }
+      .width('100%')
+      .height('100%')
     }
   }
 }
@@ -585,9 +588,8 @@ export struct MainShell {
 
   aboutToAppear(): void {
     Router.attach(this.pageStack, this.getUIContext());
-    // 槽位迷你条显隐门与形态键初值：保证 SlotMiniBar 首帧挂载前键已就位。
+    // 槽位迷你条显隐门初值：保证 SlotMiniBar 首帧挂载前键已就位。
     this.publishSlotMiniHidden();
-    AppStorage.setOrCreate('ui.miniBarExpanded', false);
     // 注册要放在启动页分支的 return 之前，任何默认页配置下都得收到完成回调。
     this.downloadListener.attach(this);
     DownloadEngine.addListener(this.downloadListener);
@@ -875,10 +877,10 @@ export struct MainShell {
                 miniBarStyle: HdsBarStyle.COLLAPSE,
                 onBarStyleChange: (miniBarStyle: HdsBarStyle): void => {
                   // 形态事实源：覆盖系统点击切换（USER_CLICK）与应用滚动驱动
-                  // （APP_TRIGGER）两条路径；发布给槽内 SlotMiniBar 切换紧凑/
-                  // 非紧凑内容（槽位闭包不响应本组件状态，见 miniBarBuilder 注释）。
+                  // （APP_TRIGGER）两条路径。只更新本组件逻辑用字段（pillRect
+                  // 展开态分支 / 切 Tab 收回判定）；槽位内容固定紧凑形态
+                  // （见 SlotMiniBar），无需再经 AppStorage 广播形态。
                   this.miniExpanded = miniBarStyle === HdsBarStyle.EXPAND;
-                  AppStorage.setOrCreate('ui.miniBarExpanded', this.miniExpanded);
                 }
               },
               systemMaterialEffect: this.systemMaterialEffect()

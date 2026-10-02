@@ -742,6 +742,7 @@ $hdc = 'D:\HarmonyOS\Tools\command-line-tools\sdk\default\openharmony\toolchains
   - 衔接：切 Tab 目标页在顶部则收回展开态；切歌清空收回（`collapseMiniBarIfSongEmpty`）；一镜到底展开起点 `pillRect()` 增展开态分支（底部整行近似值：行高 56/钮宽 64，飞行起点偏差不敏感，真机可按 §7.16 同法精标）；四 Tab 页 `onBarScroll` 上报接线同一版保留。
 - 验证（服务器）：assembleHap **BUILD SUCCESSFUL 0 error**；codelinter 改动文件 **0 error**。**设备侧未验证**（核心风险点）：VERTICAL 布局下 EXPAND 的真实形态是否为「两行并一行+页签小钮」（当前假设来自 README+视频对照）；展开态槽位药丸实际高度与非紧凑 MiniPlayer(62vp) 的匹配；USER_CLICK 系统点击切换与迷你条内容自身点击（开播放页/播放键）是否会同时触发；96/48vp 阈值手感。若真机 EXPAND 形态与预期不符，备选：HORIZONTAL 布局（静止态变单行小圆钮，形变同款）或恢复二版自绘。
 - **修订一（2026-10-02 真机首测反馈视频，形变已验证 + 材质缺陷修复）**：真机确认 VERTICAL+EXPAND 形态正确——两行并一行、页签栏折叠为当前项小钮（其玻璃材质正常）、回顶恢复堆叠，核心假设全部成立。缺陷：**展开行迷你条呈深色平板、无沉浸光感**——`MiniPlayer.followsBarMaterial()`（背景透明透出栏身系统材质的档位）原带 `this.compact` 条件，展开态渲染的非紧凑形态走了自绘玻璃分支（surfaceGlass+卡片边距+阴影），整层盖住槽位壳的沉浸材质。修复（`view/components/MiniPlayer.ets`）：`followsBarMaterial()` 去掉 compact 条件（槽位形态两种紧凑度统一跟随栏材质），且跟随栏材质时零边距、无卡片阴影（几何由栏壳给定）。改动面安全：非 embedded 非紧凑形态全工程仅槽位展开态一处使用（dock 层两副本均 embedded）。不支持材质的设备（模拟器）回落行为不变。
+- **修订二（2026-10-02 二轮真机反馈截图，光感已生效后的内容形态调整）**：展开行迷你条内容弃用上版的非紧凑形态切换，**两种形态统一紧凑样式**（用户决策：圆形封面 + 播放键外圈进度环，与堆叠态药丸同观感）——非紧凑内容的三处观感问题：62vp 内容在展开行壳内上下不居中、封面变圆角方形、播放键无进度环。`SlotMiniBar` 改为 Stack 垂直居中包裹（展开行壳高于 40vp 内容时居中，堆叠态同高无感）；`'ui.miniBarExpanded'` AppStorage 广播链删除（形态只在 MainShell 逻辑内消费：pillRect 展开态分支/切 Tab 收回判定）。
 
 每次 SDK 或上游 Android 更新，都更新本文件的核验日期、版本矩阵、源码状态和测试结果。
 
