@@ -20,6 +20,14 @@ export struct MiniPlayer {
    */
   @Prop compact: boolean = false;
   /**
+   * HdsTabs 槽位滚动折叠行形态（miniBar EXPAND，两行并一行）：大圆封面
+   * （48vp，直径≈折叠药丸高的 85%，随药丸弧度）+ 标题/作者两行 + 进度环
+   * 播放键（2026-10-02 用户参考图定版）。宽度比堆叠态窄（左端让位折叠
+   * 页签钮）：非紧凑形态 62vp 装不下且封面非圆形，紧凑形态 32vp 封面过小，
+   * 故独立成档。
+   */
+  @Prop row: boolean = false;
+  /**
    * 脱离 HdsTabs 槽位的独立承载形态（壳层 dock 态覆盖层使用）：非紧凑形态
    * 去掉自带的悬浮卡片外边距，几何完全由使用方给定。背景分两档：设备支持
    * ArkUI 沉浸材质（.systemMaterial，API 26）时挂系统玻璃质感（与悬浮 Tab
@@ -122,6 +130,16 @@ export struct MiniPlayer {
     return '#45' + this.scheme().primary.substring(1);
   }
 
+  /** 封面边长：row 48（圆，≈折叠药丸高 85%）/ compact 32（圆）/ 完整 44（圆角方形）。 */
+  private coverSize(): number {
+    return this.row ? 48 : (this.compact ? 32 : 44);
+  }
+
+  /** 封面圆角：圆形形态（compact/row）取半边长，完整形态保留 8 圆角方形。 */
+  private coverRadius(): number {
+    return this.compact || this.row ? this.coverSize() / 2 : 8;
+  }
+
   /**
    * 官方槽位形态（非 embedded）且设备支持系统材质：不自绘背景，透出悬浮
    * Tab 栏的沉浸光感材质（MainShell 的 barFloatingStyle.systemMaterialEffect
@@ -163,7 +181,7 @@ export struct MiniPlayer {
     Stack() {
       Column()
         .width('100%')
-        .height(this.compact ? 40 : 62)
+        .height(this.row ? 48 : (this.compact ? 40 : 62))
         .backgroundColor(this.barBackground())
         .backgroundBlurStyle(this.barBlurStyle())
         // ArkUI 通用沉浸材质（embedded 独立承载档；设备不支持传 undefined
@@ -174,9 +192,9 @@ export struct MiniPlayer {
       this.playerContent()
     }
     .width('100%')
-    // 槽位形态（含展开态）几何完全由悬浮栏壳给定：跟随栏材质时零边距，
-    // 卡片边距只属于独立悬浮的自绘玻璃档。
-    .margin(this.compact || this.embedded || this.followsBarMaterial()
+    // 槽位形态（堆叠/折叠行）几何完全由悬浮栏壳给定：零边距；卡片边距只
+    // 属于独立悬浮的自绘玻璃档。
+    .margin(this.compact || this.row || this.embedded || this.followsBarMaterial()
       ? { left: 0, right: 0, bottom: 0 }
       : { left: 10, right: 10, bottom: 8 })
     // 显隐由使用方控制（壳层在转场期间对真实迷你条做淡入/隐藏），组件自身
@@ -187,7 +205,7 @@ export struct MiniPlayer {
     })
     // 沉浸材质档的投影由材质自带（applyShadow），卡片阴影只在自绘玻璃档启用，
     // 避免与系统材质的阴影层叠加（槽位跟随栏材质档同理）。
-    .shadow(this.compact || this.usesSystemMaterial() || this.followsBarMaterial()
+    .shadow(this.compact || this.row || this.usesSystemMaterial() || this.followsBarMaterial()
       ? { radius: 0, color: '#00000000' }
       : { radius: 12, color: '#22000000', offsetY: 2 })
     // 滑动切歌的位移/缩放挂在 Stack 根上：玻璃背景是 playerContent 的兄弟
@@ -199,7 +217,7 @@ export struct MiniPlayer {
   @Builder
   playerContent() {
     Column() {
-      if (!this.compact) {
+      if (!this.compact && !this.row) {
         // Progress 的 total 不给就是 100，原来喂进去的是 0..1 的比例，播到一半也只
         // 有 0.5% 的填充（tablet 上像素采样实测：播放 11% 时整条都是轨道色）。改成
         // 直接把毫秒喂给 value/total，单位自洽（同 DownloadsPage 的 value+total 写法）。
@@ -221,9 +239,9 @@ export struct MiniPlayer {
         Stack() {
           if (this.song().effectiveCoverUrl.length > 0) {
             Image(this.song().effectiveCoverUrl)
-              .width(this.compact ? 32 : 44)
-              .height(this.compact ? 32 : 44)
-              .borderRadius(this.compact ? 16 : 8)
+              .width(this.coverSize())
+              .height(this.coverSize())
+              .borderRadius(this.coverRadius())
               .objectFit(ImageFit.Cover)
           } else {
             Image($r('app.media.ic_music_note_24'))
@@ -232,9 +250,11 @@ export struct MiniPlayer {
               .fillColor(Theme.primary(Theme.isDark()))
               .margin(this.compact
                 ? { left: 8, right: 8, top: 8, bottom: 8 }
-                : { left: 11, right: 11, top: 11, bottom: 11 })
+                : (this.row
+                  ? { left: 13, right: 13, top: 13, bottom: 13 }
+                  : { left: 11, right: 11, top: 11, bottom: 11 }))
               .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
-              .borderRadius(this.compact ? 16 : 8)
+              .borderRadius(this.coverRadius())
           }
         }
 
@@ -293,14 +313,14 @@ export struct MiniPlayer {
           .alignItems(HorizontalAlign.Start)
 
           Stack() {
-            if (this.compact) {
+            if (this.compact || this.row) {
               Progress({
                 value: this.positionMs,
                 total: this.durationMs > 0 ? this.durationMs : 1,
                 type: ProgressType.Ring
               })
-                .width(30)
-                .height(30)
+                .width(this.row ? 34 : 30)
+                .height(this.row ? 34 : 30)
                 .style({ strokeWidth: 2 })
                 .color(this.scheme().primary)
                 .backgroundColor(this.ringTrackColor())
@@ -312,15 +332,15 @@ export struct MiniPlayer {
               SymbolGlyph(this.status === PlaybackStatus.PLAYING
                 ? $r('sys.symbol.pause_fill')
                 : $r('sys.symbol.play_fill'))
-                .fontSize(this.compact ? 15 : 22)
-                .fontColor([this.compact ? this.scheme().primary : '#FFFFFF'])
+                .fontSize(this.compact ? 15 : (this.row ? 20 : 22))
+                .fontColor([this.compact || this.row ? this.scheme().primary : '#FFFFFF'])
                 .symbolEffect(this.replaceEffect, this.symbolTrigger)
             }
           }
           .width(40)
           .height(40)
           .type(ButtonType.Circle)
-          .backgroundColor(this.compact ? Color.Transparent : this.playBackground())
+          .backgroundColor(this.compact || this.row ? Color.Transparent : this.playBackground())
           // Icon-only control: without an explicit label a screen reader reads
           // nothing at all (device audit 2026-08-24 found 9 such buttons).
           .accessibilityText(this.status === PlaybackStatus.PLAYING ? '暂停' : '播放')
@@ -352,8 +372,8 @@ export struct MiniPlayer {
         .layoutWeight(1)
       }
       .width('100%')
-      .height(this.compact ? 40 : 60)
-      .padding({ left: this.compact ? 8 : 12, right: this.compact ? 4 : 8 })
+      .height(this.row ? 48 : (this.compact ? 40 : 60))
+      .padding({ left: this.compact ? 8 : (this.row ? 10 : 12), right: (this.compact || this.row) ? 4 : 8 })
       .onClick(() => {
         // 播放页是壳层全屏模态：打开/收起的动画状态由 MainShell 的
         // motionProgress 统一驱动，这里只翻转开关即可。
