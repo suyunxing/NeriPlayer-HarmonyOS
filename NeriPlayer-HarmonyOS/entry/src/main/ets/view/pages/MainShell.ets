@@ -118,19 +118,28 @@ struct SlotMiniBar {
    * 注释），只能经 AppStorage 订阅。
    */
   @StorageLink('ui.miniBarExpanded') expanded: boolean = false;
-  /** 槽位壳实测高度（vp）：row 形态封面与药丸左端同心定位用（下发 rowShellHeight）。 */
+  /**
+   * 槽位 builder 盒实测高度（vp）：仅作临时调试读数（下方 debug 标签）——
+   * 槽位不约束 builder 高度，此值量到的是内容自身高度，不能当药丸高度用
+   * （2026-10-02 两轮实测教训，hm.md §7.20 修订六）。
+   */
   @State shellHeight: number = 0;
 
   build() {
     if (this.currentSongJson.length > 0) {
-      // Stack 包裹并下发实测壳高：row 形态内容行填满壳高（文字块中线与
-      // 药丸中线齐平，见 MiniPlayer.rowContentHeight），居中退化为兜底；
-      // 堆叠态壳与内容同高，无感。
       Stack({ alignContent: Alignment.Center }) {
-        MiniPlayer({ compact: !this.expanded, row: this.expanded, rowShellHeight: this.shellHeight })
+        MiniPlayer({ compact: !this.expanded, row: this.expanded })
           .opacity(this.hidden ? 0 : 1)
           .accessibilityLevel(this.hidden ? 'no-hide-descendants' : 'auto')
           .hitTestBehavior(this.hidden ? HitTestMode.None : HitTestMode.Default)
+        if (this.expanded) {
+          // 临时调试读数（真机定版药丸几何后删除）：显示 builder 盒实测高度。
+          Text(`H=${Math.round(this.shellHeight)}`)
+            .fontSize(8)
+            .fontColor('#FF3B30')
+            .position({ x: '94%', y: '76%' })
+            .hitTestBehavior(HitTestMode.None)
+        }
       }
       .width('100%')
       .height('100%')

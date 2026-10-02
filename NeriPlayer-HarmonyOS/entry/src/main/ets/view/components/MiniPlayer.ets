@@ -28,15 +28,6 @@ export struct MiniPlayer {
    */
   @Prop row: boolean = false;
   /**
-   * row 形态下槽位壳的实际高度（SlotMiniBar 经 onAreaChange 实测下发）：
-   * (1) 封面与药丸左端圆弧同心——左缩进 = (壳高-封面)/2，封面圆心落在药丸
-   * 左端半圆的圆心上，封面左半边每一点与药丸边缘等距；(2) 内容行直接填满
-   * 壳高、文字块在壳内垂直居中（歌名与作者名之间的中线与药丸中线齐平，
-   * 2026-10-02 用户要求）——此前固定 48vp 内容 + 外层居中的两段式在壳高
-   * 与内容高不一致时把作者行排出可视范围。0 = 尚未测量，按 56vp 标准壳。
-   */
-  @Prop rowShellHeight: number = 0;
-  /**
    * 脱离 HdsTabs 槽位的独立承载形态（壳层 dock 态覆盖层使用）：非紧凑形态
    * 去掉自带的悬浮卡片外边距，几何完全由使用方给定。背景分两档：设备支持
    * ArkUI 沉浸材质（.systemMaterial，API 26）时挂系统玻璃质感（与悬浮 Tab
@@ -149,15 +140,20 @@ export struct MiniPlayer {
     return this.compact || this.row ? this.coverSize() / 2 : 8;
   }
 
-  /** row 形态封面左缩进：与折叠药丸左端圆弧同心 = (壳高-封面)/2；未测量按 56vp 壳。 */
-  private rowCoverInset(): number {
-    const shell = this.rowShellHeight > 0 ? this.rowShellHeight : 56;
-    return Math.max(0, (shell - this.coverSize()) / 2);
+  /**
+   * row 形态内容行高（56 = HDS 悬浮栏标准高度，官方示例 miniBar 内容按此
+   * 规格自然撑高）：弃实测链路——槽位不约束 builder 高度，onAreaChange 量
+   * 到的是内容自身高度（2026-10-02 真机佐证：封面左缩进算出≈0 = 量到了
+   * 48 的内容高，修订四/五因此无效，见 hm.md §7.20 修订六）。文字块在行
+   * 内垂直居中，歌名与作者名之间的中线与药丸中线齐平（用户要求）。
+   */
+  private rowContentHeight(): number {
+    return 56;
   }
 
-  /** row 形态内容行高度：填满实测壳高（文字块中线才能与药丸中线齐平）；未测量按 56。 */
-  private rowContentHeight(): number {
-    return this.rowShellHeight > 0 ? this.rowShellHeight : 56;
+  /** row 形态封面左缩进：与药丸左端圆弧同心 = (行高-封面)/2 = 4。 */
+  private rowCoverInset(): number {
+    return Math.max(0, (this.rowContentHeight() - this.coverSize()) / 2);
   }
 
   /**
