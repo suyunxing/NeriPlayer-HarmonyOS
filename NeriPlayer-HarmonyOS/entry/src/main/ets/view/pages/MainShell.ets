@@ -118,12 +118,6 @@ struct SlotMiniBar {
    * 注释），只能经 AppStorage 订阅。
    */
   @StorageLink('ui.miniBarExpanded') expanded: boolean = false;
-  /**
-   * 槽位 builder 盒实测高度（vp）：仅作临时调试读数（下方 debug 标签）——
-   * 槽位不约束 builder 高度，此值量到的是内容自身高度，不能当药丸高度用
-   * （2026-10-02 两轮实测教训，hm.md §7.20 修订六）。
-   */
-  @State shellHeight: number = 0;
 
   build() {
     if (this.currentSongJson.length > 0) {
@@ -132,23 +126,9 @@ struct SlotMiniBar {
           .opacity(this.hidden ? 0 : 1)
           .accessibilityLevel(this.hidden ? 'no-hide-descendants' : 'auto')
           .hitTestBehavior(this.hidden ? HitTestMode.None : HitTestMode.Default)
-        if (this.expanded) {
-          // 临时调试读数（真机定版药丸几何后删除）：显示 builder 盒实测高度。
-          Text(`H=${Math.round(this.shellHeight)}`)
-            .fontSize(8)
-            .fontColor('#FF3B30')
-            .position({ x: '94%', y: '76%' })
-            .hitTestBehavior(HitTestMode.None)
-        }
       }
       .width('100%')
       .height('100%')
-      .onAreaChange((_oldArea: Area, newArea: Area) => {
-        const h = Number(newArea.height);
-        if (Number.isFinite(h) && h > 0) {
-          this.shellHeight = h;
-        }
-      })
     }
   }
 }
