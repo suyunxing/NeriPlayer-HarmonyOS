@@ -123,15 +123,16 @@ export struct MiniPlayer {
   }
 
   /**
-   * 官方槽位形态且设备支持系统材质：不自绘背景，透出悬浮 Tab 栏的沉浸
-   * 光感材质（MainShell 的 barFloatingStyle.systemMaterialEffect 作用于
-   * 整条栏，enableMiniBarBackground 让槽位背景跟随栏身，lightColor 随
-   * 封面取色）。自绘玻璃会盖在系统材质上把光感挡掉，仅在不支持材质的
-   * 设备（模拟器 getSystemMaterialTypes 为空）时回落。
+   * 官方槽位形态（非 embedded）且设备支持系统材质：不自绘背景，透出悬浮
+   * Tab 栏的沉浸光感材质（MainShell 的 barFloatingStyle.systemMaterialEffect
+   * 作用于整条栏，enableMiniBarBackground 让槽位背景跟随栏身，lightColor 随
+   * 封面取色）。自绘玻璃会盖在系统材质上把光感挡掉，仅在不支持材质的设备
+   * （模拟器 getSystemMaterialTypes 为空）时回落。紧凑（堆叠态药丸）与非
+   * 紧凑（滚动展开态整行）都适用——2026-10-02 真机实测：展开态若走自绘
+   * 玻璃分支，折叠行迷你条呈深色平板、无沉浸光感（用户反馈视频）。
    */
   private followsBarMaterial(): boolean {
     return !this.embedded
-      && this.compact
       && (HdsLight.immersiveSupported() || HdsLight.adaptiveSupported());
   }
 
@@ -173,7 +174,9 @@ export struct MiniPlayer {
       this.playerContent()
     }
     .width('100%')
-    .margin(this.compact || this.embedded
+    // 槽位形态（含展开态）几何完全由悬浮栏壳给定：跟随栏材质时零边距，
+    // 卡片边距只属于独立悬浮的自绘玻璃档。
+    .margin(this.compact || this.embedded || this.followsBarMaterial()
       ? { left: 0, right: 0, bottom: 0 }
       : { left: 10, right: 10, bottom: 8 })
     // 显隐由使用方控制（壳层在转场期间对真实迷你条做淡入/隐藏），组件自身
@@ -183,8 +186,8 @@ export struct MiniPlayer {
       this.onMeasured(area);
     })
     // 沉浸材质档的投影由材质自带（applyShadow），卡片阴影只在自绘玻璃档启用，
-    // 避免与系统材质的阴影层叠加。
-    .shadow(this.compact || this.usesSystemMaterial()
+    // 避免与系统材质的阴影层叠加（槽位跟随栏材质档同理）。
+    .shadow(this.compact || this.usesSystemMaterial() || this.followsBarMaterial()
       ? { radius: 0, color: '#00000000' }
       : { radius: 12, color: '#22000000', offsetY: 2 })
     // 滑动切歌的位移/缩放挂在 Stack 根上：玻璃背景是 playerContent 的兄弟
