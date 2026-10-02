@@ -8,7 +8,7 @@ import { PANEL_CURVE } from '../NowPlayingCurves';
 import { Theme } from '../Theme';
 import { common } from '@kit.AbilityKit';
 import { SystemBars } from '../../util/SystemBars';
-import { HdsTabs, hdsMaterial, SystemMaterialParams } from '@kit.UIDesignKit';
+import { HdsTabs, HdsBarLayoutMode, hdsMaterial, SystemMaterialParams, HdsTabsController, HdsAnimationMode } from '@kit.UIDesignKit';
 import { HdsTabsAttribute } from '@kit.UIDesignKit';
 import { HdsNavigation, HdsNavigationTitleMode, ScrollEffectType, BlurStrategy } from '@kit.UIDesignKit';
 import { LengthMetrics } from '@kit.ArkUI';
@@ -38,24 +38,27 @@ import { ArtistPage } from './ArtistPage';
 
 /** Tab 项内容高度 56 + 顶部 6 的视觉间距，与改造前的 tabItem 固定高度一致。 */
 const TAB_BAR_CONTENT_VP: number = 62;
-/** 悬浮栏组左右边距：页签胶囊与迷你条胶囊共用。 */
+/** 悬浮 Tab 栏左右边距：barFloatingStyle.barSideMargin 与 dock 态迷你条共用同一值。 */
 const FLOAT_BAR_SIDE_MARGIN_VP: number = 16;
-/** 悬浮栏组底部边距的呼吸增量：底边 = windowHeight - (bottomLift + 此值)。 */
+/** 悬浮 Tab 栏底部边距的呼吸增量：barBottomMargin = bottomLift + 此值。 */
 const FLOAT_BAR_BOTTOM_GAP_VP: number = 8;
-/** 迷你条胶囊高度 = 非紧凑 MiniPlayer 胶囊高度（进度条 2 + 内容行 60）。 */
+/** dock 态迷你条高度 = 非紧凑 MiniPlayer 胶囊高度（进度条 2 + 内容行 60）。 */
 const DOCK_MINI_HEIGHT_VP: number = 62;
-/** 页签胶囊高度（堆叠态）：对齐 HDS 悬浮栏 56vp 视觉。 */
-const TABS_PILL_H_VP: number = 56;
-/** 折叠态页签小胶囊宽度：仅容当前项（图标 + 文字）。 */
-const FOLDED_TABS_W_VP: number = 72;
-/** 堆叠态页签胶囊与迷你条胶囊的行距。 */
-const ROW_GAP_VP: number = 8;
-/** 滚动折叠阈值：当前 Tab 滚过此值且在向下滚，栏组折叠为单行。 */
-const FOLD_ON_OFFSET_VP: number = 96;
-/** 滚动展开阈值：滚回此值以内栏组恢复堆叠（与折叠阈值拉开防抖滞回）。 */
-const UNFOLD_ON_OFFSET_VP: number = 48;
-/** 栏组两态形变时长（dock 迁移另有 DOCK_MORPH_MS）。 */
-const BAR_MORPH_MS: number = 300;
+/**
+ * 滚动自适应让位的位移阈值：内容滚过此值后再向下滚动才隐藏悬浮栏组，
+ * 避免停在顶部时轻扫一像素就吞掉底栏（参考网易云观感：滚入正文才让位）。
+ */
+const FLOAT_BAR_YIELD_OFFSET_VP: number = 64;
+/**
+ * 槽位药丸顶边相对 dock 条顶边的上移量。真机视频三轮标定（2026-09-21）：
+ * 104.5vp 差 10px 不到位 → 108.5vp 过 2px（+4vp 实测位移 9.9px，与
+ * 2.483px/vp 线性一致）→ 取 107.5vp。药丸与 dock 都由壳层定位、共享同一
+ * 坐标映射，此相对量自动跟随 bottomLift/窗口尺寸变化；若 Hds 内部布局
+ * 变更，按同法（冻结帧落点与槽位内容之差 × 2.483px/vp 修正）重测。
+ */
+const PILL_RISE_FROM_DOCK_VP: number = 107.5;
+/** 槽位药丸高度：HdsTabs 玻璃壳实测 94px ≈ 38vp，取设计值 40。 */
+const PILL_HEIGHT_VP: number = 40;
 /** 子页 dock 态迷你条的几何迁移时长：与 NavDestination 系统转场同一量级。 */
 const DOCK_MORPH_MS: number = 350;
 
@@ -92,6 +95,30 @@ const TITLEBAR_SPACE_VP: number = 56;
 /** 各 Tab 在壳层标题栏的标题。 */
 const TAB_TITLES: string[] = ['NeriPlayer', '探索', '资料库', '设置'];
 
+/**
+ * HdsTabs miniBar 槽位内容包装。槽位的 CustomBuilder 闭包不随 MainShell
+ * 状态变化重渲染（仅 HdsTabs 内部重建——如切 Tab——时重新执行），写在
+ * 闭包里的任何显隐表达式都收不到新值（真机三轮实测：push/pop/模态展开
+ * 全程迷你条停留在上一次渲染的可见态）。所以显隐由本组件经 AppStorage
+ * 订阅——组件级订阅与挂载上下文无关。瞬时切换、不挂动画的理由见
+ * MainShell.miniBarBuilder。
+ */
+@Component
+struct SlotMiniBar {
+  /** MainShell.publishSlotMiniHidden 发布的最终显隐门（= MainShell.slotMiniHidden()）。 */
+  @StorageLink('ui.slotMiniHidden') hidden: boolean = false;
+  @StorageLink('player.currentSong') currentSongJson: string = '';
+
+  build() {
+    if (this.currentSongJson.length > 0) {
+      MiniPlayer({ compact: true })
+        .opacity(this.hidden ? 0 : 1)
+        .accessibilityLevel(this.hidden ? 'no-hide-descendants' : 'auto')
+        .hitTestBehavior(this.hidden ? HitTestMode.None : HitTestMode.Default)
+    }
+  }
+}
+
 @Component
 export struct MainShell {
   /**
@@ -116,27 +143,21 @@ export struct MainShell {
    * 是直接调函数，同样是为了让最小化更新看得见这个值（见 resolveDark 注释）。
    */
   @StorageProp('ui.bottomLiftVp') bottomLift: number = Theme.bottomBarLift();
-  // 封面 scheme 订阅（曾驱动悬浮 Tab 栏 lightColor，自绘栏组后保留供光感扩展）。
+  // 封面 scheme 驱动悬浮 Tab 栏的 lightColor（光晕色）与系统材质档位。
   @StorageProp('player.coverScheme') coverScheme: AccentScheme = AccentScheme.neutralFallback();
   @State currentTab: number = 0;
-  /**
-   * 悬浮栏组形态：false=堆叠（迷你条在上、页签全宽在下），true=折叠（页签
-   * 收缩为当前项小胶囊、与迷你条并排一行）。由内容滚动位置驱动（见
-   * handleTabBarScroll），两态都是全不透明真实控件，切换走原生属性动画。
-   */
-  @State barFolded: boolean = false;
   /**
    * 全屏播放页模态开关：Router 在 animateTo 闭包里翻转（AppStorage 同名
    * key），下方 bindContentCover 消费。字面量须与 Router.KEY_NOW_PLAYING_SHOWN
    * 一致（装饰器参数只收字面量）。
    */
   @StorageLink('ui.nowPlayingShown') @Watch('onNowPlayingRequested') nowPlayingShown: boolean = false;
-  @StorageLink('ui.nowPlayingMounted') modalMounted: boolean = false;
+  @StorageLink('ui.nowPlayingMounted') @Watch('publishSlotMiniHidden') modalMounted: boolean = false;
   @StorageProp('ui.windowWidthVp') windowWidth: number = 360;
   @StorageProp('ui.windowHeightVp') windowHeight: number = 800;
   @State panelAmount: number = 0;
   // 动画方向（false=展开）：决定各属性动画的时长/时延取向。
-  @State closing: boolean = false;
+  @State @Watch('publishSlotMiniHidden') closing: boolean = false;
   // 转场进行中：模态内容不响应命中，结算后恢复。
   @State transitioning: boolean = false;
   // 一镜到底展开起点。主页（含 dock 态子页）由 pillRect()/dockRect() 实时
@@ -144,8 +165,8 @@ export struct MainShell {
   // 标定值——槽位锚点会随导航周期漂移，静态标定值会随窗口度量变化失真。
   @State originRect: NowPlayingRect = { x: 23, y: 611, width: 314, height: 40 };
   // dock 态迷你条覆盖层的挂载与几何状态：mounted 只控制存在性，docked 驱动
-  // 迷你条现位（主页栏组，折叠态感知）↔ dock 矩形（页签胶囊足迹）之间的属性动画。
-  @State dockBarMounted: boolean = false;
+  // 药丸矩形（槽位迷你条原位）↔ dock 矩形（悬浮 Tab 栏足迹）之间的属性动画。
+  @State @Watch('publishSlotMiniHidden') dockBarMounted: boolean = false;
   @State dockBarDocked: boolean = false;
   // 模态内容区的窗口坐标原点：面板/迷你条副本用窗口坐标（globalPosition 实测
   // 的 mini 矩形）计算，但 position() 相对模态内容区原点——若模态因安全区有
@@ -189,9 +210,9 @@ export struct MainShell {
 
   private onNowPlayingRequested(): void {
     if (this.nowPlayingShown && !this.modalMounted) {
-      // lg 宽屏（侧栏模式）没有底部迷你条，pillRect() 的手机药丸
+      // lg 宽屏（侧栏模式）没有 HdsTabsMiniBar 槽位，pillRect() 的手机药丸
       // 矩形无意义：改用底部整宽条带作为展开起点（底部弹出面板观感）。手机
-      // 端子页上迷你条停在 dock 矩形（页签胶囊足迹），展开起点随之切换，
+      // 端子页上迷你条停在 dock 矩形（悬浮 Tab 栏足迹），展开起点随之切换，
       // 面板才从可见的条上起飞。
       this.originRect = this.wide()
         ? MainShell.wideFallbackOrigin(this.windowWidth, this.windowHeight)
@@ -231,64 +252,27 @@ export struct MainShell {
     return undefined;
   }
 
-  /**
-   * 悬浮栏组底边（窗口坐标）：页签胶囊与 dock 态迷你条共用的锚线。
-   */
-  private barBottomEdgeY(): number {
-    return this.windowHeight - (this.bottomLift + FLOAT_BAR_BOTTOM_GAP_VP);
-  }
-
-  /** 无歌时栏组不可折叠（折叠的意义是给迷你条让出同行空间）。 */
-  private barFoldable(): boolean {
-    return this.currentSongJson.length > 0;
-  }
+  private static readonly PILL_MARGIN_X: number = 23;
 
   /**
-   * 页签胶囊矩形：堆叠态 = 全宽 56vp（贴底边）；折叠态 = 当前项小胶囊
-   * 72×62，与迷你条并排一行。几何全部由本文件常量推导——自绘栏组后不再
-   * 有 HdsTabs 内部布局黑盒，dock 返程落点与一镜到底展开起点随之成为精确值。
+   * 槽位药丸矩形 = dock 返程落点 & 一镜到底展开起点。
+   * 不从槽位 onAreaChange/getRectangleById 推导：HdsTabs 把可见药丸从槽位
+   * 布局锚点（全宽、贴悬浮栏底部）渲染变换上移约 117vp，这两个 API 拿到的
+   * 都是变换前的锚点——拿锚点当落点，真机两轮实测分别为「返程向下砸出屏幕」
+   * （2026-09-20）与「落点低 59px 交接跳变」（2026-09-21，锚点还会随导航
+   * 周期漂移）。改为从 dock 几何相对推导：药丸与 dock 同由壳层定位、共享
+   * 同一坐标映射，相对量免换算、自动跟随 bottomLift/窗口尺寸变化。
+   * X/宽用药丸对称设计值（barSideMargin 16 + 槽位内边距 7，实测壳宽 316vp
+   * 与设计 314vp 吻合）；若 Hds 调整悬浮栏内部布局，按 PILL_RISE_FROM_DOCK_VP
+   * 注释的方法重测。
    */
-  private tabsPillRect(): NowPlayingRect {
-    if (this.barFolded && this.barFoldable()) {
-      return {
-        x: FLOAT_BAR_SIDE_MARGIN_VP,
-        y: this.barBottomEdgeY() - DOCK_MINI_HEIGHT_VP,
-        width: FOLDED_TABS_W_VP,
-        height: DOCK_MINI_HEIGHT_VP
-      };
-    }
-    return {
-      x: FLOAT_BAR_SIDE_MARGIN_VP,
-      y: this.barBottomEdgeY() - TABS_PILL_H_VP,
-      width: this.windowWidth - 2 * FLOAT_BAR_SIDE_MARGIN_VP,
-      height: TABS_PILL_H_VP
-    };
-  }
-
-  /**
-   * 迷你条胶囊矩形：堆叠态 = 全宽、悬在页签胶囊上方 ROW_GAP_VP；折叠态 =
-   * 页签小胶囊右侧余下的同行空间。即一镜到底展开起点与 dock 返程落点。
-   */
-  private miniPillRect(): NowPlayingRect {
-    if (this.barFolded && this.barFoldable()) {
-      return {
-        x: FLOAT_BAR_SIDE_MARGIN_VP + FOLDED_TABS_W_VP + ROW_GAP_VP,
-        y: this.barBottomEdgeY() - DOCK_MINI_HEIGHT_VP,
-        width: this.windowWidth - 2 * FLOAT_BAR_SIDE_MARGIN_VP - FOLDED_TABS_W_VP - ROW_GAP_VP,
-        height: DOCK_MINI_HEIGHT_VP
-      };
-    }
-    return {
-      x: FLOAT_BAR_SIDE_MARGIN_VP,
-      y: this.barBottomEdgeY() - TABS_PILL_H_VP - ROW_GAP_VP - DOCK_MINI_HEIGHT_VP,
-      width: this.windowWidth - 2 * FLOAT_BAR_SIDE_MARGIN_VP,
-      height: DOCK_MINI_HEIGHT_VP
-    };
-  }
-
-  /** 迷你条现位（折叠态感知）= dock 返程落点 & 一镜到底展开起点。 */
   private pillRect(): NowPlayingRect {
-    return this.miniPillRect();
+    return {
+      x: MainShell.PILL_MARGIN_X,
+      y: this.dockRect().y - PILL_RISE_FROM_DOCK_VP,
+      width: Math.max(40, this.windowWidth - 2 * MainShell.PILL_MARGIN_X),
+      height: PILL_HEIGHT_VP
+    };
   }
 
   /** lg 宽屏兜底锚点：底部 96vp 整宽条带（侧栏形态无迷你条，见 open 分支）。 */
@@ -308,30 +292,97 @@ export struct MainShell {
   private tabScrollers: Scroller[] = [new Scroller(), new Scroller(), new Scroller(), new Scroller()];
 
   /**
+   * 悬浮 HdsTabs 的控制器：滚动自适应显隐（applyHide/ShowAnimation）的入口。
+   * 只挂窄屏悬浮形态（lg 侧栏形态不传，两个分支各挂各的或都不挂，避免一个
+   * controller 同时绑两个 Tabs）。
+   */
+  private tabsController: HdsTabsController = new HdsTabsController();
+  /** 悬浮栏组是否已因下滚让位。非响应式：只在本类的事件回调里读写。 */
+  private barYielded: boolean = false;
+
+  /**
+   * 官方 HdsTabsMiniBar 槽位：无歌时留空，有歌渲染紧凑 MiniPlayer。
+   * 槽位的 CustomBuilder 闭包不随本组件状态重渲染（仅 HdsTabs 内部重建
+   * 时重新执行），显隐不能写在这里的任何表达式上——由槽内 SlotMiniBar
+   * 经 AppStorage 订阅 'ui.slotMiniHidden'，本组件经 publishSlotMiniHidden
+   * 发布。显隐一律瞬时切换、不挂动画：每个切换点都有"同位同形"的接替
+   * 者盖住或接住它——模态面板全程盖住药丸位、dock 覆盖层落位即迷你条
+   * 本身——任何淡入淡出都会在遮盖缝隙里露出第二个控件（真机三轮实测）。
+   */
+  @Builder
+  miniBarBuilder() {
+    SlotMiniBar()
+  }
+
+  /**
+   * 槽位真实迷你条的最终隐藏条件：miniBarHidden() 之外再并入「返回交接
+   * 期」（dock 仍挂载但已回到主页）。交接期作为状态硬门控，任何时刻 dock
+   * 是唯一可见控件；dock 卸载（syncDockBar 尾段定时器）本态自动解除——
+   * 那一刻 dock 落位矩形与迷你条同位同形，瞬时接管零差异。结果经
+   * publishSlotMiniHidden 发布，供槽内 SlotMiniBar 订阅（槽位闭包不响应
+   * MainShell 状态，见 miniBarBuilder 注释）。
+   */
+  private slotMiniHidden(): boolean {
+    return this.miniBarHidden() || (this.dockBarMounted && this.subPageDepth === 0);
+  }
+
+  /**
+   * 把 slotMiniHidden() 的结果发布到 AppStorage：HdsTabs miniBar 槽位里的
+   * CustomBuilder 闭包不随 MainShell 状态重渲染，槽内组件只能靠订阅此键
+   * 实时显隐。触发源：modalMounted/closing/dockBarMounted 各自的 @Watch，
+   * 以及 syncDockBar（subPageDepth 变化路径；其余入参最终也汇入
+   * dockBarMounted，重复发布无害）。
+   */
+  private publishSlotMiniHidden(): void {
+    AppStorage.setOrCreate('ui.slotMiniHidden', this.slotMiniHidden());
+  }
+
+  /**
+   * 基础隐藏条件：模态挂载且处于展开方向（面板占位），或正处于子页（迷你
+   * 条已由 dock 态覆盖层接替，见 dockMiniBarOverlay）。收起方向（closing）
+   * 时提前可见——面板全程盖住药丸位，模态卸载瞬间零差异。返回交接期由
+   * slotMiniHidden() 在此之上追加。
+   */
+  private miniBarHidden(): boolean {
+    return (this.modalMounted && !this.closing) || this.subPageDepth > 0;
+  }
+
+  /**
    * dock 态覆盖层的隐藏条件：只跟随播放页模态的开合（面板占位时让位）。
-   * 主页栏组的迷你条不在本条件内——它挂在 HdsNavigation 内容 Stack 里，
-   * 模态展开期间被面板与压暗层自然覆盖，无需自行显隐。
+   * 不能复用 miniBarHidden()——后者含 subPageDepth > 0（隐藏槽位真实迷你条
+   * 用），并入会让覆盖层恰好在子页上时永远透明（真机首版实测：子页整层
+   * 不可见，只剩返回主页后槽位空药丸壳）。
    */
   private dockOverlayHidden(): boolean {
     return this.modalMounted && !this.closing;
   }
 
   /**
-   * dock 态迷你条覆盖层（参考网易云：进入二级页后迷你条落到页签胶囊足迹）。
-   * 挂在壳层根 Stack 里 HdsNavigation 之上，所以全屏 NavDestination 子页盖得
-   * 住主页栏组（floatingBottomBars），盖不住它。
+   * dock 态迷你条覆盖层（参考网易云：进入二级页后迷你条扩大到 Tab 栏
+   * 尺寸并落到 Tab 栏位置）。挂在壳层根 Stack 里 HdsNavigation 之上，所以
+   * 全屏 NavDestination 子页盖得住 Tab 骨架与槽位迷你条，盖不住它。
    *
-   * 几何动画：容器在「迷你条现位（pillRect()，折叠态感知，与主页栏组迷你条
-   * 同位同形）」和「dock 矩形（页签胶囊足迹）」之间做原生属性动画。两者同为
-   * 62vp 非紧凑 MiniPlayer 胶囊——自绘栏组后迷你条恒为 62 高，40↔62 交叉
-   * 淡入淡出已无存在必要（2026-10-01 重构删除）。透明度/命中只跟随模态开合
-   * （dockOverlayHidden）：播放页模态展开期间隐藏，收起后半段同步淡入。
+   * 几何动画：容器在「药丸矩形（pillRect()，与槽位迷你条同位同形）」和「dock
+   * 矩形（悬浮 Tab 栏足迹）」之间做原生属性动画；两种紧凑/展开内容按目标
+   * 形态交叉淡入淡出，规避 40↔62vp 内容重排的跳变。透明度/命中只跟随模态
+   * 开合（dockOverlayHidden）：播放页模态展开期间隐藏（面板占位），收起
+   * 后半段同步淡入。
    */
   @Builder
   dockMiniBarOverlay() {
     if (this.dockBarMounted && this.currentSongJson.length > 0) {
-      Stack() {
+      Stack({ alignContent: Alignment.Top }) {
+        MiniPlayer({ compact: true, embedded: true })
+          .opacity(this.dockBarDocked ? 0 : 1)
+          .animation({ duration: 180, curve: Curve.EaseOut })
+          // 交叉淡入淡出的两份内容对读屏同样互斥，避免控件重复。
+          .accessibilityLevel(this.dockBarDocked ? 'no-hide-descendants' : 'auto')
+          .hitTestBehavior(this.dockBarDocked ? HitTestMode.None : HitTestMode.Default)
         MiniPlayer({ compact: false, embedded: true })
+          .opacity(this.dockBarDocked ? 1 : 0)
+          .animation({ duration: 180, curve: Curve.EaseOut })
+          .accessibilityLevel(this.dockBarDocked ? 'auto' : 'no-hide-descendants')
+          .hitTestBehavior(this.dockBarDocked ? HitTestMode.Default : HitTestMode.None)
       }
       .width(this.dockBarDocked ? this.dockRect().width : this.pillRect().width)
       .height(this.dockBarDocked ? this.dockRect().height : this.pillRect().height)
@@ -357,9 +408,9 @@ export struct MainShell {
   }
 
   /**
-   * dock 态几何：与悬浮栏组同一边距体系（左右 16、底部 bottomLift+8），
-   * 尺寸取非紧凑 MiniPlayer 胶囊（62vp 高）——即折叠态迷你条的同一规格。
-   * 窗口坐标与 pillRect() 同一坐标系，可直接作为一镜到底的展开起点。
+   * dock 态几何：与悬浮 Tab 栏同一边距体系（barSideMargin 16、barBottomMargin
+   * bottomLift+8），尺寸取非紧凑 MiniPlayer 胶囊（62vp 高）。窗口坐标与
+   * pillRect() 同一坐标系，可直接作为一镜到底的展开起点。
    */
   private dockRect(): NowPlayingRect {
     return {
@@ -372,12 +423,15 @@ export struct MainShell {
 
   /**
    * dock 态覆盖层状态机（由 subPageDepth / currentSong / breakpoint 变化驱动）：
-   * 下潜 = 挂载在迷你条现位 → 延迟一帧翻转到 dock 几何（属性动画起飞）；返回
-   * = 翻回迷你条现位 → 动画落定后卸载——那一刻主页栏组的迷你条已在同位同形
-   * 处挂载（subPageDepth 归零即时渲染，被本覆盖层盖住到卸载瞬间），零差异
-   * 接管。返回动画中途再次入栈会清掉卸载计时器并直接反向重定目标。
+   * 下潜 = 挂载在药丸原位 → 延迟一帧翻转到 dock 几何（属性动画起飞）；返回 =
+   * 翻回药丸几何 → 动画落定后卸载，与槽位内真实迷你条（同位同形）无缝交还。
+   * 返回动画中途再次入栈会清掉卸载计时器并直接反向重定目标。
    */
   private syncDockBar(): void {
+    // 切歌/子页进出/断点切换都会路过这里：悬浮栏若处于滚动让位态，借这些
+    // 时机唤回（列表点播后迷你条必须立刻可见；返回主页不应面对空底栏）。
+    this.showYieldedBar();
+    this.publishSlotMiniHidden();
     if (this.shouldDockBar()) {
       if (this.dockMountTimer >= 0) {
         clearTimeout(this.dockMountTimer);
@@ -411,14 +465,16 @@ export struct MainShell {
       this.dockBarMounted = false;
       return;
     }
-    // 落点用 pillRect()（迷你条现位，折叠态感知）。自绘栏组后该矩形与主页
-    // 迷你条由同一批常量推导，subPageDepth 归零瞬间主页迷你条即在同位同形
-    // 处挂载（被本覆盖层盖住），卸载交接零差异——HdsTabs 槽位时代「锚点
-    // 漂移需真机标定」的问题类别整体消失。
+    // 落点用 pillRect()（从 dock 几何相对推导，见其注释）。不要改回
+    // getRectangleById/onAreaChange"实测药丸"：HdsTabs 对药丸的上移是渲染
+    // 变换，这两个 API 返回的都是变换前的槽位布局锚点（贴悬浮栏底部、全宽）
+    // ——真机两轮实测：当落点 = 返程向下砸出屏幕（2026-09-20）；写回标定值
+    // = 锚点漂移后落点低 59px、卸载交接向上跳一下（2026-09-21）。
     this.dockBarDocked = false;
-    // 卸载延时只需比飞行动画（DOCK_MORPH_MS）留足余量：交接期内本覆盖层
-    // 是唯一可见控件，卸载那一刻主页迷你条在同位同形处瞬时接管，取 +120
-    // 防个别设备动画尾帧被截。
+    // 卸载延时只需比飞行动画（DOCK_MORPH_MS）留足余量：交接期内槽位迷
+    // 你条被 slotMiniHidden() 硬性隐藏，本覆盖层是唯一可见控件；卸载那
+    // 一刻迷你条在同位同形处瞬时接管（见 miniBarBuilder），取 +120 防
+    // 个别设备动画尾帧被截。
     this.dockMountTimer = setTimeout(() => {
       this.dockMountTimer = -1;
       if (!this.shouldDockBar()) {
@@ -428,33 +484,43 @@ export struct MainShell {
   }
 
   /**
-   * 滚动自适应栏组（参考网易云录屏的两态折叠）：各 Tab 页根滚动容器经
-   * onScrollFrameBegin 把纵向增量与位置交到这里。向下滚（yDelta>0）且滚过
-   * FOLD_ON_OFFSET_VP → 折叠；位置回到 UNFOLD_ON_OFFSET_VP 以内 → 堆叠。
-   * 不再使用 HdsTabsController.applyHide/ShowAnimation——真机实测（2026-10-01）
-   * 其 SCROLL_ANIMATION 为原地半透明淡出且随滚动方向反复触发时在实心/半透
-   * 明间闪切，与参考视频的「折叠成单行」相去甚远，弃用；两态形变改为自绘
-   * 控件的属性动画（floatingBottomBars）。触底兜底（页面报 -1）天然无副作用：
-   * -1 不满足折叠条件，位置在底部也不满足展开条件，栏组保持折叠态。
+   * 滚动自适应悬浮栏（参考 UIDesignKit 官方示例 Spatialization 沉浸光感场景
+   * 的 handleTabBarAnimation）：各 Tab 页根滚动容器经 onScrollFrameBegin 把
+   * 纵向增量上报到这里。下滚（yDelta>0）且内容已滚过 FLOAT_BAR_YIELD_OFFSET_VP
+   * 时，整组悬浮胶囊（Tab 栏 + 迷你条）以 SCROLL_ANIMATION 让位沉浸；上滚
+   * （yDelta<0）即回。页面触底时按示例同款传 -1 兜底唤回。滞回由 barYielded
+   * 承担，重复 hide/show 不叠加。
    */
   private handleTabBarScroll(yDelta: number): void {
     if (this.wide()) {
       return;
     }
-    if (!this.barFolded) {
-      const yOffset = this.tabScrollers[this.currentTab].currentOffset().yOffset;
-      if (yDelta > 0 && yOffset > FOLD_ON_OFFSET_VP && this.barFoldable()) {
-        this.barFolded = true;
+    const yOffset = this.tabScrollers[this.currentTab].currentOffset().yOffset;
+    if (!this.barYielded) {
+      if (yDelta > 0 && yOffset > FLOAT_BAR_YIELD_OFFSET_VP) {
+        this.barYielded = true;
+        this.tabsController.applyHideAnimation(HdsAnimationMode.SCROLL_ANIMATION);
       }
-    } else if (!this.barFoldable()
-      || this.tabScrollers[this.currentTab].currentOffset().yOffset < UNFOLD_ON_OFFSET_VP) {
-      this.barFolded = false;
+    } else if (yDelta < 0 || yOffset <= FLOAT_BAR_YIELD_OFFSET_VP) {
+      this.barYielded = false;
+      this.tabsController.applyShowAnimation(HdsAnimationMode.SCROLL_ANIMATION);
     }
   }
 
-  /** 标题栏的系统沉浸材质参数：设备不支持时保持 undefined（自绘玻璃兜底）。 */
-  private systemMaterialEffect(): SystemMaterialParams | undefined {
-    if (!HdsLight.immersiveSupported() && !HdsLight.adaptiveSupported()) {
+  /**
+   * 强制唤回让位中的悬浮栏：切歌、子页返回、播放页关闭共用（见 syncDockBar
+   * 与 bindContentCover.onDisappear）。未让位或 lg 侧栏形态时无副作用。
+   */
+  private showYieldedBar(): void {
+    if (this.wide() || !this.barYielded) {
+      return;
+    }
+    this.barYielded = false;
+    this.tabsController.applyShowAnimation(HdsAnimationMode.SCROLL_ANIMATION);
+  }
+
+  /** 悬浮 Tab 栏的系统沉浸材质：设备不支持时保持 undefined（自绘玻璃兜底）。 */
+  private systemMaterialEffect(): SystemMaterialParams | undefined {    if (!HdsLight.immersiveSupported() && !HdsLight.adaptiveSupported()) {
       return undefined;
     }
     const params: SystemMaterialParams = {
@@ -492,6 +558,8 @@ export struct MainShell {
 
   aboutToAppear(): void {
     Router.attach(this.pageStack, this.getUIContext());
+    // 槽位迷你条显隐门初值：保证 SlotMiniBar 首帧挂载前键已就位。
+    this.publishSlotMiniHidden();
     // 注册要放在启动页分支的 return 之前，任何默认页配置下都得收到完成回调。
     this.downloadListener.attach(this);
     DownloadEngine.addListener(this.downloadListener);
@@ -564,120 +632,6 @@ export struct MainShell {
     .width('100%')
     .height(SIDE_BAR_ITEM_VP)
     .padding({ top: 6, bottom: 6 })
-  }
-
-  /** barFolded 的渲染值：无歌时强制按堆叠态画（折叠只为给迷你条让位）。 */
-  private barFoldedVisual(): boolean {
-    return this.barFolded && this.barFoldable();
-  }
-
-  /** 页签胶囊的系统玻璃：设备支持沉浸材质时交系统接管，否则自绘玻璃兜底。 */
-  private barGlass(): boolean {
-    return HdsLight.systemMaterialSupported();
-  }
-
-  /**
-   * 主页自绘悬浮栏组（2026-10-01 真机反馈重构，取代 HdsTabs 自带栏 +
-   * miniBar 槽位 + applyHide/ShowAnimation 滚动隐藏）：参考网易云录屏的两态
-   * 形变。堆叠态（静止/回顶）：迷你条胶囊在上、全宽页签胶囊在下；折叠态
-   * （滚入正文）：页签收缩为当前项小胶囊，与迷你条并排一行。两态均为全
-   * 不透明真实控件，形变由 barFolded 驱动属性动画（BAR_MORPH_MS，Friction），
-   * 全程没有透明度动画——真机实测 SDK SCROLL_ANIMATION 是原地半透明淡出、
-   * 且随滚动方向反复触发时实心/半透明闪切，与参考视频相去甚远，弃用。
-   *
-   * 命中：根 Stack HitTestMode.None 只豁免容器自身，两枚胶囊各自可点，
-   * 胶囊间隙与胶囊外的列表照常滚动。
-   */
-  @Builder
-  floatingBottomBars() {
-    if (!this.wide()) {
-      Stack() {
-        // 页签胶囊：容器几何两态切换（BAR_MORPH_MS）；内容两份（全宽四项 ↔
-        // 当前项小胶囊）按目标形态交叉淡入淡出，规避布局重排跳变（dock
-        // 覆盖层同款分工）。玻璃背板在设备支持时交系统沉浸材质接管。
-        Stack() {
-          Column()
-            .width('100%')
-            .height('100%')
-            .backgroundColor(this.barGlass() ? Color.Transparent : Theme.surfaceGlass(this.resolveDark()))
-            .backgroundBlurStyle(this.barGlass() ? BlurStyle.NONE : BlurStyle.COMPONENT_THICK)
-            .systemMaterial(this.barGlass() ? HdsLight.barSystemMaterial() : undefined)
-            .hitTestBehavior(HitTestMode.None)
-          Row() {
-            this.tabPillItem(0, '首页', $r('app.media.ic_tab_home_24'))
-            this.tabPillItem(1, '探索', $r('app.media.ic_tab_search_24'))
-            this.tabPillItem(2, '资料库', $r('app.media.ic_tab_library_24'))
-            this.tabPillItem(3, '设置', $r('app.media.ic_tab_settings_24'))
-          }
-          .width('100%')
-          .height('100%')
-          .opacity(this.barFoldedVisual() ? 0 : 1)
-          .animation({ duration: 180, curve: Curve.EaseOut })
-          .accessibilityLevel(this.barFoldedVisual() ? 'no-hide-descendants' : 'auto')
-          .hitTestBehavior(this.barFoldedVisual() ? HitTestMode.None : HitTestMode.Default)
-          Row() {
-            if (this.currentTab === 0) {
-              this.tabPillItem(0, '首页', $r('app.media.ic_tab_home_24'))
-            } else if (this.currentTab === 1) {
-              this.tabPillItem(1, '探索', $r('app.media.ic_tab_search_24'))
-            } else if (this.currentTab === 2) {
-              this.tabPillItem(2, '资料库', $r('app.media.ic_tab_library_24'))
-            } else {
-              this.tabPillItem(3, '设置', $r('app.media.ic_tab_settings_24'))
-            }
-          }
-          .width('100%')
-          .height('100%')
-          .justifyContent(FlexAlign.Center)
-          .opacity(this.barFoldedVisual() ? 1 : 0)
-          .animation({ duration: 180, curve: Curve.EaseOut })
-          .accessibilityLevel(this.barFoldedVisual() ? 'auto' : 'no-hide-descendants')
-          .hitTestBehavior(this.barFoldedVisual() ? HitTestMode.Default : HitTestMode.None)
-        }
-        .width(this.barFoldedVisual() ? FOLDED_TABS_W_VP : this.windowWidth - 2 * FLOAT_BAR_SIDE_MARGIN_VP)
-        .height(this.barFoldedVisual() ? DOCK_MINI_HEIGHT_VP : TABS_PILL_H_VP)
-        .borderRadius(this.barFoldedVisual() ? DOCK_MINI_HEIGHT_VP / 2 : TABS_PILL_H_VP / 2)
-        .clip(true)
-        .position({
-          x: this.tabsPillRect().x,
-          y: this.tabsPillRect().y
-        })
-        .animation({ duration: BAR_MORPH_MS, curve: Curve.Friction })
-
-        // 迷你条胶囊：非紧凑 MiniPlayer 自带玻璃（与 dock 态同一形态），
-        // 几何随折叠/堆叠切换。子页期间不渲染（dock 覆盖层在 Navigation 之上
-        // 接替，见 dockMiniBarOverlay）。
-        if (this.currentSongJson.length > 0 && this.subPageDepth === 0) {
-          Stack() {
-            MiniPlayer({ compact: false, embedded: true })
-          }
-          .width(this.miniPillRect().width)
-          .height(this.miniPillRect().height)
-          .position({
-            x: this.miniPillRect().x,
-            y: this.miniPillRect().y
-          })
-          .animation({ duration: BAR_MORPH_MS, curve: Curve.Friction })
-        }
-      }
-      .width('100%')
-      .height('100%')
-      .hitTestBehavior(HitTestMode.None)
-    }
-  }
-
-  /** 页签胶囊单项：折叠态点当前项 = 展开整栏（参考网易云交互）。 */
-  @Builder
-  tabPillItem(index: number, label: string, icon: Resource) {
-    Column() {
-      this.tabBarContent(index, label, icon)
-    }
-    .width('100%')
-    .height('100%')
-    .onClick(() => {
-      this.barFolded = false;
-      this.selectTab(index);
-    })
   }
 
   @Builder
@@ -868,16 +822,30 @@ export struct MainShell {
               this.selectTab(index);
             })
           } else {
-            // S5-2: 内容骨架只保留 HdsTabs 的切页能力，自带栏整体隐藏
-            // （barHeight 0；官方语义仅 <0 才回落默认值）。底部两枚悬浮胶囊
-            // 由 floatingBottomBars 自绘，形态与几何全部本文件可控——HdsTabs
-            // 槽位（药丸锚点漂移需真机标定）与 applyHide/ShowAnimation（原地
-            // 淡出 + 闪切）两条路线均于 2026-10-01 真机反馈后弃用。
-            HdsTabs({ barPosition: BarPosition.End, index: this.currentTab }) {
+            // S3b-2: 悬浮胶囊 Tab 栏 + 官方 MiniBar 槽位。barOverlap 后
+            // 内容延伸到栏下，四个 Tab 页的滚动尾部加了 FLOAT_TAB_CLEARANCE
+            // 避让；系统材质在不支持的设备上回落自绘玻璃。滚动自适应显隐
+            // （下滚让位/上滚唤回）经 tabsController 驱动，见 handleTabBarScroll。
+            HdsTabs({ barPosition: BarPosition.End, index: this.currentTab, controller: this.tabsController }) {
               this.tabPages()
             }
             .vertical(false)
-            .barHeight(0)
+            .barMode(BarMode.Fixed)
+            .barOverlap(true)
+            .barFloatingStyle({
+              barSideMargin: FLOAT_BAR_SIDE_MARGIN_VP,
+              barBottomMargin: this.bottomLift + FLOAT_BAR_BOTTOM_GAP_VP,
+              lightColor: this.coverScheme.light.primary,
+              gradientMask: { maskColor: Theme.withAlpha(Theme.background(this.resolveDark()), 0x99), maskHeight: 92 },
+              miniBar: {
+                miniBarBuilder: (): void => {
+                  this.miniBarBuilder()
+                },
+                enableMiniBarBackground: true,
+                barLayoutMode: HdsBarLayoutMode.VERTICAL
+              },
+              systemMaterialEffect: this.systemMaterialEffect()
+            })
             // 同 TabContent：放行首页内容向上穿透到状态栏后被渐变模糊覆盖。
             .clip(false)
             .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM])
@@ -919,8 +887,8 @@ export struct MainShell {
           .hitTestBehavior(HitTestMode.None)
           .position({ x: 0, y: this.windowHeight - this.bottomLift - 8 })
 
-        // 自绘悬浮栏组：页签胶囊 + 迷你条胶囊（两态折叠，见 floatingBottomBars）。
-        this.floatingBottomBars()
+        // MiniPlayer 回归官方 HdsTabsMiniBar 槽位（用户决策）：槽位高度
+        // 系统固定，以缩小播放按钮视觉圆（30vp，触控热区仍 40vp）适配。
       }
       .width('100%')
       .height('100%')
@@ -1024,6 +992,9 @@ export struct MainShell {
         if (context !== undefined) {
           SystemBars.apply(context as common.UIAbilityContext, this.resolveDark());
         }
+        // 收起时悬浮栏组可能仍处于滚动让位态（藏在模态之下）：唤回，避免
+        // 关闭播放页后面对空底栏。
+        this.showYieldedBar();
       },
       onWillDismiss: (action: DismissContentCoverAction) => {
         this.pendingDismiss = action;
@@ -1062,10 +1033,6 @@ export struct MainShell {
       return;
     }
     this.currentTab = index;
-    // 新 Tab 的滚动位置决定栏组形态：滚入正文的 Tab 直接以折叠态呈现，
-    // 回到顶部的 Tab 恢复堆叠（与滚动判定同一阈值，见 handleTabBarScroll）。
-    this.barFolded = this.currentSongJson.length > 0
-      && this.tabScrollers[index].currentOffset().yOffset > FOLD_ON_OFFSET_VP;
     // 先落 default_start_tab，再发刷新信号：Tab 页用它判断自己是否可见。
     AppStorage.setOrCreate('np.default_start_tab', index);
     Router.notifyReturned();
