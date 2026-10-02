@@ -118,19 +118,27 @@ struct SlotMiniBar {
    * 注释），只能经 AppStorage 订阅。
    */
   @StorageLink('ui.miniBarExpanded') expanded: boolean = false;
+  /** 槽位壳实测高度（vp）：row 形态封面与药丸左端同心定位用（下发 rowShellHeight）。 */
+  @State shellHeight: number = 0;
 
   build() {
     if (this.currentSongJson.length > 0) {
       // Stack 垂直居中包裹：折叠行壳（约 56vp）高于内容时居中呈现，堆叠态
       // 壳与内容同高时无感。
       Stack({ alignContent: Alignment.Center }) {
-        MiniPlayer({ compact: !this.expanded, row: this.expanded })
+        MiniPlayer({ compact: !this.expanded, row: this.expanded, rowShellHeight: this.shellHeight })
           .opacity(this.hidden ? 0 : 1)
           .accessibilityLevel(this.hidden ? 'no-hide-descendants' : 'auto')
           .hitTestBehavior(this.hidden ? HitTestMode.None : HitTestMode.Default)
       }
       .width('100%')
       .height('100%')
+      .onAreaChange((_oldArea: Area, newArea: Area) => {
+        const h = Number(newArea.height);
+        if (Number.isFinite(h) && h > 0) {
+          this.shellHeight = h;
+        }
+      })
     }
   }
 }

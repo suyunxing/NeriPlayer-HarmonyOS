@@ -3,6 +3,7 @@
 // ReplaceSymbolEffect/EffectScope 是 symbolglyph.d.ts 的全局 ambient 类
 // （与 VisualEffect 同类），不从 kit 导入。
 import { SongItem } from '../../model/SongItem';
+import { platformName } from '../../model/MusicPlatform';
 import { PlaybackStatus } from '../../player/PlaybackConstants';
 import { PlayerManager } from '../../player/PlayerManager';
 import { Router } from '../Router';
@@ -27,6 +28,13 @@ export struct MiniPlayer {
    * 故独立成档。
    */
   @Prop row: boolean = false;
+  /**
+   * row 形态下槽位壳的实际高度（SlotMiniBar 经 onAreaChange 实测下发）：
+   * 用于封面与药丸左端圆弧同心——左缩进 = (壳高-封面)/2，封面圆心落在药丸
+   * 左端半圆的圆心上，封面左半边每一点与药丸边缘等距（2026-10-02 用户
+   * 要求）。0 = 尚未测量，按 56vp 标准壳取值。
+   */
+  @Prop rowShellHeight: number = 0;
   /**
    * 脱离 HdsTabs 槽位的独立承载形态（壳层 dock 态覆盖层使用）：非紧凑形态
    * 去掉自带的悬浮卡片外边距，几何完全由使用方给定。背景分两档：设备支持
@@ -138,6 +146,12 @@ export struct MiniPlayer {
   /** 封面圆角：圆形形态（compact/row）取半边长，完整形态保留 8 圆角方形。 */
   private coverRadius(): number {
     return this.compact || this.row ? this.coverSize() / 2 : 8;
+  }
+
+  /** row 形态封面左缩进：与折叠药丸左端圆弧同心 = (壳高-封面)/2；未测量按 56vp 壳。 */
+  private rowCoverInset(): number {
+    const shell = this.rowShellHeight > 0 ? this.rowShellHeight : 56;
+    return Math.max(0, (shell - this.coverSize()) / 2);
   }
 
   /**
@@ -301,7 +315,11 @@ export struct MiniPlayer {
                 .textOverflow({ overflow: TextOverflow.Ellipsis })
                 .width('100%')
             } else if (!this.embedded) {
-              Text(this.song().displayArtist)
+              // 作者为空（如 B 站音频常无作者字段）时回退平台名，第二行恒在
+              // ——row/紧凑两行布局依赖它（2026-10-02 真机反馈：作者行整体消失）。
+              Text(this.song().displayArtist.length > 0
+                ? this.song().displayArtist
+                : platformName(this.song().platform))
                 .fontSize(11)
                 .fontColor(Theme.textSecondary(Theme.isDark()))
                 .maxLines(1)
@@ -373,7 +391,7 @@ export struct MiniPlayer {
       }
       .width('100%')
       .height(this.row ? 48 : (this.compact ? 40 : 60))
-      .padding({ left: this.compact ? 8 : (this.row ? 10 : 12), right: (this.compact || this.row) ? 4 : 8 })
+      .padding({ left: this.row ? this.rowCoverInset() : (this.compact ? 8 : 12), right: (this.compact || this.row) ? 4 : 8 })
       .onClick(() => {
         // 播放页是壳层全屏模态：打开/收起的动画状态由 MainShell 的
         // motionProgress 统一驱动，这里只翻转开关即可。
