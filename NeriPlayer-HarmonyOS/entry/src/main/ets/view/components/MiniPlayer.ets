@@ -9,6 +9,7 @@ import { Router } from '../Router';
 import { Theme } from '../Theme';
 import { AccentScheme, SchemeMode } from '../theme/AccentScheme';
 import { HdsLight } from '../theme/HdsLight';
+import { MarqueeText } from './MarqueeText';
 
 @Component
 export struct MiniPlayer {
@@ -130,9 +131,12 @@ export struct MiniPlayer {
     return '#45' + this.scheme().primary.substring(1);
   }
 
-  /** 封面边长：row 34（圆，40 内容区内最大同心圆）/ compact 32（圆）/ 完整 44（圆角方形）。 */
+  /**
+   * 封面边长：row 48（大圆，顶边贴药丸上缘、底缘没入下弧，2026-10-02 用户
+   * 指定恢复 2d0cb29 观感）/ compact 32（圆）/ 完整 44（圆角方形）。
+   */
   private coverSize(): number {
-    return this.row ? 34 : (this.compact ? 32 : 44);
+    return this.row ? 48 : (this.compact ? 32 : 44);
   }
 
   /** 封面圆角：圆形形态（compact/row）取半边长，完整形态保留 8 圆角方形。 */
@@ -151,7 +155,7 @@ export struct MiniPlayer {
     return 40;
   }
 
-  /** row 形态封面左缩进：与药丸左端圆弧同心 = (40-34)/2 = 3。 */
+  /** row 形态封面左缩进：封面≈药丸高时同心即贴边，公式自然收敛为 0。 */
   private rowCoverInset(): number {
     return Math.max(0, (this.rowContentHeight() - this.coverSize()) / 2);
   }
@@ -267,12 +271,16 @@ export struct MiniPlayer {
               .margin(this.compact
                 ? { left: 8, right: 8, top: 8, bottom: 8 }
                 : (this.row
-                  ? { left: 6, right: 6, top: 6, bottom: 6 }
+                  ? { left: 13, right: 13, top: 13, bottom: 13 }
                   : { left: 11, right: 11, top: 11, bottom: 11 }))
               .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
               .borderRadius(this.coverRadius())
           }
         }
+        // row 形态：封面顶边贴药丸上缘（2026-10-02 用户指定恢复的「大圆嵌弧」
+        // 观感——底缘没入药丸下弧被自然裁切）；40 行内垂直居中会使其顶边
+        // 探出药丸上缘 4vp，故 +4 归位。其余形态随 Row 默认垂直居中。
+        .offset({ y: this.row ? 4 : 0 })
 
         Row() {
           Column({ space: 2 }) {
@@ -282,15 +290,17 @@ export struct MiniPlayer {
             // 保留文字，右端透明处文字平滑淡出（Text 无原生渐隐截断，fadeout 仅
             // 跑马灯适用）。短标题不进入渐变区，不受影响。
             if (this.row) {
-              // row 形态弃渐隐蒙版：展开行药丸更窄，80% 处开始的渐隐让标题
-              // 可读段过短（三轮反馈「标题截取太短」），改普通省略号。
-              Text(this.song().displayName)
-                .fontSize(14)
-                .fontWeight(FontWeight.Medium)
-                .fontColor(Theme.textPrimary(Theme.isDark()))
-                .maxLines(1)
-                .textOverflow({ overflow: TextOverflow.Ellipsis })
-                .width('100%')
+              // row 形态标题用跑马灯（2026-10-02 用户要求：超长歌名在折叠行
+              // 保持滚动与轮间停顿）：折叠行文字区最窄，省略号/渐隐都浪费可读
+              // 段。组件移植自 feature/marquee-song-title（开头停留 2s + 轮间
+              // delay、切歌从头重滚、未超宽时静止）；该分支后续合入 dev 时
+              // MarqueeText.ets 内容一致，冲突取任一侧即可。
+              MarqueeText({
+                text: this.song().displayName,
+                fontSize: 14,
+                fontWeight: FontWeight.Medium,
+                fontColor: Theme.textPrimary(Theme.isDark())
+              })
             } else {
               Stack() {
                 Text(this.song().displayName)
