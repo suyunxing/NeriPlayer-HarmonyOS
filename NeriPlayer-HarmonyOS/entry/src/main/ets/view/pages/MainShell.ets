@@ -8,7 +8,7 @@ import { PANEL_CURVE } from '../NowPlayingCurves';
 import { Theme } from '../Theme';
 import { common } from '@kit.AbilityKit';
 import { SystemBars } from '../../util/SystemBars';
-import { HdsTabs, HdsBarLayoutMode, hdsMaterial, SystemMaterialParams, HdsTabsController, HdsAnimationMode } from '@kit.UIDesignKit';
+import { HdsTabs, HdsBarLayoutMode, hdsMaterial, SystemMaterialParams, HdsTabsController, HdsBarStyle } from '@kit.UIDesignKit';
 import { HdsTabsAttribute } from '@kit.UIDesignKit';
 import { HdsNavigation, HdsNavigationTitleMode, ScrollEffectType, BlurStrategy } from '@kit.UIDesignKit';
 import { LengthMetrics } from '@kit.ArkUI';
@@ -44,11 +44,14 @@ const FLOAT_BAR_SIDE_MARGIN_VP: number = 16;
 const FLOAT_BAR_BOTTOM_GAP_VP: number = 8;
 /** dock 态迷你条高度 = 非紧凑 MiniPlayer 胶囊高度（进度条 2 + 内容行 60）。 */
 const DOCK_MINI_HEIGHT_VP: number = 62;
-/**
- * 滚动自适应让位的位移阈值：内容滚过此值后再向下滚动才隐藏悬浮栏组，
- * 避免停在顶部时轻扫一像素就吞掉底栏（参考网易云观感：滚入正文才让位）。
- */
-const FLOAT_BAR_YIELD_OFFSET_VP: number = 64;
+/** 迷你条展开（页签栏随之折叠成当前项小钮）的滚动阈值：向下滚且滚过此值触发。 */
+const MINI_EXPAND_ON_OFFSET_VP: number = 96;
+/** 迷你条收回（页签栏恢复堆叠）的滚动阈值：滚回此值以内触发（双阈值滞回防抖）。 */
+const MINI_COLLAPSE_ON_OFFSET_VP: number = 48;
+/** 展开态迷你条所在底行高度（HDS 悬浮栏 56vp 视觉；一镜到底起点用近似值）。 */
+const MINI_EXPANDED_ROW_H_VP: number = 56;
+/** 展开态行首折叠页签钮的近似宽度（同上，仅几何推导用）。 */
+const MINI_EXPANDED_TAB_KNOB_W_VP: number = 64;
 /**
  * 槽位药丸顶边相对 dock 条顶边的上移量。真机视频三轮标定（2026-09-21）：
  * 104.5vp 差 10px 不到位 → 108.5vp 过 2px（+4vp 实测位移 9.9px，与
@@ -108,10 +111,16 @@ struct SlotMiniBar {
   /** MainShell.publishSlotMiniHidden 发布的最终显隐门（= MainShell.slotMiniHidden()）。 */
   @StorageLink('ui.slotMiniHidden') hidden: boolean = false;
   @StorageLink('player.currentSong') currentSongJson: string = '';
+  /**
+   * MainShell.onBarStyleChange 发布：迷你条展开（页签栏折叠、两行并一行）时
+   * 槽位药丸变大，内容随之切到非紧凑 MiniPlayer。槽位闭包不响应 MainShell
+   * 状态（见 miniBarBuilder 注释），只能经 AppStorage 订阅。
+   */
+  @StorageLink('ui.miniBarExpanded') expanded: boolean = false;
 
   build() {
     if (this.currentSongJson.length > 0) {
-      MiniPlayer({ compact: true })
+      MiniPlayer({ compact: !this.expanded })
         .opacity(this.hidden ? 0 : 1)
         .accessibilityLevel(this.hidden ? 'no-hide-descendants' : 'auto')
         .hitTestBehavior(this.hidden ? HitTestMode.None : HitTestMode.Default)
@@ -267,6 +276,19 @@ export struct MainShell {
    * 注释的方法重测。
    */
   private pillRect(): NowPlayingRect {
+    if (this.miniExpanded) {
+      // 展开态：迷你条占据底部整行（页签栏已折叠为行首小钮）。行高/钮宽为
+      // 设计近似值（HDS 56vp 行高），仅作一镜到底飞行起点、偏差不敏感；真机
+      // 若需精修，按 PILL_RISE_FROM_DOCK_VP 注释同法标定。
+      const rowY = this.windowHeight - (this.bottomLift + FLOAT_BAR_BOTTOM_GAP_VP) - MINI_EXPANDED_ROW_H_VP;
+      return {
+        x: FLOAT_BAR_SIDE_MARGIN_VP + MINI_EXPANDED_TAB_KNOB_W_VP,
+        y: rowY,
+        width: Math.max(40,
+          this.windowWidth - 2 * FLOAT_BAR_SIDE_MARGIN_VP - MINI_EXPANDED_TAB_KNOB_W_VP),
+        height: MINI_EXPANDED_ROW_H_VP
+      };
+    }
     return {
       x: MainShell.PILL_MARGIN_X,
       y: this.dockRect().y - PILL_RISE_FROM_DOCK_VP,
@@ -292,13 +314,16 @@ export struct MainShell {
   private tabScrollers: Scroller[] = [new Scroller(), new Scroller(), new Scroller(), new Scroller()];
 
   /**
-   * 悬浮 HdsTabs 的控制器：滚动自适应显隐（applyHide/ShowAnimation）的入口。
-   * 只挂窄屏悬浮形态（lg 侧栏形态不传，两个分支各挂各的或都不挂，避免一个
-   * controller 同时绑两个 Tabs）。
+   * 悬浮 HdsTabs 的控制器：滚动驱动 miniBar 展开/折叠形变（applyMiniBarStyle）
+   * 的入口。只挂窄屏悬浮形态（lg 侧栏形态不传，避免一个 controller 绑两个 Tabs）。
    */
   private tabsController: HdsTabsController = new HdsTabsController();
-  /** 悬浮栏组是否已因下滚让位。非响应式：只在本类的事件回调里读写。 */
-  private barYielded: boolean = false;
+  /**
+   * 迷你条当前形态（EXPAND=迷你条展开+页签栏折叠，COLLAPSE=上下堆叠）。
+   * 事实源是 onBarStyleChange 回调（覆盖系统点击切换 USER_CLICK 与应用滚动
+   * 驱动 APP_TRIGGER 两条路径）；apply 后同步预写，防同帧重复 apply。
+   */
+  private miniExpanded: boolean = false;
 
   /**
    * 官方 HdsTabsMiniBar 槽位：无歌时留空，有歌渲染紧凑 MiniPlayer。
@@ -428,9 +453,8 @@ export struct MainShell {
    * 返回动画中途再次入栈会清掉卸载计时器并直接反向重定目标。
    */
   private syncDockBar(): void {
-    // 切歌/子页进出/断点切换都会路过这里：悬浮栏若处于滚动让位态，借这些
-    // 时机唤回（列表点播后迷你条必须立刻可见；返回主页不应面对空底栏）。
-    this.showYieldedBar();
+    // 切歌路径：歌曲清空时收回展开态迷你条（避免无歌空玻璃壳）。
+    this.collapseMiniBarIfSongEmpty();
     this.publishSlotMiniHidden();
     if (this.shouldDockBar()) {
       if (this.dockMountTimer >= 0) {
@@ -484,39 +508,42 @@ export struct MainShell {
   }
 
   /**
-   * 滚动自适应悬浮栏（参考 UIDesignKit 官方示例 Spatialization 沉浸光感场景
-   * 的 handleTabBarAnimation）：各 Tab 页根滚动容器经 onScrollFrameBegin 把
-   * 纵向增量上报到这里。下滚（yDelta>0）且内容已滚过 FLOAT_BAR_YIELD_OFFSET_VP
-   * 时，整组悬浮胶囊（Tab 栏 + 迷你条）以 SCROLL_ANIMATION 让位沉浸；上滚
-   * （yDelta<0）即回。页面触底时按示例同款传 -1 兜底唤回。滞回由 barYielded
-   * 承担，重复 hide/show 不叠加。
+   * 滚动自适应悬浮栏（参考视频与官方 Spatialization「自适应悬浮导航」场景的
+   * miniBar 展开/折叠形变）：各 Tab 页根滚动容器经 onScrollFrameBegin 把纵向
+   * 增量上报到这里。向下滚且滚过 MINI_EXPAND_ON_OFFSET_VP → applyMiniBarStyle
+   * (EXPAND)：迷你条展开、页签栏折叠成当前项小钮，两行并一行，系统自带形变
+   * 动画；滚回 MINI_COLLAPSE_ON_OFFSET_VP 以内 → COLLAPSE（恢复上下堆叠）。
+   * 双阈值滞回防抖。注意不是 applyHide/ShowAnimation——那是官方示例「沉浸
+   * 光感」场景的整组淡出 API（真机实测原地半透明+方向反复闪切，2026-10-01
+   * 弃用），两场景 API 不可混用。触底兜底报 -1 不满足任一分支：展开态在
+   * 底部保持（同参考视频）。
    */
   private handleTabBarScroll(yDelta: number): void {
     if (this.wide()) {
       return;
     }
     const yOffset = this.tabScrollers[this.currentTab].currentOffset().yOffset;
-    if (!this.barYielded) {
-      if (yDelta > 0 && yOffset > FLOAT_BAR_YIELD_OFFSET_VP) {
-        this.barYielded = true;
-        this.tabsController.applyHideAnimation(HdsAnimationMode.SCROLL_ANIMATION);
+    if (!this.miniExpanded) {
+      if (yDelta > 0 && yOffset > MINI_EXPAND_ON_OFFSET_VP && this.currentSongJson.length > 0) {
+        this.miniExpanded = true;
+        this.tabsController.applyMiniBarStyle(HdsBarStyle.EXPAND);
       }
-    } else if (yDelta < 0 || yOffset <= FLOAT_BAR_YIELD_OFFSET_VP) {
-      this.barYielded = false;
-      this.tabsController.applyShowAnimation(HdsAnimationMode.SCROLL_ANIMATION);
+    } else if (yOffset < MINI_COLLAPSE_ON_OFFSET_VP) {
+      this.miniExpanded = false;
+      this.tabsController.applyMiniBarStyle(HdsBarStyle.COLLAPSE);
     }
   }
 
   /**
-   * 强制唤回让位中的悬浮栏：切歌、子页返回、播放页关闭共用（见 syncDockBar
-   * 与 bindContentCover.onDisappear）。未让位或 lg 侧栏形态时无副作用。
+   * 歌曲清空时收回展开态迷你条：无歌的展开槽位只剩空玻璃壳（真机曾实测该
+   * 壳在子页返回后残留）。由 syncDockBar 的切歌路径调用；宽屏无槽位无副作用。
    */
-  private showYieldedBar(): void {
-    if (this.wide() || !this.barYielded) {
+  private collapseMiniBarIfSongEmpty(): void {
+    if (this.wide() || !this.miniExpanded || this.currentSongJson.length > 0) {
       return;
     }
-    this.barYielded = false;
-    this.tabsController.applyShowAnimation(HdsAnimationMode.SCROLL_ANIMATION);
+    this.miniExpanded = false;
+    this.tabsController.applyMiniBarStyle(HdsBarStyle.COLLAPSE);
   }
 
   /** 悬浮 Tab 栏的系统沉浸材质：设备不支持时保持 undefined（自绘玻璃兜底）。 */
@@ -558,8 +585,9 @@ export struct MainShell {
 
   aboutToAppear(): void {
     Router.attach(this.pageStack, this.getUIContext());
-    // 槽位迷你条显隐门初值：保证 SlotMiniBar 首帧挂载前键已就位。
+    // 槽位迷你条显隐门与形态键初值：保证 SlotMiniBar 首帧挂载前键已就位。
     this.publishSlotMiniHidden();
+    AppStorage.setOrCreate('ui.miniBarExpanded', false);
     // 注册要放在启动页分支的 return 之前，任何默认页配置下都得收到完成回调。
     this.downloadListener.attach(this);
     DownloadEngine.addListener(this.downloadListener);
@@ -824,8 +852,9 @@ export struct MainShell {
           } else {
             // S3b-2: 悬浮胶囊 Tab 栏 + 官方 MiniBar 槽位。barOverlap 后
             // 内容延伸到栏下，四个 Tab 页的滚动尾部加了 FLOAT_TAB_CLEARANCE
-            // 避让；系统材质在不支持的设备上回落自绘玻璃。滚动自适应显隐
-            // （下滚让位/上滚唤回）经 tabsController 驱动，见 handleTabBarScroll。
+            // 避让；系统材质在不支持的设备上回落自绘玻璃。滚动自适应形变
+            // （下滚迷你条展开/页签栏折叠，回顶恢复堆叠）经 tabsController
+            // 的 applyMiniBarStyle 驱动，见 handleTabBarScroll。
             HdsTabs({ barPosition: BarPosition.End, index: this.currentTab, controller: this.tabsController }) {
               this.tabPages()
             }
@@ -842,7 +871,15 @@ export struct MainShell {
                   this.miniBarBuilder()
                 },
                 enableMiniBarBackground: true,
-                barLayoutMode: HdsBarLayoutMode.VERTICAL
+                barLayoutMode: HdsBarLayoutMode.VERTICAL,
+                miniBarStyle: HdsBarStyle.COLLAPSE,
+                onBarStyleChange: (miniBarStyle: HdsBarStyle): void => {
+                  // 形态事实源：覆盖系统点击切换（USER_CLICK）与应用滚动驱动
+                  // （APP_TRIGGER）两条路径；发布给槽内 SlotMiniBar 切换紧凑/
+                  // 非紧凑内容（槽位闭包不响应本组件状态，见 miniBarBuilder 注释）。
+                  this.miniExpanded = miniBarStyle === HdsBarStyle.EXPAND;
+                  AppStorage.setOrCreate('ui.miniBarExpanded', this.miniExpanded);
+                }
               },
               systemMaterialEffect: this.systemMaterialEffect()
             })
@@ -992,9 +1029,6 @@ export struct MainShell {
         if (context !== undefined) {
           SystemBars.apply(context as common.UIAbilityContext, this.resolveDark());
         }
-        // 收起时悬浮栏组可能仍处于滚动让位态（藏在模态之下）：唤回，避免
-        // 关闭播放页后面对空底栏。
-        this.showYieldedBar();
       },
       onWillDismiss: (action: DismissContentCoverAction) => {
         this.pendingDismiss = action;
@@ -1033,6 +1067,12 @@ export struct MainShell {
       return;
     }
     this.currentTab = index;
+    // 目标 Tab 滚在顶部而迷你条处于展开态：收回（堆叠是页签浏览的常态）；
+    // 滚入正文的 Tab 维持展开，避免切页瞬间形变抖动。
+    if (this.miniExpanded && this.tabScrollers[index].currentOffset().yOffset < MINI_COLLAPSE_ON_OFFSET_VP) {
+      this.miniExpanded = false;
+      this.tabsController.applyMiniBarStyle(HdsBarStyle.COLLAPSE);
+    }
     // 先落 default_start_tab，再发刷新信号：Tab 页用它判断自己是否可见。
     AppStorage.setOrCreate('np.default_start_tab', index);
     Router.notifyReturned();
