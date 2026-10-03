@@ -50,7 +50,7 @@ import { subPageTitleBar, SubPageBottomFade, SUB_TITLEBAR_SPACE_VP, SUB_BOTTOM_C
 import { LyricSettingsRows, LyricStylePreview } from '../components/LyricSettingsRows';
 import { SETTING_PLAYBACK, SETTING_DOWNLOAD, SETTING_LYRICS, SETTING_PLAYER,
   SETTING_APPEARANCE, SETTING_NAVIGATION, SETTING_TRAFFIC, SETTING_STORAGE,
-  SETTING_ACCOUNTS, SETTING_SYNC, SETTING_PLAYLIST_SYNC, SETTING_DEBUG, SETTING_ABOUT } from './SettingsPage';
+  SETTING_ACCOUNTS, SETTING_SYNC, SETTING_PLAYLIST_SYNC, SETTING_DEBUG, SETTING_DONATE, SETTING_ABOUT } from './SettingsPage';
 import { BiliApi } from '../../network/BiliApi';
 import { NeteasePlaylistSummary } from '../../network/NeteasePlaylistParser';
 import { BiliFavFolderSummary } from '../../network/BiliFavParser';
@@ -93,11 +93,14 @@ import {
   resolveListenTogetherBaseUrl
 } from '../../listentogether/invite/ListenTogetherBaseUrlResolver';
 import { AutoSyncScheduler } from '../../sync/AutoSyncScheduler';
+import { openExternalLink } from '../../util/LinkLauncher';
 
 const SPEEDS: number[] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
 const QUALITIES: string[] = ['standard', 'high', 'exhigh', 'lossless', 'hires'];
 const NETEASE_QR_POLL_INTERVAL_MS: number = 2000;
 const BILI_QR_POLL_INTERVAL_MS: number = 1500;
+/** 本移植的主仓库：关于页展示并经 openLink 外跳到浏览器。 */
+const PROJECT_REPO_URL: string = 'https://github.com/suyunxing/NeriPlayer-HarmonyOS';
 
 @Component
 export struct SettingsDetailPage {
@@ -249,6 +252,9 @@ export struct SettingsDetailPage {
     }
     if (this.section === SETTING_DEBUG) {
       return '开发者';
+    }
+    if (this.section === SETTING_DONATE) {
+      return '打赏作者';
     }
     if (this.section === SETTING_ABOUT) {
       return '关于';
@@ -512,6 +518,36 @@ export struct SettingsDetailPage {
     } catch (error) {
       return `版本信息不可用 (HarmonyOS 26 / API 26)，${(error as Error).message}`;
     }
+  }
+
+  /** 关于页仓库链接：拉起系统浏览器（或可处理该链接的应用）打开仓库主页。 */
+  private openRepoInBrowser(): void {
+    const context = AppStorage.get<common.UIAbilityContext>('abilityContext');
+    if (context === undefined) {
+      promptAction.openToast({ message: '应用上下文未就绪，无法打开链接' });
+      return;
+    }
+    openExternalLink(context, PROJECT_REPO_URL);
+  }
+
+  /** 打赏页收款码卡片：占位图在 resources/base/media/donate_wechat.png / donate_alipay.png，替换同名文件即为真实收款码。 */
+  @Builder
+  donateCard(title: string, qr: Resource) {
+    Column({ space: 10 }) {
+      Text(title)
+        .fontSize(14)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(Theme.textPrimary(Theme.isDark()))
+      Image(qr)
+        .width('100%')
+        .aspectRatio(1)
+        .objectFit(ImageFit.Contain)
+        .borderRadius(8)
+    }
+    .layoutWeight(1)
+    .padding(12)
+    .backgroundColor(Theme.surface(Theme.isDark()))
+    .borderRadius(Theme.cardRadius())
   }
 
   // ---- Download directory (picker + persisted URI grant) ------------------
@@ -2126,6 +2162,21 @@ export struct SettingsDetailPage {
               icon: '🔧',
               onTap: () => Router.push(Router.DEBUG)
             })
+          } else if (this.section === SETTING_DONATE) {
+            Column({ space: 12 }) {
+              Text('如果 NeriPlayer 对你有帮助，欢迎请作者喝一杯 ☕')
+                .fontSize(13)
+                .fontColor(Theme.textSecondary(Theme.isDark()))
+                .textAlign(TextAlign.Center)
+                .width('100%')
+                .margin({ top: 8 })
+              Row({ space: 12 }) {
+                this.donateCard('微信收款码', $r('app.media.donate_wechat'))
+                this.donateCard('支付宝收款码', $r('app.media.donate_alipay'))
+              }
+              .width('100%')
+            }
+            .width('100%')
           } else if (this.section === SETTING_ABOUT) {
             Column({ space: 8 }) {
               Text('NeriPlayer')
@@ -2144,10 +2195,15 @@ export struct SettingsDetailPage {
                 .fontColor(Theme.textSecondary(Theme.isDark()))
                 .textAlign(TextAlign.Center)
                 .margin({ top: 10 })
-              Text('GPL-3.0 · github.com/cwuom/NeriPlayer')
+              Text('GPL-3.0 开源许可')
+                .fontSize(12)
+                .fontColor(Theme.textDisabled(Theme.isDark()))
+                .margin({ top: 6 })
+              Text('github.com/suyunxing/NeriPlayer-HarmonyOS')
                 .fontSize(12)
                 .fontColor(Theme.primary(Theme.isDark()))
-                .margin({ top: 6 })
+                .margin({ top: 2 })
+                .onClick(() => this.openRepoInBrowser())
             }
             .width('100%')
             .padding(20)
