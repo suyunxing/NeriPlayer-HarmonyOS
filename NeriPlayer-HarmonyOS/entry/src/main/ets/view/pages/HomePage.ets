@@ -15,6 +15,7 @@ import { Theme } from '../Theme';
 import { AccentScheme } from '../theme/AccentScheme';
 import { BAND_LIST_VP, BP_LG, BP_MD } from '../../util/Breakpoint';
 import { SectionHeader, EmptyState, LoadingState, PlaylistCard, ContentBand , FLOAT_TAB_CLEARANCE } from '../components/Ui';
+import { coverThumbnailUrl } from '../../util/CoverUrls';
 import { promptAction } from '@kit.ArkUI';
 
 /** 本页在 MainShell 的 Tabs 里的下标，用于过滤刷新信号。 */
@@ -159,7 +160,8 @@ export struct HomePage {
   recommendHero(item: NeteasePlaylistSummary) {
     Row({ space: 14 }) {
       if (item.coverUrl.length > 0) {
-        Image(item.coverUrl)
+        Image(coverThumbnailUrl(item.coverUrl, 400))
+          .autoResize(true)
           .width(118)
           .height(118)
           .borderRadius(18)
@@ -290,7 +292,8 @@ export struct HomePage {
                     Column({ space: 6 }) {
                       Stack() {
                         if (entry.picUrl.length > 0) {
-                          Image(entry.picUrl)
+                          Image(coverThumbnailUrl(entry.picUrl, 400))
+                            .autoResize(true)
                             .width(132)
                             .height(132)
                             .borderRadius(16)
@@ -339,7 +342,8 @@ export struct HomePage {
                     Row({ space: 12 }) {
                       Stack() {
                         if (song.effectiveCoverUrl.length > 0) {
-                          Image(song.effectiveCoverUrl)
+                          Image(coverThumbnailUrl(song.effectiveCoverUrl, 200))
+                            .autoResize(true)
                             .width(46)
                             .height(46)
                             .borderRadius(8)
@@ -415,7 +419,8 @@ export struct HomePage {
                     ForEach(this.neteaseRecommend.slice(1), (item: NeteasePlaylistSummary) => {
                       Column({ space: 6 }) {
                         if (item.coverUrl.length > 0) {
-                          Image(item.coverUrl)
+                          Image(coverThumbnailUrl(item.coverUrl, 400))
+                            .autoResize(true)
                             .width(132)
                             .height(132)
                             .borderRadius(16)

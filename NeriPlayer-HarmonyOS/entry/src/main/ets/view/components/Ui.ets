@@ -6,6 +6,7 @@ import { LengthMetrics } from '@kit.ArkUI';
 
 import { Playlist } from '../../model/Playlist';
 import { iconForLegacy } from '../../util/IconCatalog';
+import { coverThumbnailUrl } from '../../util/CoverUrls';
 
 /**
  * Shared UI building blocks used across pages (section headers, cards,
@@ -151,7 +152,8 @@ export struct PlaylistCard {
     Column({ space: 6 }) {
       Stack() {
         if (this.coverUrl.length > 0) {
-          Image(this.coverUrl)
+          Image(coverThumbnailUrl(this.coverUrl, 400))
+            .autoResize(true)
             .width('100%')
             .aspectRatio(1)
             .borderRadius(12)

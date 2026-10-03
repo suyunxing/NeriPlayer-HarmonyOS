@@ -107,6 +107,7 @@ export class LocalPlaylistRepository {
    * source check does not trigger an upload.
    */
   private static async saveAllSilent(playlists: Playlist[]): Promise<void> {
+    LocalPlaylistRepository.invalidateFavoriteKeys();
     const json = JSON.stringify(playlists.map((item: Playlist) => Playlist.fromJson(item.toJson())));
     await SchemaStore.save(LocalPlaylistRepository.KEY, json, (value: string) => value);
   }
@@ -115,6 +116,7 @@ export class LocalPlaylistRepository {
   static async replaceAllFromSync(playlists: Playlist[]): Promise<void> {
     const json = JSON.stringify(playlists.map((item: Playlist) => Playlist.fromJson(item.toJson())));
     await SchemaStore.save(LocalPlaylistRepository.KEY, json, (value: string) => value);
+    LocalPlaylistRepository.invalidateFavoriteKeys();
   }
 
   static async ensureFavorites(): Promise<Playlist> {
@@ -437,13 +439,32 @@ export class LocalPlaylistRepository {
     return LocalPlaylistRepository.removeSong(LocalPlaylistRepository.FAVORITES_ID, stableKeyOf(song));
   }
 
-  static async isFavorite(song: SongItem): Promise<boolean> {
+  /**
+   * 收藏键集合的进程内缓存。行重建（LazyForEach 回滚重进视口）会再次调
+   * isFavorite，旧实现每次都 loadAll() 全量读取+解析整个歌单库（真机实测
+   * 滚动持续掉帧的主因之一）；缓存后仅首次与任意写盘后重建一次。
+   */
+  private static favoriteKeysCache: Set<string> | null = null;
+
+  private static invalidateFavoriteKeys(): void {
+    LocalPlaylistRepository.favoriteKeysCache = null;
+  }
+
+  private static async getFavoriteKeySet(): Promise<Set<string>> {
+    const cached = LocalPlaylistRepository.favoriteKeysCache;
+    if (cached !== null) {
+      return cached;
+    }
     const playlists = await LocalPlaylistRepository.loadAll();
     const favorites = playlists.find((item: Playlist) => item.id === LocalPlaylistRepository.FAVORITES_ID);
-    if (favorites === undefined) {
-      return false;
-    }
-    return favorites.songKeys.indexOf(stableKeyOf(song)) >= 0;
+    const keySet = new Set<string>(favorites !== undefined ? favorites.songKeys : []);
+    LocalPlaylistRepository.favoriteKeysCache = keySet;
+    return keySet;
+  }
+
+  static async isFavorite(song: SongItem): Promise<boolean> {
+    const keySet = await LocalPlaylistRepository.getFavoriteKeySet();
+    return keySet.has(stableKeyOf(song));
   }
 
   static async renamePlaylist(playlistId: string, name: string): Promise<void> {

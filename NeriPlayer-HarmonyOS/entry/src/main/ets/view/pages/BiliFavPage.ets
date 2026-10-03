@@ -11,6 +11,7 @@ import { resolvePlaylistPlaybackStartIndex } from '../../player/queue/QueueEngin
 import { Theme } from '../Theme';
 import { AccentScheme } from '../theme/AccentScheme';
 import { SongRow } from '../components/SongRow';
+import { SongListDataSource } from '../components/SongListDataSource';
 import { EmptyState, LoadingState } from '../components/Ui';
 import { Router } from '../Router';
 import { PlaylistHeader, HeaderPill } from '../components/PlaylistHeader';
@@ -35,7 +36,7 @@ export struct BiliFavPage {
   /** 状态栏避让（util/WindowMetrics.ets 发布）；内容根从 y=0 起，让位 = topInset + 56。 */
   @StorageProp('ui.topInsetVp') topInset: number = 0;
   @State info: BiliFavFolderSummary | null = null;
-  @State songs: SongItem[] = [];
+  @Watch('onSongsChanged') @State songs: SongItem[] = [];
   @State totalCount: number = 0;
   @State loading: boolean = true;
   @State loadingMore: boolean = false;
@@ -45,6 +46,17 @@ export struct BiliFavPage {
   @State importName: string = '';
   /** 供 HdsNavDestination.bindToScrollable 绑定的收藏夹列表控制器。 */
   private scroller: Scroller = new Scroller();
+
+  /**
+   * 列表走 LazyForEach 按需建行（收藏夹可上千条，进场不再一次性建满全部行）。
+   * @State songs 整体重赋值时由 @Watch 同步进数据源（首页加载与 loadMore 追加
+   * 都走 appendItems 的整体重赋值）。
+   */
+  private songsDs: SongListDataSource = new SongListDataSource();
+
+  onSongsChanged(): void {
+    this.songsDs.reset(this.songs);
+  }
 
   private page: number = 1;
   private hasMore: boolean = false;
@@ -242,7 +254,7 @@ export struct BiliFavPage {
                 EmptyState({ icon: '📺', title: '收藏夹为空', subtitle: '该收藏夹没有可播放的视频' })
               }
             } else {
-              ForEach(this.songs, (song: SongItem, index: number) => {
+              LazyForEach(this.songsDs, (song: SongItem, index: number) => {
                 ListItem() {
                   SongRow({
                     songJson: song.toJson(),
@@ -253,7 +265,9 @@ export struct BiliFavPage {
                     }
                   })
                 }
-              }, (song: SongItem) => `${song.platform}_${song.audioId}`)
+              // key 含 index：追加/重排后行内缓存的 index（序号徽标、onPlay 定位）
+              // 会过期，靠 key 变化强制重建受影响行。
+              }, (song: SongItem, index: number) => `${index}_${song.platform}_${song.audioId}`)
               if (this.hasMore) {
                 ListItem() {
                   Column({ space: 6 }) {

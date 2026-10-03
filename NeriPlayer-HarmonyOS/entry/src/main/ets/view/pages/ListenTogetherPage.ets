@@ -24,6 +24,7 @@ import { AccentScheme } from '../theme/AccentScheme';
 import { Router } from '../Router';
 import { HdsNavDestination } from '@kit.UIDesignKit';
 import { subPageTitleBar, SubPageBottomFade, SUB_TITLEBAR_SPACE_VP, SUB_BOTTOM_CLEARANCE_VP } from '../components/HdsSubPage';
+import { MarqueeText } from '../components/MarqueeText';
 
 /** Room creation needs a live local queue (upstream validates this too). */
 function hasPlayableQueue(): boolean {
@@ -403,10 +404,14 @@ export struct ListenTogetherPage {
           }.width('100%')
           Row() {
             Text('当前曲目').fontSize(13).fontColor(Theme.textSecondary(Theme.isDark())).width(76)
-            Text(this.roomViewData.track !== null
-              ? `${this.roomViewData.track?.name} · ${this.roomViewData.track?.artist}` : '—')
-              .fontSize(13).fontColor(Theme.textPrimary(Theme.isDark()))
-              .layoutWeight(1).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+            // 长歌名 · 歌手跑马灯滚动展示，未超宽时静止，不再省略号截断。
+            MarqueeText({
+              text: this.roomViewData.track !== null
+                ? `${this.roomViewData.track?.name} · ${this.roomViewData.track?.artist}` : '—',
+              fontSize: 13,
+              fontColor: Theme.textPrimary(Theme.isDark())
+            })
+            .layoutWeight(1)
           }.width('100%')
           Row() {
             Text('播放').fontSize(13).fontColor(Theme.textSecondary(Theme.isDark())).width(76)
