@@ -13,6 +13,7 @@ import { SourceSyncCoordinator } from '../../sourcesync/SourceSyncCoordinator';
 import { Theme } from '../Theme';
 import { AccentScheme } from '../theme/AccentScheme';
 import { SongRow } from '../components/SongRow';
+import { SongListDataSource } from '../components/SongListDataSource';
 import { EmptyState } from '../components/Ui';
 import { PlaylistHeader, HeaderPill } from '../components/PlaylistHeader';
 import { Router } from '../Router';
@@ -32,13 +33,28 @@ export struct PlaylistDetailPage {
   @StorageProp('ui.bottomLiftVp') bottomLift: number = Theme.bottomBarLift();
   /** 状态栏避让（util/WindowMetrics.ets 发布）；内容根从 y=0 起，让位 = topInset + 56。 */
   @StorageProp('ui.topInsetVp') topInset: number = 0;
-  @State playlist: Playlist | null = null;
-  @State history: SongItem[] = [];
+  @Watch('onPlaylistChanged') @State playlist: Playlist | null = null;
+  @Watch('onHistoryChanged') @State history: SongItem[] = [];
   @State showAddDialog: boolean = false;
   @State showRenameDialog: boolean = false;
   @State renameValue: string = '';
   /** 供 HdsNavDestination.bindToScrollable 绑定的歌曲列表控制器。 */
   private scroller: Scroller = new Scroller();
+
+  /**
+   * 歌曲列表走 LazyForEach 按需建行（长歌单进场不再一次性建满全部行）。
+   * @State playlist/history 整体重赋值时由 @Watch 同步进数据源。
+   */
+  private songsDs: SongListDataSource = new SongListDataSource();
+  private historyDs: SongListDataSource = new SongListDataSource();
+
+  onPlaylistChanged(): void {
+    this.songsDs.reset(this.playlist?.songs ?? []);
+  }
+
+  onHistoryChanged(): void {
+    this.historyDs.reset(this.history);
+  }
 
   /** 标题栏菜单：歌单管理（重命名/删除，原页内「⋯」按钮迁入；收藏夹不可改）。 */
   private titleMenu(): SubPageMenuEntry[] | undefined {
@@ -231,7 +247,7 @@ export struct PlaylistDetailPage {
                 })
               }
             } else {
-              ForEach(this.playlist.songs, (song: SongItem, index: number) => {
+              LazyForEach(this.songsDs, (song: SongItem, index: number) => {
                 ListItem() {
                   Row() {
                     SongRow({
@@ -259,7 +275,9 @@ export struct PlaylistDetailPage {
                   }
                   .width('100%')
                 }
-              }, (song: SongItem) => `${song.platform}_${song.audioId}_${song.id}`)
+              // key 含 index：删歌/重排后 key 未变的行不会重建，行内缓存 index
+              // （序号徽标、onPlay 定位）会过期，靠 key 变化强制重建受影响行。
+              }, (song: SongItem, index: number) => `${index}_${song.platform}_${song.audioId}_${song.id}`)
               // 尾部让位：列表延伸进底部手势条区后，末首歌滚过渐变遮罩仍可停稳。
               ListItem() {
                 Column().height(this.bottomLift + SUB_BOTTOM_CLEARANCE_VP)
@@ -305,7 +323,7 @@ export struct PlaylistDetailPage {
                 .padding(24)
             } else {
               List() {
-                ForEach(this.history, (song: SongItem) => {
+                LazyForEach(this.historyDs, (song: SongItem) => {
                   ListItem() {
                     Row({ space: 10 }) {
                       Text('＋')

@@ -7,6 +7,7 @@ import { PlaybackStatus } from '../../player/PlaybackConstants';
 import { PlayerManager } from '../../player/PlayerManager';
 import { Router } from '../Router';
 import { Theme } from '../Theme';
+import { coverThumbnailUrl } from '../../util/CoverUrls';
 import { AccentScheme, SchemeMode } from '../theme/AccentScheme';
 import { HdsLight } from '../theme/HdsLight';
 import { MarqueeText } from './MarqueeText';
@@ -218,7 +219,8 @@ export struct MiniPlayer {
       Row({ space: 12 }) {
         Stack() {
           if (this.song().effectiveCoverUrl.length > 0) {
-            Image(this.song().effectiveCoverUrl)
+            Image(coverThumbnailUrl(this.song().effectiveCoverUrl, 200))
+              .autoResize(true)
               .width(this.compact ? 32 : 44)
               .height(this.compact ? 32 : 44)
               .borderRadius(this.compact ? 16 : 8)

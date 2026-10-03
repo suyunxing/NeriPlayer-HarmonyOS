@@ -11,6 +11,7 @@ import { resolvePlaylistPlaybackStartIndex } from '../../player/queue/QueueEngin
 import { Theme } from '../Theme';
 import { AccentScheme } from '../theme/AccentScheme';
 import { SongRow } from '../components/SongRow';
+import { SongListDataSource } from '../components/SongListDataSource';
 import { EmptyState, LoadingState } from '../components/Ui';
 import { PlaylistHeader, HeaderPill } from '../components/PlaylistHeader';
 import { Router } from '../Router';
@@ -34,7 +35,7 @@ export struct NeteasePlaylistPage {
   @StorageProp('ui.bottomLiftVp') bottomLift: number = Theme.bottomBarLift();
   /** 状态栏避让（util/WindowMetrics.ets 发布）；内容根从 y=0 起，让位 = topInset + 56。 */
   @StorageProp('ui.topInsetVp') topInset: number = 0;
-  @State overview: NeteasePlaylistOverview | null = null;
+  @Watch('onOverviewChanged') @State overview: NeteasePlaylistOverview | null = null;
   @State loading: boolean = true;
   @State loadError: string = '';
   @State importing: boolean = false;
@@ -42,6 +43,16 @@ export struct NeteasePlaylistPage {
   @State importName: string = '';
   /** 供 HdsNavDestination.bindToScrollable 绑定的歌曲列表控制器。 */
   private scroller: Scroller = new Scroller();
+
+  /**
+   * 歌曲列表走 LazyForEach 按需建行（长歌单进场不再一次性建满全部行）。
+   * @State overview 整体重赋值时由 @Watch 同步进数据源。
+   */
+  private songsDs: SongListDataSource = new SongListDataSource();
+
+  onOverviewChanged(): void {
+    this.songsDs.reset(this.overview?.songs ?? []);
+  }
 
   async aboutToAppear(): Promise<void> {
     await this.reload();
@@ -187,7 +198,7 @@ export struct NeteasePlaylistPage {
                 EmptyState({ icon: '♪', title: '歌单为空', subtitle: '该歌单没有可播放的歌曲' })
               }
             } else {
-              ForEach(this.overview.songs, (song: SongItem, index: number) => {
+              LazyForEach(this.songsDs, (song: SongItem, index: number) => {
                 ListItem() {
                   SongRow({
                     songJson: song.toJson(),
@@ -200,7 +211,9 @@ export struct NeteasePlaylistPage {
                     }
                   })
                 }
-              }, (song: SongItem) => `${song.platform}_${song.audioId}_${song.id}`)
+              // key 含 index：重排后行内缓存的 index（序号徽标、onPlay 定位）
+              // 会过期，靠 key 变化强制重建受影响行。
+              }, (song: SongItem, index: number) => `${index}_${song.platform}_${song.audioId}_${song.id}`)
               // 尾部让位：列表延伸进底部手势条区后，末首歌滚过渐变遮罩仍可停稳。
               ListItem() {
                 Column().height(this.bottomLift + SUB_BOTTOM_CLEARANCE_VP)
