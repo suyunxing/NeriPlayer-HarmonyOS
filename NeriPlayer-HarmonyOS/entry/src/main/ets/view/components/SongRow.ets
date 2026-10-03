@@ -7,6 +7,7 @@ import { Theme } from '../Theme';
 import { AccentScheme } from '../theme/AccentScheme';
 
 import { formatDuration } from './Ui';
+import { CoverImage } from './CoverImage';
 
 @Component
 export struct SongRow {
@@ -25,8 +26,20 @@ export struct SongRow {
   @State menuOpen: boolean = false;
   @State favorite: boolean = false;
 
+  /**
+   * build 与 aboutToAppear 会多次读 song()；入参是整只歌的 JSON 串，无缓存时
+   * 每次读都是一次完整 JSON.parse（旧实现单次 build 触发 5+ 次解析，列表页
+   * 进场即成千次）。按 songJson 串比较做惰性缓存，@Prop 重同步后自动失效。
+   */
+  private cachedJson: string = '';
+  private cachedSong: SongItem | null = null;
+
   private song(): SongItem {
-    return this.songJson.length > 0 ? SongItem.fromJson(this.songJson) : new SongItem();
+    if (this.cachedSong === null || this.cachedJson !== this.songJson) {
+      this.cachedJson = this.songJson;
+      this.cachedSong = this.songJson.length > 0 ? SongItem.fromJson(this.songJson) : new SongItem();
+    }
+    return this.cachedSong;
   }
 
   async aboutToAppear(): Promise<void> {
@@ -67,12 +80,13 @@ export struct SongRow {
         // Pinning the box and aligning to a corner is font-size independent.
         Stack({ alignContent: Alignment.TopEnd }) {
           if (this.song().effectiveCoverUrl.length > 0) {
-            Image(this.song().effectiveCoverUrl)
-              .width(52)
-              .height(52)
-              .borderRadius(8)
-              .objectFit(ImageFit.Cover)
-              .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+            // 走进程内封面 LRU（CoverCache）：行被 LazyForEach 销毁重建时
+            // 直接命中已解码 PixelMap，不再重新下载/解码导致滚动反复卡顿。
+            CoverImage({
+              url: this.song().effectiveCoverUrl,
+              sideVp: 52,
+              radiusVp: 8
+            })
           } else {
             Image($r('app.media.ic_music_note_24'))
               .width(22)

@@ -7,6 +7,7 @@ import { Theme } from '../Theme';
 import { AccentScheme } from '../theme/AccentScheme';
 import { EmptyState } from '../components/Ui';
 import { SongRow } from '../components/SongRow';
+import { SongListDataSource } from '../components/SongListDataSource';
 import { Router } from '../Router';
 import { HdsNavDestination } from '@kit.UIDesignKit';
 import { subPageTitleBar, SubPageBottomFade, SUB_TITLEBAR_SPACE_VP, SUB_BOTTOM_CLEARANCE_VP } from '../components/HdsSubPage';
@@ -24,11 +25,21 @@ export struct ArtistPage {
   @StorageProp('ui.topInsetVp') topInset: number = 0;
   artistParam: string = '';
   @State head: NeteaseArtistHead | null = null;
-  @State songs: SongItem[] = [];
+  @Watch('onSongsChanged') @State songs: SongItem[] = [];
   @State orderByHot: boolean = true;
   @State loading: boolean = true;
   /** 供 HdsNavDestination.bindToScrollable 绑定的曲目列表控制器。 */
   private scroller: Scroller = new Scroller();
+
+  /**
+   * 曲目列表走 LazyForEach 按需建行。@State songs 整体重赋值时由 @Watch 同步
+   * 进数据源（排序切换/重载都会走 songs 重赋值）。
+   */
+  private songsDs: SongListDataSource = new SongListDataSource();
+
+  onSongsChanged(): void {
+    this.songsDs.reset(this.songs);
+  }
 
   private param(field: string): string {
     try {
@@ -154,7 +165,7 @@ export struct ArtistPage {
                 .width('100%')
               }
 
-              ForEach(this.songs, (song: SongItem, index: number) => {
+              LazyForEach(this.songsDs, (song: SongItem, index: number) => {
                 ListItem() {
                   SongRow({
                     songJson: song.toJson(),
@@ -164,7 +175,9 @@ export struct ArtistPage {
                     }
                   })
                 }
-              }, (song: SongItem) => `${song.platform}_${song.audioId}_${song.id}`)
+              // key 含 index：排序切换后行内缓存的 index（序号徽标、onPlay 定位）
+              // 会过期，靠 key 变化强制重建受影响行。
+              }, (song: SongItem, index: number) => `${index}_${song.platform}_${song.audioId}_${song.id}`)
               // 尾部让位：列表延伸进底部手势条区后，末首歌滚过渐变遮罩仍可停稳。
               ListItem() {
                 Column().height(this.bottomLift + SUB_BOTTOM_CLEARANCE_VP)
