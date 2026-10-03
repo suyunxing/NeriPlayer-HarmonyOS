@@ -16,6 +16,7 @@ import { AccentScheme, SchemeMode } from '../theme/AccentScheme';
 import { ColorScience } from '../theme/ColorScience';
 import { LyricView } from '../components/LyricView';
 import { WaveformSlider } from '../components/WaveformSlider';
+import { MarqueeText } from '../components/MarqueeText';
 import { LyricShareSheet } from '../components/LyricShareSheet';
 import { MatchSongInfoSheet } from '../components/MatchSongInfoSheet';
 import { EditSongInfoSheet } from '../components/EditSongInfoSheet';
@@ -688,13 +689,14 @@ export struct NowPlayingPage {
 
             Column({ space: 8 }) {
               Row({ space: 8 }) {
-                Text(this.song().displayName)
-                  .fontSize(22)
-                  .fontWeight(FontWeight.Bold)
-                  .fontColor(this.im().textPrimary)
-                  .maxLines(1)
-                  .textOverflow({ overflow: TextOverflow.Ellipsis })
-                  .layoutWeight(1)
+                // 长歌名跑马灯滚动展示，未超宽时静止，不再省略号截断。
+                MarqueeText({
+                  text: this.song().displayName,
+                  fontSize: 22,
+                  fontWeight: FontWeight.Bold,
+                  fontColor: this.im().textPrimary
+                })
+                .layoutWeight(1)
                 Column() {
                   Image(this.favorite
                     ? $r('app.media.ic_baseline_favorite_24')
