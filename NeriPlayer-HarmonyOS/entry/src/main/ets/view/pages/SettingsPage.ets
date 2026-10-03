@@ -228,15 +228,10 @@ export struct SettingsPage {
       }
       }
       .scrollBar(BarState.Off)
-      // 滚动自适应悬浮栏：增量交壳层（不消费）；触底报 -1 兜底唤回。
+      // 滚动自适应悬浮栏：增量交壳层（不消费，见 MainShell.handleTabBarScroll）。
       .onScrollFrameBegin((offset: number) => {
         this.onBarScroll(offset);
         return { offsetRemain: offset };
-      })
-      .onScrollEdge((side: Edge) => {
-        if (side === Edge.Bottom) {
-          this.onBarScroll(-1);
-        }
       })
       // Scroll 的 align 默认是 Alignment.Center：内容短于视口时（大屏、或字号最小
       // 档）整份设置项会被甩到屏幕竖向正中，标题留在顶上，读起来是断开的两块。

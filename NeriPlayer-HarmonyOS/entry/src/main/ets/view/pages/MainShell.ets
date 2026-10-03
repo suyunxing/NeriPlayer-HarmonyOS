@@ -517,11 +517,15 @@ export struct MainShell {
    * miniBar 展开/折叠形变）：各 Tab 页根滚动容器经 onScrollFrameBegin 把纵向
    * 增量上报到这里。向下滚且滚过 MINI_EXPAND_ON_OFFSET_VP → applyMiniBarStyle
    * (EXPAND)：迷你条展开、页签栏折叠成当前项小钮，两行并一行，系统自带形变
-   * 动画；滚回 MINI_COLLAPSE_ON_OFFSET_VP 以内 → COLLAPSE（恢复上下堆叠）。
-   * 双阈值滞回防抖。注意不是 applyHide/ShowAnimation——那是官方示例「沉浸
-   * 光感」场景的整组淡出 API（真机实测原地半透明+方向反复闪切，2026-10-01
-   * 弃用），两场景 API 不可混用。触底兜底报 -1 不满足任一分支：展开态在
-   * 底部保持（同参考视频）。
+   * 动画；折叠态遇任意上滚增量（yDelta<0）→ COLLAPSE（恢复上下堆叠），与
+   * 下滚收起方向对称（2026-10-03 修订十三：原仅滚回 48vp 内才恢复，列表中部
+   * 上滑无响应，须滚到顶部才恢复——真机反馈后改）；滚回
+   * MINI_COLLAPSE_ON_OFFSET_VP 以内作位置兜底（内容缩短等无声增量场景）。
+   * miniExpanded 状态即闩锁，同方向连续帧不重复触发。注意不是
+   * applyHide/ShowAnimation——那是官方示例「沉浸光感」场景的整组淡出 API
+   * （真机实测原地半透明+方向反复闪切，2026-10-01 弃用），两场景 API 不可
+   * 混用。触底不上报增量：折叠态在底部保持（同参考视频），上滑离开底部时
+   * 自然有真实负增量触发恢复。
    */
   private handleTabBarScroll(yDelta: number): void {
     if (this.wide()) {
@@ -533,7 +537,7 @@ export struct MainShell {
         this.miniExpanded = true;
         this.tabsController.applyMiniBarStyle(HdsBarStyle.EXPAND);
       }
-    } else if (yOffset < MINI_COLLAPSE_ON_OFFSET_VP) {
+    } else if (yDelta < 0 || yOffset < MINI_COLLAPSE_ON_OFFSET_VP) {
       this.miniExpanded = false;
       this.tabsController.applyMiniBarStyle(HdsBarStyle.COLLAPSE);
     }

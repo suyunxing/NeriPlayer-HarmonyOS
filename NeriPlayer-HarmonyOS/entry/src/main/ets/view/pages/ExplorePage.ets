@@ -306,13 +306,10 @@ export struct ExplorePage {
         .scrollBar(BarState.Off)
         // LazyForEach 视口外预建行数（与其他歌曲列表页一致）。
         .cachedCount(3, true)
-        // 滚动自适应悬浮栏：增量交壳层（不消费）；触底报 -1 兜底唤回。
+        // 滚动自适应悬浮栏：增量交壳层（不消费，见 MainShell.handleTabBarScroll）。
         .onScrollFrameBegin((offset: number) => {
           this.onBarScroll(offset);
           return { offsetRemain: offset };
-        })
-        .onReachEnd(() => {
-          this.onBarScroll(-1);
         })
         // 顶部沉浸：结果列表向上穿透，滚过固定搜索区、标题栏后钻到状态栏
         // 被渐变模糊覆盖（与首页统一）；clip(false) 放行内容画出视口上沿。

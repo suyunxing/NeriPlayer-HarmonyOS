@@ -504,12 +504,6 @@ export struct HomePage {
         this.onBarScroll(offset);
         return { offsetRemain: offset };
       })
-      // 触底兜底唤回：末端已无上滚增量可报，按官方示例 onReachEnd 语义报 -1。
-      .onScrollEdge((side: Edge) => {
-        if (side === Edge.Bottom) {
-          this.onBarScroll(-1);
-        }
-      })
       .align(Alignment.Top)
       .width('100%')
       .height('100%')

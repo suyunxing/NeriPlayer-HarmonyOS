@@ -678,15 +678,10 @@ export struct LibraryPage {
       }
       .layoutWeight(1)
       .scrollBar(BarState.Off)
-      // 滚动自适应悬浮栏：增量交壳层（不消费）；触底报 -1 兜底唤回。
+      // 滚动自适应悬浮栏：增量交壳层（不消费，见 MainShell.handleTabBarScroll）。
       .onScrollFrameBegin((offset: number) => {
         this.onBarScroll(offset);
         return { offsetRemain: offset };
-      })
-      .onScrollEdge((side: Edge) => {
-        if (side === Edge.Bottom) {
-          this.onBarScroll(-1);
-        }
       })
       .width('100%')
       .height('100%')
