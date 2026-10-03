@@ -27,6 +27,8 @@ const TITLEBAR_SPACE_VP: number = 56;
 export struct HomePage {
   /** 滚动控制器：实例由 MainShell 下发，壳层标题栏 bindToScrollable 绑定当前 Tab 的它。 */
   scroller: Scroller = new Scroller();
+  /** 滚动增量上报（MainShell 下发）：驱动悬浮栏组滚动自适应显隐，见 MainShell.handleTabBarScroll。 */
+  onBarScroll: (yDelta: number) => void = () => {};
   /**
    * S5: 订阅封面配色。Theme.*() 读 AppStorage 是无跟踪调用（M7.4），换歌后
    * 坐在本页的组件不会重建；有了这个成员并在 build 里经 schemeBg() 直读，
@@ -496,6 +498,18 @@ export struct HomePage {
         .padding({ top: TITLEBAR_SPACE_VP, left: 14, right: 14, bottom: 24 + FLOAT_TAB_CLEARANCE + this.bottomLift })
       }
       .scrollBar(BarState.Off)
+      // 滚动自适应悬浮栏：纵向增量交壳层驱动显隐（本组件不消费增量，
+      // offsetRemain 原样放行，见 MainShell.handleTabBarScroll）。
+      .onScrollFrameBegin((offset: number) => {
+        this.onBarScroll(offset);
+        return { offsetRemain: offset };
+      })
+      // 触底兜底唤回：末端已无上滚增量可报，按官方示例 onReachEnd 语义报 -1。
+      .onScrollEdge((side: Edge) => {
+        if (side === Edge.Bottom) {
+          this.onBarScroll(-1);
+        }
+      })
       .align(Alignment.Top)
       .width('100%')
       .height('100%')

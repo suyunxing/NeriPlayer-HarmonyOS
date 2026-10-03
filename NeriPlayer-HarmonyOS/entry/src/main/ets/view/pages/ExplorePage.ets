@@ -27,6 +27,8 @@ const TITLEBAR_SPACE_VP: number = 56;
 export struct ExplorePage {
   /** 滚动控制器：实例由 MainShell 下发，绑定结果列表，壳层标题栏按当前 Tab 取用。 */
   scroller: Scroller = new Scroller();
+  /** 滚动增量上报（MainShell 下发）：驱动悬浮栏组滚动自适应显隐，见 MainShell.handleTabBarScroll。 */
+  onBarScroll: (yDelta: number) => void = () => {};
   /**
    * S5: 订阅封面配色。Theme.*() 读 AppStorage 是无跟踪调用（M7.4），换歌后
    * 坐在本页的组件不会重建；有了这个成员并经 schemeBg()/accent*() 直读，
@@ -304,6 +306,14 @@ export struct ExplorePage {
         .scrollBar(BarState.Off)
         // LazyForEach 视口外预建行数（与其他歌曲列表页一致）。
         .cachedCount(3, true)
+        // 滚动自适应悬浮栏：增量交壳层（不消费）；触底报 -1 兜底唤回。
+        .onScrollFrameBegin((offset: number) => {
+          this.onBarScroll(offset);
+          return { offsetRemain: offset };
+        })
+        .onReachEnd(() => {
+          this.onBarScroll(-1);
+        })
         // 顶部沉浸：结果列表向上穿透，滚过固定搜索区、标题栏后钻到状态栏
         // 被渐变模糊覆盖（与首页统一）；clip(false) 放行内容画出视口上沿。
         .clip(false)
