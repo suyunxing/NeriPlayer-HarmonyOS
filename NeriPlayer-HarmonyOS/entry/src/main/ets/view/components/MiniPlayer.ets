@@ -7,6 +7,7 @@ import { PlaybackStatus } from '../../player/PlaybackConstants';
 import { PlayerManager } from '../../player/PlayerManager';
 import { Router } from '../Router';
 import { Theme } from '../Theme';
+import { coverThumbnailUrl } from '../../util/CoverUrls';
 import { AccentScheme, SchemeMode } from '../theme/AccentScheme';
 import { HdsLight } from '../theme/HdsLight';
 import { MarqueeText } from './MarqueeText';
@@ -263,7 +264,11 @@ export struct MiniPlayer {
       Row({ space: 12 }) {
         Stack() {
           if (this.song().effectiveCoverUrl.length > 0) {
-            Image(this.song().effectiveCoverUrl)
+            // 封面两侧能力叠加：URL 走 ?param=200 缩略图 + autoResize 降采样
+            //（perf/cover-scroll-jank，防大图解码掉帧），尺寸/圆角走 row 形态
+            // 动态档位（feature/scroll-adaptive-floating-bar 的 coverSize）。
+            Image(coverThumbnailUrl(this.song().effectiveCoverUrl, 200))
+              .autoResize(true)
               .width(this.coverSize())
               .height(this.coverSize())
               .borderRadius(this.coverRadius())
@@ -291,47 +296,17 @@ export struct MiniPlayer {
 
         Row() {
           Column({ space: 2 }) {
-            // 标题右端渐隐截断。迷你条背景是毛玻璃非纯色，不能叠一层同色渐变假装
-            // 淡出，必须做真 alpha 蒙版：Stack 先离屏（OFFSCREEN）把文字隔离进自身
-            // 缓冲，渐变层再用 DST_IN 把文字 alpha 乘上渐变 alpha——渐变不透明处
-            // 保留文字，右端透明处文字平滑淡出（Text 无原生渐隐截断，fadeout 仅
-            // 跑马灯适用）。短标题不进入渐变区，不受影响。
-            if (this.row) {
-              // row 形态标题用跑马灯（2026-10-02 用户要求：超长歌名在折叠行
-              // 保持滚动与轮间停顿）：折叠行文字区最窄，省略号/渐隐都浪费可读
-              // 段。组件移植自 feature/marquee-song-title（开头停留 2s + 轮间
-              // delay、切歌从头重滚、未超宽时静止）；该分支后续合入 dev 时
-              // MarqueeText.ets 内容一致，冲突取任一侧即可。
-              MarqueeText({
-                text: this.song().displayName,
-                fontSize: 14,
-                fontWeight: FontWeight.Medium,
-                fontColor: Theme.textPrimary(Theme.isDark())
-              })
-            } else {
-              Stack() {
-                Text(this.song().displayName)
-                  .fontSize(14)
-                  .fontWeight(FontWeight.Medium)
-                  .fontColor(Theme.textPrimary(Theme.isDark()))
-                  .maxLines(1)
-                  .textOverflow({ overflow: TextOverflow.Clip })
-                  .width('100%')
-                Column()
-                  .width('100%')
-                  .height('100%')
-                  .linearGradient({
-                    direction: GradientDirection.Right,
-                    colors: [[0xFF000000, 0], [0xFF000000, 0.8], [0x00000000, 1]]
-                  })
-                  // DST_IN 只取渐变的 alpha 做蒙版，颜色通道被丢弃；遮罩层不得拦截点击。
-                  .blendMode(BlendMode.DST_IN)
-                  .hitTestBehavior(HitTestMode.None)
-              }
-              .width('100%')
-              .clip(true)
-              .blendMode(BlendMode.SRC_OVER, BlendApplyType.OFFSCREEN)
-            }
+            // 标题超宽时跑马灯滚动，引擎级 fadeout 两端渐隐在毛玻璃背景上
+            // 成立——替代旧版手写离屏 DST_IN 渐隐蒙版（那套方案只做静态
+            // 截断淡出，长标题永远看不全）；未超宽时静止显示，不受影响。
+            // row 折叠形态（§7.20）文字区最窄，同样依赖滚动读全长，两侧
+            // 需求在 MarqueeText 上统一，不再按形态分叉。
+            MarqueeText({
+              text: this.song().displayName,
+              fontSize: 14,
+              fontWeight: FontWeight.Medium,
+              fontColor: Theme.textPrimary(Theme.isDark())
+            })
 
             // np.mini_show_lyric 开启且正在播放时，这一行优先显示当前歌词行。
             // embedded（壳层 dock 态的两个副本）一律不放作者名：用户决策

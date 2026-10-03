@@ -29,6 +29,7 @@ export const SETTING_ACCOUNTS: string = 'accounts';
 export const SETTING_SYNC: string = 'sync';
 export const SETTING_PLAYLIST_SYNC: string = 'playlist_sync';
 export const SETTING_DEBUG: string = 'debug';
+export const SETTING_DONATE: string = 'donate';
 export const SETTING_ABOUT: string = 'about';
 
 @Component
@@ -212,6 +213,12 @@ export struct SettingsPage {
             subtitle: '版本、许可与开源说明',
             icon: 'ℹ',
             onTap: () => Router.push(Router.SETTINGS_DETAIL, SETTING_ABOUT)
+          })
+          SettingRow({
+            title: '打赏作者',
+            subtitle: '微信 / 支付宝收款码',
+            icon: '❤',
+            onTap: () => Router.push(Router.SETTINGS_DETAIL, SETTING_DONATE)
           })
         }
         .width('100%')

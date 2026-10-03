@@ -2,6 +2,7 @@
 
 import { LengthMetrics } from '@kit.ArkUI';
 import { Theme } from '../Theme';
+import { coverThumbnailUrl } from '../../util/CoverUrls';
 
 /**
  * S5: 三张歌单页（本地 / 网易云 / B 站收藏夹）共用的参考图头部：
@@ -42,7 +43,8 @@ export struct PlaylistHeader {
   build() {
     Row({ space: 16 }) {
       if (this.coverUrl.length > 0) {
-        Image(this.coverUrl)
+        Image(coverThumbnailUrl(this.coverUrl, 400))
+          .autoResize(true)
           .width(120)
           .height(120)
           .borderRadius(20)
