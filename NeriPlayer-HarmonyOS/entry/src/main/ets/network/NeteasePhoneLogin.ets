@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0
 // Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
 
+import { util } from '@kit.ArkTS';
 import { Logger } from '../app/Logger';
 import { Constants } from '../app/Constants';
+import { SettingsRepository } from '../data/SettingsRepository';
 import { HttpClient } from './HttpClient';
 import { NeteaseCrypto } from './NeteaseCrypto';
 import { md5Hex } from './BiliWbi';
@@ -26,6 +28,16 @@ import { md5Hex } from './BiliWbi';
  * automatic jar injection on every request); this port has a per-host jar
  * that callers opt into, so it builds the web session explicitly
  * (ensureWebSession) before any login request.
+ *
+ * 2026-10 second round: the fingerprint-only session regressed to -460.
+ * Login-family endpoints now also demand the anonymous device credential
+ * MUSIC_A (register_anonimous), which the official clients obtain before any
+ * login action; QueMusic fixed the identical regression this way on device
+ * (2026-10-01) and api-enhanced injects MUSIC_A into every cookie-less
+ * weapi request. ensureWebSession therefore registers an anonymous device
+ * once per process (ensureAnonymousDevice) so the captcha/login requests
+ * carry a trusted-device cookie; failure degrades to the previous behaviour
+ * instead of aborting the flow.
  */
 
 const ORIGIN: string = `${Constants.NETEASE_BASE}/`;
@@ -35,12 +47,16 @@ const ORIGIN: string = `${Constants.NETEASE_BASE}/`;
 const LOGIN_PATH: string = '/weapi/w/login/cellphone';
 const CAPTCHA_SENT_PATH: string = '/weapi/sms/captcha/sent';
 const CAPTCHA_VERIFY_PATH: string = '/weapi/sms/captcha/verify';
+const REGISTER_ANON_PATH: string = '/weapi/register/anonimous';
 const DESKTOP_UA: string =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36 Edg/149.0.0.0';
 
 export class NeteaseLoginResult {
   code: number = -1;
   message: string = '';
+  // register_anonimous returns the MUSIC_A token in the body as well as in
+  // Set-Cookie; login endpoints never set it.
+  token: string = '';
   cookies: Map<string, string> = new Map<string, string>();
 
   get ok(): boolean {
@@ -83,16 +99,26 @@ function randomAlpha(length: number): string {
   return result;
 }
 
+function randomUpperHex(length: number): string {
+  const alphabet = '0123456789ABCDEF';
+  let result = '';
+  for (let i = 0; i < length; i++) {
+    result += alphabet.charAt(Math.floor(Math.random() * alphabet.length));
+  }
+  return result;
+}
+
 /**
  * Static fingerprint cookies the web client carries on every request
- * (community NeteaseCloudMusicApi osMap "pc" set; the os/appver values are
- * the pair NeteaseApi.ensureSession already seeds for the weapi business
- * endpoints). Deterministic so unit tests can pin the exact header.
+ * (community osMap "pc" set; appver tracks the current web client version —
+ * api-enhanced production value 3.1.17.204416, replacing the 2021-era
+ * 8.10.35 that no longer matches a 2026 browser UA). Deterministic so unit
+ * tests can pin the exact header.
  */
 export function buildWebSessionSeed(nuid: string, wnmcid: string, tsMs: number): string {
   return [
     'os=pc',
-    'appver=8.10.35',
+    'appver=3.1.17.204416',
     'osver=Microsoft-Windows-10-Professional-build-19045-64bit',
     'channel=netease',
     '__remember_me=true',
@@ -104,26 +130,118 @@ export function buildWebSessionSeed(nuid: string, wnmcid: string, tsMs: number):
   ].join('; ');
 }
 
-/** NMTID fallback shape when the homepage never issues one (community form). */
+/**
+ * NMTID fallback when the homepage never issues one: 32 random hex chars,
+ * the shape the community client generates for its own NMTID. Seeded only
+ * after the warmup GET failed to deliver one — a pre-seeded NMTID keeps the
+ * server from ever issuing its own (api-enhanced PR #243).
+ */
 export function fallbackNmtid(): string {
-  return `00O${randomHex(19)}`;
+  return randomHex(32);
 }
 
-// Session fingerprint ids stay stable for the whole process: the jar merge
-// (seedCookies) overwrites by name, so regenerating per call would rotate the
-// identity between the captcha and the login request.
+/** NetEase client device-id magic string (public knowledge). */
+const ID_XOR_KEY: string = '3go8&$8*3*3h0k(2)2';
+
+/**
+ * cloudmusic_dll_encode_id: the device digest inside the anonymous-register
+ * username — XOR the device id with the magic string, MD5 over the UTF-8
+ * bytes, base64 of the raw digest. Known-answer vectors are pinned in
+ * NeteasePhoneLoginSeed.test.ets (computed with Node crypto).
+ */
+export function cloudmusicDllEncodeId(deviceId: string): string {
+  let xored = '';
+  for (let i = 0; i < deviceId.length; i++) {
+    xored += String.fromCharCode(deviceId.charCodeAt(i) ^ ID_XOR_KEY.charCodeAt(i % ID_XOR_KEY.length));
+  }
+  return hexToBase64(md5Hex(xored));
+}
+
+/** register_anonimous username: base64("<deviceId> <dll-encoded-id>"). */
+export function buildRegisterUsername(deviceId: string): string {
+  const encoder = new util.TextEncoder();
+  const raw = `${deviceId} ${cloudmusicDllEncodeId(deviceId)}`;
+  return NeteaseCrypto.bytesToBase64(encoder.encodeInto(raw));
+}
+
+function hexToBase64(hex: string): string {
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < bytes.length; i++) {
+    bytes[i] = Number.parseInt(hex.substring(i * 2, i * 2 + 2), 16);
+  }
+  return NeteaseCrypto.bytesToBase64(bytes);
+}
+
+// Session fingerprint ids and the anonymous device id persist across
+// launches: a per-launch random device identity is itself a risk-control
+// signal (QueMusic keeps a static persisted deviceId for exactly this
+// reason), and the fingerprint ids must not rotate under the device either.
+// The jar merge (seedCookies) overwrites by name, so nothing here may be
+// regenerated per call. Registration is still attempted at most once per
+// process; the MUSIC_A credential is persisted separately so a valid token
+// survives app restarts.
 let sessionNuid: string = '';
 let sessionWnmcid: string = '';
 let sessionTsMs: number = 0;
+let anonymousDeviceId: string = '';
+let anonymousRegisterDone: boolean = false;
+
+function loadOrCreateDeviceIdentity(): void {
+  const stored = SettingsRepository.getString(SettingsRepository.KEY_NETEASE_DEVICE_IDENTITY, '');
+  if (stored.length > 0) {
+    try {
+      const root = JSON.parse(stored) as Record<string, Object>;
+      const nuid = root['nuid'];
+      const wnmcid = root['wnmcid'];
+      const deviceId = root['deviceId'];
+      const tsMsRaw = root['tsMs'];
+      if (nuid !== undefined && wnmcid !== undefined && deviceId !== undefined && tsMsRaw !== undefined) {
+        const n = String(nuid);
+        const w = String(wnmcid);
+        const d = String(deviceId);
+        const t = Number(tsMsRaw);
+        if (n.length === 32 && w.length > 0 && d.length > 0 && Number.isFinite(t) && t > 0) {
+          sessionNuid = n;
+          sessionWnmcid = w;
+          sessionTsMs = t;
+          anonymousDeviceId = d;
+          return;
+        }
+      }
+    } catch (error) {
+      const e = error as Error;
+      Logger.warn(`netease device identity restore failed: ${e.message}`);
+    }
+  }
+  sessionNuid = randomHex(32);
+  sessionWnmcid = randomAlpha(6);
+  sessionTsMs = Date.now();
+  anonymousDeviceId = randomUpperHex(52);
+  const identity: Record<string, string> = {};
+  identity['nuid'] = sessionNuid;
+  identity['wnmcid'] = sessionWnmcid;
+  identity['deviceId'] = anonymousDeviceId;
+  identity['tsMs'] = `${sessionTsMs}`;
+  SettingsRepository.setString(SettingsRepository.KEY_NETEASE_DEVICE_IDENTITY, JSON.stringify(identity));
+}
 
 async function ensureWebSession(): Promise<void> {
   if (sessionNuid.length === 0) {
-    sessionNuid = randomHex(32);
-    sessionWnmcid = randomAlpha(6);
-    sessionTsMs = Date.now();
+    loadOrCreateDeviceIdentity();
   }
   HttpClient.seedCookies(ORIGIN, buildWebSessionSeed(sessionNuid, sessionWnmcid, sessionTsMs));
+  // A previously registered MUSIC_A is as good as a fresh one; restoring it
+  // before the register step lets the credential survive app restarts and
+  // skips re-registration while the token is still accepted.
+  const seedJar = HttpClient.getCookiesMap(ORIGIN);
+  if (!seedJar.has('MUSIC_A') && !seedJar.has('MUSIC_U')) {
+    const savedToken = SettingsRepository.getString(SettingsRepository.KEY_NETEASE_ANON_MUSIC_A, '');
+    if (savedToken.length > 0) {
+      HttpClient.seedCookies(ORIGIN, `MUSIC_A=${savedToken}`);
+    }
+  }
   if (HttpClient.getCookiesMap(ORIGIN).has('__csrf')) {
+    await ensureAnonymousDevice();
     return;
   }
   // First login action of the process: visit the homepage once so the server
@@ -137,6 +255,49 @@ async function ensureWebSession(): Promise<void> {
   }
   if (!HttpClient.getCookiesMap(ORIGIN).has('NMTID')) {
     HttpClient.seedCookies(ORIGIN, `NMTID=${fallbackNmtid()}`);
+  }
+  await ensureAnonymousDevice();
+}
+
+/**
+ * Login-family endpoints reject cookie-less devices with -460 since the
+ * 2026-09/10 risk-control tightening; the fix (QueMusic 2026-10-01,
+ * api-enhanced, open-orpheus) is to register an anonymous device first and
+ * let every later request carry the MUSIC_A credential. One attempt per
+ * process — a rejected registration must not block the login flow (it
+ * degrades to the fingerprint-only session) and hammering the register
+ * endpoint would itself accumulate risk score.
+ */
+async function ensureAnonymousDevice(): Promise<void> {
+  if (anonymousRegisterDone) {
+    return;
+  }
+  anonymousRegisterDone = true;
+  const jar = HttpClient.getCookiesMap(ORIGIN);
+  if (jar.has('MUSIC_A') || jar.has('MUSIC_U')) {
+    return;
+  }
+  const payload: Record<string, Object> = {};
+  payload['username'] = buildRegisterUsername(anonymousDeviceId);
+  const result = await postWeapi(REGISTER_ANON_PATH, payload);
+  if (result.code === 200) {
+    // The Set-Cookie of a 200 normally lands MUSIC_A straight in the jar
+    // (postWeapi posts with cookies on); the body token covers netstacks
+    // that drop that header — the same two-source extraction QueMusic does.
+    if (result.token.length > 0 && !HttpClient.getCookiesMap(ORIGIN).has('MUSIC_A')) {
+      HttpClient.seedCookies(ORIGIN, `MUSIC_A=${result.token}`);
+    }
+    const acquired = HttpClient.getCookiesMap(ORIGIN).get('MUSIC_A');
+    if (acquired !== undefined && acquired.length > 0) {
+      SettingsRepository.setString(SettingsRepository.KEY_NETEASE_ANON_MUSIC_A, acquired);
+      Logger.info('netease anonymous device registered (MUSIC_A acquired)');
+    } else {
+      // 200 without any token shape the server never sends in practice —
+      // worth a line because it silently disables the credential.
+      Logger.warn(`netease anonymous register 200 without MUSIC_A (body token empty)`);
+    }
+  } else {
+    Logger.warn(`netease anonymous device register rejected: code=${result.code} ${result.message}`);
   }
 }
 
@@ -155,10 +316,16 @@ async function postWeapi(path: string, payload: Record<string, Object>): Promise
     out.code = root['code'] === undefined || root['code'] === null ? -1 : Number(root['code']);
     const message = root['message'] ?? root['msg'] ?? '';
     out.message = String(message);
+    const token = root['token'];
+    out.token = token === undefined || token === null ? '' : String(token);
   } catch (error) {
     const e = error as Error;
     Logger.warn(`netease phone login json parse failed: ${e.message}`);
   }
+  // Risk-control verdicts rotate (网络环境异常 / 环境存在安全风险 / …); the
+  // numeric code plus this endpoint line is what pinpoints which stage and
+  // which verdict fired, so field reports become actionable.
+  Logger.debug(`netease weapi ${path} -> code=${out.code} msg=${out.message}`);
   return out;
 }
 
@@ -169,6 +336,10 @@ export class NeteasePhoneLoginClient {
     const payload: Record<string, Object> = {};
     payload['cellphone'] = phone;
     payload['ctcode'] = `${ctcode}`;
+    // Login-channel secret the current community payload carries since
+    // 2026-07 (api-enhanced captcha_sent); the server accepts requests
+    // without it, but parity with the maintained implementation is free.
+    payload['secrete'] = 'music_middleuser_pclogin';
     return postWeapi(CAPTCHA_SENT_PATH, payload);
   }
 
@@ -185,6 +356,16 @@ export class NeteasePhoneLoginClient {
   /** SMS-captcha login (Android loginByCaptcha: a single login POST). */
   static async loginByCaptcha(phone: string, captcha: string, ctcode: number = 86): Promise<NeteaseLoginResult> {
     await ensureWebSession();
+    // Soft verify pre-step: community clients found the captcha-login flow
+    // should pass /captcha/verify before hitting login (going straight to
+    // login trips risk control with 10003/10004 since 2026). The pre-step
+    // must never abort the flow — the earlier verify-first port died to a
+    // verify-only risk verdict while the login itself would have passed —
+    // it only warms the session and is logged for field diagnosis.
+    const verify = await NeteasePhoneLoginClient.verifyCaptcha(phone, captcha, ctcode);
+    if (!verify.ok) {
+      Logger.warn(`netease captcha verify pre-step: code=${verify.code} ${verify.message}`);
+    }
     const payload: Record<string, Object> = {};
     payload['phone'] = phone;
     payload['countrycode'] = `${ctcode}`;
@@ -193,6 +374,8 @@ export class NeteasePhoneLoginClient {
     // The web client posts https=true for mainland numbers as part of the
     // standard login payload (community login_cellphone implementation).
     payload['https'] = 'true';
+    // Present-but-empty in the maintained community payload since 2026-10.
+    payload['secureCaptcha'] = '';
     payload['captcha'] = captcha;
     return NeteasePhoneLoginClient.finishLogin(await postWeapi(LOGIN_PATH, payload));
   }
@@ -206,6 +389,7 @@ export class NeteasePhoneLoginClient {
     payload['remember'] = 'true';
     payload['type'] = '1';
     payload['https'] = 'true';
+    payload['secureCaptcha'] = '';
     payload['password'] = md5Hex(password);
     return NeteasePhoneLoginClient.finishLogin(await postWeapi(LOGIN_PATH, payload));
   }

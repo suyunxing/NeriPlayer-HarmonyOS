@@ -59,6 +59,12 @@ export class SettingsRepository {
   static readonly KEY_LISTEN_TOGETHER_ALLOW_MEMBER_CONTROL: string = 'np.listen_together_allow_member_control';
   static readonly KEY_LISTEN_TOGETHER_AUTO_PAUSE_ON_MEMBER_CHANGE: string = 'np.listen_together_auto_pause_on_member_change';
   static readonly KEY_LISTEN_TOGETHER_SHARE_AUDIO_LINKS: string = 'np.listen_together_share_audio_links';
+  // NetEase anonymous device identity for the phone-login risk-control flow
+  // (network/NeteasePhoneLogin.ets): a stable device fingerprint across
+  // launches plus the MUSIC_A anonymous token once registered. Not a user
+  // credential — Android clients persist the same data in plaintext.
+  static readonly KEY_NETEASE_DEVICE_IDENTITY: string = 'np.netease_device_identity';
+  static readonly KEY_NETEASE_ANON_MUSIC_A: string = 'np.netease_anon_music_a';
   // Audio quality. KEY_AUDIO_QUALITY is the legacy single choice (still the
   // fallback when a per-network key has never been written); the Wi-Fi and
   // cellular keys implement the per-network split (empty = inherit legacy).

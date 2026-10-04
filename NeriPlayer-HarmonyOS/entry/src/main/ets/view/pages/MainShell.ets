@@ -32,6 +32,7 @@ import { RecentPage } from './RecentPage';
 import { StatsPage } from './StatsPage';
 import { SettingsDetailPage } from './SettingsDetailPage';
 import { BiliWebLoginPage } from './BiliWebLoginPage';
+import { NeteaseWebLoginPage } from './NeteaseWebLoginPage';
 import { LegalDocPage } from './LegalDocPage';
 import { AlbumPage } from './AlbumPage';
 import { ArtistPage } from './ArtistPage';
@@ -315,8 +316,30 @@ export struct MainShell {
   /**
    * 官方 FAQ 对 HdsNavigation + HdsTabs 组合的要求：每个 Tab 的滚动容器持独立
    * Scroller，标题栏只绑定当前可见 Tab 的那一个；实例经构造参数下发给各 Tab 页。
+   * 例外是资料库（下标 2）：页内分平台窗格各有滚动容器，改由 LibraryPage 经
+   * onPaneScroller 上报激活窗格的滚动器（libraryPaneScroller），下标 2 的实例
+   * 仅作为上报前的占位初值。
    */
   private tabScrollers: Scroller[] = [new Scroller(), new Scroller(), new Scroller(), new Scroller()];
+
+  /**
+   * 资料库当前激活平台窗格的滚动器（LibraryPage 经 onPaneScroller 上报）。
+   * @State 不接受 Scroller 类型（状态装饰器不收框架控制器对象），所以实例放
+   * 普通成员，另用上报计数 @State 作重渲染信号：shellScroller() 在 build 的
+   * bindToScrollable 路径里读它注册依赖，计数变化即触发重渲染换绑——与
+   * resolveDark/schemeBg 读被跟踪成员注册依赖是同一手法。
+   */
+  private libraryPaneScroller: Scroller = new Scroller();
+  @State libraryPaneTick: number = 0;
+
+  /** 外壳标题栏与迷你条阈值实际应观察的滚动器：资料库取其激活窗格，其余取固定实例。 */
+  private shellScroller(): Scroller {
+    // 读 tick 注册依赖（恒假分支，仅为让 build 追踪上报信号，见成员注释）。
+    if (this.libraryPaneTick < 0) {
+      return this.tabScrollers[0];
+    }
+    return this.currentTab === 2 ? this.libraryPaneScroller : this.tabScrollers[this.currentTab];
+  }
 
   /**
    * 悬浮 HdsTabs 的控制器：滚动驱动 miniBar 展开/折叠形变（applyMiniBarStyle）
@@ -531,7 +554,7 @@ export struct MainShell {
     if (this.wide()) {
       return;
     }
-    const yOffset = this.tabScrollers[this.currentTab].currentOffset().yOffset;
+    const yOffset = this.shellScroller().currentOffset().yOffset;
     if (!this.miniExpanded) {
       if (yDelta > 0 && yOffset > MINI_EXPAND_ON_OFFSET_VP && this.currentSongJson.length > 0) {
         this.miniExpanded = true;
@@ -695,7 +718,13 @@ export struct MainShell {
       : this.bottomTabBar(1, '探索', $r('app.media.ic_tab_search_24')))
 
     TabContent() {
-      LibraryPage({ scroller: this.tabScrollers[2], onBarScroll: (yDelta: number) => this.handleTabBarScroll(yDelta) })
+      LibraryPage({
+        onBarScroll: (yDelta: number) => this.handleTabBarScroll(yDelta),
+        onPaneScroller: (scroller: Scroller): void => {
+          this.libraryPaneScroller = scroller;
+          this.libraryPaneTick++;
+        }
+      })
     }
     // 同探索页：放行内容向上穿透。
     .clip(false)
@@ -740,6 +769,8 @@ export struct MainShell {
       SettingsDetailPage({ section: this.paramText(param) })
     } else if (name === Router.BILI_WEB_LOGIN) {
       BiliWebLoginPage()
+    } else if (name === Router.NETEASE_WEB_LOGIN) {
+      NeteaseWebLoginPage()
     } else if (name === Router.DEBUG) {
       DebugPage()
     } else if (name === Router.DOWNLOADS) {
@@ -943,8 +974,9 @@ export struct MainShell {
       .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM])
     }
     // 标题栏只绑当前可见 Tab 的 Scroller（官方 FAQ：多 Tab 共用外壳时动态换绑，
-    // 避免多滚动容器手势冲突导致模糊失效或抖动）。
-    .bindToScrollable([this.tabScrollers[this.currentTab]])
+    // 避免多滚动容器手势冲突导致模糊失效或抖动）；资料库进一步绑定其页内激活
+    // 平台窗格的滚动器（libraryPaneScroller 变化即重渲染换绑）。
+    .bindToScrollable([this.shellScroller()])
     .titleMode(HdsNavigationTitleMode.MINI)
     // 壳层是 Tab 骨架的根，自身无可返回的上级路由：隐藏系统默认返回按钮。
     .hideBackButton(true)
@@ -1079,8 +1111,8 @@ export struct MainShell {
     }
     this.currentTab = index;
     // 目标 Tab 滚在顶部而迷你条处于展开态：收回（堆叠是页签浏览的常态）；
-    // 滚入正文的 Tab 维持展开，避免切页瞬间形变抖动。
-    if (this.miniExpanded && this.tabScrollers[index].currentOffset().yOffset < MINI_COLLAPSE_ON_OFFSET_VP) {
+    // 滚入正文的 Tab 维持展开，避免切页瞬间形变抖动。资料库读其激活窗格。
+    if (this.miniExpanded && this.shellScroller().currentOffset().yOffset < MINI_COLLAPSE_ON_OFFSET_VP) {
       this.miniExpanded = false;
       this.tabsController.applyMiniBarStyle(HdsBarStyle.COLLAPSE);
     }

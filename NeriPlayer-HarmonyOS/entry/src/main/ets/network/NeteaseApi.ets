@@ -134,7 +134,10 @@ export class NeteaseApi {
       Logger.warn(`NeteaseApi.ensureSession failed: ${e.message}`);
     }
     // The web client always carries these two cookies, even when logged out.
-    HttpClient.seedCookies(`${Constants.NETEASE_BASE}/`, 'os=pc; appver=8.10.35');
+    // appver tracks the current web client version (api-enhanced osMap pc),
+    // kept in sync with NeteasePhoneLogin.buildWebSessionSeed so the shared
+    // jar never flips between two appver values.
+    HttpClient.seedCookies(`${Constants.NETEASE_BASE}/`, 'os=pc; appver=3.1.17.204416');
     NeteaseApi.sessionReady = true;
   }
 
