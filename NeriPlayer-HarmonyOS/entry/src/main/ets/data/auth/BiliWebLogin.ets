@@ -62,6 +62,27 @@ export function mergeCookieHeaderTexts(texts: string[]): Map<string, string> {
 }
 
 /**
+ * Redacts a URL for log lines: keeps scheme/host/path, drops query and
+ * fragment — login-flow redirects can carry credential material there
+ * (e.g. netease post-login jump links), so raw URLs never reach the log.
+ */
+export function sanitizeUrlForLog(url: string): string {
+  if (url === undefined || url === null) {
+    return '';
+  }
+  let out = url;
+  const query = out.indexOf('?');
+  if (query >= 0) {
+    out = out.substring(0, query);
+  }
+  const fragment = out.indexOf('#');
+  if (fragment >= 0) {
+    out = out.substring(0, fragment);
+  }
+  return out;
+}
+
+/**
  * Completion heuristic (mirrors Android shouldAutoCompleteBiliWebLogin): the
  * observed cookie set counts as logged in when the synthesized bundle's auth
  * health is not Missing — i.e. a non-blank SESSDATA is present. Login success

@@ -9,9 +9,9 @@
  * local hypium environment.
  */
 
-import { mergeCookieHeaderTexts } from './BiliWebLogin';
+import { mergeCookieHeaderTexts, sanitizeUrlForLog } from './BiliWebLogin';
 
-export { mergeCookieHeaderTexts };
+export { mergeCookieHeaderTexts, sanitizeUrlForLog };
 
 /** 官方登录页：music.163.com 的 SPA 登录弹层（扫码/短信/邮箱由官方页面自理）。 */
 export const NETEASE_WEB_LOGIN_URL: string = 'https://music.163.com/#/login';
@@ -19,8 +19,16 @@ export const NETEASE_WEB_LOGIN_URL: string = 'https://music.163.com/#/login';
 /** 完成检测轮询的 Cookie 域（登录凭据 MUSIC_U 落在 .music.163.com）。 */
 export const NETEASE_WEB_COOKIE_FETCH_URLS: string[] = ['https://music.163.com/'];
 
-/** 主框架导航只允许网易云域（登录后官方页可能带跳转链接，越界一律拦截）。 */
+/**
+ * 主框架导航只允许网易云域（登录后官方页可能带跳转链接，越界一律拦截）。
+ * about:blank 放行（对齐 B 站侧同款白名单）：SPA 页面可能发起空白主框架
+ * 导航，拦死会让页面停在上一帧。
+ */
 export function isAllowedNeteaseLoginNavigation(url: string): boolean {
+  const trimmed = url.trim();
+  if (trimmed === 'about:blank') {
+    return true;
+  }
   const marker = '://';
   const start = url.indexOf(marker);
   if (start < 0) {
