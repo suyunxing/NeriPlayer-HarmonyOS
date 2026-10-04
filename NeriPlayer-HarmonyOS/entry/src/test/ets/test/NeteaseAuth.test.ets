@@ -33,7 +33,7 @@ export default function neteaseAuthTest(): void {
       expect(result.isAccepted).assertTrue();
       expect(result.sanitizedCookies.size).assertEqual(4);
       expect(result.sanitizedCookies.get('os')).assertEqual('pc');
-      expect(result.sanitizedCookies.get('appver')).assertEqual('8.10.35');
+      expect(result.sanitizedCookies.get('appver')).assertEqual('3.1.17.204416');
       expect(result.hasLoginCookie).assertTrue();
       expect(result.rejectedKeys.length).assertEqual(0);
     });
@@ -104,7 +104,7 @@ export default function neteaseAuthTest(): void {
 
     it('cookieHeaderBuildsWithFallbacks', 0, () => {
       const header = buildNeteaseCookieHeader(mapOf([['MUSIC_U', 'm1']]));
-      expect(header).assertEqual('MUSIC_U=m1; os=pc; appver=8.10.35');
+      expect(header).assertEqual('MUSIC_U=m1; os=pc; appver=3.1.17.204416');
       expect(buildNeteaseCookieHeader(new Map())).assertEqual('');
       expect(cookieKeysForLog(mapOf([['MUSIC_U', 'm1'], ['__csrf', 'c']]))).assertEqual('MUSIC_U,__csrf');
     });

@@ -11,7 +11,9 @@ import { isValidCookieName, isIsoControl, parseRawCookieText } from './RawCookie
 export { parseRawCookieText };
 
 export const NETEASE_FALLBACK_OS: string = 'pc';
-export const NETEASE_FALLBACK_APPVER: string = '8.10.35';
+// Current web client version (api-enhanced osMap pc); keep in sync with
+// NeteasePhoneLogin.buildWebSessionSeed and NeteaseApi.doEnsureSession.
+export const NETEASE_FALLBACK_APPVER: string = '3.1.17.204416';
 
 const NETEASE_LOGIN_COOKIE_KEYS: string[] = ['MUSIC_U'];
 
