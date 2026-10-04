@@ -80,7 +80,7 @@ export struct NeteasePhoneLoginPanel {
         this.startCountdown();
         promptAction.openToast({ message: `验证码已发送至 ${this.maskedPhone()}` });
       } else {
-        promptAction.openToast({ message: `发送失败：${result.message.length > 0 ? result.message : `code ${result.code}`}` });
+        promptAction.openToast({ message: `发送失败[${result.code}]：${result.message}` });
       }
     } catch (error) {
       promptAction.openToast({ message: `发送失败：${(error as Error).message}` });
@@ -108,7 +108,7 @@ export struct NeteasePhoneLoginPanel {
         ? await NeteasePhoneLoginClient.loginByCaptcha(this.phone, this.code, 86)
         : await NeteasePhoneLoginClient.loginByPassword(this.phone, this.password, 86);
       if (!result.ok) {
-        promptAction.openToast({ message: `登录失败：${result.message.length > 0 ? result.message : `code ${result.code}`}` });
+        promptAction.openToast({ message: `登录失败[${result.code}]：${result.message}` });
         return;
       }
       const saved = await this.onConfirmed(result.cookies);

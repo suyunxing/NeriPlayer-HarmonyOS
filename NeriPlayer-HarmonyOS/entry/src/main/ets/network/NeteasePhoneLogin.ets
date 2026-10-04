@@ -4,6 +4,7 @@
 import { util } from '@kit.ArkTS';
 import { Logger } from '../app/Logger';
 import { Constants } from '../app/Constants';
+import { SettingsRepository } from '../data/SettingsRepository';
 import { HttpClient } from './HttpClient';
 import { NeteaseCrypto } from './NeteaseCrypto';
 import { md5Hex } from './BiliWbi';
@@ -171,24 +172,74 @@ function hexToBase64(hex: string): string {
   return NeteaseCrypto.bytesToBase64(bytes);
 }
 
-// Session fingerprint ids stay stable for the whole process: the jar merge
-// (seedCookies) overwrites by name, so regenerating per call would rotate the
-// identity between the captcha and the login request. The anonymous device
-// id follows the same rule and is registered at most once per process.
+// Session fingerprint ids and the anonymous device id persist across
+// launches: a per-launch random device identity is itself a risk-control
+// signal (QueMusic keeps a static persisted deviceId for exactly this
+// reason), and the fingerprint ids must not rotate under the device either.
+// The jar merge (seedCookies) overwrites by name, so nothing here may be
+// regenerated per call. Registration is still attempted at most once per
+// process; the MUSIC_A credential is persisted separately so a valid token
+// survives app restarts.
 let sessionNuid: string = '';
 let sessionWnmcid: string = '';
 let sessionTsMs: number = 0;
 let anonymousDeviceId: string = '';
 let anonymousRegisterDone: boolean = false;
 
+function loadOrCreateDeviceIdentity(): void {
+  const stored = SettingsRepository.getString(SettingsRepository.KEY_NETEASE_DEVICE_IDENTITY, '');
+  if (stored.length > 0) {
+    try {
+      const root = JSON.parse(stored) as Record<string, Object>;
+      const nuid = root['nuid'];
+      const wnmcid = root['wnmcid'];
+      const deviceId = root['deviceId'];
+      const tsMsRaw = root['tsMs'];
+      if (nuid !== undefined && wnmcid !== undefined && deviceId !== undefined && tsMsRaw !== undefined) {
+        const n = String(nuid);
+        const w = String(wnmcid);
+        const d = String(deviceId);
+        const t = Number(tsMsRaw);
+        if (n.length === 32 && w.length > 0 && d.length > 0 && Number.isFinite(t) && t > 0) {
+          sessionNuid = n;
+          sessionWnmcid = w;
+          sessionTsMs = t;
+          anonymousDeviceId = d;
+          return;
+        }
+      }
+    } catch (error) {
+      const e = error as Error;
+      Logger.warn(`netease device identity restore failed: ${e.message}`);
+    }
+  }
+  sessionNuid = randomHex(32);
+  sessionWnmcid = randomAlpha(6);
+  sessionTsMs = Date.now();
+  anonymousDeviceId = randomUpperHex(52);
+  const identity: Record<string, string> = {};
+  identity['nuid'] = sessionNuid;
+  identity['wnmcid'] = sessionWnmcid;
+  identity['deviceId'] = anonymousDeviceId;
+  identity['tsMs'] = `${sessionTsMs}`;
+  SettingsRepository.setString(SettingsRepository.KEY_NETEASE_DEVICE_IDENTITY, JSON.stringify(identity));
+}
+
 async function ensureWebSession(): Promise<void> {
   if (sessionNuid.length === 0) {
-    sessionNuid = randomHex(32);
-    sessionWnmcid = randomAlpha(6);
-    sessionTsMs = Date.now();
-    anonymousDeviceId = randomUpperHex(52);
+    loadOrCreateDeviceIdentity();
   }
   HttpClient.seedCookies(ORIGIN, buildWebSessionSeed(sessionNuid, sessionWnmcid, sessionTsMs));
+  // A previously registered MUSIC_A is as good as a fresh one; restoring it
+  // before the register step lets the credential survive app restarts and
+  // skips re-registration while the token is still accepted.
+  const seedJar = HttpClient.getCookiesMap(ORIGIN);
+  if (!seedJar.has('MUSIC_A') && !seedJar.has('MUSIC_U')) {
+    const savedToken = SettingsRepository.getString(SettingsRepository.KEY_NETEASE_ANON_MUSIC_A, '');
+    if (savedToken.length > 0) {
+      HttpClient.seedCookies(ORIGIN, `MUSIC_A=${savedToken}`);
+    }
+  }
   if (HttpClient.getCookiesMap(ORIGIN).has('__csrf')) {
     await ensureAnonymousDevice();
     return;
@@ -236,6 +287,15 @@ async function ensureAnonymousDevice(): Promise<void> {
     if (result.token.length > 0 && !HttpClient.getCookiesMap(ORIGIN).has('MUSIC_A')) {
       HttpClient.seedCookies(ORIGIN, `MUSIC_A=${result.token}`);
     }
+    const acquired = HttpClient.getCookiesMap(ORIGIN).get('MUSIC_A');
+    if (acquired !== undefined && acquired.length > 0) {
+      SettingsRepository.setString(SettingsRepository.KEY_NETEASE_ANON_MUSIC_A, acquired);
+      Logger.info('netease anonymous device registered (MUSIC_A acquired)');
+    } else {
+      // 200 without any token shape the server never sends in practice —
+      // worth a line because it silently disables the credential.
+      Logger.warn(`netease anonymous register 200 without MUSIC_A (body token empty)`);
+    }
   } else {
     Logger.warn(`netease anonymous device register rejected: code=${result.code} ${result.message}`);
   }
@@ -262,6 +322,10 @@ async function postWeapi(path: string, payload: Record<string, Object>): Promise
     const e = error as Error;
     Logger.warn(`netease phone login json parse failed: ${e.message}`);
   }
+  // Risk-control verdicts rotate (网络环境异常 / 环境存在安全风险 / …); the
+  // numeric code plus this endpoint line is what pinpoints which stage and
+  // which verdict fired, so field reports become actionable.
+  Logger.debug(`netease weapi ${path} -> code=${out.code} msg=${out.message}`);
   return out;
 }
 
@@ -292,6 +356,16 @@ export class NeteasePhoneLoginClient {
   /** SMS-captcha login (Android loginByCaptcha: a single login POST). */
   static async loginByCaptcha(phone: string, captcha: string, ctcode: number = 86): Promise<NeteaseLoginResult> {
     await ensureWebSession();
+    // Soft verify pre-step: community clients found the captcha-login flow
+    // should pass /captcha/verify before hitting login (going straight to
+    // login trips risk control with 10003/10004 since 2026). The pre-step
+    // must never abort the flow — the earlier verify-first port died to a
+    // verify-only risk verdict while the login itself would have passed —
+    // it only warms the session and is logged for field diagnosis.
+    const verify = await NeteasePhoneLoginClient.verifyCaptcha(phone, captcha, ctcode);
+    if (!verify.ok) {
+      Logger.warn(`netease captcha verify pre-step: code=${verify.code} ${verify.message}`);
+    }
     const payload: Record<string, Object> = {};
     payload['phone'] = phone;
     payload['countrycode'] = `${ctcode}`;
@@ -300,6 +374,8 @@ export class NeteasePhoneLoginClient {
     // The web client posts https=true for mainland numbers as part of the
     // standard login payload (community login_cellphone implementation).
     payload['https'] = 'true';
+    // Present-but-empty in the maintained community payload since 2026-10.
+    payload['secureCaptcha'] = '';
     payload['captcha'] = captcha;
     return NeteasePhoneLoginClient.finishLogin(await postWeapi(LOGIN_PATH, payload));
   }
@@ -313,6 +389,7 @@ export class NeteasePhoneLoginClient {
     payload['remember'] = 'true';
     payload['type'] = '1';
     payload['https'] = 'true';
+    payload['secureCaptcha'] = '';
     payload['password'] = md5Hex(password);
     return NeteasePhoneLoginClient.finishLogin(await postWeapi(LOGIN_PATH, payload));
   }
