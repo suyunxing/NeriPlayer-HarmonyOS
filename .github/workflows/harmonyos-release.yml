@@ -149,7 +149,7 @@ jobs:
 
           本 Release 提供 **未签名** 的 HAP 安装包（`NeriPlayer-*-unsigned.hap`）。
           HarmonyOS 出于安全设计不接受未签名应用，也不存在「关闭签名校验」的系统开关；
-          请先校验完整性，再用**你自己的签名证书**完成签名后安装。
+          请先校验完整性，再通过下方 **小白调试助手** 图形化工具或命令行完成签名后安装。
 
           > 最低系统要求：HarmonyOS API 26（更低版本无法安装）。
 
@@ -159,7 +159,17 @@ jobs:
           sha256sum -c SHA256SUMS.txt
           ```
 
-          ## 1. 获取签名材料（二选一）
+          ## 1. 图形化安装：小白调试助手（推荐）
+
+          不熟悉命令行时，推荐使用开源图形化工具
+          [小白调试助手（Auto-Installer）](https://github.com/likuai2010/auto-installer/)
+          （支持 Windows / macOS / Linux / Android / HarmonyOS NEXT）：
+          将下载的 `NeriPlayer-*-unsigned.hap` 载入工具，按界面引导完成签名与安装即可，
+          支持 .hap/.app 格式、无线安装与自定义证书更换，可跳过下方命令行步骤。
+
+          ## 2. 手动签名与安装（命令行）
+
+          ### 2.1 获取签名材料（二选一）
 
           **方式 A（最简单，需 DevEco Studio）**：DevEco Studio 打开任意工程 →
           `File > Project Structure > Project > Signing Configs` 勾选
@@ -170,7 +180,7 @@ jobs:
           → 我的项目 → 新建项目/应用 → `常规 > 证书、APP ID 与 Profile` 申请
           调试证书（.cer）、调试 Profile（.p7b）与密钥库（.p12）。
 
-          ## 2. 用 hap-sign-tool 签名
+          ### 2.2 用 hap-sign-tool 签名
 
           `hap-sign-tool.jar` 位于 SDK 的
           `sdk/default/openharmony/toolchains/lib/hap-sign-tool.jar`（随
@@ -190,7 +200,7 @@ jobs:
             -outFile NeriPlayer-signed.hap
           ```
 
-          ## 3. 安装到设备
+          ### 2.3 安装到设备
 
           设备开启 `设置 > 系统和更新 > 开发者选项 > USB 调试` 后：
 
@@ -213,7 +223,7 @@ jobs:
           MDEOF
 
       - name: Upload Release assets
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           repository: ${{ github.repository }}
           token: ${{ github.token }}
@@ -233,8 +243,8 @@ jobs:
             - 最低系统：HarmonyOS API 26
             - 版本号：tag 已写入 app.json5（versionName = ${{ env.TAG }} 去掉 v 前缀）
 
-            **安装方法见附件 `INSTALL.md`**——未签名 HAP 需用你自己的证书签名后安装；
-            附件 `SHA256SUMS.txt` 用于完整性校验。
+            **安装方法见附件 `INSTALL.md`**——推荐新手使用[小白调试助手（Auto-Installer）](https://github.com/likuai2010/auto-installer/)图形化签名安装，
+            开发者可按附件指南手动签名后 `hdc install`；附件 `SHA256SUMS.txt` 用于完整性校验。
 
             > 本应用为个人开源项目，内置网易云/B站/YouTube Music 等平台音源能力，
             > 仅供学习研究，请遵守各平台服务条款。

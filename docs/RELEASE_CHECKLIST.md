@@ -248,13 +248,13 @@ AppScope/resources/base/profile/configuration.json
 
 ## 8. GitHub Release 分发流程（CD 流水线，2026-09-08 起）
 
-面向「他人可直接下载」的开发者间分发通道。**产物永远是未签名 HAP**——HarmonyOS 不接受未签名应用也不存在关闭校验的开关，接收人按 Release 附件 `INSTALL.md` 用自己的调试证书签名后 `hdc install`。签名材料/口令/UDID 不进 GitHub（含 Secrets），AGC 正式发布证书属用户个人资产，未经用户操作不引入流水线。
+面向「他人可直接下载」的开发者间分发通道。**产物永远是未签名 HAP**——HarmonyOS 不接受未签名应用也不存在关闭校验的开关，接收人按 Release 附件 `INSTALL.md` 安装（推荐小白调试助手（auto-installer）图形化签名安装，或用自己的调试证书手动签名后 `hdc install`）。签名材料/口令/UDID 不进 GitHub（含 Secrets），AGC 正式发布证书属用户个人资产，未经用户操作不引入流水线。
 
 ### 8.1 流程
 
 1. dev 集成完成、CI 绿后，由用户打 tag：`git tag vX.Y.Z && git push origin vX.Y.Z`（打正式 tag 属版本号/发布物变更，须用户明确发起）。
 2. `harmonyos-release.yml` 自动触发：版本号写入 `AppScope/app.json5`（versionName=tag 去 v 前缀、versionCode=三段乘权如 1.0.1→1000001，低于既有基线 1000000 会 fail 防降级安装）→ release 构建 → 上传 GitHub Release。
-3. Release 附件三个：`NeriPlayer-<tag>-unsigned.hap`、`SHA256SUMS.txt`（完整性校验）、`INSTALL.md`（签名安装指南：DevEco 自动签名 / AGC 手动申请 / hap-sign-tool 命令行三路径）。
+3. Release 附件三个：`NeriPlayer-<tag>-unsigned.hap`、`SHA256SUMS.txt`（完整性校验）、`INSTALL.md`（安装指南：推荐小白调试助手（auto-installer）图形化签名安装；命令行备选路径为 DevEco 自动签名 / AGC 手动申请材料 / hap-sign-tool 签名 + hdc 安装）。
 4. 带 `-` 预发布后缀的 tag（如 `v1.0.1-rc.1`）自动标记 prerelease。
 5. 手动补跑：workflow_dispatch 传已存在的 tag 名（用于 Release 上传步骤失败后重试，构建 artifact 保留 7 天兜底）。
 
