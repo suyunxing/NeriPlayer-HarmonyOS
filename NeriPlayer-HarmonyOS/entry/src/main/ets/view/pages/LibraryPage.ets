@@ -4,9 +4,7 @@ import { promptAction } from '@kit.ArkUI';
 import { common } from '@kit.AbilityKit';
 import { picker, fileShare } from '@kit.CoreFileKit';
 import { Playlist } from '../../model/Playlist';
-import { SongItem } from '../../model/SongItem';
 import { LocalPlaylistRepository } from '../../data/LocalPlaylistRepository';
-import { HistoryRepository } from '../../data/HistoryRepository';
 import { DownloadStorage } from '../../download/DownloadStorage';
 import { PlaybackStatsRepository } from '../../data/PlaybackStatsRepository';
 import { LocalMediaScanner } from '../../data/LocalMediaScanner';
@@ -25,29 +23,41 @@ import { Router } from '../Router';
 import { Theme } from '../Theme';
 import { AccentScheme } from '../theme/AccentScheme';
 import { BAND_LIST_VP } from '../../util/Breakpoint';
-import { iconForLegacy } from '../../util/IconCatalog';
-import { SettingRow, EmptyState, SongCountChip, ContentBand, FLOAT_TAB_CLEARANCE } from '../components/Ui';
+import { SettingRow, EmptyState, ContentBand, FLOAT_TAB_CLEARANCE } from '../components/Ui';
 import { coverThumbnailUrl } from '../../util/CoverUrls';
 import { SETTING_ACCOUNTS } from './SettingsPage';
 
 /** 本页在 MainShell 的 Tabs 里的下标，用于过滤刷新信号。 */
 const TAB_INDEX: number = 2;
 
-/** MINI 标题栏标准高度（MainShell 同名常量）：内容顶部让位。 */
+/** MINI 标题栏标准高度（MainShell 同名常量）：页内平台标签行顶部让位。 */
 const TITLEBAR_SPACE_VP: number = 56;
+
+/** 页内平台窗格下标。 */
+const PANE_LOCAL: number = 0;
+const PANE_NETEASE: number = 1;
+const PANE_BILI: number = 2;
 
 @Component
 export struct LibraryPage {
-  /** 滚动控制器：实例由 MainShell 下发，壳层标题栏 bindToScrollable 绑定当前 Tab 的它。 */
-  scroller: Scroller = new Scroller();
   /** 滚动增量上报（MainShell 下发）：驱动悬浮栏组滚动自适应显隐，见 MainShell.handleTabBarScroll。 */
   onBarScroll: (yDelta: number) => void = () => {};
+  /**
+   * 平台窗格激活滚动器回调（MainShell 下发）：外壳标题栏渐变模糊与迷你条滚动
+   * 阈值都按「每个底部 Tab 一个 Scroller」绑定（官方 FAQ 手法），页内分平台
+   * 窗格各有滚动容器后，由本回调把激活窗格的滚动器上报壳层动态换绑。
+   */
+  onPaneScroller: (scroller: Scroller) => void = () => {};
   /**
    * S5: 订阅封面配色。Theme.*() 读 AppStorage 是无跟踪调用（M7.4），换歌后
    * 坐在本页的组件不会重建；有了这个成员并在 build 里经 schemeBg() 直读，
    * scheme 一发布本页就随新配色重染。
    */
   @StorageProp('player.coverScheme') coverScheme: AccentScheme = AccentScheme.neutralFallback();
+  /** 当前平台窗格：PANE_LOCAL / PANE_NETEASE / PANE_BILI。 */
+  @State platformTab: number = PANE_LOCAL;
+  /** 三个平台窗格各自的滚动器（官方要求滚动容器持独立 Scroller）；激活者上报壳层。 */
+  private paneScrollers: Scroller[] = [new Scroller(), new Scroller(), new Scroller()];
   @State playlists: Playlist[] = [];
   @State favorites: Playlist | null = null;
   @State downloadCount: number = 0;
@@ -92,7 +102,23 @@ export struct LibraryPage {
   }
 
   async aboutToAppear(): Promise<void> {
+    // 首个激活窗格的滚动器先于任何滚动上报壳层，标题栏模糊换绑才不落后一拍。
+    this.onPaneScroller(this.paneScrollers[this.platformTab]);
     await this.reload();
+  }
+
+  /** 平台窗格切换：onAnimationStart（动画起始，高亮即时）与 onChange（终态兜底）共用。 */
+  private onPlatformChange(index: number): void {
+    if (this.platformTab === index) {
+      return;
+    }
+    this.platformTab = index;
+    this.onPaneScroller(this.paneScrollers[index]);
+  }
+
+  /** 本地用户歌单：收藏是伪歌单（id 固定），单独成行展示，不混进列表。 */
+  private localUserPlaylists(): Playlist[] {
+    return this.playlists.filter((playlist: Playlist) => playlist.id !== LocalPlaylistRepository.FAVORITES_ID);
   }
 
   private async reload(): Promise<void> {
@@ -174,15 +200,6 @@ export struct LibraryPage {
     await LocalPlaylistRepository.createPlaylist(trimmed);
     this.showCreateDialog = false;
     await this.reload();
-  }
-
-  private async playFavorites(): Promise<void> {
-    const favorites = this.favorites;
-    if (favorites === null || favorites.songs.length === 0) {
-      promptAction.openToast({ message: '收藏夹为空' });
-      return;
-    }
-    await PlayerManager.playPlaylist(favorites.songs, 0);
   }
 
   private async scanLocal(): Promise<void> {
@@ -275,8 +292,8 @@ export struct LibraryPage {
   }
 
   /**
-   * 同 schemeBg：强调色节点（统计卡片图标、新建/创建/重试按钮、歌单占位
-   * 图标）直接写 Theme.primary() 是无跟踪调用（M7.4），换歌后不会重染；
+   * 同 schemeBg：强调色节点（平台标签选中态、新建/创建/重试/去登录按钮、歌单
+   * 占位图标）直接写 Theme.primary() 是无跟踪调用（M7.4），换歌后不会重染；
    * 先摸被跟踪的 coverScheme 注册依赖，取值依旧交给 Theme 统一决策。
    */
   private accentPrimary(dark: boolean): string {
@@ -284,414 +301,488 @@ export struct LibraryPage {
     return hasScheme ? Theme.primary(dark) : Theme.primary(dark);
   }
 
-  build() {
-    Stack() {
-      // 标题「资料库」由 MainShell 的 HdsNavigation MINI 标题栏承载，页内不再
-      // 重复；列表顶部让位标题栏高度，滚动时从标题栏背后滚过。
-      Scroll(this.scroller) {
-        // 840vp 栏宽约束：tablet 1440vp 下这些设置行的文本原本被拉到 1300vp 以上，
-        // 一行要横扫整块屏。窄屏不触发约束，布局与改造前逐像素一致。
-        ContentBand({ maxWidth: BAND_LIST_VP }) {
+  /**
+   * 平台窗格滚动容器的公共底座：滚动增量上报壳层（迷你条形变）、关闭滚动条。
+   * 内容避让由各窗格自行 padding（顶部接平台标签行，底部让位悬浮栏组）。
+   * 内容经 if/else 分派到各窗格 @Builder——UI 语法只能写在 @Builder 方法体里，
+   * 不能装进普通函数参数（与 ContentBand 的 @BuilderParam 尾闭包同一条边界）。
+   */
+  @Builder
+  paneScroll(paneIndex: number) {
+    Scroll(this.paneScrollers[paneIndex]) {
+      ContentBand({ maxWidth: BAND_LIST_VP }) {
         Column({ space: 12 }) {
-
-        Row({ space: 10 }) {
-          StatCard({
-            icon: '❤',
-            value: this.favorites !== null ? `${this.favorites.songKeys.length} 首` : '0 首',
-            label: '我的收藏',
-            onTap: () => {
-              if (this.favorites !== null) {
-                Router.push(Router.PLAYLIST_DETAIL, LocalPlaylistRepository.FAVORITES_ID);
-              }
-            }
-          })
-          StatCard({
-            icon: '⤓',
-            value: `${this.downloadCount} 首`,
-            label: '已下载',
-            onTap: () => Router.push(Router.DOWNLOADS)
-          })
-          StatCard({
-            icon: '♫',
-            value: `${this.localSongCount} 首`,
-            label: '本地音频',
-            onTap: () => this.scanLocal()
-          })
+          if (paneIndex === PANE_LOCAL) {
+            this.localContent()
+          } else if (paneIndex === PANE_NETEASE) {
+            this.neteaseContent()
+          } else {
+            this.biliContent()
+          }
         }
         .width('100%')
+        .padding({ top: 12, left: 14, right: 14, bottom: 24 + FLOAT_TAB_CLEARANCE })
+      }
+    }
+    .scrollBar(BarState.Off)
+    .onScrollFrameBegin((offset: number) => {
+      this.onBarScroll(offset);
+      return { offsetRemain: offset };
+    })
+    .width('100%')
+    .height('100%')
+  }
 
-        Column({ space: 1 }) {
-          SettingRow({
-            title: '我的收藏',
-            subtitle: this.favorites !== null ? `${this.favorites.songKeys.length} 首 · 点击播放` : '还没有收藏歌曲',
-            icon: '❤',
-            onTap: () => {
-              if (this.favorites !== null) {
-                Router.push(Router.PLAYLIST_DETAIL, LocalPlaylistRepository.FAVORITES_ID);
-              }
+  /**
+   * 平台页签：文字宽度即页签宽度（BarMode.Scrollable），选中态强调色 + 底边
+   * 下划线。下划线画在文字底边框上——宽度天然跟随文字，免测文字宽。
+   */
+  @Builder
+  platformTabItem(index: number, label: string) {
+    Text(label)
+      .fontSize(15)
+      .fontWeight(this.platformTab === index ? FontWeight.Medium : FontWeight.Normal)
+      .fontColor(this.platformTab === index ? this.accentPrimary(Theme.isDark()) : Theme.textSecondary(Theme.isDark()))
+      .padding({ left: 14, right: 14, top: 12, bottom: 9 })
+      .borderWidth({ bottom: 3 })
+      .borderColor(this.platformTab === index ? this.accentPrimary(Theme.isDark()) : Color.Transparent)
+  }
+
+  @Builder
+  localPane() {
+    this.paneScroll(PANE_LOCAL)
+  }
+
+  @Builder
+  neteasePane() {
+    this.paneScroll(PANE_NETEASE)
+  }
+
+  @Builder
+  biliPane() {
+    this.paneScroll(PANE_BILI)
+  }
+
+  /** 本地窗格内容：新建歌单入口、我的收藏 + 用户歌单、本地音频、更多。 */
+  @Builder
+  localContent() {
+    Row({ space: 8 }) {
+      Image($r('app.media.ic_add_24'))
+        .width(20)
+        .height(20)
+        .fillColor(this.accentPrimary(Theme.isDark()))
+      Text('新建歌单')
+        .fontSize(15)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(Theme.textPrimary(Theme.isDark()))
+    }
+    .width('100%')
+    .height(48)
+    .padding({ left: 14 })
+    .backgroundColor(Theme.surface(Theme.isDark()))
+    .borderRadius(Theme.cardRadius())
+    .onClick(() => this.createPlaylist())
+
+    if (this.favorites === null && this.localUserPlaylists().length === 0) {
+      EmptyState({
+        icon: '♪',
+        title: '暂无本地歌单',
+        subtitle: '点击「新建歌单」创建第一个歌单'
+      })
+    } else {
+      Column({ space: 1 }) {
+        if (this.favorites !== null) {
+          Row({ space: 12 }) {
+            Image($r('app.media.ic_baseline_favorite_24'))
+              .width(22)
+              .height(22)
+              .fillColor(this.accentPrimary(Theme.isDark()))
+              .margin({ left: 11, right: 11, top: 11, bottom: 11 })
+              .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+              .borderRadius(8)
+            Column({ space: 2 }) {
+              Text('我的收藏')
+                .fontSize(15)
+                .fontWeight(FontWeight.Medium)
+                .fontColor(Theme.textPrimary(Theme.isDark()))
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+              Text(`${this.favorites.songKeys.length} 首`)
+                .fontSize(12)
+                .fontColor(Theme.textSecondary(Theme.isDark()))
             }
-          })
-          SettingRow({
-            title: '播放历史',
-            subtitle: `累计播放 ${this.playCount} 次`,
-            icon: '⏱',
-            onTap: () => Router.push(Router.RECENT)
-          })
-          SettingRow({
-            title: '播放统计',
-            subtitle: `累计收听 ${this.listenHours} 小时 ${this.listenMinutes} 分钟`,
-            icon: '📊',
-            onTap: () => Router.push(Router.STATS)
-          })
-        }
-        .width('100%')
-        .backgroundColor(Theme.surface(Theme.isDark()))
-        .borderRadius(Theme.cardRadius())
-        .clip(true)
-
-        Row() {
-          Text('本地歌单')
-            .fontSize(18)
-            .fontWeight(FontWeight.Bold)
-            .fontColor(Theme.textPrimary(Theme.isDark()))
             .layoutWeight(1)
-          Button('＋ 新建')
+            .alignItems(HorizontalAlign.Start)
+            Image($r('app.media.ic_chevron_right_24'))
+              .width(18)
+              .height(18)
+              .fillColor(Theme.textDisabled(Theme.isDark()))
+          }
+          .width('100%')
+          .padding({ left: 14, right: 14, top: 10, bottom: 10 })
+          .backgroundColor(Theme.surface(Theme.isDark()))
+          .onClick(() => Router.push(Router.PLAYLIST_DETAIL, LocalPlaylistRepository.FAVORITES_ID))
+        }
+        ForEach(this.localUserPlaylists(), (playlist: Playlist) => {
+          Row({ space: 12 }) {
+            Image($r('app.media.ic_library_music_24'))
+              .width(22)
+              .height(22)
+              .fillColor(this.accentPrimary(Theme.isDark()))
+              .margin({ left: 11, right: 11, top: 11, bottom: 11 })
+              .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+              .borderRadius(8)
+            Column({ space: 2 }) {
+              Text(playlist.name)
+                .fontSize(15)
+                .fontWeight(FontWeight.Medium)
+                .fontColor(Theme.textPrimary(Theme.isDark()))
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+              Text(playlist.songKeys.length > 0 ? `${playlist.songKeys.length} 首` : '空歌单')
+                .fontSize(12)
+                .fontColor(Theme.textSecondary(Theme.isDark()))
+            }
+            .layoutWeight(1)
+            .alignItems(HorizontalAlign.Start)
+            Image($r('app.media.ic_chevron_right_24'))
+              .width(18)
+              .height(18)
+              .fillColor(Theme.textDisabled(Theme.isDark()))
+          }
+          .width('100%')
+          .padding({ left: 14, right: 14, top: 10, bottom: 10 })
+          .backgroundColor(Theme.surface(Theme.isDark()))
+          .onClick(() => Router.push(Router.PLAYLIST_DETAIL, playlist.id))
+        }, (playlist: Playlist) => playlist.id)
+      }
+      .width('100%')
+      .borderRadius(Theme.cardRadius())
+      .clip(true)
+    }
+
+    Row() {
+      Text('本地音频')
+        .fontSize(18)
+        .fontWeight(FontWeight.Bold)
+        .fontColor(Theme.textPrimary(Theme.isDark()))
+        .layoutWeight(1)
+      Button('扫描')
+        .height(40)
+        .fontSize(13)
+        .backgroundColor(Theme.surface(Theme.isDark()))
+        .fontColor(Theme.textPrimary(Theme.isDark()))
+        .onClick(() => this.scanLocal())
+    }
+    .width('100%')
+
+    SettingRow({
+      title: '本地音乐库目录',
+      subtitle: this.localScanDirLabel().length > 0
+        ? `${this.localScanDirLabel()} · 点击重新扫描` : '选择文件夹后自动递归收录音频（含同名 .lrc 歌词）',
+      icon: '🗂',
+      onTap: () => this.pickLocalScanDirectory()
+    })
+
+    if (SettingsRepository.getString(SettingsRepository.KEY_LOCAL_SCAN_DIRECTORY_URI, '').length > 0) {
+      SettingRow({
+        title: this.scanning ? '正在扫描本地音乐库...' : '扫描本地音乐库',
+        subtitle: this.localSongCount > 0 ? `已收录 ${this.localSongCount} 首 · 点击立即播放` : '点击扫描所选目录',
+        icon: '♫',
+        onTap: () => {
+          if (this.localSongCount > 0) {
+            this.playLocalLibrary();
+            return;
+          }
+          this.scanLocal();
+        }
+      })
+    }
+
+    Text('更多')
+      .fontSize(18)
+      .fontWeight(FontWeight.Bold)
+      .fontColor(Theme.textPrimary(Theme.isDark()))
+      .width('100%')
+
+    Column({ space: 1 }) {
+      SettingRow({
+        title: '已下载',
+        subtitle: `${this.downloadCount} 首 · 点击管理`,
+        icon: '⤓',
+        onTap: () => Router.push(Router.DOWNLOADS)
+      })
+      SettingRow({
+        title: '播放历史',
+        subtitle: `累计播放 ${this.playCount} 次`,
+        icon: '⏱',
+        onTap: () => Router.push(Router.RECENT)
+      })
+      SettingRow({
+        title: '播放统计',
+        subtitle: `累计收听 ${this.listenHours} 小时 ${this.listenMinutes} 分钟`,
+        icon: '📊',
+        onTap: () => Router.push(Router.STATS)
+      })
+      SettingRow({
+        title: '一起听',
+        subtitle: '创建或加入房间，与好友同步播放',
+        icon: '👥',
+        onTap: () => Router.push(Router.LISTEN_TOGETHER)
+      })
+    }
+    .width('100%')
+    .borderRadius(Theme.cardRadius())
+    .clip(true)
+  }
+
+  /** 网易云窗格内容：未登录给登录入口；已登录为刷新 + 错误/空态/歌单列表。 */
+  @Builder
+  neteaseContent() {
+    if (!this.neteaseLogged) {
+      this.loginPrompt('🎵', '未登录网易云音乐', '登录后同步你的网易云歌单到资料库')
+    } else {
+      Row() {
+        Text(`共 ${this.neteasePlaylists.length} 个歌单`)
+          .fontSize(13)
+          .fontColor(Theme.textSecondary(Theme.isDark()))
+          .layoutWeight(1)
+        Button(this.neteaseLoading ? '加载中…' : '刷新')
+          .height(40)
+          .fontSize(13)
+          .backgroundColor(Theme.surface(Theme.isDark()))
+          .fontColor(Theme.textPrimary(Theme.isDark()))
+          .enabled(!this.neteaseLoading)
+          .onClick(() => this.refreshNeteasePlaylists())
+      }
+      .width('100%')
+
+      if (this.neteaseError.length > 0) {
+        Column({ space: 8 }) {
+          Text(`加载失败：${this.neteaseError}`)
+            .fontSize(13)
+            .fontColor(Theme.textSecondary(Theme.isDark()))
+          Button('重试')
             .height(40)
             .fontSize(13)
             .backgroundColor(this.accentPrimary(Theme.isDark()))
-            .onClick(() => this.createPlaylist())
+            .onClick(() => this.refreshNeteasePlaylists())
         }
         .width('100%')
-        .margin({ top: 6 })
-
-        if (this.playlists.length === 0) {
-          EmptyState({
-            icon: '♪',
-            title: '暂无本地歌单',
-            subtitle: '点击「新建」创建第一个歌单'
-          })
-        } else {
-          Column({ space: 1 }) {
-            ForEach(this.playlists, (playlist: Playlist) => {
-              Row({ space: 12 }) {
-                Image($r('app.media.ic_library_music_24'))
+        .padding(16)
+      } else if (this.neteasePlaylists.length === 0) {
+        EmptyState({
+          icon: '🎵',
+          title: this.neteaseLoading ? '正在加载歌单…' : '暂无歌单',
+          subtitle: '在网易云 App 创建歌单后点「刷新」'
+        })
+      } else {
+        Column({ space: 1 }) {
+          ForEach(this.neteasePlaylists, (item: NeteasePlaylistSummary) => {
+            Row({ space: 12 }) {
+              if (item.coverUrl.length > 0) {
+                Image(coverThumbnailUrl(item.coverUrl, 400))
+                  .autoResize(true)
+                  .width(44)
+                  .height(44)
+                  .borderRadius(8)
+                  .objectFit(ImageFit.Cover)
+                  .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+              } else {
+                Image($r('app.media.ic_music_note_24'))
                   .width(22)
                   .height(22)
                   .fillColor(this.accentPrimary(Theme.isDark()))
                   .margin({ left: 11, right: 11, top: 11, bottom: 11 })
                   .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
                   .borderRadius(8)
-                Column({ space: 2 }) {
-                  Text(playlist.name)
-                    .fontSize(15)
-                    .fontWeight(FontWeight.Medium)
-                    .fontColor(Theme.textPrimary(Theme.isDark()))
-                    .maxLines(1)
-                    .textOverflow({ overflow: TextOverflow.Ellipsis })
-                  Text(playlist.songKeys.length > 0 ? `${playlist.songKeys.length} 首` : '空歌单')
-                    .fontSize(12)
-                    .fontColor(Theme.textSecondary(Theme.isDark()))
-                }
-                .layoutWeight(1)
-                .alignItems(HorizontalAlign.Start)
-                Image($r('app.media.ic_chevron_right_24'))
-                  .width(18)
-                  .height(18)
-                  .fillColor(Theme.textDisabled(Theme.isDark()))
               }
-              .width('100%')
-              .padding({ left: 14, right: 14, top: 10, bottom: 10 })
-              .backgroundColor(Theme.surface(Theme.isDark()))
-              .onClick(() => Router.push(Router.PLAYLIST_DETAIL, playlist.id))
-            }, (playlist: Playlist) => playlist.id)
-          }
-          .width('100%')
-          .borderRadius(Theme.cardRadius())
-          .clip(true)
-        }
-
-        if (this.neteaseLogged) {
-          Row() {
-            Text('网易云歌单')
-              .fontSize(18)
-              .fontWeight(FontWeight.Bold)
-              .fontColor(Theme.textPrimary(Theme.isDark()))
+              Column({ space: 2 }) {
+                Text(item.name)
+                  .fontSize(15)
+                  .fontWeight(FontWeight.Medium)
+                  .fontColor(Theme.textPrimary(Theme.isDark()))
+                  .maxLines(1)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+                Text(item.trackCount > 0 ? `${item.trackCount} 首` : '空歌单')
+                  .fontSize(12)
+                  .fontColor(Theme.textSecondary(Theme.isDark()))
+              }
               .layoutWeight(1)
-            Button(this.neteaseLoading ? '加载中…' : '刷新')
-              .height(40)
-              .fontSize(13)
-              .backgroundColor(Theme.surface(Theme.isDark()))
-              .fontColor(Theme.textPrimary(Theme.isDark()))
-              .enabled(!this.neteaseLoading)
-              .onClick(() => this.refreshNeteasePlaylists())
-          }
-          .width('100%')
-          .margin({ top: 12 })
-
-          if (this.neteaseError.length > 0) {
-            Column({ space: 8 }) {
-              Text(`加载失败：${this.neteaseError}`)
-                .fontSize(13)
-                .fontColor(Theme.textSecondary(Theme.isDark()))
-              Button('重试')
-                .height(40)
-                .fontSize(13)
-                .backgroundColor(this.accentPrimary(Theme.isDark()))
-                .onClick(() => this.refreshNeteasePlaylists())
+              .alignItems(HorizontalAlign.Start)
+              Image($r('app.media.ic_chevron_right_24'))
+                .width(18)
+                .height(18)
+                .fillColor(Theme.textDisabled(Theme.isDark()))
             }
             .width('100%')
-            .padding(16)
-          } else if (this.neteasePlaylists.length === 0) {
-            EmptyState({
-              icon: '🎵',
-              title: this.neteaseLoading ? '正在加载歌单…' : '暂无歌单',
-              subtitle: '下拉刷新或在网易云 App 创建歌单后刷新'
-            })
-          } else {
-            Column({ space: 1 }) {
-              ForEach(this.neteasePlaylists, (item: NeteasePlaylistSummary) => {
-                Row({ space: 12 }) {
-                  if (item.coverUrl.length > 0) {
-                    Image(coverThumbnailUrl(item.coverUrl, 400))
-                      .autoResize(true)
-                      .width(44)
-                      .height(44)
-                      .borderRadius(8)
-                      .objectFit(ImageFit.Cover)
-                      .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
-                  } else {
-                    Image($r('app.media.ic_music_note_24'))
-                      .width(22)
-                      .height(22)
-                      .fillColor(this.accentPrimary(Theme.isDark()))
-                      .margin({ left: 11, right: 11, top: 11, bottom: 11 })
-                      .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
-                      .borderRadius(8)
-                  }
-                  Column({ space: 2 }) {
-                    Text(item.name)
-                      .fontSize(15)
-                      .fontWeight(FontWeight.Medium)
-                      .fontColor(Theme.textPrimary(Theme.isDark()))
-                      .maxLines(1)
-                      .textOverflow({ overflow: TextOverflow.Ellipsis })
-                    Text(item.trackCount > 0 ? `${item.trackCount} 首` : '空歌单')
-                      .fontSize(12)
-                      .fontColor(Theme.textSecondary(Theme.isDark()))
-                  }
-                  .layoutWeight(1)
-                  .alignItems(HorizontalAlign.Start)
-                  Image($r('app.media.ic_chevron_right_24'))
-                    .width(18)
-                    .height(18)
-                    .fillColor(Theme.textDisabled(Theme.isDark()))
-                }
-                .width('100%')
-                .padding({ left: 14, right: 14, top: 10, bottom: 10 })
-                .backgroundColor(Theme.surface(Theme.isDark()))
-                .onClick(() => Router.push(Router.NETEASE_PLAYLIST, `${item.id}`))
-              }, (item: NeteasePlaylistSummary) => `${item.id}`)
-            }
-            .width('100%')
-            .borderRadius(Theme.cardRadius())
-            .clip(true)
-          }
-        }
-
-        if (this.biliLogged) {
-          Row() {
-            Text('B 站收藏夹')
-              .fontSize(18)
-              .fontWeight(FontWeight.Bold)
-              .fontColor(Theme.textPrimary(Theme.isDark()))
-              .layoutWeight(1)
-            Button(this.biliLoading ? '加载中…' : '刷新')
-              .height(40)
-              .fontSize(13)
-              .backgroundColor(Theme.surface(Theme.isDark()))
-              .fontColor(Theme.textPrimary(Theme.isDark()))
-              .enabled(!this.biliLoading)
-              .onClick(() => this.refreshBiliFavFolders())
-          }
-          .width('100%')
-          .margin({ top: 12 })
-
-          if (this.biliError.length > 0) {
-            Column({ space: 8 }) {
-              Text(`加载失败：${this.biliError}`)
-                .fontSize(13)
-                .fontColor(Theme.textSecondary(Theme.isDark()))
-              Button('重试')
-                .height(40)
-                .fontSize(13)
-                .backgroundColor(this.accentPrimary(Theme.isDark()))
-                .onClick(() => this.refreshBiliFavFolders())
-            }
-            .width('100%')
-            .padding(16)
-          } else if (this.biliFolders.length === 0) {
-            EmptyState({
-              icon: '📺',
-              title: this.biliLoading ? '正在加载收藏夹…' : '暂无收藏夹',
-              subtitle: '在哔哩哔哩收藏视频后刷新'
-            })
-          } else {
-            Column({ space: 1 }) {
-              ForEach(this.biliFolders, (item: BiliFavFolderSummary) => {
-                Row({ space: 12 }) {
-                  if (item.coverUrl.length > 0) {
-                    Image(coverThumbnailUrl(item.coverUrl, 400))
-                      .autoResize(true)
-                      .width(44)
-                      .height(44)
-                      .borderRadius(8)
-                      .objectFit(ImageFit.Cover)
-                      .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
-                  } else {
-                    Image($r('app.media.ic_bilibili'))
-                      .width(24)
-                      .height(24)
-                      .margin({ left: 10, right: 10, top: 10, bottom: 10 })
-                      .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
-                      .borderRadius(8)
-                  }
-                  Column({ space: 2 }) {
-                    Text(item.title)
-                      .fontSize(15)
-                      .fontWeight(FontWeight.Medium)
-                      .fontColor(Theme.textPrimary(Theme.isDark()))
-                      .maxLines(1)
-                      .textOverflow({ overflow: TextOverflow.Ellipsis })
-                    Text(item.mediaCount > 0 ? `${item.mediaCount} 条` : '空收藏夹')
-                      .fontSize(12)
-                      .fontColor(Theme.textSecondary(Theme.isDark()))
-                  }
-                  .layoutWeight(1)
-                  .alignItems(HorizontalAlign.Start)
-                  Image($r('app.media.ic_chevron_right_24'))
-                    .width(18)
-                    .height(18)
-                    .fillColor(Theme.textDisabled(Theme.isDark()))
-                }
-                .width('100%')
-                .padding({ left: 14, right: 14, top: 10, bottom: 10 })
-                .backgroundColor(Theme.surface(Theme.isDark()))
-                .onClick(() => Router.push(Router.BILI_FAV, `${item.mediaId}`))
-              }, (item: BiliFavFolderSummary) => `${item.mediaId}`)
-            }
-            .width('100%')
-            .borderRadius(Theme.cardRadius())
-            .clip(true)
-          }
-        }
-
-        Row() {
-          Text('本地音频')
-            .fontSize(18)
-            .fontWeight(FontWeight.Bold)
-            .fontColor(Theme.textPrimary(Theme.isDark()))
-            .layoutWeight(1)
-          Button('扫描')
-            .height(40)
-            .fontSize(13)
+            .padding({ left: 14, right: 14, top: 10, bottom: 10 })
             .backgroundColor(Theme.surface(Theme.isDark()))
-            .fontColor(Theme.textPrimary(Theme.isDark()))
-            .onClick(() => this.scanLocal())
+            .onClick(() => Router.push(Router.NETEASE_PLAYLIST, `${item.id}`))
+          }, (item: NeteasePlaylistSummary) => `${item.id}`)
         }
         .width('100%')
-        .margin({ top: 12 })
-
-        SettingRow({
-          title: '本地音乐库目录',
-          subtitle: this.localScanDirLabel().length > 0
-            ? `${this.localScanDirLabel()} · 点击重新扫描` : '选择文件夹后自动递归收录音频（含同名 .lrc 歌词）',
-          icon: '🗂',
-          onTap: () => this.pickLocalScanDirectory()
-        })
-
-        if (SettingsRepository.getString(SettingsRepository.KEY_LOCAL_SCAN_DIRECTORY_URI, '').length > 0) {
-          SettingRow({
-            title: this.scanning ? '正在扫描本地音乐库...' : '扫描本地音乐库',
-            subtitle: this.localSongCount > 0 ? `已收录 ${this.localSongCount} 首 · 点击立即播放` : '点击扫描所选目录',
-            icon: '♫',
-            onTap: () => {
-              if (this.localSongCount > 0) {
-                this.playLocalLibrary();
-                return;
-              }
-              this.scanLocal();
-            }
-          })
-        }
-
-        Text('平台')
-          .fontSize(18)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(Theme.textPrimary(Theme.isDark()))
-          .width('100%')
-          .margin({ top: 12 })
-
-        Column({ space: 1 }) {
-          SettingRow({
-            title: '网易云音乐',
-            subtitle: this.neteaseLogged
-              ? `已登录 · ${this.neteasePlaylists.length} 个歌单`
-              : '未登录 · 点击扫码登录，同步我的歌单',
-            icon: '🎵',
-            onTap: () => {
-              if (!this.neteaseLogged) {
-                Router.push(Router.SETTINGS_DETAIL, SETTING_ACCOUNTS);
-              } else if (this.neteasePlaylists.length === 0 && !this.neteaseLoading) {
-                this.refreshNeteasePlaylists();
-              }
-            }
-          })
-          SettingRow({
-            title: 'Bilibili',
-            subtitle: this.biliLogged
-              ? `已登录 · ${this.biliFolders.length} 个收藏夹`
-              : '未登录 · 点击扫码登录，浏览我的收藏夹',
-            icon: '📺',
-            onTap: () => {
-              if (!this.biliLogged) {
-                Router.push(Router.SETTINGS_DETAIL, SETTING_ACCOUNTS);
-              } else if (this.biliFolders.length === 0 && !this.biliLoading) {
-                this.refreshBiliFavFolders();
-              }
-            }
-          })
-          SettingRow({
-            title: '一起听',
-            subtitle: '创建或加入房间，与好友同步播放',
-            icon: '👥',
-            onTap: () => Router.push(Router.LISTEN_TOGETHER)
-          })
-        }
-        .width('100%')
-        .backgroundColor(Theme.surface(Theme.isDark()))
         .borderRadius(Theme.cardRadius())
         .clip(true)
       }
-          .width('100%')
-          .padding({ top: TITLEBAR_SPACE_VP, left: 14, right: 14, bottom: 24 + FLOAT_TAB_CLEARANCE })
-        }
+    }
+  }
+
+  /** B站窗格内容：未登录给登录入口；已登录为刷新 + 错误/空态/收藏夹列表。 */
+  @Builder
+  biliContent() {
+    if (!this.biliLogged) {
+      this.loginPrompt('📺', '未登录哔哩哔哩', '登录后浏览你的B站收藏夹')
+    } else {
+      Row() {
+        Text(`共 ${this.biliFolders.length} 个收藏夹`)
+          .fontSize(13)
+          .fontColor(Theme.textSecondary(Theme.isDark()))
+          .layoutWeight(1)
+        Button(this.biliLoading ? '加载中…' : '刷新')
+          .height(40)
+          .fontSize(13)
+          .backgroundColor(Theme.surface(Theme.isDark()))
+          .fontColor(Theme.textPrimary(Theme.isDark()))
+          .enabled(!this.biliLoading)
+          .onClick(() => this.refreshBiliFavFolders())
       }
-      .layoutWeight(1)
-      .scrollBar(BarState.Off)
-      // 滚动自适应悬浮栏：增量交壳层（不消费，见 MainShell.handleTabBarScroll）。
-      .onScrollFrameBegin((offset: number) => {
-        this.onBarScroll(offset);
-        return { offsetRemain: offset };
-      })
+      .width('100%')
+
+      if (this.biliError.length > 0) {
+        Column({ space: 8 }) {
+          Text(`加载失败：${this.biliError}`)
+            .fontSize(13)
+            .fontColor(Theme.textSecondary(Theme.isDark()))
+          Button('重试')
+            .height(40)
+            .fontSize(13)
+            .backgroundColor(this.accentPrimary(Theme.isDark()))
+            .onClick(() => this.refreshBiliFavFolders())
+        }
+        .width('100%')
+        .padding(16)
+      } else if (this.biliFolders.length === 0) {
+        EmptyState({
+          icon: '📺',
+          title: this.biliLoading ? '正在加载收藏夹…' : '暂无收藏夹',
+          subtitle: '在哔哩哔哩收藏视频后点「刷新」'
+        })
+      } else {
+        Column({ space: 1 }) {
+          ForEach(this.biliFolders, (item: BiliFavFolderSummary) => {
+            Row({ space: 12 }) {
+              if (item.coverUrl.length > 0) {
+                Image(coverThumbnailUrl(item.coverUrl, 400))
+                  .autoResize(true)
+                  .width(44)
+                  .height(44)
+                  .borderRadius(8)
+                  .objectFit(ImageFit.Cover)
+                  .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+              } else {
+                Image($r('app.media.ic_bilibili'))
+                  .width(24)
+                  .height(24)
+                  .margin({ left: 10, right: 10, top: 10, bottom: 10 })
+                  .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+                  .borderRadius(8)
+              }
+              Column({ space: 2 }) {
+                Text(item.title)
+                  .fontSize(15)
+                  .fontWeight(FontWeight.Medium)
+                  .fontColor(Theme.textPrimary(Theme.isDark()))
+                  .maxLines(1)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+                Text(item.mediaCount > 0 ? `${item.mediaCount} 条` : '空收藏夹')
+                  .fontSize(12)
+                  .fontColor(Theme.textSecondary(Theme.isDark()))
+              }
+              .layoutWeight(1)
+              .alignItems(HorizontalAlign.Start)
+              Image($r('app.media.ic_chevron_right_24'))
+                .width(18)
+                .height(18)
+                .fillColor(Theme.textDisabled(Theme.isDark()))
+            }
+            .width('100%')
+            .padding({ left: 14, right: 14, top: 10, bottom: 10 })
+            .backgroundColor(Theme.surface(Theme.isDark()))
+            .onClick(() => Router.push(Router.BILI_FAV, `${item.mediaId}`))
+          }, (item: BiliFavFolderSummary) => `${item.mediaId}`)
+        }
+        .width('100%')
+        .borderRadius(Theme.cardRadius())
+        .clip(true)
+      }
+    }
+  }
+
+  /** 平台未登录的窗格空态：空态文案 + 登录入口（接替原「平台」分区的登录行）。 */
+  @Builder
+  loginPrompt(icon: string, title: string, subtitle: string) {
+    Column({ space: 16 }) {
+      EmptyState({ icon: icon, title: title, subtitle: subtitle })
+      Button('去登录')
+        .height(40)
+        .fontSize(14)
+        .backgroundColor(this.accentPrimary(Theme.isDark()))
+        .onClick(() => Router.push(Router.SETTINGS_DETAIL, SETTING_ACCOUNTS))
+    }
+    .width('100%')
+    .padding({ top: 96 })
+  }
+
+  build() {
+    Stack() {
+      // 标题「资料库」仍由 MainShell 的 HdsNavigation MINI 标题栏承载；页内改为
+      // 安卓版同款平台横向标签（本地/网易云/B站），标签行固定在标题栏下方，
+      // 三个平台窗格各自独立滚动（滚动态互不串扰，切回仍保留各自的阅读位置）。
+      Column() {
+        Tabs({ barPosition: BarPosition.Start, index: this.platformTab }) {
+          TabContent() {
+            this.localPane()
+          }
+          .tabBar(this.platformTabItem(PANE_LOCAL, '本地'))
+
+          TabContent() {
+            this.neteasePane()
+          }
+          .tabBar(this.platformTabItem(PANE_NETEASE, '网易云'))
+
+          TabContent() {
+            this.biliPane()
+          }
+          .tabBar(this.platformTabItem(PANE_BILI, 'B站'))
+        }
+        .vertical(false)
+        // Scrollable：页签按内容实际宽度排布（同安卓版的可滚动平台标签），
+        // 平台增多溢出时标签行自身可横滚。
+        .barMode(BarMode.Scrollable)
+        // 不开放左右滑切窗格：与外壳 HdsTabs 同一策略，避免与列表/卡片横滑手势争抢。
+        .scrollable(false)
+        .animationDuration(250)
+        .divider({
+          strokeWidth: 0.5,
+          color: Theme.withAlpha(Theme.textPrimary(Theme.isDark()), 0x1F),
+          startMargin: 0,
+          endMargin: 0
+        })
+        .layoutWeight(1)
+        .width('100%')
+        // 高亮即时性：onChange 在切页动画结束后才回调（官方 FAQ faqs-arkui-568），
+        // 动画开始的 targetIndex 先行更新选中态，onChange 兜底终态。
+        .onAnimationStart((_index: number, targetIndex: number, _event: TabsAnimationEvent) => {
+          this.onPlatformChange(targetIndex);
+        })
+        .onChange((index: number) => {
+          this.onPlatformChange(index);
+        })
+      }
       .width('100%')
       .height('100%')
-      // 顶部沉浸：视口向上延伸进状态栏区，列表滚过标题栏后继续钻到状态栏
-      // 被渐变模糊覆盖（与首页统一）；clip(false) 放行内容画出视口上沿，
-      // expandSafeArea 只扩绘制区不改布局，首屏让位不变。新建歌单弹窗是
-      // Stack 中声明在后的兄弟，仍在列表之上。
-      .clip(false)
-      .expandSafeArea([SafeAreaType.SYSTEM, SafeAreaType.CUTOUT], [SafeAreaEdge.TOP])
-      .backgroundColor(this.schemeBg(Theme.isDark()))
+      .padding({ top: TITLEBAR_SPACE_VP })
 
       if (this.showCreateDialog) {
         Column() {
@@ -735,46 +826,6 @@ export struct LibraryPage {
     }
     .width('100%')
     .height('100%')
-  }
-}
-
-@Component
-struct StatCard {
-  /** 订阅封面配色：图标直接写 Theme.primary() 是无跟踪调用（M7.4），不订阅则换歌后停留回退色。 */
-  @StorageProp('player.coverScheme') coverScheme: AccentScheme = AccentScheme.neutralFallback();
-  // 入参必须 @Prop：普通成员只在组件创建时赋值一次，已下载/收藏数等运行期
-  // 会变的值随后续刷新永远停在首帧。
-  @Prop icon: string = '';
-  @Prop value: string = '';
-  @Prop label: string = '';
-  onTap: () => void = () => {};
-
-  /** 同 LibraryPage.accentPrimary：先摸被跟踪成员注册依赖，取值交给 Theme。 */
-  private accentPrimary(dark: boolean): string {
-    const hasScheme = this.coverScheme.light.primary.length > 0;
-    return hasScheme ? Theme.primary(dark) : Theme.primary(dark);
-  }
-
-  build() {
-    Column({ space: 4 }) {
-      Image(iconForLegacy(this.icon, $r('app.media.ic_music_note_24')))
-        .width(22)
-        .height(22)
-        .fillColor(this.accentPrimary(Theme.isDark()))
-      Text(this.value)
-        .fontSize(14)
-        .fontWeight(FontWeight.Bold)
-        .fontColor(Theme.textPrimary(Theme.isDark()))
-        .maxLines(1)
-      Text(this.label)
-        .fontSize(11)
-        .fontColor(Theme.textSecondary(Theme.isDark()))
-        .maxLines(1)
-    }
-    .layoutWeight(1)
-    .padding({ top: 14, bottom: 14, left: 6, right: 6 })
-    .backgroundColor(Theme.surface(Theme.isDark()))
-    .borderRadius(14)
-    .onClick(() => this.onTap())
+    .backgroundColor(this.schemeBg(Theme.isDark()))
   }
 }
