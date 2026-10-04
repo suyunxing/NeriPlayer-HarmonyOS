@@ -40,7 +40,6 @@ import {
   QrPollOutcome,
   QrPollOutcomeCode
 } from '../components/QrLoginPanel';
-import { NeteasePhoneLoginPanel } from '../components/NeteasePhoneLoginPanel';
 import { Theme } from '../Theme';
 import { AccentScheme } from '../theme/AccentScheme';
 import { BAND_LIST_VP } from '../../util/Breakpoint';
@@ -202,7 +201,6 @@ export struct SettingsDetailPage {
   @StorageProp('np.listen_together_allow_member_control') ltAllowMemberControl: boolean = true;
   @StorageProp('np.listen_together_auto_pause_on_member_change') ltAutoPauseOnMemberChange: boolean = true;
   @StorageProp('np.listen_together_share_audio_links') ltShareAudioLinks: boolean = true;
-  @State showNeteasePhoneLogin: boolean = false;
 
   @State cacheBytes: number = 0;
   /** 关于页版本行文案；版本号运行时读包信息，避免与 app.json5 / 发布 tag 脱节。 */
@@ -627,16 +625,6 @@ export struct SettingsDetailPage {
       this.neteaseLogged = true;
       NeteaseApi.resetSession();
       promptAction.openToast({ message: '网易云登录成功' });
-    }
-    return saved;
-  }
-
-  private async onNeteasePhoneConfirmed(cookies: Map<string, string>): Promise<boolean> {
-    const saved = await NeteaseCookieRepository.saveFromPhoneLogin(cookies);
-    if (saved) {
-      this.neteaseLogged = true;
-      this.showNeteasePhoneLogin = false;
-      NeteaseApi.resetSession();
     }
     return saved;
   }
@@ -1902,12 +1890,9 @@ export struct SettingsDetailPage {
               scanHint: '请用网易云音乐 App 扫码',
               pollIntervalMs: NETEASE_QR_POLL_INTERVAL_MS
             })
-            SettingRow({
-              title: '粘贴 Cookie 导入（网易云）',
-              subtitle: '扫码不可用时的备用登录方式',
-              icon: '📋',
-              onTap: () => this.openNeteasePasteDialog()
-            })
+            // 登录入口统一策略：对应渠道已登录即隐藏（扫码走上方账号行的
+            // 登出，网页/Cookie 备选入口仅在未登录时出现）；手机号/密码登录
+            // 入口已按用户要求移除（验证码通道被风控收紧，网页登录为稳态）。
             if (!this.neteaseLogged) {
               SettingRow({
                 title: '网页登录（网易云）',
@@ -1916,19 +1901,11 @@ export struct SettingsDetailPage {
                 onTap: () => Router.push(Router.NETEASE_WEB_LOGIN)
               })
               SettingRow({
-                title: '手机号登录（网易云）',
-                subtitle: '短信验证码或密码登录',
-                icon: '📱',
-                onTap: () => {
-                  this.showNeteasePhoneLogin = !this.showNeteasePhoneLogin;
-                }
+                title: '粘贴 Cookie 导入（网易云）',
+                subtitle: '网页/扫码均不可用时的备用登录方式',
+                icon: '📋',
+                onTap: () => this.openNeteasePasteDialog()
               })
-              if (this.showNeteasePhoneLogin) {
-                NeteasePhoneLoginPanel({
-                  onConfirmed: (cookies: Map<string, string>): Promise<boolean> =>
-                    this.onNeteasePhoneConfirmed(cookies)
-                })
-              }
             }
             SettingRow({
               title: 'Bilibili',
@@ -1952,18 +1929,20 @@ export struct SettingsDetailPage {
               scanHint: '请用哔哩哔哩客户端扫码',
               pollIntervalMs: BILI_QR_POLL_INTERVAL_MS
             })
-            SettingRow({
-              title: '网页登录（Bilibili）',
-              subtitle: '打开官方登录页 · 支持验证码/扫码/密码',
-              icon: '🌐',
-              onTap: () => Router.push(Router.BILI_WEB_LOGIN)
-            })
-            SettingRow({
-              title: '粘贴 Cookie 导入（Bilibili）',
-              subtitle: '扫码不可用时的备用登录方式',
-              icon: '📋',
-              onTap: () => this.openBiliPasteDialog()
-            })
+            if (!this.biliLogged) {
+              SettingRow({
+                title: '网页登录（Bilibili）',
+                subtitle: '打开官方登录页 · 支持验证码/扫码/密码',
+                icon: '🌐',
+                onTap: () => Router.push(Router.BILI_WEB_LOGIN)
+              })
+              SettingRow({
+                title: '粘贴 Cookie 导入（Bilibili）',
+                subtitle: '网页/扫码均不可用时的备用登录方式',
+                icon: '📋',
+                onTap: () => this.openBiliPasteDialog()
+              })
+            }
             SettingRow({
               title: 'YouTube',
               subtitle: '未登录 · Cookie 会话待移植',
