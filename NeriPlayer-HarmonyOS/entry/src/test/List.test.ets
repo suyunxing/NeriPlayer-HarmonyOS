@@ -17,6 +17,7 @@ import qrEncoderTest from './ets/test/QrEncoder.test';
 import neteaseAuthTest from './ets/test/NeteaseAuth.test';
 import neteasePlaylistParserTest from './ets/test/NeteasePlaylistParser.test';
 import neteasePhoneLoginSeedTest from './ets/test/NeteasePhoneLoginSeed.test';
+import neteaseWebLoginTest from './ets/test/NeteaseWebLogin.test';
 import playlistMergeTest from './ets/test/PlaylistMerge.test';
 import playlistDisplayCoverTest from './ets/test/PlaylistDisplayCover.test';
 import httpHeaderParserTest from './ets/test/HttpHeaderParser.test';
@@ -203,5 +204,6 @@ export default function testsuite(): void {
   disclaimerConsentPolicyTest();
   lruCacheTest();
   neteasePhoneLoginSeedTest();
+  neteaseWebLoginTest();
   sourceSyncTest();
 }

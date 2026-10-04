@@ -1910,6 +1910,12 @@ export struct SettingsDetailPage {
             })
             if (!this.neteaseLogged) {
               SettingRow({
+                title: '网页登录（网易云）',
+                subtitle: '官方页面登录 · 验证码登录被风控时最稳',
+                icon: '🌐',
+                onTap: () => Router.push(Router.NETEASE_WEB_LOGIN)
+              })
+              SettingRow({
                 title: '手机号登录（网易云）',
                 subtitle: '短信验证码或密码登录',
                 icon: '📱',

@@ -35,6 +35,8 @@ export class Router {
   static readonly LEGAL_DOC: string = 'legal_doc';
   /** B 站内嵌官方登录页（WebView），无参数。 */
   static readonly BILI_WEB_LOGIN: string = 'bili_web_login';
+  /** 网易云内嵌官方登录页（WebView），无参数。 */
+  static readonly NETEASE_WEB_LOGIN: string = 'netease_web_login';
 
   private static pathStack: NavPathStack | null = null;
   /** attach 时由 MainShell 一并交入：NOW_PLAYING 的 animateTo 需要 UIContext 入口。 */

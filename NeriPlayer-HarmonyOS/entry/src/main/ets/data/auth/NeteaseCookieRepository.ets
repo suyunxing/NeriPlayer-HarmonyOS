@@ -95,6 +95,11 @@ export class NeteaseCookieRepository {
     return NeteaseCookieRepository.saveInternal(cookies);
   }
 
+  /** Saves cookies harvested from the embedded web login page. */
+  static async saveFromWebLogin(cookies: Map<string, string>): Promise<boolean> {
+    return NeteaseCookieRepository.saveInternal(cookies);
+  }
+
   /**
    * Validation is synchronous, but the credential write must be awaited:
    * returning before `putString` settles is exactly how a process kill right
