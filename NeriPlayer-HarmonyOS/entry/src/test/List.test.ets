@@ -75,8 +75,6 @@ import dynamicThemeTest from './ets/test/DynamicTheme.test';
 import colorScienceTest from './ets/test/ColorScience.test';
 import swatchCardTest from './ets/test/SwatchCard.test';
 import accentSchemeTest from './ets/test/AccentScheme.test';
-import ttmlParserTest from './ets/test/TtmlParser.test';
-import amllLyricsResolverTest from './ets/test/AmllLyricsResolver.test';
 import lyricLineTrackerTest from './ets/test/LyricLineTracker.test';
 import diagnosticsTest from './ets/test/Diagnostics.test';
 import routeStackTest from './ets/test/RouteStack.test';
@@ -172,8 +170,6 @@ export default function testsuite(): void {
   colorScienceTest();
   swatchCardTest();
   accentSchemeTest();
-  ttmlParserTest();
-  amllLyricsResolverTest();
   lyricLineTrackerTest();
   diagnosticsTest();
   routeStackTest();

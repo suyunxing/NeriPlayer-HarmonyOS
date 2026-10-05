@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0
 
 import { SettingsRepository } from '../../data/SettingsRepository';
-import { SliderRow, ToggleRow, OptionRow, OptionEntry } from './Ui';
+import { SliderRow, ToggleRow } from './Ui';
 import { Theme } from '../Theme';
 import { iconForLegacy } from '../../util/IconCatalog';
-import { normalizeWordKaraokeMode } from './LyricView';
 /**
  * 歌词设置行组（设置页「歌词设置」分区与播放页歌词面板共用）。
  *
@@ -24,16 +23,6 @@ export struct LyricSettingsRows {
   @StorageProp('np.lyric_center') lyricCenter: boolean = true;
   @StorageProp('np.lyric_font_weight') lyricFontWeight: number = 500;
   @StorageProp('np.lyric_line_spacing') lyricLineSpacing: number = 1.0;
-  @StorageProp('np.amll_lyrics') amllLyrics: boolean = true;
-  @StorageProp('np.word_karaoke') wordKaraoke: string = 'smooth';
-
-  private wordKaraokeOptions(): OptionEntry[] {
-    return [
-      { value: 'off', label: '逐行高亮（不逐字）' },
-      { value: 'step', label: '逐字跳变' },
-      { value: 'smooth', label: '逐字渐变过渡' }
-    ];
-  }
   @StorageProp('np.lyric_translation') lyricTranslation: boolean = true;
   @StorageProp('np.lyric_phonetic') lyricPhonetic: boolean = false;
   @StorageProp('np.lyric_blur') lyricBlur: boolean = true;
@@ -193,23 +182,6 @@ export struct LyricSettingsRows {
           SettingsRepository.setNumber(SettingsRepository.KEY_YOUTUBE_LYRIC_OFFSET_MS, Math.round(value))
       })
       this.secondaryLineRow()
-      ToggleRow({
-        title: 'AMLL 逐字歌词',
-        subtitle: '优先逐字 TTML 词库',
-        icon: '✍',
-        transparentBg: this.transparentBg,
-        value: this.amllLyrics,
-        onChange: (on: boolean) => SettingsRepository.setBoolean(SettingsRepository.KEY_AMLL_LYRICS, on)
-      })
-      OptionRow({
-        title: '逐字高亮样式',
-        icon: '🎨',
-        transparentBg: this.transparentBg,
-        options: this.wordKaraokeOptions(),
-        current: normalizeWordKaraokeMode(this.wordKaraoke),
-        onPick: (value: string) =>
-          SettingsRepository.setString(SettingsRepository.KEY_WORD_KARAOKE, value)
-      })
       ToggleRow({
         title: '歌词模糊效果',
         icon: '🌫',

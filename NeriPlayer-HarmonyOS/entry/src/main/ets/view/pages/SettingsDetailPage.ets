@@ -141,7 +141,6 @@ export struct SettingsDetailPage {
   @StorageProp('np.lyric_font_size') lyricFontSize: number = 16;
   @StorageProp('np.lyric_offset_ms') lyricOffsetMs: number = 0;
   @StorageProp('np.lyric_translation') lyricTranslation: boolean = true;
-  @StorageProp('np.amll_lyrics') amllLyrics: boolean = true;
   @StorageProp('np.nowplaying_blur_strength') nowplayingBlurStrength: number = 300;
   @StorageProp('np.floating_lyric') floatingLyric: boolean = false;
   @StorageProp('np.bt_lyric') btLyric: boolean = false;

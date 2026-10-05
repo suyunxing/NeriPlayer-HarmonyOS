@@ -2,8 +2,7 @@
 
 /**
  * Scores a「匹配歌曲信息」candidate against the expected title/artist/duration
- * for AUTO-apply (player/AutoSongMatcher). Same scoring style as the AMLL
- * resolver (lyrics/AmllLyricsResolver) but independent of it: adds a duration
+ * for AUTO-apply (player/AutoSongMatcher). It adds a duration
  * bonus and a keyword-drift rejection — when an expected artist is known but
  * appears in neither the candidate's artist nor its title, the candidate is a
  * wrong search hit and must never be applied automatically. Pure functions,

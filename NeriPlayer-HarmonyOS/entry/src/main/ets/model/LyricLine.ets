@@ -22,7 +22,7 @@ export class LyricLine {
   timeMs: number;
   text: string;
   translated: string;
-  /** Romanization line aligned to this line (AMLL x-roman / netease romalrc). */
+  /** Romanization line aligned to this line (netease romalrc). */
   phonetic: string;
   /** Word timings for enhanced LRC lines; empty for plain lines. */
   words: LyricWord[];
