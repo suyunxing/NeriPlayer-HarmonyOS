@@ -15,6 +15,7 @@ import { Theme } from '../Theme';
 import { AccentScheme } from '../theme/AccentScheme';
 import { BAND_LIST_VP, BP_LG, BP_MD } from '../../util/Breakpoint';
 import { SectionHeader, EmptyState, LoadingState, PlaylistCard, ContentBand , FLOAT_TAB_CLEARANCE } from '../components/Ui';
+import { coverThumbnailUrl } from '../../util/CoverUrls';
 import { promptAction } from '@kit.ArkUI';
 
 /** 本页在 MainShell 的 Tabs 里的下标，用于过滤刷新信号。 */
@@ -26,6 +27,8 @@ const TITLEBAR_SPACE_VP: number = 56;
 export struct HomePage {
   /** 滚动控制器：实例由 MainShell 下发，壳层标题栏 bindToScrollable 绑定当前 Tab 的它。 */
   scroller: Scroller = new Scroller();
+  /** 滚动增量上报（MainShell 下发）：驱动悬浮栏组滚动自适应显隐，见 MainShell.handleTabBarScroll。 */
+  onBarScroll: (yDelta: number) => void = () => {};
   /**
    * S5: 订阅封面配色。Theme.*() 读 AppStorage 是无跟踪调用（M7.4），换歌后
    * 坐在本页的组件不会重建；有了这个成员并在 build 里经 schemeBg() 直读，
@@ -157,7 +160,8 @@ export struct HomePage {
   recommendHero(item: NeteasePlaylistSummary) {
     Row({ space: 14 }) {
       if (item.coverUrl.length > 0) {
-        Image(item.coverUrl)
+        Image(coverThumbnailUrl(item.coverUrl, 400))
+          .autoResize(true)
           .width(118)
           .height(118)
           .borderRadius(18)
@@ -288,7 +292,8 @@ export struct HomePage {
                     Column({ space: 6 }) {
                       Stack() {
                         if (entry.picUrl.length > 0) {
-                          Image(entry.picUrl)
+                          Image(coverThumbnailUrl(entry.picUrl, 400))
+                            .autoResize(true)
                             .width(132)
                             .height(132)
                             .borderRadius(16)
@@ -337,7 +342,8 @@ export struct HomePage {
                     Row({ space: 12 }) {
                       Stack() {
                         if (song.effectiveCoverUrl.length > 0) {
-                          Image(song.effectiveCoverUrl)
+                          Image(coverThumbnailUrl(song.effectiveCoverUrl, 200))
+                            .autoResize(true)
                             .width(46)
                             .height(46)
                             .borderRadius(8)
@@ -413,7 +419,8 @@ export struct HomePage {
                     ForEach(this.neteaseRecommend.slice(1), (item: NeteasePlaylistSummary) => {
                       Column({ space: 6 }) {
                         if (item.coverUrl.length > 0) {
-                          Image(item.coverUrl)
+                          Image(coverThumbnailUrl(item.coverUrl, 400))
+                            .autoResize(true)
                             .width(132)
                             .height(132)
                             .borderRadius(16)
@@ -491,6 +498,12 @@ export struct HomePage {
         .padding({ top: TITLEBAR_SPACE_VP, left: 14, right: 14, bottom: 24 + FLOAT_TAB_CLEARANCE + this.bottomLift })
       }
       .scrollBar(BarState.Off)
+      // 滚动自适应悬浮栏：纵向增量交壳层驱动显隐（本组件不消费增量，
+      // offsetRemain 原样放行，见 MainShell.handleTabBarScroll）。
+      .onScrollFrameBegin((offset: number) => {
+        this.onBarScroll(offset);
+        return { offsetRemain: offset };
+      })
       .align(Alignment.Top)
       .width('100%')
       .height('100%')

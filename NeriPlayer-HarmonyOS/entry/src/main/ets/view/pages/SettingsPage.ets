@@ -29,12 +29,15 @@ export const SETTING_ACCOUNTS: string = 'accounts';
 export const SETTING_SYNC: string = 'sync';
 export const SETTING_PLAYLIST_SYNC: string = 'playlist_sync';
 export const SETTING_DEBUG: string = 'debug';
+export const SETTING_DONATE: string = 'donate';
 export const SETTING_ABOUT: string = 'about';
 
 @Component
 export struct SettingsPage {
   /** 滚动控制器：实例由 MainShell 下发，壳层标题栏 bindToScrollable 绑定当前 Tab 的它。 */
   scroller: Scroller = new Scroller();
+  /** 滚动增量上报（MainShell 下发）：驱动悬浮栏组滚动自适应显隐，见 MainShell.handleTabBarScroll。 */
+  onBarScroll: (yDelta: number) => void = () => {};
   /**
    * S5: 订阅封面配色。Theme.*() 读 AppStorage 是无跟踪调用（M7.4），换歌后
    * 坐在本页的组件不会重建；有了这个成员并在 build 里经 schemeBg() 直读，
@@ -211,6 +214,12 @@ export struct SettingsPage {
             icon: 'ℹ',
             onTap: () => Router.push(Router.SETTINGS_DETAIL, SETTING_ABOUT)
           })
+          SettingRow({
+            title: '打赏作者',
+            subtitle: '微信 / 支付宝收款码',
+            icon: '❤',
+            onTap: () => Router.push(Router.SETTINGS_DETAIL, SETTING_DONATE)
+          })
         }
         .width('100%')
               }
@@ -219,6 +228,11 @@ export struct SettingsPage {
       }
       }
       .scrollBar(BarState.Off)
+      // 滚动自适应悬浮栏：增量交壳层（不消费，见 MainShell.handleTabBarScroll）。
+      .onScrollFrameBegin((offset: number) => {
+        this.onBarScroll(offset);
+        return { offsetRemain: offset };
+      })
       // Scroll 的 align 默认是 Alignment.Center：内容短于视口时（大屏、或字号最小
       // 档）整份设置项会被甩到屏幕竖向正中，标题留在顶上，读起来是断开的两块。
       // 设置类页面必须自上而下读，这里显式钉到顶部。

@@ -8,7 +8,7 @@ import { PANEL_CURVE } from '../NowPlayingCurves';
 import { Theme } from '../Theme';
 import { common } from '@kit.AbilityKit';
 import { SystemBars } from '../../util/SystemBars';
-import { HdsTabs, HdsBarLayoutMode, hdsMaterial, SystemMaterialParams } from '@kit.UIDesignKit';
+import { HdsTabs, HdsBarLayoutMode, hdsMaterial, SystemMaterialParams, HdsTabsController, HdsBarStyle } from '@kit.UIDesignKit';
 import { HdsTabsAttribute } from '@kit.UIDesignKit';
 import { HdsNavigation, HdsNavigationTitleMode, ScrollEffectType, BlurStrategy } from '@kit.UIDesignKit';
 import { LengthMetrics } from '@kit.ArkUI';
@@ -32,6 +32,7 @@ import { RecentPage } from './RecentPage';
 import { StatsPage } from './StatsPage';
 import { SettingsDetailPage } from './SettingsDetailPage';
 import { BiliWebLoginPage } from './BiliWebLoginPage';
+import { NeteaseWebLoginPage } from './NeteaseWebLoginPage';
 import { LegalDocPage } from './LegalDocPage';
 import { AlbumPage } from './AlbumPage';
 import { ArtistPage } from './ArtistPage';
@@ -44,6 +45,14 @@ const FLOAT_BAR_SIDE_MARGIN_VP: number = 16;
 const FLOAT_BAR_BOTTOM_GAP_VP: number = 8;
 /** dock 态迷你条高度 = 非紧凑 MiniPlayer 胶囊高度（进度条 2 + 内容行 60）。 */
 const DOCK_MINI_HEIGHT_VP: number = 62;
+/** 迷你条展开（页签栏随之折叠成当前项小钮）的滚动阈值：向下滚且滚过此值触发。 */
+const MINI_EXPAND_ON_OFFSET_VP: number = 96;
+/** 迷你条收回（页签栏恢复堆叠）的滚动阈值：滚回此值以内触发（双阈值滞回防抖）。 */
+const MINI_COLLAPSE_ON_OFFSET_VP: number = 48;
+/** 展开态迷你条所在底行高度（HDS 悬浮栏 56vp 视觉；一镜到底起点用近似值）。 */
+const MINI_EXPANDED_ROW_H_VP: number = 56;
+/** 展开态行首折叠页签钮的近似宽度（同上，仅几何推导用）。 */
+const MINI_EXPANDED_TAB_KNOB_W_VP: number = 64;
 /**
  * 槽位药丸顶边相对 dock 条顶边的上移量。真机视频三轮标定（2026-09-21）：
  * 104.5vp 差 10px 不到位 → 108.5vp 过 2px（+4vp 实测位移 9.9px，与
@@ -103,13 +112,24 @@ struct SlotMiniBar {
   /** MainShell.publishSlotMiniHidden 发布的最终显隐门（= MainShell.slotMiniHidden()）。 */
   @StorageLink('ui.slotMiniHidden') hidden: boolean = false;
   @StorageLink('player.currentSong') currentSongJson: string = '';
+  /**
+   * MainShell.onBarStyleChange 发布：迷你条形态（false=堆叠态药丸→紧凑内容，
+   * true=滚动折叠行→row 内容：大圆封面+两行文字+进度环播放键，2026-10-02
+   * 用户参考图定版）。槽位闭包不响应 MainShell 状态（见 miniBarBuilder
+   * 注释），只能经 AppStorage 订阅。
+   */
+  @StorageLink('ui.miniBarExpanded') expanded: boolean = false;
 
   build() {
     if (this.currentSongJson.length > 0) {
-      MiniPlayer({ compact: true })
-        .opacity(this.hidden ? 0 : 1)
-        .accessibilityLevel(this.hidden ? 'no-hide-descendants' : 'auto')
-        .hitTestBehavior(this.hidden ? HitTestMode.None : HitTestMode.Default)
+      Stack({ alignContent: Alignment.Center }) {
+        MiniPlayer({ compact: !this.expanded, row: this.expanded })
+          .opacity(this.hidden ? 0 : 1)
+          .accessibilityLevel(this.hidden ? 'no-hide-descendants' : 'auto')
+          .hitTestBehavior(this.hidden ? HitTestMode.None : HitTestMode.Default)
+      }
+      .width('100%')
+      .height('100%')
     }
   }
 }
@@ -262,6 +282,19 @@ export struct MainShell {
    * 注释的方法重测。
    */
   private pillRect(): NowPlayingRect {
+    if (this.miniExpanded) {
+      // 展开态：迷你条占据底部整行（页签栏已折叠为行首小钮）。行高/钮宽为
+      // 设计近似值（HDS 56vp 行高），仅作一镜到底飞行起点、偏差不敏感；真机
+      // 若需精修，按 PILL_RISE_FROM_DOCK_VP 注释同法标定。
+      const rowY = this.windowHeight - (this.bottomLift + FLOAT_BAR_BOTTOM_GAP_VP) - MINI_EXPANDED_ROW_H_VP;
+      return {
+        x: FLOAT_BAR_SIDE_MARGIN_VP + MINI_EXPANDED_TAB_KNOB_W_VP,
+        y: rowY,
+        width: Math.max(40,
+          this.windowWidth - 2 * FLOAT_BAR_SIDE_MARGIN_VP - MINI_EXPANDED_TAB_KNOB_W_VP),
+        height: MINI_EXPANDED_ROW_H_VP
+      };
+    }
     return {
       x: MainShell.PILL_MARGIN_X,
       y: this.dockRect().y - PILL_RISE_FROM_DOCK_VP,
@@ -283,8 +316,42 @@ export struct MainShell {
   /**
    * 官方 FAQ 对 HdsNavigation + HdsTabs 组合的要求：每个 Tab 的滚动容器持独立
    * Scroller，标题栏只绑定当前可见 Tab 的那一个；实例经构造参数下发给各 Tab 页。
+   * 例外是资料库（下标 2）：页内分平台窗格各有滚动容器，改由 LibraryPage 经
+   * onPaneScroller 上报激活窗格的滚动器（libraryPaneScroller），下标 2 的实例
+   * 仅作为上报前的占位初值。
    */
   private tabScrollers: Scroller[] = [new Scroller(), new Scroller(), new Scroller(), new Scroller()];
+
+  /**
+   * 资料库当前激活平台窗格的滚动器（LibraryPage 经 onPaneScroller 上报）。
+   * @State 不接受 Scroller 类型（状态装饰器不收框架控制器对象），所以实例放
+   * 普通成员，另用上报计数 @State 作重渲染信号：shellScroller() 在 build 的
+   * bindToScrollable 路径里读它注册依赖，计数变化即触发重渲染换绑——与
+   * resolveDark/schemeBg 读被跟踪成员注册依赖是同一手法。
+   */
+  private libraryPaneScroller: Scroller = new Scroller();
+  @State libraryPaneTick: number = 0;
+
+  /** 外壳标题栏与迷你条阈值实际应观察的滚动器：资料库取其激活窗格，其余取固定实例。 */
+  private shellScroller(): Scroller {
+    // 读 tick 注册依赖（恒假分支，仅为让 build 追踪上报信号，见成员注释）。
+    if (this.libraryPaneTick < 0) {
+      return this.tabScrollers[0];
+    }
+    return this.currentTab === 2 ? this.libraryPaneScroller : this.tabScrollers[this.currentTab];
+  }
+
+  /**
+   * 悬浮 HdsTabs 的控制器：滚动驱动 miniBar 展开/折叠形变（applyMiniBarStyle）
+   * 的入口。只挂窄屏悬浮形态（lg 侧栏形态不传，避免一个 controller 绑两个 Tabs）。
+   */
+  private tabsController: HdsTabsController = new HdsTabsController();
+  /**
+   * 迷你条当前形态（EXPAND=迷你条展开+页签栏折叠，COLLAPSE=上下堆叠）。
+   * 事实源是 onBarStyleChange 回调（覆盖系统点击切换 USER_CLICK 与应用滚动
+   * 驱动 APP_TRIGGER 两条路径）；apply 后同步预写，防同帧重复 apply。
+   */
+  private miniExpanded: boolean = false;
 
   /**
    * 官方 HdsTabsMiniBar 槽位：无歌时留空，有歌渲染紧凑 MiniPlayer。
@@ -414,6 +481,8 @@ export struct MainShell {
    * 返回动画中途再次入栈会清掉卸载计时器并直接反向重定目标。
    */
   private syncDockBar(): void {
+    // 切歌路径：歌曲清空时收回展开态迷你条（避免无歌空玻璃壳）。
+    this.collapseMiniBarIfSongEmpty();
     this.publishSlotMiniHidden();
     if (this.shouldDockBar()) {
       if (this.dockMountTimer >= 0) {
@@ -466,9 +535,51 @@ export struct MainShell {
     }, DOCK_MORPH_MS + 120);
   }
 
+  /**
+   * 滚动自适应悬浮栏（参考视频与官方 Spatialization「自适应悬浮导航」场景的
+   * miniBar 展开/折叠形变）：各 Tab 页根滚动容器经 onScrollFrameBegin 把纵向
+   * 增量上报到这里。向下滚且滚过 MINI_EXPAND_ON_OFFSET_VP → applyMiniBarStyle
+   * (EXPAND)：迷你条展开、页签栏折叠成当前项小钮，两行并一行，系统自带形变
+   * 动画；折叠态遇任意上滚增量（yDelta<0）→ COLLAPSE（恢复上下堆叠），与
+   * 下滚收起方向对称（2026-10-03 修订十三：原仅滚回 48vp 内才恢复，列表中部
+   * 上滑无响应，须滚到顶部才恢复——真机反馈后改）；滚回
+   * MINI_COLLAPSE_ON_OFFSET_VP 以内作位置兜底（内容缩短等无声增量场景）。
+   * miniExpanded 状态即闩锁，同方向连续帧不重复触发。注意不是
+   * applyHide/ShowAnimation——那是官方示例「沉浸光感」场景的整组淡出 API
+   * （真机实测原地半透明+方向反复闪切，2026-10-01 弃用），两场景 API 不可
+   * 混用。触底不上报增量：折叠态在底部保持（同参考视频），上滑离开底部时
+   * 自然有真实负增量触发恢复。
+   */
+  private handleTabBarScroll(yDelta: number): void {
+    if (this.wide()) {
+      return;
+    }
+    const yOffset = this.shellScroller().currentOffset().yOffset;
+    if (!this.miniExpanded) {
+      if (yDelta > 0 && yOffset > MINI_EXPAND_ON_OFFSET_VP && this.currentSongJson.length > 0) {
+        this.miniExpanded = true;
+        this.tabsController.applyMiniBarStyle(HdsBarStyle.EXPAND);
+      }
+    } else if (yDelta < 0 || yOffset < MINI_COLLAPSE_ON_OFFSET_VP) {
+      this.miniExpanded = false;
+      this.tabsController.applyMiniBarStyle(HdsBarStyle.COLLAPSE);
+    }
+  }
+
+  /**
+   * 歌曲清空时收回展开态迷你条：无歌的展开槽位只剩空玻璃壳（真机曾实测该
+   * 壳在子页返回后残留）。由 syncDockBar 的切歌路径调用；宽屏无槽位无副作用。
+   */
+  private collapseMiniBarIfSongEmpty(): void {
+    if (this.wide() || !this.miniExpanded || this.currentSongJson.length > 0) {
+      return;
+    }
+    this.miniExpanded = false;
+    this.tabsController.applyMiniBarStyle(HdsBarStyle.COLLAPSE);
+  }
+
   /** 悬浮 Tab 栏的系统沉浸材质：设备不支持时保持 undefined（自绘玻璃兜底）。 */
-  private systemMaterialEffect(): SystemMaterialParams | undefined {
-    if (!HdsLight.immersiveSupported() && !HdsLight.adaptiveSupported()) {
+  private systemMaterialEffect(): SystemMaterialParams | undefined {    if (!HdsLight.immersiveSupported() && !HdsLight.adaptiveSupported()) {
       return undefined;
     }
     const params: SystemMaterialParams = {
@@ -506,8 +617,9 @@ export struct MainShell {
 
   aboutToAppear(): void {
     Router.attach(this.pageStack, this.getUIContext());
-    // 槽位迷你条显隐门初值：保证 SlotMiniBar 首帧挂载前键已就位。
+    // 槽位迷你条显隐门与形态键初值：保证 SlotMiniBar 首帧挂载前键已就位。
     this.publishSlotMiniHidden();
+    AppStorage.setOrCreate('ui.miniBarExpanded', false);
     // 注册要放在启动页分支的 return 之前，任何默认页配置下都得收到完成回调。
     this.downloadListener.attach(this);
     DownloadEngine.addListener(this.downloadListener);
@@ -585,7 +697,7 @@ export struct MainShell {
   @Builder
   tabPages() {
     TabContent() {
-      HomePage({ scroller: this.tabScrollers[0] })
+      HomePage({ scroller: this.tabScrollers[0], onBarScroll: (yDelta: number) => this.handleTabBarScroll(yDelta) })
     }
     // 首页滚动内容要钻到状态栏后被标题栏渐变模糊覆盖：TabContent 默认
     // clip(true) 会把向上滚出视口的内容裁掉（官方 FAQ faqs-arkui-1095），
@@ -597,7 +709,7 @@ export struct MainShell {
       : this.bottomTabBar(0, '首页', $r('app.media.ic_tab_home_24')))
 
     TabContent() {
-      ExplorePage({ scroller: this.tabScrollers[1] })
+      ExplorePage({ scroller: this.tabScrollers[1], onBarScroll: (yDelta: number) => this.handleTabBarScroll(yDelta) })
     }
     // 与首页 TabContent 同理：放行页内滚动内容向上穿透到状态栏后被渐变模糊覆盖。
     .clip(false)
@@ -606,7 +718,13 @@ export struct MainShell {
       : this.bottomTabBar(1, '探索', $r('app.media.ic_tab_search_24')))
 
     TabContent() {
-      LibraryPage({ scroller: this.tabScrollers[2] })
+      LibraryPage({
+        onBarScroll: (yDelta: number) => this.handleTabBarScroll(yDelta),
+        onPaneScroller: (scroller: Scroller): void => {
+          this.libraryPaneScroller = scroller;
+          this.libraryPaneTick++;
+        }
+      })
     }
     // 同探索页：放行内容向上穿透。
     .clip(false)
@@ -615,7 +733,7 @@ export struct MainShell {
       : this.bottomTabBar(2, '资料库', $r('app.media.ic_tab_library_24')))
 
     TabContent() {
-      SettingsPage({ scroller: this.tabScrollers[3] })
+      SettingsPage({ scroller: this.tabScrollers[3], onBarScroll: (yDelta: number) => this.handleTabBarScroll(yDelta) })
     }
     // 同探索页：放行内容向上穿透。
     .clip(false)
@@ -651,6 +769,8 @@ export struct MainShell {
       SettingsDetailPage({ section: this.paramText(param) })
     } else if (name === Router.BILI_WEB_LOGIN) {
       BiliWebLoginPage()
+    } else if (name === Router.NETEASE_WEB_LOGIN) {
+      NeteaseWebLoginPage()
     } else if (name === Router.DEBUG) {
       DebugPage()
     } else if (name === Router.DOWNLOADS) {
@@ -772,8 +892,10 @@ export struct MainShell {
           } else {
             // S3b-2: 悬浮胶囊 Tab 栏 + 官方 MiniBar 槽位。barOverlap 后
             // 内容延伸到栏下，四个 Tab 页的滚动尾部加了 FLOAT_TAB_CLEARANCE
-            // 避让；系统材质在不支持的设备上回落自绘玻璃。
-            HdsTabs({ barPosition: BarPosition.End, index: this.currentTab }) {
+            // 避让；系统材质在不支持的设备上回落自绘玻璃。滚动自适应形变
+            // （下滚迷你条展开/页签栏折叠，回顶恢复堆叠）经 tabsController
+            // 的 applyMiniBarStyle 驱动，见 handleTabBarScroll。
+            HdsTabs({ barPosition: BarPosition.End, index: this.currentTab, controller: this.tabsController }) {
               this.tabPages()
             }
             .vertical(false)
@@ -789,7 +911,17 @@ export struct MainShell {
                   this.miniBarBuilder()
                 },
                 enableMiniBarBackground: true,
-                barLayoutMode: HdsBarLayoutMode.VERTICAL
+                barLayoutMode: HdsBarLayoutMode.VERTICAL,
+                miniBarStyle: HdsBarStyle.COLLAPSE,
+                onBarStyleChange: (miniBarStyle: HdsBarStyle): void => {
+                  // 形态事实源：覆盖系统点击切换（USER_CLICK）与应用滚动驱动
+                  // （APP_TRIGGER）两条路径。本组件逻辑消费（pillRect 展开态
+                  // 分支/切 Tab 收回判定），并发布给槽内 SlotMiniBar 切换
+                  // 紧凑/row 内容（槽位闭包不响应本组件状态，见
+                  // miniBarBuilder 注释）。
+                  this.miniExpanded = miniBarStyle === HdsBarStyle.EXPAND;
+                  AppStorage.setOrCreate('ui.miniBarExpanded', this.miniExpanded);
+                }
               },
               systemMaterialEffect: this.systemMaterialEffect()
             })
@@ -842,8 +974,9 @@ export struct MainShell {
       .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM])
     }
     // 标题栏只绑当前可见 Tab 的 Scroller（官方 FAQ：多 Tab 共用外壳时动态换绑，
-    // 避免多滚动容器手势冲突导致模糊失效或抖动）。
-    .bindToScrollable([this.tabScrollers[this.currentTab]])
+    // 避免多滚动容器手势冲突导致模糊失效或抖动）；资料库进一步绑定其页内激活
+    // 平台窗格的滚动器（libraryPaneScroller 变化即重渲染换绑）。
+    .bindToScrollable([this.shellScroller()])
     .titleMode(HdsNavigationTitleMode.MINI)
     // 壳层是 Tab 骨架的根，自身无可返回的上级路由：隐藏系统默认返回按钮。
     .hideBackButton(true)
@@ -977,6 +1110,12 @@ export struct MainShell {
       return;
     }
     this.currentTab = index;
+    // 目标 Tab 滚在顶部而迷你条处于展开态：收回（堆叠是页签浏览的常态）；
+    // 滚入正文的 Tab 维持展开，避免切页瞬间形变抖动。资料库读其激活窗格。
+    if (this.miniExpanded && this.shellScroller().currentOffset().yOffset < MINI_COLLAPSE_ON_OFFSET_VP) {
+      this.miniExpanded = false;
+      this.tabsController.applyMiniBarStyle(HdsBarStyle.COLLAPSE);
+    }
     // 先落 default_start_tab，再发刷新信号：Tab 页用它判断自己是否可见。
     AppStorage.setOrCreate('np.default_start_tab', index);
     Router.notifyReturned();

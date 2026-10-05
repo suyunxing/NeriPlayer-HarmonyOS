@@ -17,6 +17,7 @@ import qrEncoderTest from './ets/test/QrEncoder.test';
 import neteaseAuthTest from './ets/test/NeteaseAuth.test';
 import neteasePlaylistParserTest from './ets/test/NeteasePlaylistParser.test';
 import neteasePhoneLoginSeedTest from './ets/test/NeteasePhoneLoginSeed.test';
+import neteaseWebLoginTest from './ets/test/NeteaseWebLogin.test';
 import playlistMergeTest from './ets/test/PlaylistMerge.test';
 import playlistDisplayCoverTest from './ets/test/PlaylistDisplayCover.test';
 import httpHeaderParserTest from './ets/test/HttpHeaderParser.test';
@@ -98,6 +99,7 @@ import playbackStatsAggregatorTest from './ets/test/PlaybackStatsAggregator.test
 import volumeFaderTest from './ets/test/VolumeFader.test';
 import nowPlayingMotionTest from './ets/test/NowPlayingMotion.test';
 import disclaimerConsentPolicyTest from './ets/test/DisclaimerConsentPolicy.test';
+import lruCacheTest from './ets/test/LruCache.test';
 import sourceSyncTest from './ets/test/SourceSync.test';
 
 export default function testsuite(): void {
@@ -200,6 +202,8 @@ export default function testsuite(): void {
   volumeFaderTest();
   nowPlayingMotionTest();
   disclaimerConsentPolicyTest();
+  lruCacheTest();
   neteasePhoneLoginSeedTest();
+  neteaseWebLoginTest();
   sourceSyncTest();
 }

@@ -90,8 +90,8 @@ export class NeteaseCookieRepository {
     return NeteaseCookieRepository.saveInternal(parseRawCookieText(raw));
   }
 
-  /** Saves cookies obtained from the phone/captcha login flow (backlog §3.3). */
-  static async saveFromPhoneLogin(cookies: Map<string, string>): Promise<boolean> {
+  /** Saves cookies harvested from the embedded web login page. */
+  static async saveFromWebLogin(cookies: Map<string, string>): Promise<boolean> {
     return NeteaseCookieRepository.saveInternal(cookies);
   }
 

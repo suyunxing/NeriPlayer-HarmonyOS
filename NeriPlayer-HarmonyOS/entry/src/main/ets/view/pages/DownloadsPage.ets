@@ -9,6 +9,7 @@ import { SongItem } from '../../model/SongItem';
 import { Theme } from '../Theme';
 import { AccentScheme } from '../theme/AccentScheme';
 import { EmptyState } from '../components/Ui';
+import { coverThumbnailUrl } from '../../util/CoverUrls';
 import { Router } from '../Router';
 import { HdsNavDestination } from '@kit.UIDesignKit';
 import { subPageTitleBar, SubPageBottomFade, SubPageMenuEntry, SUB_TITLEBAR_SPACE_VP, SUB_BOTTOM_CLEARANCE_VP } from '../components/HdsSubPage';
@@ -161,7 +162,8 @@ export struct DownloadsPage {
               Row({ space: 12 }) {
                 Stack() {
                   if (row.song.effectiveCoverUrl.length > 0) {
-                    Image(row.song.effectiveCoverUrl)
+                    Image(coverThumbnailUrl(row.song.effectiveCoverUrl, 200))
+                      .autoResize(true)
                       .width(50)
                       .height(50)
                       .borderRadius(8)

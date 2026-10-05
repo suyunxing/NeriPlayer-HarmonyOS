@@ -4,7 +4,8 @@ import {
   BILI_WEB_COOKIE_FETCH_URLS,
   mergeCookieHeaderTexts,
   shouldAutoCompleteBiliWebLogin,
-  isAllowedBiliLoginNavigation
+  isAllowedBiliLoginNavigation,
+  sanitizeUrlForLog
 } from '../../../main/ets/data/auth/BiliWebLogin';
 
 function mapOf(pairs: string[][]): Map<string, string> {
@@ -85,6 +86,16 @@ export default function biliWebLoginTest(): void {
       expect(isAllowedBiliLoginNavigation('file:///data/x.html')).assertFalse();
       expect(isAllowedBiliLoginNavigation('')).assertFalse();
       expect(isAllowedBiliLoginNavigation('passport.bilibili.com/login')).assertFalse();
+    });
+
+    it('sanitizeUrlForLogDropsQueryAndFragment', 0, () => {
+      // 登录跳转链接的 query/fragment 可能携带凭据明文，日志只留 host+path。
+      expect(sanitizeUrlForLog('https://passport.bilibili.com/x?token=secret#/h'))
+        .assertEqual('https://passport.bilibili.com/x');
+      expect(sanitizeUrlForLog('https://music.163.com/#/login'))
+        .assertEqual('https://music.163.com/');
+      expect(sanitizeUrlForLog('https://www.bilibili.com/')).assertEqual('https://www.bilibili.com/');
+      expect(sanitizeUrlForLog('about:blank')).assertEqual('about:blank');
     });
   });
 }

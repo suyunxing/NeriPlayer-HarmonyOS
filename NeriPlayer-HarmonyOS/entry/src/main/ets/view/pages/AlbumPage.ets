@@ -8,6 +8,7 @@ import { Theme } from '../Theme';
 import { AccentScheme } from '../theme/AccentScheme';
 import { EmptyState } from '../components/Ui';
 import { SongRow } from '../components/SongRow';
+import { SongListDataSource } from '../components/SongListDataSource';
 import { Router } from '../Router';
 import { stableKeyOf } from '../../model/SongIdentity';
 import { NeteaseApi } from '../../network/NeteaseApi';
@@ -32,12 +33,22 @@ export struct AlbumPage {
   /** 状态栏避让（util/WindowMetrics.ets 发布）；内容根从 y=0 起，让位 = topInset + 56。 */
   @StorageProp('ui.topInsetVp') topInset: number = 0;
   albumParam: string = '';
-  @State songs: SongItem[] = [];
+  @Watch('onSongsChanged') @State songs: SongItem[] = [];
   @State albumName: string = '';
   @State remoteAlbum: boolean = false;
   @State loading: boolean = true;
   /** 供 HdsNavDestination.bindToScrollable 绑定的歌曲列表控制器。 */
   private scroller: Scroller = new Scroller();
+
+  /**
+   * 歌曲列表走 LazyForEach 按需建行（长专辑进场不再一次性建满全部行）。
+   * @State songs 整体重赋值时由 @Watch 同步进数据源。
+   */
+  private songsDs: SongListDataSource = new SongListDataSource();
+
+  onSongsChanged(): void {
+    this.songsDs.reset(this.songs);
+  }
 
   private query(): AlbumQuery {
     try {
@@ -125,14 +136,16 @@ export struct AlbumPage {
             ListItem() {
               Column().height(this.topInset + SUB_TITLEBAR_SPACE_VP)
             }
-              ForEach(this.songs, (song: SongItem, index: number) => {
+              LazyForEach(this.songsDs, (song: SongItem, index: number) => {
                 ListItem() {
                   SongRow({
                     songJson: song.toJson(),
                     onPlay: () => this.playFrom(index)
                   })
                 }
-              }, (song: SongItem) => stableKeyOf(song))
+              // key 含 index：重排后行内缓存的 index（onPlay 定位）会过期，
+              // 靠 key 变化强制重建受影响行。
+              }, (song: SongItem, index: number) => `${index}_${stableKeyOf(song)}`)
               // 尾部让位：列表延伸进底部手势条区后，末首歌滚过渐变遮罩仍可停稳。
               ListItem() {
                 Column().height(this.bottomLift + SUB_BOTTOM_CLEARANCE_VP)

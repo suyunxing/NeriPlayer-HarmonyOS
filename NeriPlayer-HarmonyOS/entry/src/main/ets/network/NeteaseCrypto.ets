@@ -281,7 +281,9 @@ export class NeteaseCrypto {
     return encoder.encodeInto(text);
   }
 
-  private static bytesToBase64(bytes: Uint8Array): string {
+  // Public for callers that need base64 of raw digest bytes (e.g. the
+  // anonymous-register username's dll-encoded id).
+  static bytesToBase64(bytes: Uint8Array): string {
     let result = '';
     let i = 0;
     for (; i + 2 < bytes.length; i += 3) {

@@ -7,8 +7,10 @@ import { PlaybackStatus } from '../../player/PlaybackConstants';
 import { PlayerManager } from '../../player/PlayerManager';
 import { Router } from '../Router';
 import { Theme } from '../Theme';
+import { coverThumbnailUrl } from '../../util/CoverUrls';
 import { AccentScheme, SchemeMode } from '../theme/AccentScheme';
 import { HdsLight } from '../theme/HdsLight';
+import { MarqueeText } from './MarqueeText';
 
 @Component
 export struct MiniPlayer {
@@ -19,6 +21,14 @@ export struct MiniPlayer {
    * 显示（可见环缩到 30vp 在槽位圆角内留出空余）。独立悬浮形态才用完整卡片。
    */
   @Prop compact: boolean = false;
+  /**
+   * HdsTabs 槽位滚动折叠行形态（miniBar EXPAND，两行并一行）：大圆封面
+   * （48vp，直径≈折叠药丸高的 85%，随药丸弧度）+ 标题/作者两行 + 进度环
+   * 播放键（2026-10-02 用户参考图定版）。宽度比堆叠态窄（左端让位折叠
+   * 页签钮）：非紧凑形态 62vp 装不下且封面非圆形，紧凑形态 32vp 封面过小，
+   * 故独立成档。
+   */
+  @Prop row: boolean = false;
   /**
    * 脱离 HdsTabs 槽位的独立承载形态（壳层 dock 态覆盖层使用）：非紧凑形态
    * 去掉自带的悬浮卡片外边距，几何完全由使用方给定。背景分两档：设备支持
@@ -123,15 +133,50 @@ export struct MiniPlayer {
   }
 
   /**
-   * 官方槽位形态且设备支持系统材质：不自绘背景，透出悬浮 Tab 栏的沉浸
-   * 光感材质（MainShell 的 barFloatingStyle.systemMaterialEffect 作用于
-   * 整条栏，enableMiniBarBackground 让槽位背景跟随栏身，lightColor 随
-   * 封面取色）。自绘玻璃会盖在系统材质上把光感挡掉，仅在不支持材质的
-   * 设备（模拟器 getSystemMaterialTypes 为空）时回落。
+   * 封面边长：row 48（大圆，顶边贴药丸上缘、底缘没入下弧，2026-10-02 用户
+   * 指定恢复 2d0cb29 观感）/ compact 32（圆）/ 完整 44（圆角方形）。
+   */
+  private coverSize(): number {
+    return this.row ? 48 : (this.compact ? 32 : 44);
+  }
+
+  /** 封面圆角：圆形形态（compact/row）取半边长，完整形态保留 8 圆角方形。 */
+  private coverRadius(): number {
+    return this.compact || this.row ? this.coverSize() / 2 : 8;
+  }
+
+  /**
+   * row 形态内容行高（40 = 展开态药丸内容区高度，2026-10-02 真机红框调试
+   * 定案，hm.md §7.20 修订七/八）：展开态 builder 盒零高度、内容顶部对齐、
+   * 超出内容区的部分被药丸底部裁切。builder 无法实测该值（盒零高度），
+   * 取堆叠态药丸同高 40（真机验证：40 内容完整落于药丸内，两行文字/进度
+   * 环/同心封面全部恢复）。文字块在行内垂直居中，中线与药丸中线齐平。
+   */
+  private rowContentHeight(): number {
+    return 40;
+  }
+
+  /**
+   * row 形态封面左缩进（同心）：像素标定 2026-10-02（九轮截图，ffmpeg 解码
+   * + 亮度/饱和分类测量，hm.md §7.20 修订十）——展开药丸高≈191px≈55-56vp、
+   * 封面 168px≈48vp，同心间隙 = (H-48)/2 ≈ 3.3vp；此前 inset 0（贴边）左缘
+   * 0 间隙 vs 上缘 15px 间隙，即用户所见「歪」。取 3.5。
+   */
+  private rowCoverInset(): number {
+    return 3.5;
+  }
+
+  /**
+   * 官方槽位形态（非 embedded）且设备支持系统材质：不自绘背景，透出悬浮
+   * Tab 栏的沉浸光感材质（MainShell 的 barFloatingStyle.systemMaterialEffect
+   * 作用于整条栏，enableMiniBarBackground 让槽位背景跟随栏身，lightColor 随
+   * 封面取色）。自绘玻璃会盖在系统材质上把光感挡掉，仅在不支持材质的设备
+   * （模拟器 getSystemMaterialTypes 为空）时回落。紧凑（堆叠态药丸）与非
+   * 紧凑（滚动展开态整行）都适用——2026-10-02 真机实测：展开态若走自绘
+   * 玻璃分支，折叠行迷你条呈深色平板、无沉浸光感（用户反馈视频）。
    */
   private followsBarMaterial(): boolean {
     return !this.embedded
-      && this.compact
       && (HdsLight.immersiveSupported() || HdsLight.adaptiveSupported());
   }
 
@@ -162,7 +207,7 @@ export struct MiniPlayer {
     Stack() {
       Column()
         .width('100%')
-        .height(this.compact ? 40 : 62)
+        .height(this.row ? this.rowContentHeight() : (this.compact ? 40 : 62))
         .backgroundColor(this.barBackground())
         .backgroundBlurStyle(this.barBlurStyle())
         // ArkUI 通用沉浸材质（embedded 独立承载档；设备不支持传 undefined
@@ -173,7 +218,9 @@ export struct MiniPlayer {
       this.playerContent()
     }
     .width('100%')
-    .margin(this.compact || this.embedded
+    // 槽位形态（堆叠/折叠行）几何完全由悬浮栏壳给定：零边距；卡片边距只
+    // 属于独立悬浮的自绘玻璃档。
+    .margin(this.compact || this.row || this.embedded || this.followsBarMaterial()
       ? { left: 0, right: 0, bottom: 0 }
       : { left: 10, right: 10, bottom: 8 })
     // 显隐由使用方控制（壳层在转场期间对真实迷你条做淡入/隐藏），组件自身
@@ -183,8 +230,8 @@ export struct MiniPlayer {
       this.onMeasured(area);
     })
     // 沉浸材质档的投影由材质自带（applyShadow），卡片阴影只在自绘玻璃档启用，
-    // 避免与系统材质的阴影层叠加。
-    .shadow(this.compact || this.usesSystemMaterial()
+    // 避免与系统材质的阴影层叠加（槽位跟随栏材质档同理）。
+    .shadow(this.compact || this.row || this.usesSystemMaterial() || this.followsBarMaterial()
       ? { radius: 0, color: '#00000000' }
       : { radius: 12, color: '#22000000', offsetY: 2 })
     // 滑动切歌的位移/缩放挂在 Stack 根上：玻璃背景是 playerContent 的兄弟
@@ -196,7 +243,7 @@ export struct MiniPlayer {
   @Builder
   playerContent() {
     Column() {
-      if (!this.compact) {
+      if (!this.compact && !this.row) {
         // Progress 的 total 不给就是 100，原来喂进去的是 0..1 的比例，播到一半也只
         // 有 0.5% 的填充（tablet 上像素采样实测：播放 11% 时整条都是轨道色）。改成
         // 直接把毫秒喂给 value/total，单位自洽（同 DownloadsPage 的 value+total 写法）。
@@ -217,10 +264,14 @@ export struct MiniPlayer {
       Row({ space: 12 }) {
         Stack() {
           if (this.song().effectiveCoverUrl.length > 0) {
-            Image(this.song().effectiveCoverUrl)
-              .width(this.compact ? 32 : 44)
-              .height(this.compact ? 32 : 44)
-              .borderRadius(this.compact ? 16 : 8)
+            // 封面两侧能力叠加：URL 走 ?param=200 缩略图 + autoResize 降采样
+            //（perf/cover-scroll-jank，防大图解码掉帧），尺寸/圆角走 row 形态
+            // 动态档位（feature/scroll-adaptive-floating-bar 的 coverSize）。
+            Image(coverThumbnailUrl(this.song().effectiveCoverUrl, 200))
+              .autoResize(true)
+              .width(this.coverSize())
+              .height(this.coverSize())
+              .borderRadius(this.coverRadius())
               .objectFit(ImageFit.Cover)
           } else {
             Image($r('app.media.ic_music_note_24'))
@@ -229,41 +280,33 @@ export struct MiniPlayer {
               .fillColor(Theme.primary(Theme.isDark()))
               .margin(this.compact
                 ? { left: 8, right: 8, top: 8, bottom: 8 }
-                : { left: 11, right: 11, top: 11, bottom: 11 })
+                : (this.row
+                  ? { left: 13, right: 13, top: 13, bottom: 13 }
+                  : { left: 11, right: 11, top: 11, bottom: 11 }))
               .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
-              .borderRadius(this.compact ? 16 : 8)
+              .borderRadius(this.coverRadius())
           }
         }
+        // row 形态：封面圆心对准药丸左端半圆圆心（三轮像素标定 2026-10-03，
+        // hm.md §7.20 修订十二：药丸真中线改由玻璃上/下边白色高光线直接测得
+        // （y=430.5/624.5 → 中线 527.5，修订十一的旋钮图标中心 529.5 系估计量
+        // 偏高 2px）；圆心 530.0 仍偏低 2.5px≈0.7vp，offset 0.5 → -0.2 上移
+        // 0.7vp，残差 ≈0.2px。横向同心不变（x=403.5 vs 帽心 ≈404）。
+        .offset({ y: this.row ? -0.2 : 0 })
 
         Row() {
           Column({ space: 2 }) {
-            // 标题右端渐隐截断。迷你条背景是毛玻璃非纯色，不能叠一层同色渐变假装
-            // 淡出，必须做真 alpha 蒙版：Stack 先离屏（OFFSCREEN）把文字隔离进自身
-            // 缓冲，渐变层再用 DST_IN 把文字 alpha 乘上渐变 alpha——渐变不透明处
-            // 保留文字，右端透明处文字平滑淡出（Text 无原生渐隐截断，fadeout 仅
-            // 跑马灯适用）。短标题不进入渐变区，不受影响。
-            Stack() {
-              Text(this.song().displayName)
-                .fontSize(14)
-                .fontWeight(FontWeight.Medium)
-                .fontColor(Theme.textPrimary(Theme.isDark()))
-                .maxLines(1)
-                .textOverflow({ overflow: TextOverflow.Clip })
-                .width('100%')
-              Column()
-                .width('100%')
-                .height('100%')
-                .linearGradient({
-                  direction: GradientDirection.Right,
-                  colors: [[0xFF000000, 0], [0xFF000000, 0.8], [0x00000000, 1]]
-                })
-                // DST_IN 只取渐变的 alpha 做蒙版，颜色通道被丢弃；遮罩层不得拦截点击。
-                .blendMode(BlendMode.DST_IN)
-                .hitTestBehavior(HitTestMode.None)
-            }
-            .width('100%')
-            .clip(true)
-            .blendMode(BlendMode.SRC_OVER, BlendApplyType.OFFSCREEN)
+            // 标题超宽时跑马灯滚动，引擎级 fadeout 两端渐隐在毛玻璃背景上
+            // 成立——替代旧版手写离屏 DST_IN 渐隐蒙版（那套方案只做静态
+            // 截断淡出，长标题永远看不全）；未超宽时静止显示，不受影响。
+            // row 折叠形态（§7.20）文字区最窄，同样依赖滚动读全长，两侧
+            // 需求在 MarqueeText 上统一，不再按形态分叉。
+            MarqueeText({
+              text: this.song().displayName,
+              fontSize: 14,
+              fontWeight: FontWeight.Medium,
+              fontColor: Theme.textPrimary(Theme.isDark())
+            })
 
             // np.mini_show_lyric 开启且正在播放时，这一行优先显示当前歌词行。
             // embedded（壳层 dock 态的两个副本）一律不放作者名：用户决策
@@ -290,7 +333,7 @@ export struct MiniPlayer {
           .alignItems(HorizontalAlign.Start)
 
           Stack() {
-            if (this.compact) {
+            if (this.compact || this.row) {
               Progress({
                 value: this.positionMs,
                 total: this.durationMs > 0 ? this.durationMs : 1,
@@ -309,15 +352,15 @@ export struct MiniPlayer {
               SymbolGlyph(this.status === PlaybackStatus.PLAYING
                 ? $r('sys.symbol.pause_fill')
                 : $r('sys.symbol.play_fill'))
-                .fontSize(this.compact ? 15 : 22)
-                .fontColor([this.compact ? this.scheme().primary : '#FFFFFF'])
+                .fontSize(this.compact ? 15 : (this.row ? 16 : 22))
+                .fontColor([this.compact || this.row ? this.scheme().primary : '#FFFFFF'])
                 .symbolEffect(this.replaceEffect, this.symbolTrigger)
             }
           }
           .width(40)
           .height(40)
           .type(ButtonType.Circle)
-          .backgroundColor(this.compact ? Color.Transparent : this.playBackground())
+          .backgroundColor(this.compact || this.row ? Color.Transparent : this.playBackground())
           // Icon-only control: without an explicit label a screen reader reads
           // nothing at all (device audit 2026-08-24 found 9 such buttons).
           .accessibilityText(this.status === PlaybackStatus.PLAYING ? '暂停' : '播放')
@@ -349,8 +392,8 @@ export struct MiniPlayer {
         .layoutWeight(1)
       }
       .width('100%')
-      .height(this.compact ? 40 : 60)
-      .padding({ left: this.compact ? 8 : 12, right: this.compact ? 4 : 8 })
+      .height(this.row ? this.rowContentHeight() : (this.compact ? 40 : 60))
+      .padding({ left: this.row ? this.rowCoverInset() : (this.compact ? 8 : 12), right: (this.compact || this.row) ? 4 : 8 })
       .onClick(() => {
         // 播放页是壳层全屏模态：打开/收起的动画状态由 MainShell 的
         // motionProgress 统一驱动，这里只翻转开关即可。

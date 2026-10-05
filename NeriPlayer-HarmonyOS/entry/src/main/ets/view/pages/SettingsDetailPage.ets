@@ -40,7 +40,6 @@ import {
   QrPollOutcome,
   QrPollOutcomeCode
 } from '../components/QrLoginPanel';
-import { NeteasePhoneLoginPanel } from '../components/NeteasePhoneLoginPanel';
 import { Theme } from '../Theme';
 import { AccentScheme } from '../theme/AccentScheme';
 import { BAND_LIST_VP } from '../../util/Breakpoint';
@@ -50,7 +49,7 @@ import { subPageTitleBar, SubPageBottomFade, SUB_TITLEBAR_SPACE_VP, SUB_BOTTOM_C
 import { LyricSettingsRows, LyricStylePreview } from '../components/LyricSettingsRows';
 import { SETTING_PLAYBACK, SETTING_DOWNLOAD, SETTING_LYRICS, SETTING_PLAYER,
   SETTING_APPEARANCE, SETTING_NAVIGATION, SETTING_TRAFFIC, SETTING_STORAGE,
-  SETTING_ACCOUNTS, SETTING_SYNC, SETTING_PLAYLIST_SYNC, SETTING_DEBUG, SETTING_ABOUT } from './SettingsPage';
+  SETTING_ACCOUNTS, SETTING_SYNC, SETTING_PLAYLIST_SYNC, SETTING_DEBUG, SETTING_DONATE, SETTING_ABOUT } from './SettingsPage';
 import { BiliApi } from '../../network/BiliApi';
 import { NeteasePlaylistSummary } from '../../network/NeteasePlaylistParser';
 import { BiliFavFolderSummary } from '../../network/BiliFavParser';
@@ -93,11 +92,14 @@ import {
   resolveListenTogetherBaseUrl
 } from '../../listentogether/invite/ListenTogetherBaseUrlResolver';
 import { AutoSyncScheduler } from '../../sync/AutoSyncScheduler';
+import { openExternalLink } from '../../util/LinkLauncher';
 
 const SPEEDS: number[] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
 const QUALITIES: string[] = ['standard', 'high', 'exhigh', 'lossless', 'hires'];
 const NETEASE_QR_POLL_INTERVAL_MS: number = 2000;
 const BILI_QR_POLL_INTERVAL_MS: number = 1500;
+/** 本移植的主仓库：关于页展示并经 openLink 外跳到浏览器。 */
+const PROJECT_REPO_URL: string = 'https://github.com/suyunxing/NeriPlayer-HarmonyOS';
 
 @Component
 export struct SettingsDetailPage {
@@ -199,7 +201,6 @@ export struct SettingsDetailPage {
   @StorageProp('np.listen_together_allow_member_control') ltAllowMemberControl: boolean = true;
   @StorageProp('np.listen_together_auto_pause_on_member_change') ltAutoPauseOnMemberChange: boolean = true;
   @StorageProp('np.listen_together_share_audio_links') ltShareAudioLinks: boolean = true;
-  @State showNeteasePhoneLogin: boolean = false;
 
   @State cacheBytes: number = 0;
   /** 关于页版本行文案；版本号运行时读包信息，避免与 app.json5 / 发布 tag 脱节。 */
@@ -249,6 +250,9 @@ export struct SettingsDetailPage {
     }
     if (this.section === SETTING_DEBUG) {
       return '开发者';
+    }
+    if (this.section === SETTING_DONATE) {
+      return '打赏作者';
     }
     if (this.section === SETTING_ABOUT) {
       return '关于';
@@ -514,6 +518,36 @@ export struct SettingsDetailPage {
     }
   }
 
+  /** 关于页仓库链接：拉起系统浏览器（或可处理该链接的应用）打开仓库主页。 */
+  private openRepoInBrowser(): void {
+    const context = AppStorage.get<common.UIAbilityContext>('abilityContext');
+    if (context === undefined) {
+      promptAction.openToast({ message: '应用上下文未就绪，无法打开链接' });
+      return;
+    }
+    openExternalLink(context, PROJECT_REPO_URL);
+  }
+
+  /** 打赏页收款码卡片：占位图在 resources/base/media/donate_wechat.png / donate_alipay.png，替换同名文件即为真实收款码。 */
+  @Builder
+  donateCard(title: string, qr: Resource) {
+    Column({ space: 10 }) {
+      Text(title)
+        .fontSize(14)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(Theme.textPrimary(Theme.isDark()))
+      Image(qr)
+        .width('100%')
+        .aspectRatio(1)
+        .objectFit(ImageFit.Contain)
+        .borderRadius(8)
+    }
+    .layoutWeight(1)
+    .padding(12)
+    .backgroundColor(Theme.surface(Theme.isDark()))
+    .borderRadius(Theme.cardRadius())
+  }
+
   // ---- Download directory (picker + persisted URI grant) ------------------
 
   private async pickDownloadDirectory(): Promise<void> {
@@ -591,16 +625,6 @@ export struct SettingsDetailPage {
       this.neteaseLogged = true;
       NeteaseApi.resetSession();
       promptAction.openToast({ message: '网易云登录成功' });
-    }
-    return saved;
-  }
-
-  private async onNeteasePhoneConfirmed(cookies: Map<string, string>): Promise<boolean> {
-    const saved = await NeteaseCookieRepository.saveFromPhoneLogin(cookies);
-    if (saved) {
-      this.neteaseLogged = true;
-      this.showNeteasePhoneLogin = false;
-      NeteaseApi.resetSession();
     }
     return saved;
   }
@@ -1866,27 +1890,22 @@ export struct SettingsDetailPage {
               scanHint: '请用网易云音乐 App 扫码',
               pollIntervalMs: NETEASE_QR_POLL_INTERVAL_MS
             })
-            SettingRow({
-              title: '粘贴 Cookie 导入（网易云）',
-              subtitle: '扫码不可用时的备用登录方式',
-              icon: '📋',
-              onTap: () => this.openNeteasePasteDialog()
-            })
+            // 登录入口统一策略：对应渠道已登录即隐藏（扫码走上方账号行的
+            // 登出，网页/Cookie 备选入口仅在未登录时出现）；手机号/密码登录
+            // 入口已按用户要求移除（验证码通道被风控收紧，网页登录为稳态）。
             if (!this.neteaseLogged) {
               SettingRow({
-                title: '手机号登录（网易云）',
-                subtitle: '短信验证码或密码登录',
-                icon: '📱',
-                onTap: () => {
-                  this.showNeteasePhoneLogin = !this.showNeteasePhoneLogin;
-                }
+                title: '网页登录（网易云）',
+                subtitle: '官方页面登录 · 验证码登录被风控时最稳',
+                icon: '🌐',
+                onTap: () => Router.push(Router.NETEASE_WEB_LOGIN)
               })
-              if (this.showNeteasePhoneLogin) {
-                NeteasePhoneLoginPanel({
-                  onConfirmed: (cookies: Map<string, string>): Promise<boolean> =>
-                    this.onNeteasePhoneConfirmed(cookies)
-                })
-              }
+              SettingRow({
+                title: '粘贴 Cookie 导入（网易云）',
+                subtitle: '网页/扫码均不可用时的备用登录方式',
+                icon: '📋',
+                onTap: () => this.openNeteasePasteDialog()
+              })
             }
             SettingRow({
               title: 'Bilibili',
@@ -1910,18 +1929,20 @@ export struct SettingsDetailPage {
               scanHint: '请用哔哩哔哩客户端扫码',
               pollIntervalMs: BILI_QR_POLL_INTERVAL_MS
             })
-            SettingRow({
-              title: '网页登录（Bilibili）',
-              subtitle: '打开官方登录页 · 支持验证码/扫码/密码',
-              icon: '🌐',
-              onTap: () => Router.push(Router.BILI_WEB_LOGIN)
-            })
-            SettingRow({
-              title: '粘贴 Cookie 导入（Bilibili）',
-              subtitle: '扫码不可用时的备用登录方式',
-              icon: '📋',
-              onTap: () => this.openBiliPasteDialog()
-            })
+            if (!this.biliLogged) {
+              SettingRow({
+                title: '网页登录（Bilibili）',
+                subtitle: '打开官方登录页 · 支持验证码/扫码/密码',
+                icon: '🌐',
+                onTap: () => Router.push(Router.BILI_WEB_LOGIN)
+              })
+              SettingRow({
+                title: '粘贴 Cookie 导入（Bilibili）',
+                subtitle: '网页/扫码均不可用时的备用登录方式',
+                icon: '📋',
+                onTap: () => this.openBiliPasteDialog()
+              })
+            }
             SettingRow({
               title: 'YouTube',
               subtitle: '未登录 · Cookie 会话待移植',
@@ -2126,6 +2147,21 @@ export struct SettingsDetailPage {
               icon: '🔧',
               onTap: () => Router.push(Router.DEBUG)
             })
+          } else if (this.section === SETTING_DONATE) {
+            Column({ space: 12 }) {
+              Text('如果 NeriPlayer 对你有帮助，欢迎请作者喝一杯 ☕')
+                .fontSize(13)
+                .fontColor(Theme.textSecondary(Theme.isDark()))
+                .textAlign(TextAlign.Center)
+                .width('100%')
+                .margin({ top: 8 })
+              Row({ space: 12 }) {
+                this.donateCard('微信收款码', $r('app.media.donate_wechat'))
+                this.donateCard('支付宝收款码', $r('app.media.donate_alipay'))
+              }
+              .width('100%')
+            }
+            .width('100%')
           } else if (this.section === SETTING_ABOUT) {
             Column({ space: 8 }) {
               Text('NeriPlayer')
@@ -2144,10 +2180,15 @@ export struct SettingsDetailPage {
                 .fontColor(Theme.textSecondary(Theme.isDark()))
                 .textAlign(TextAlign.Center)
                 .margin({ top: 10 })
-              Text('GPL-3.0 · github.com/cwuom/NeriPlayer')
+              Text('GPL-3.0 开源许可')
+                .fontSize(12)
+                .fontColor(Theme.textDisabled(Theme.isDark()))
+                .margin({ top: 6 })
+              Text('github.com/suyunxing/NeriPlayer-HarmonyOS')
                 .fontSize(12)
                 .fontColor(Theme.primary(Theme.isDark()))
-                .margin({ top: 6 })
+                .margin({ top: 2 })
+                .onClick(() => this.openRepoInBrowser())
             }
             .width('100%')
             .padding(20)

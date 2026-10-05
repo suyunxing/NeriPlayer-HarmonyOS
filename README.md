@@ -249,13 +249,21 @@ hvigorw test --mode module -p module=entry@default -p product=default -p buildMo
 
 由于 HarmonyOS 系统强制要求应用具有有效的调试证书签名才能在设备上安装运行，**面向社区公开发行的 Release 包均为未签名安装包 (Unsigned HAP)**。
 
-### 方式一：从 GitHub Releases 下载（推荐）
+### 方式一：小白调试助手图形化安装（推荐新手）
+
+1. 前往本仓库 [Releases 页面](../../releases) 下载最新版的 `NeriPlayer-vX.Y.Z-unsigned.hap`，并校验配套 `SHA256SUMS.txt` 完整性。
+2. 下载开源图形化安装工具 [**小白调试助手（Auto-Installer）**](https://github.com/likuai2010/auto-installer/)，支持 Windows / macOS / Linux / Android / HarmonyOS NEXT 全平台。
+3. 将下载的未签名 HAP 包载入工具，按界面引导即可完成签名与安装：支持 `.hap` / `.app` 格式、有线/无线安装与自定义证书更换，全程无需命令行操作。
+
+> 安装报错排查可参考 Release 附件 `INSTALL.md`（签名安装指南）中的常见问题小节。
+
+### 方式二：开发者手动签名与安装
 
 1. 前往本仓库 [Releases 页面](../../releases) 下载最新版的 `NeriPlayer-vX.Y.Z-unsigned.hap`。
 2. 校验文件配套的 `SHA256SUMS.txt` 完整性。
-3. 按照发布包内附带的 `INSTALL.md` 指南（由 Release 工作流生成并随产物上传，不入库），使用您在华为开发者联盟（AGC）申请的个人调试证书对 HAP 签名并安装。
+3. 按照发布包内附带的 `INSTALL.md` 指南（由 Release 工作流生成并随产物上传，不入库），使用您在华为开发者联盟（AGC）申请的个人调试证书对 HAP 签名，再通过 `hdc install` 安装到设备。
 
-### 方式二：开发者一键签名与安装
+### 方式三：开发者一键签名与安装
 
 如果你本地已在 `NeriPlayer-HarmonyOS/signing/` 目录下放置了 AGC 调试签名材料（`harmonyos_debug.p12`、`cer`、`NeriPlayerDebug.p7b`）：
 
