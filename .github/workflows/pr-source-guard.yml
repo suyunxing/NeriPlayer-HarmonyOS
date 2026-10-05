@@ -1,0 +1,42 @@
+# 合并策略守门：main 仅接受来自本仓库 dev 分支的 PR。
+# GitHub 分支保护/rulesets 无原生"PR 来源分支"限制（社区确认，2026-10），
+# 此处用 workflow + required status check 实现：非 dev 来源的 PR 此 check 失败，无法合并。
+# 约定：任何要进 main 的改动先合入 dev，再由 dev 发起 PR 合并到 main。
+# 注意：job name 即 required status check 的 context 名，已加入 main 分支保护；
+#       改名必须同步更新分支保护，否则 required check 永远等不到上报、PR 卡死。
+name: PR source guard
+
+on:
+  pull_request:
+    branches: [main]
+    # edited：把已开 PR 的 base 改成 main 也属于 edited，必须订阅否则漏检
+    types: [opened, reopened, synchronize, edited, ready_for_review]
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  guard:
+    name: only-dev-can-merge-to-main
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify PR comes from this repo's dev branch
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+        run: |
+          # 注意：不能用 if 让 job 整体跳过——job 级 skip 会以 success 上报、挡不住合并；
+          # 必须永远运行，内部判断失败即 exit 1。fork 里也可能存在同名 dev 分支，故须校验仓库全名。
+          if [ "$HEAD_REPO" != "suyunxing/NeriPlayer-HarmonyOS" ]; then
+            echo "::error::合并入 main 的 PR 必须来自本仓库 dev 分支（当前来源：${HEAD_REPO} 的 ${HEAD_REF}）。请先把改动合入 dev，再从 dev 发起 PR 合并到 main。"
+            exit 1
+          fi
+          if [ "$HEAD_REF" != "dev" ]; then
+            echo "::error::合并入 main 的 PR 必须来自 dev 分支（当前来源分支：${HEAD_REF}）。请先把改动合入 dev，再从 dev 发起 PR 合并到 main。"
+            exit 1
+          fi
+          echo "PR 来源为本仓库 dev 分支，符合合并策略。"
