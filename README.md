@@ -2,7 +2,7 @@
 
 <div align="center">
 
-<img src="NeriPlayer-HarmonyOS/entry/src/main/resources/base/media/app_icon.png" width="128" height="128" alt="NeriPlayer Icon" />
+<img src="docs/images/app_icon.png" width="128" height="128" alt="NeriPlayer Icon" />
 
 <h3>✨ 一个把多源在线播放、本地管理、歌词体验和自建同步做进纯血鸿蒙的音频播放器 🎵</h3>
 
@@ -39,15 +39,13 @@
 </div>
 
 > [!WARNING]
-> 本项目仅供学习与研究使用，请勿将其用于任何非法用途。
->
-> 本项目及维护者不接受任何形式的赞助、捐赠或商业资助。
+> 本项目仅供学习与研究使用，请勿将其用于任何非法用途。请只在你拥有权利、授权或第三方平台规则允许的范围内访问、播放或保存内容。 本项目不提供媒体内容、密钥、规避付费/DRM/地区限制的方案，也不提供公共媒体代理或再分发服务。
 
 ---
 
 > [!NOTE]
 > NeriPlayer 不提供公共云端曲库或媒体分发服务。
-> 在线音频能力依赖用户在第三方平台上的账号授权，会员或受限内容仍需遵循原平台规则。
+> 在线音频能力依赖用户在第三方平台上的账号授权，会员或受限内容仍需遵循原平台规则。文档中提到的 YouTube Music 相关能力仅指账号会话、播放兼容和错误恢复， 不代表绕过平台限制、复制受保护内容或重新分发媒体。
 > 为保护用户账号免受第三方平台风控与行为采样风险，NeriPlayer 坚决**不向第三方平台回传本地播放历史与收听统计**；
 > 云同步仅走用户自持的 GitHub 仓库或 WebDAV 服务。
 
@@ -63,11 +61,10 @@
 
 ```text
 NeriPlayer for HarmonyOS
-├── 多源在线播放：网易云 (WEAPI/降级) / Bilibili (WBI/DASH) / YouTube Music
-├── 鸿蒙原生声色：一镜到底转场 (Now Playing Transition)、ColorScience 动态取色流光、HDS 悬浮 Tab
+├── 多源在线播放：网易云 / Bilibili / YouTube Music
 ├── 本地优先数据：Asset 凭据保险箱、缓存、下载、本地歌单、历史、统计、设置
-├── 可选自有同步：GitHub / WebDAV 三路因果合并与删除墓碑防复活
-├── 规范音频生态：AVPlayer / AVSession 播控中心联动、后台长时任务、AMLL TTML 逐字歌词
+├── 可选自有同步：GitHub / WebDAV 元数据同步
+├── 规范音频生态：AVPlayer / AVSession 播控中心联动、后台长时任务
 └── 可恢复运行：SafeMode、FaultLogger / hiAppEvent 崩溃捕获、调试诊断
 ```
 
@@ -75,7 +72,7 @@ NeriPlayer for HarmonyOS
 
 ## 📖 项目简介 / About
 
-**NeriPlayer for HarmonyOS** 是源自优秀 Android 开源播放器 [cwuom/NeriPlayer](https://github.com/cwuom/NeriPlayer) 的纯血鸿蒙原生移植工程。我们不只是机械搬运逻辑，而是以 HarmonyOS NEXT 原生设计规范（HDS）与 ArkTS/ArkUI 开发范式为底座进行全栈重塑，在保持多源聚合与数据自持特性的同时，打造出兼具鸿蒙系统美学与丝滑手感的现代流媒体音乐播放器。
+**NeriPlayer for HarmonyOS** 是源自优秀 Android 开源播放器 [cwuom/NeriPlayer](https://github.com/cwuom/NeriPlayer) 的纯血鸿蒙原生移植工程。以 HarmonyOS NEXT 原生设计规范（HDS）与 ArkTS/ArkUI 开发范式为底座进行全栈重塑，在保持多源聚合与数据自持特性的同时，打造出兼具鸿蒙系统美学与丝滑手感的现代流媒体音乐播放器。在用户具备第三方平台账号能力的前提下， 整合 **网易云音乐**、**Bilibili** 与 **YouTube Music** （暂不保证）的在线内容， 并提供本地播放、下载、缓存、歌单管理和多种同步/备份能力。
 
 ### 核心定位与设计哲学
 
@@ -85,30 +82,28 @@ NeriPlayer for HarmonyOS
 - **尊重隐私与账号安全**：坚决不向第三方平台上传本地播放历史和听歌统计，避免触发流媒体平台的异常登录与行为采样风控。
 - **Stage 纯血单 Ability 架构**：`EntryAbility` 作为统一入口，全界面基于 ArkUI `Navigation` + `NavPathStack` 路由栈组织，实现全屏内容穿透状态栏的顶部与底部沉浸式体验。
 - **启动与恢复链路**：标准启动流程为 `Loading -> Disclaimer -> Onboarding -> Main`；若上次启动异常崩溃，自动进入 `SafeMode` 安全模式防止崩溃循环。
-- **确定性工程测试护栏**：内建 1035 个确定性单元测试（@ohos/hypium；最近一次全量执行 874/874 全绿），严密覆盖数据合并、编解码、下载事务、色彩矩阵与播放状态机。
+- **确定性工程测试护栏**：内建 1035 个确定性单元测试（@ohos/hypium；最近一次全量执行 874/874 全绿），严密覆盖下载存储、同步合并、一起听、歌词解析、 播放策略、配置备份与安全模式等关键链路都有对应单元测试或设备测试。
 
 ---
 
 ## ✨ 项目亮点 / Why it stands out
 
-- **纯血鸿蒙一镜到底转场（Now Playing Transition）**：
-  重构丢弃了易产生卡顿抖动的 JS 逐帧计时器，全面切换为 ArkUI 原生属性动画 `.animation()` 驱动。从底部 MiniPlayer（药丸药囊）展开至全屏播放页，实现封面尺寸与坐标的平滑飞行、控制按钮错峰淡入淡出、弹性阻尼回弹，并辅以 `HdsNavigation` GRADIENT_BLUR 渐变模糊标题栏，让内容无缝穿透状态栏，兼具视听冲击力与极致手感。
+- **鸿蒙沉浸光感审美**：
+  全面切换为 ArkUI 原生属性动画 `.animation()` 驱动。从底部 MiniPlayer 展开至全屏播放页，实现封面尺寸与坐标的平滑飞行、控制按钮错峰淡入淡出、弹性阻尼回弹，并辅以 `HdsNavigation` GRADIENT_BLUR 渐变模糊标题栏，让内容无缝穿透状态栏，兼具视听冲击力与极致手感。
 - **多源探索与自动换源兜底**：
   `PlayerManager` 接管全流程音源调度与容灾。当网易云音乐遇到无版权、试听片段或解析失效时，自动触发音质降级；降级仍不可播时，通过内置算法按歌名、歌手与时长综合评分，**毫秒级自动切换至 Bilibili 对应音轨兜底**；遇到偶发网络故障时自动重刷直链，保障播放不中断。
 - **ColorScience 动态取色与呼吸流光**：
   全自主纯 ArkTS 实现的色彩科学算法引擎，基于 CIE Lab / LCh 颜色空间、ΔE00 色差计算与真实色卡吸附，毫秒级提取专辑封面的核心主导色，动态注入播放器背景与全局组件，营造随音乐流动的光影氛围。
-- **深度 AMLL TTML 与逐字动效歌词**：
-  完整支持 Apple Music 级 AMLL TTML 格式与标准 LRC 双语歌词。支持逐行/逐字跳变/逐字渐变三选一的高亮跟随、双语翻译对照、音译排版、单行/双行视差滚动与点击任意行精准 Seek 跳转；配合缺省歌词时基于 NLP 正则清洗与网易候选评分的自动匹配管线。
 - **系统级 AVSession 与播控中心深度合规**：
   严格遵循 HarmonyOS 媒体规范，拒绝利用 `title` 蹭位的做法；将完整 LRC 写入系统 `lyric`（API 10+），将当前歌词行写入 `singleLyricText`（API 17+）；注册 `setLaunchAbility` 支持锁屏与通知播控卡片一键直达当前播放界面；接入 `toggleFavorite` 收藏联动并在 API 26 上规范声明媒体控制按钮集。
-- **工业级断点续传下载引擎**：
+- **断点续传下载**：
   多任务受控并发调度，支持 DIRECT / RANGE（`.part` 偏移与 ETag 校验）与 HLS 分片多级恢复；采用**两阶段事务提交机制**（Staging 临时落盘校验 $\to$ 原子重命名归档 $\to$ 编目更新），彻底杜绝异常中断产生的损坏脏文件；支持脱机环境直读 fd 极速离线音频解码。
 - **双端互通的因果一致性云同步**：
   与 Android 上游数据协议保持二进制级完全兼容，支持 Protobuf Wire 紧凑流、GZIP 压缩与 JSON 的双向编解码（省流模式上传写 Gzip Protobuf，约 JSON 的 15% 体积）；内置基于逻辑时钟的三路因果合并（Three-way Merge）与删除墓碑（Tombstone）机制，彻底消除“一端删除、另一端同步后又复活”的顽疾；支持 GitHub Git Data API（树/提交/分支原子更新防冲突）与 WebDAV。
-- **亚秒级时钟对齐「一起听」**：
+- **「一起听」**：
   自研纯 ArkTS WebSocket 长连接客户端，实时估算网络 RTT 与服务端时钟漂移，动态平滑将端到端时钟对齐压制在 300ms 黄金同步窗口；支持房间主持权流转与受信任直链共享，房主音源直链经权威端点分发，避免听众端触发二次解析风控。
 - **全形态响应式与无障碍关怀**：
-  覆盖 Phone（直板机）、Foldable（折叠屏内屏展开 707vp LG 断点）、Tablet 与 2in1 自由悬浮窗口；基于 `GridRow` / `GridCol` 自动切换多列栅格与侧边栏布局；深度适配系统 0.85× ~ 1.75× 字体缩放（无文本溢出或截断）；全界面交互控件严格保障 $\ge 40\text{vp}$ 触控面积。
+  覆盖直板机、折叠屏、Tablet 与 2in1 自由悬浮窗口；基于 `GridRow` / `GridCol` 自动切换多列栅格与侧边栏布局；深度适配系统 0.85× ~ 1.75× 字体缩放。
 - **系统级凭据保险箱（Asset Store）**：
   所有敏感 Cookie、Token 与 GitHub PAT 均加密托管至 HarmonyOS 系统级安全底座 `@ohos.security.asset`；独创自适应 Chunk 分块透明重组机制，优雅规避系统单个 Asset 1024 字节上限。
 - **全链路故障自愈与安全模式**：
@@ -129,11 +124,11 @@ NeriPlayer for HarmonyOS
 | **播放核心与音频** | AVPlayer 核心控制 | ✅ 已闭环 | 队列、随机、循环、倍速（0.5x~2.0x）、断点恢复、VolumeFader 平滑淡入淡出、API 26 原生播放列表桥接 |
 | | AVSession 媒体中心 | ✅ 已闭环 | 锁屏/通知栏/控制中心联动、双向元数据同步、逐行歌词、单曲收藏、拉起 Ability 回跳 |
 | | 后台播放与保活 | ✅ 已闭环 | 申请 `AUDIO_PLAYBACK` 长时任务，进入后台稳定连续播放，暂停即释放合规治理 |
-| | USB 独占输出 | 🚫 定案不移植 | SDK 缺公开 USB DDK 头文件且 ArkTS 单线程无法满足 1ms 等时节拍；系统 AVPlayer 经系统 HAL 已能正常 USB 输出 |
+| | USB 独占输出 | 🚫 不移植 | 受系统限制，SDK 缺公开 USB DDK 头文件且 ArkTS 单线程无法满足 1ms 等时节拍；系统 AVPlayer 经系统 HAL 已能正常 USB 输出 |
 | **歌词与视觉** | AMLL TTML / LRC 歌词 | ✅ 已闭环 | 逐行/逐字跳变/逐字渐变三选一高亮跟随、双语翻译对照、单双行排版、点击时间戳跳转、NLP 缺省自动匹配 |
 | | 一镜到底转场 | ✅ 已闭环 | MiniPlayer ↔ 正在播放页面属性动画展开/收拢、封面弹性位移、沉浸式状态栏渐变穿透 |
 | | ColorScience 取色 | ✅ 已闭环 | 纯 ArkTS CIE Lab / LCh / ΔE00 算法，毫秒级封面取色并生成动态呼吸流光背景 |
-| | 桌面悬浮歌词 | ⏳ 演进中 | 应用内悬浮条已完成；系统级桌面歌词已打通至系统服务层，图形上屏待真机验证 |
+| | 桌面悬浮歌词 | ⏳ 演进中 | 受系统限制难以实现，应用内悬浮条已完成；系统级桌面歌词已打通至系统服务层，图形上屏待真机验证 |
 | **离线与数据** | 工业级下载引擎 | ✅ 已闭环 | Range/HLS 续传、两阶段事务提交、脱机短路读取 fd 极速解码 |
 | | 本地音乐与沙箱 | ✅ 已闭环 | 沙箱媒体库、系统文件选择器手动导入（`AudioViewPicker` 免权限）、元数据解析与封面提取 |
 | | 凭据安全保险箱 | ✅ 已闭环 | 基于 `@ohos.security.asset` 的系统加密存储，Chunk 分块突破 1024B 上限 |
@@ -149,7 +144,7 @@ NeriPlayer for HarmonyOS
 > 详细的功能定义、实现理论基础、风险与推进建议请参阅 [docs/HARMONYOS_EXCLUSIVE_FEATURES.md](docs/HARMONYOS_EXCLUSIVE_FEATURES.md)。
 > 本板块聚焦「用鸿蒙独有 API 做出其他平台做不了的体验」，与 Android 功能对齐待办（[docs/ANDROID_PARITY_BACKLOG.md](docs/ANDROID_PARITY_BACKLOG.md)）互补，均不阻塞开源发布。
 
-### P0 · 优先推进（爽点密度高 / 工程量小）
+### P0 · 优先推进（工程量较小）
 
 | 功能名 | 效果 | 实现理论基础 | 完成状态 |
 | :--- | :--- | :--- | :---: |
@@ -162,7 +157,6 @@ NeriPlayer for HarmonyOS
 | 功能名 | 效果 | 实现理论基础 | 完成状态 |
 | :--- | :--- | :--- | :---: |
 | 低音节拍同步震动 | 重低音鼓点触发马达随音乐律动震颤 | `@ohos.multimedia.audioHaptic` 音频-触觉协同服务；在线流是否生效需真机 spike，降级方案为能量检测 + 自定义震动波形 | 📋 已规划 |
-| 全局悬浮歌词画中画 | 应用内悬浮歌词条升级为跨 App 全局歌词胶囊，点按展开控制 | `@ohos.PiPWindow` 画中画窗口（需先确认桌面歌词 M102 spike 结论，避免重复路线） | 📋 已规划 |
 | 音频投屏与多设备流转 | 一键投到 Sound X / 智慧屏 / 车机 / DLNA，手机变沉浸式遥控器 | `@kit.AVSessionKit` 的 `avCastPicker` + `AVCastController`（Cast+ / DLNA 协议） | 📋 已规划 |
 | 裸眼 3D 视差封面 | 封面/黑胶随设备倾斜微移，Apple Music 式景深视差 | `sensor.SensorId.ROTATION_VECTOR` 四元数驱动多层 `translate`/`rotate`（无需权限） | 📋 已规划 |
 
@@ -172,15 +166,12 @@ NeriPlayer for HarmonyOS
 | :--- | :--- | :--- | :---: |
 | 睡眠定时倒计时实况窗 | 状态栏胶囊/锁屏/AOD 实时显示剩余分钟，不解锁即可暂停或加时 | `@kit.LiveViewKit`，`TIMER` 白名单场景（需 AGC 申请实况窗权限，全清单唯一高门槛项） | 📋 已规划 |
 | 跨端接续播放 | 手机听到一半靠近平板一点即续播，队列/进度/歌词位置同步迁移 | `UIAbility.onContinue` + `@ohos.data.distributedDataObject` + `distributedFilesDir` | 📋 已规划 |
-| 语音 DJ（点歌/切歌/暂停） | 驾车场景说「播放周杰伦」即可点歌，端侧离线识别可注入歌名热词 | `@kit.CoreSpeechKit` 的 `speechRecognizer`（离线 + 200 热词）+ `textToSpeech` 播报 | 📋 已规划 |
 | 歌词页音乐律动粒子 | 背景粒子随音乐能量呼吸吞吐，副歌段粒子爆发 | ArkUI `Particle` 扰动场 `disturbanceFields`（API 12+）+ 波形能量数据驱动 | 📋 已规划 |
 | 摇一摇换歌 | 用力摇晃触发随机切歌（走路/跑步防误触） | `sensor.SensorId.ACCELEROMETER` 幅度阈值 + 时间窗去抖 | 📋 已规划 |
 | 充电摆台黑胶时钟 | 横屏充电 45°~90° 摆放时进入黑胶唱片 + 时钟的待机屏保摆台 | 待机屏保卡片（API 23+，需 AGC 申请），复用桌面卡片基建 | 📋 已规划 |
 | 复古留声机音效彩蛋 | 输出加「老留声机 / 水下 / 广播喇叭」环境音场滤镜 | Native `OHAudioSuite` `ENVIRONMENT_EFFECT`（API 22+），挂接成本需先 spike | 📋 已规划 |
 | 碰一碰切歌单 | 床头/车上贴 NFC 标签，手机碰一下切对应歌单 | `@ohos.nfc.tag` 前台分发读 NDEF 歌单 ID | 📋 已规划 |
 | 折叠屏演奏台 | 半折悬停时下屏变控制面板、上屏展示封面歌词 | `display.on('foldAngleChange')`（API 12+）半折态上下分屏布局 | 📋 已规划 |
-
-> AR 贴纸、骨骼点体感、智能抠图、BLE 雷达、防窥检测等调研过的能力经评估与音乐播放场景不契合，已明确排除，详见规划文档第 17 节。
 
 ---
 
@@ -211,8 +202,6 @@ NeriPlayer-HarmonyOS/
 ├── build-signed.sh               # Linux 服务端一键构建与 hap-sign-tool 签名脚本
 └── .github/workflows/            # CI 持续集成与 Release 自动发布工作流
 ```
-
-> **注**：上游 Android 原版源码已从本仓库版本控制中完全解耦（已加入 `.gitignore` 忽略），如需对照 Android 原版实现可参阅上游独立仓库 [cwuom/NeriPlayer](https://github.com/cwuom/NeriPlayer)。
 
 ---
 
@@ -249,13 +238,16 @@ hvigorw test --mode module -p module=entry@default -p product=default -p buildMo
 
 由于 HarmonyOS 系统强制要求应用具有有效的调试证书签名才能在设备上安装运行，**面向社区公开发行的 Release 包均为未签名安装包 (Unsigned HAP)**。
 
-### 方式一：小白调试助手图形化安装（推荐新手）
+### 方式一：小白调试助手图形化安装（推荐）
 
 1. 前往本仓库 [Releases 页面](../../releases) 下载最新版的 `NeriPlayer-vX.Y.Z-unsigned.hap`，并校验配套 `SHA256SUMS.txt` 完整性。
 2. 下载开源图形化安装工具 [**小白调试助手（Auto-Installer）**](https://github.com/likuai2010/auto-installer/)，支持 Windows / macOS / Linux / Android / HarmonyOS NEXT 全平台。
 3. 将下载的未签名 HAP 包载入工具，按界面引导即可完成签名与安装：支持 `.hap` / `.app` 格式、有线/无线安装与自定义证书更换，全程无需命令行操作。
 
 > 安装报错排查可参考 Release 附件 `INSTALL.md`（签名安装指南）中的常见问题小节。
+
+> [!Important]
+> Release 渠道不是严格意义上的稳定通道。版本通常在完成一批功能后手动发布， 仍可能包含未充分暴露的问题。
 
 ### 方式二：开发者手动签名与安装
 
@@ -297,12 +289,21 @@ cd NeriPlayer-HarmonyOS
 
 | 校验层级 | 工具与框架 | 当前状态 | 覆盖与保障范围 |
 | :--- | :--- | :---: | :--- |
-| **本地单测** | `@ohos/hypium` 1.0.28 | **1035 用例（静态清点；最近一次全量执行 874/874 全绿）** | 覆盖同步三路合并、Protobuf/JSON 双向编解码、ColorScience 色彩矩阵、二维码生成器、下载状态机等 |
+| **本地单测** | `@ohos/hypium` 1.0.28 | **1035 用例（静态清点；最近一次全量执行 全绿）** | 覆盖同步三路合并、Protobuf/JSON 双向编解码、ColorScience 色彩矩阵、二维码生成器、下载状态机等 |
 | **代码规范** | `CodeLinter` | **0 Error 基线** | 严格保障 ArkTS 规范、异步 Promise 处理机制与资源引用安全 |
 | **设备端测** | `ohosTest` + `aa test` | **50+ 项设备用例** | AVPlayer 真实网络取流、Asset 凭据安全存取、长时任务后台保活、断网自愈与异常自愈 |
 | **持续集成** | GitHub Actions | **自动化守护** | push / PR 自动拉起 HarmonyOS API 26 环境执行编译与自动化检查 |
 
 ---
+
+## 问题反馈 / Bug Report
+
+- 反馈前建议先开启开发者模式。
+- 开发者模式开启后，应用会启用普通文件日志；崩溃日志会单独落盘。
+- 前往 [议题](https://github.com/cwuom/NeriPlayer/issues)，提供： 系统版本、机型、应用版本、复现步骤与关键日志。
+
+---
+
 
 ## ⚠️ 已知限制 / Known Limitations
 
