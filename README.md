@@ -2,7 +2,7 @@
 
 <div align="center">
 
-<img src="NeriPlayer-HarmonyOS/entry/src/main/resources/base/media/app_icon.png" width="128" height="128" alt="NeriPlayer Icon" />
+<img src="docs/images/app_icon.png" width="128" height="128" alt="NeriPlayer Icon" />
 
 <h3>✨ 一个把多源在线播放、本地管理、歌词体验和自建同步做进纯血鸿蒙的音频播放器 🎵</h3>
 
