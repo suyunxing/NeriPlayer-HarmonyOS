@@ -2,22 +2,23 @@
 
 import { common } from '@kit.AbilityKit';
 import { Logger } from '../../app/Logger';
-import { Constants } from '../../app/Constants';
 import { Theme } from '../Theme';
 import { BAND_BUTTON_VP, BAND_TEXT_VP, BP_LG, BP_MD } from '../../util/Breakpoint';
 import { openExternalLink } from '../../util/LinkLauncher';
+import { resolvePrivacyDocUrl, resolveAgreementDocUrl } from '../../util/AgcPrivacyHost';
 
 /**
- * 首启合规页。
+ * 首启合规页（仅侧载分发形态使用；AGC 隐私声明托管生效时 Index 跳过本页，
+ * 首启同意由系统标准化隐私弹窗负责）。
  *
  * 指南要求首次启动的隐私弹窗必须提供「不同意」选项，且不同意之后要么进入访客
  * 或受限模式继续，要么礼貌退出 —— 不允许反复弹窗，也不允许强行退出后再提示
  * 「请同意后继续」。本应用的在线能力全部依赖网络与第三方平台授权，没有可用的
  * 受限模式，因此按礼貌退出处理：二次确认后调用 terminateSelf()。
  *
- * 《隐私政策》《用户协议》正文托管在应用外（GitHub Gist，母本与修订流程见仓库
- * docs/legal/README.md；2026-10-05 起取消应用内离线渲染页 LegalDocPage），文字链
- * 经系统浏览器打开，阅读依赖网络。
+ * 《隐私政策》《用户协议》正文在应用外（AGC 托管优先，侧载回退自托管 Gist，
+ * 见 util/AgcPrivacyHost.ets 与仓库 docs/legal/README.md），文字链经系统
+ * 浏览器打开，阅读依赖网络。
  */
 @Component
 export struct DisclaimerPage {
@@ -92,7 +93,7 @@ export struct DisclaimerPage {
   }
 
   @Builder
-  docLink(label: string, url: string) {
+  docLink(label: string, urlProvider: () => string) {
     Text(label)
       .fontSize(13)
       .fontColor(Theme.primary(Theme.isDark()))
@@ -101,7 +102,7 @@ export struct DisclaimerPage {
       .height(40)
       .padding({ left: 4, right: 4 })
       .onClick(() => {
-        this.openDoc(url);
+        this.openDoc(urlProvider());
       })
   }
 
@@ -135,11 +136,11 @@ export struct DisclaimerPage {
               .fontColor(Theme.textSecondary(Theme.isDark()))
 
             Row({ space: 8 }) {
-              this.docLink('《隐私政策》', Constants.LEGAL_PRIVACY_URL)
+              this.docLink('《隐私政策》', resolvePrivacyDocUrl)
               Text('·')
                 .fontSize(13)
                 .fontColor(Theme.textDisabled(Theme.isDark()))
-              this.docLink('《用户协议》', Constants.LEGAL_AGREEMENT_URL)
+              this.docLink('《用户协议》', resolveAgreementDocUrl)
             }
             .width('100%')
 

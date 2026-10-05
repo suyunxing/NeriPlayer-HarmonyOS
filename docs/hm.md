@@ -808,6 +808,17 @@ $hdc = 'D:\HarmonyOS\Tools\command-line-tools\sdk\default\openharmony\toolchains
 - **已知代价（用户决策接受，已在 `UX_COMPLIANCE_AUDIT.md` §9.1 补日期注记）**：无网络首启时两文字链打开的是浏览器错误页，§9.1 当年「离线可读」目标在载体层面让位；AGC 上架时后台隐私政策 URL 直接填 Gist 链接即与应用内一致。
 - **验证**：`hvigorw assembleHap --mode module -p module=entry@default -p product=default -p buildMode=debug --no-daemon` BUILD SUCCESSFUL（33.3s）；codelinter 改动 7 文件 0 error / 1 warn（`avoid-overusing-custom-component-check`，§RELEASE_CHECKLIST 已记载的既有已接受模式）；全仓 grep 无删除项残留（命中仅剩新 URL 常量与注释中的历史指向）。单测无涉及（门控测试未动）。**未验证**：真机两处入口拉起浏览器（本机无设备）。
 
+### 7.23 2026-10-05 隐私声明再迁移：华为官方「隐私声明托管服务」接入（服务器 Linux CLT 26.0.0.105，无设备，分支 `fix/netease-captcha-music-a`）
+
+§7.22 落地 Gist 托管后用户追加指令「使用华为官方的托管方式」。官方形态调研（doc-researcher 8 份官方文档一手抓取 + 本机 SDK d.ts 直读 + 官方《隐私管理服务》指南全文核对）：**华为官方托管 = AGC「隐私声明托管服务」**——控制台「服务 → 协议服务」按华为标准模板分模块生成协议、华为托管页面，上架发布时在「版本信息 → 隐私声明」关联（另一形态「自定义隐私政策」填自备 URL，但官方 50128 规范**明文排除 GitHub/Gist/博客类链接**，Gist 方案对提审不可用）。托管生效后首启由**系统弹标准化隐私弹窗**，官方指南明确「请勿在应用中自行实现弹窗展示隐私声明，否则发布审核将被驳回」。
+
+- **应用侧接入（本轮代码）**：①新增 `util/AgcPrivacyHost.ets` 适配层——`fetchHostedPrivacyLinks()` 包装 `privacyManager.getAppPrivacyMgmtInfo()`（`@kit.AppGalleryKit`，SDK d.ts 核实：同步、未接入托管抛 1006700003、返回 `FULL_MODE/UNSUPPORTED` + 链接列表；canIUse 守卫非 HMS 环境），纯逻辑 `pickHostedPrivacyLinks()` 提取 `PRIVACY_STATEMENT_LINK`/`USER_AGREEMENT_LINK`（隐私声明链接缺失视为未托管；用户协议链接可空——官方非必须项）；`resolvePrivacyDocUrl()`/`resolveAgreementDocUrl()` 托管优先、侧载回退 `Constants` Gist。②`Index.ets` 启动状态机自适应：启动时检测一次，托管生效则跳过 Disclaimer 阶段（系统标准弹窗负责首启同意与协议更新重签，由 AGC 托管侧管理），自建合规页仅服务侧载分发。③`DisclaimerPage`/`SettingsPage` 两处文档入口改经解析器**点击时现查**（享受托管协议免发版动态更新）。
+- **module.json5 metadata 预置（官方未上架调试通道）**：按官方指南「未上架应用接入隐私管理服务」节配置 `module.metadata`：`appgallery_privacy_hosted=1` + `appgallery_privacy_link_privacy_statement`/`appgallery_privacy_link_user_agreement`（暂指 Gist 自托管正文）——debug 构建 + 真机华为应用市场可用 + 网络连通 + hdc 本地安装时，首次打开即弹系统标准隐私弹窗、privacyManager 全套接口可真实调试（不支持模拟器）。上架关联控制台托管协议后此预置可删。
+- **控制台操作（用户本人，应用侧已备好）**：AGC「协议服务」新建隐私政策+用户协议 → 发布时选隐私托管关联。`docs/legal/README.md` 已附**华为标准模板模块 ↔ 定稿文本对照表**（全部复用 v1.0.0 定稿归类填入，不新写法律语言）。
+- **单测**（`AgcPrivacyHost.test.ets` 4 例，List.test.ets 已注册）：双链接提取 / 仅隐私声明仍算托管（agreementUrl 空串）/ 缺隐私声明判未托管 / 空 url 条目忽略。Linux `hvigorw test` 编译级 0 error（执行阶段挂死属已知平台限制，计数待 Windows）。
+- **验证**：`hvigorw assembleHap` BUILD SUCCESSFUL（27.5s）；codelinter 改动文件 0 error（1 warn 为 §7.22 同一处既有已接受模式）。**未验证（本机无设备，且隐私管理服务不支持模拟器）**：真机标准隐私弹窗拉起、metadata 预置下 `getAppPrivacyMgmtInfo` 返回形状、托管链接浏览器打开——用户验证路径：安装刷新后的签名 HAP（debug 构建 + 真机应用市场可用时首启应弹系统标准弹窗）。
+- **边界**：若上架后 AGC 托管的协议文本与 Gist 回退文本出现措辞分叉，以 AGC 托管侧为对用户的生效版本，`docs/legal/` 母本需随控制台编辑同步回写。
+
 每次 SDK 或上游 Android 更新，都更新本文件的核验日期、版本矩阵、源码状态和测试结果。
 
 新增能力必须附官方页面 URL、适用 API、代码位置、验证设备、失败日志和降级方案。

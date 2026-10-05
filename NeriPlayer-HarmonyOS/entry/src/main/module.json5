@@ -12,6 +12,20 @@
     "deliveryWithInstall": true,
     "installationFree": false,
     "pages": "$profile:main_pages",
+    "metadata": [
+      {
+        "name": "appgallery_privacy_hosted",
+        "value": "1"
+      },
+      {
+        "name": "appgallery_privacy_link_privacy_statement",
+        "value": "https://gist.github.com/suyunxing/fdd0a09ceef38fbcf0b8711c519eb38e"
+      },
+      {
+        "name": "appgallery_privacy_link_user_agreement",
+        "value": "https://gist.github.com/suyunxing/ff06690f25426e520ebbfee65dba6b8f"
+      }
+    ],
     "abilities": [
       {
         "name": "EntryAbility",

@@ -6,6 +6,7 @@ import { Theme } from '../view/Theme';
 import { AccentScheme } from '../view/theme/AccentScheme';
 import { SchemeCustomTheme } from '../view/theme/SchemeCustomTheme';
 import { CURRENT_DISCLAIMER_VERSION, isDisclaimerConfirmationRequired } from '../util/DisclaimerConsentPolicy';
+import { fetchHostedPrivacyLinks } from '../util/AgcPrivacyHost';
 import { LoadingPage } from '../view/pages/LoadingPage';
 import { DisclaimerPage } from '../view/pages/DisclaimerPage';
 import { OnboardingPage } from '../view/pages/OnboardingPage';
@@ -23,6 +24,8 @@ enum StartupPhase {
 /**
  * Startup state machine: Loading -> Disclaimer -> Onboarding -> Main.
  * Safe Mode interrupts the flow when the previous launch crashed.
+ * AGC 隐私声明托管生效时 Disclaimer 阶段被跳过：首启同意由系统标准化隐私
+ * 弹窗负责（见 util/AgcPrivacyHost.ets），自建合规页只服务侧载分发。
  */
 @Entry
 @Component
@@ -49,10 +52,13 @@ struct Index {
   @State appTheme: CustomTheme = SchemeCustomTheme.build(null);
   @State phase: StartupPhase = StartupPhase.LOADING;
   @State loadingDone: boolean = false;
+  /** 本次启动的 AGC 隐私声明托管状态（每次启动重查：上架/预置元数据形态都可能变化）。 */
+  private agcPrivacyHosted: boolean = false;
 
   async aboutToAppear(): Promise<void> {
     await SettingsRepository.initialize();
     this.rebuildTheme();
+    this.agcPrivacyHosted = fetchHostedPrivacyLinks() !== null;
     this.phase = this.resolvePhase();
     this.loadingDone = true;
   }
@@ -74,6 +80,11 @@ struct Index {
   private resolvePhase(): StartupPhase {
     if (this.lastCrashDetected) {
       return StartupPhase.SAFE_MODE;
+    }
+    // 托管生效：系统标准隐私弹窗负责首启同意（含协议更新的重新签署，由 AGC
+    // 托管侧管理），自建合规页不得再弹（官方指南：双弹窗会被发布审核驳回）。
+    if (this.agcPrivacyHosted) {
+      return this.onboardingCompleted ? StartupPhase.MAIN : StartupPhase.ONBOARDING;
     }
     if (isDisclaimerConfirmationRequired(this.disclaimerAccepted, this.disclaimerAcceptedVersion)) {
       return StartupPhase.DISCLAIMER;

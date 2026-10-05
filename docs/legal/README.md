@@ -1,29 +1,62 @@
 # 法律文档（母本与发布载体）
 
-本目录是《隐私政策》与《用户协议》的**母本**（2026-10-05 起从应用内 `entry/src/main/resources/rawfile/` 迁出，应用内离线渲染代码 LegalDocPage 已删除，沿革见 `docs/hm.md` §7.22）。
+本目录是《隐私政策》与《用户协议》的**母本**（2026-10-05 从应用内 `entry/src/main/resources/rawfile/` 迁出；沿革见 `docs/hm.md` §7.22/§7.23）。
 
-## 当前发布载体：GitHub Gist（公开）
+## 发布形态总览
+
+| 分发渠道 | 首启隐私弹窗 | 文档链接来源 |
+| --- | --- | --- |
+| 华为应用市场（AGC 上架，目标形态） | **系统标准化隐私弹窗**（AGC「隐私声明托管服务」，官方指南禁止接入托管的应用再自建弹窗） | `privacyManager` 隐私管理服务返回的 AGC 托管链接 |
+| 侧载（GitHub Release 签名包，当前形态） | 应用自建合规页（DisclaimerPage） | 本仓库自托管 Gist（下表） |
+
+应用侧判定在 `entry/src/main/ets/util/AgcPrivacyHost.ets`：启动时查 `privacyManager.getAppPrivacyMgmtInfo()`（`@kit.AppGalleryKit`，未接入托管抛 1006700003）。托管生效时 Index 启动状态机跳过自建合规页，两处文档入口（首启文字链、「设置→隐私与协议」）点击时现查并优先打开 AGC 托管链接（享受托管协议免发版的动态更新）；未托管（侧载/未上架）回退 Gist。
+
+## 侧载回退载体：GitHub Gist（公开）
 
 | 文档 | 公开 URL |
 | --- | --- |
 | 隐私政策 | <https://gist.github.com/suyunxing/fdd0a09ceef38fbcf0b8711c519eb38e> |
 | 用户协议 | <https://gist.github.com/suyunxing/ff06690f25426e520ebbfee65dba6b8f> |
 
-应用内两处入口（首启免责声明页文字链、设置 → 隐私与协议）经系统浏览器打开上述 URL，URL 常量在 `NeriPlayer-HarmonyOS/entry/src/main/ets/app/Constants.ets` 的 `LEGAL_PRIVACY_URL` / `LEGAL_AGREEMENT_URL`。
+注意：Gist 链接**只作侧载分发回退**，不得作为 AGC「自定义隐私政策」提审链接——官方《应用隐私政策链接提交及内容规范参考FAQ》明文排除 GitHub/博客/云笔记类链接（要求静态 HTML、无登录无跳转、可自动化分析）；上架一律走「隐私托管」。
 
-选型说明：仓库当前为 private（GitHub Free 计划下私有仓库 Pages 无法公开访问），而写进应用的链接必须公众可达，故先用 Gist 托管（公开、永久、零新增账号）。将来仓库转 public 后如换 GitHub Pages，只需改 `Constants.ets` 两个常量并更新本表；废弃的 gist 可在 GitHub 上删除。
+## AGC 上架操作清单（控制台，需作者操作）
+
+1. AppGallery Connect → 我的项目 → 选中应用 → **服务 → 协议服务 → 新建协议**。
+   - 协议类型「隐私政策」：按华为标准模板分模块填写（导语/收集和使用个人信息/设备权限调用/未成年人保护/与第三方共享/第三方 SDK/管理个人信息/存储地点及期限/自定义章节×5/联系方式/生效日期）。**内容对照见下节——全部复用定稿文本归类填入，不新写法律语言**。
+   - 协议类型「用户协议」：同一入口创建（官方非必须项；本应用首启文案引用了用户协议，建议一并托管）。用户协议无结构化模板，可按 `user_agreement.md` 全文粘贴。
+2. 发布时「版本信息 → 隐私声明」选**隐私托管**并关联上述协议（不要选「自定义隐私政策」填 URL——Gist 链接不合规）。
+3. 上架生效后：`module.json5` 的 `appgallery_privacy_hosted` 三条 metadata 预置即被控制台托管配置取代，可删除（预置仅是未上架阶段的调试接入手段，见下节）。
+
+### 隐私政策模板模块 ↔ 定稿文本对照
+
+| 华为模板模块 | 复用 `privacy_policy.md` 的章节 |
+| --- | --- |
+| 导语 | 一、我们是谁；二、我们收集哪些信息（「不收集」总述） |
+| 收集和使用个人信息 | 六、自动歌曲信息匹配；七、歌曲信息查询；八、诊断记录（均注明仅关键词/摘要、不出设备） |
+| 设备权限调用 | 五、权限用途（四权限逐条） |
+| 对未成年人的保护 | 十一、未成年人 |
+| 与第三方共享 | 三、第三方平台登录（凭据不出本机）；四、数据同步（直连自配置服务） |
+| 第三方 SDK | 声明无第三方 SDK/统计/广告组件（对应二） |
+| 管理您的个人信息 | 十、你的控制权 |
+| 信息存储地点及期限 | 九、数据安全（本机沙箱、卸载即删） |
+| 开发者自定义章节 | 十二、政策变更（重大变更重新征同意）；其余溢出内容 |
+| 如何联系我们 | 十三、联系方式 |
+| 生效日期 | 文首生效日期/版本行 |
+
+## 未上架阶段的调试接入（module.json5 预置，已配置）
+
+官方为未上架应用提供的真实调试通道（指南《隐私管理服务-AppGallery Kit》「未上架应用接入隐私管理服务」节）：`entry/src/main/module.json5` 的 `module.metadata` 预置 `appgallery_privacy_hosted=1` + 两条 https 文档链接（当前指向 Gist 自托管正文）。**debug 构建** + 设备上华为应用市场可用 + 网络连通 + `hdc` 本地安装时，首次打开即弹**系统标准隐私弹窗**，`privacyManager` 全套接口可真实调试（不支持模拟器，需真机）。上架并关联控制台托管协议后此预置即可移除。
 
 ## 修订流程
 
 1. 直接编辑本目录下的 `.md`（保持「生效日期 / 版本」行准确）。
-2. 同步发布载体（Gist）：
+2. 同步侧载回退载体（Gist）：
 
    ```bash
    gh gist edit fdd0a09ceef38fbcf0b8711c519eb38e -f privacy_policy.md   # 隐私政策
    gh gist edit ff06690f25426e520ebbfee65dba6b8f -f user_agreement.md   # 用户协议
    ```
 
-3. 若属「重大政策变更」（新增权限、改变数据处理方式等），把
-   `entry/src/main/ets/util/DisclaimerConsentPolicy.ets` 的 `CURRENT_DISCLAIMER_VERSION`
-   加一——已同意旧版文本的安装会在下次启动重新进入合规页征询同意（应用内承诺见
-   政策第十二节）。
+3. AGC 托管侧（上架后）：控制台协议服务更新——托管协议支持**免发版动态变更**（审核通过后对在架版本生效），优于侧载路径的自定义链接（后者改链接须发版重新提审）。
+4. 「重大政策变更」（新增权限、改变数据处理方式等）：托管侧由 AGC 走重新签署（`REQUIRE_RESIGNING_VERSION_UPDATE`）；侧载路径把 `entry/src/main/ets/util/DisclaimerConsentPolicy.ets` 的 `CURRENT_DISCLAIMER_VERSION` 加一，已同意旧版文本的安装下次启动重新进入合规页。

@@ -114,6 +114,7 @@
 - **2026-09-14 文案载体迁移（本清单执行轮）**：两份法律长文从 `string.json` 单行内嵌迁移至 `NeriPlayer-HarmonyOS/entry/src/main/resources/rawfile/privacy_policy.md` / `user_agreement.md`（可读 Markdown，`LegalDocPage` 经 `resourceManager.getRawFileContent` 异步读入；标题与 draft 横幅仍在 string.json）。**定稿操作由此简化为：直接编辑 rawfile 下两个 .md**（填生效日期、去 `-draft`、按作者名义复核措辞），不再需要改 JSON 转义文本；将来上 AGC 时同一份 .md 复制到后台上传。定稿后同步删除 string.json 的 `legal_draft_notice` 键与 `LegalDocPage.ets` 中对它的引用（约一行）。
 - **2026-09-20 定稿完成**：commit d3eadb3——两份正文正式定稿 `v1.0.0`、生效日期 2026-09-20、draft 横幅与 `legal_draft_notice` 已除。
 - **2026-10-05 载体再迁移（用户指令「换用标准化隐私声明托管」）**：两份 .md 自应用内 `rawfile/` 迁至仓库根 `docs/legal/`（母本），并以**公开 Gist** 托管（隐私政策 <https://gist.github.com/suyunxing/fdd0a09ceef38fbcf0b8711c519eb38e>、用户协议 <https://gist.github.com/suyunxing/ff06690f25426e520ebbfee65dba6b8f>）；应用内离线渲染页 `LegalDocPage`、`LEGAL_DOC` 路由与两个标题字符串键删除，首启文字链与「设置→隐私与协议」改系统浏览器打开 Gist 链接（`Constants.LEGAL_*_URL`）。将来上 AGC 时后台隐私政策 URL 直接填 Gist 链接，与应用内同源一致。修订流程见 `docs/legal/README.md`，沿革 `hm.md` §7.22。
+- **2026-10-05 再修正（用户指令「使用华为官方的托管方式」，上条「AGC 后台填 Gist 链接」作废）**：官方 50128 规范明文排除 GitHub 类链接，AGC 上架走「隐私声明托管服务」（控制台协议服务按标准模板生成、华为托管、系统标准隐私弹窗），不再「自定义隐私政策填 URL」。应用侧已接 privacyManager 自适应（托管生效跳过自建合规页、文档入口优先托管链接，侧载回退 Gist），`module.json5` 已配 `appgallery_privacy_hosted` 调试预置；控制台操作清单与模板对照表见 `docs/legal/README.md`（`hm.md` §7.23）。
 - 另登记：文案承诺的「重大政策变更重新征同意」代码未实现（仍是布尔标记 `KEY_DISCLAIMER_ACCEPTED`，改版本号不重新弹窗）。开源发布不阻塞；若未来上架 AGC 则为必办（`RELEASE_CHECKLIST.md` §5.5 已登记）。
 - **本项性质**：文案定稿（作者本人操作），agent 不代笔最终法律文案。
 - **✅ 定稿与载体均已就位**（2026-09-20 作者定稿 v1.0.0；2026-10-05 载体迁公开 Gist，见上）。

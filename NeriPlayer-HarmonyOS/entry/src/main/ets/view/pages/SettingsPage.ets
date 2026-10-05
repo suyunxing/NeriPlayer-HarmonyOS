@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0
 
 import { common } from '@kit.AbilityKit';
-import { Constants } from '../../app/Constants';
 import { SettingsRepository } from '../../data/SettingsRepository';
 import { openExternalLink } from '../../util/LinkLauncher';
+import { resolvePrivacyDocUrl, resolveAgreementDocUrl } from '../../util/AgcPrivacyHost';
 import { Theme } from '../Theme';
 import { AccentScheme } from '../theme/AccentScheme';
 import {
@@ -64,13 +64,13 @@ export struct SettingsPage {
     return hasScheme ? Theme.background(dark) : Theme.background(dark);
   }
 
-  /** 托管的法律文档：拉起系统浏览器打开（正文不在应用内，母本见仓库 docs/legal/）。 */
-  private openLegalDoc(url: string): void {
+  /** 托管的法律文档：拉起系统浏览器打开（AGC 托管优先、侧载回退，见 util/AgcPrivacyHost.ets）。 */
+  private openLegalDoc(urlProvider: () => string): void {
     const context = AppStorage.get<common.UIAbilityContext>('abilityContext');
     if (context === undefined || context === null) {
       return;
     }
-    openExternalLink(context, url);
+    openExternalLink(context, urlProvider());
   }
 
   build() {
@@ -185,13 +185,13 @@ export struct SettingsPage {
             title: '隐私政策',
             subtitle: '收集范围、权限用途与你的控制权',
             icon: '🔒',
-            onTap: () => this.openLegalDoc(Constants.LEGAL_PRIVACY_URL)
+            onTap: () => this.openLegalDoc(resolvePrivacyDocUrl)
           })
           SettingRow({
             title: '用户协议',
             subtitle: '使用限制、账号与免责声明',
             icon: '📄',
-            onTap: () => this.openLegalDoc(Constants.LEGAL_AGREEMENT_URL)
+            onTap: () => this.openLegalDoc(resolveAgreementDocUrl)
           })
         }
         .width('100%')

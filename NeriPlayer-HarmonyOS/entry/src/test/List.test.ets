@@ -99,6 +99,7 @@ import playbackStatsAggregatorTest from './ets/test/PlaybackStatsAggregator.test
 import volumeFaderTest from './ets/test/VolumeFader.test';
 import nowPlayingMotionTest from './ets/test/NowPlayingMotion.test';
 import disclaimerConsentPolicyTest from './ets/test/DisclaimerConsentPolicy.test';
+import agcPrivacyHostTest from './ets/test/AgcPrivacyHost.test';
 import lruCacheTest from './ets/test/LruCache.test';
 import sourceSyncTest from './ets/test/SourceSync.test';
 
@@ -202,6 +203,7 @@ export default function testsuite(): void {
   volumeFaderTest();
   nowPlayingMotionTest();
   disclaimerConsentPolicyTest();
+  agcPrivacyHostTest();
   lruCacheTest();
   neteasePhoneLoginSeedTest();
   neteaseWebLoginTest();
