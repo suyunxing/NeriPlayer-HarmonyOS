@@ -2,15 +2,10 @@
 
 import { common } from '@kit.AbilityKit';
 import { Logger } from '../../app/Logger';
+import { Constants } from '../../app/Constants';
 import { Theme } from '../Theme';
 import { BAND_BUTTON_VP, BAND_TEXT_VP, BP_LG, BP_MD } from '../../util/Breakpoint';
-import { LEGAL_AGREEMENT, LEGAL_PRIVACY, LegalDocPage } from './LegalDocPage';
-
-/**
- * 首启页协议浮层开合状态的 AppStorage 键。系统返回只送达 @Entry（Index
- * onBackPress），它据此区分「收起浮层」与「放行退出应用」。
- */
-export const DISCLAIMER_OPENED_DOC_KEY: string = 'ui.disclaimer_opened_doc';
+import { openExternalLink } from '../../util/LinkLauncher';
 
 /**
  * 首启合规页。
@@ -20,8 +15,9 @@ export const DISCLAIMER_OPENED_DOC_KEY: string = 'ui.disclaimer_opened_doc';
  * 「请同意后继续」。本应用的在线能力全部依赖网络与第三方平台授权，没有可用的
  * 受限模式，因此按礼貌退出处理：二次确认后调用 terminateSelf()。
  *
- * 《隐私政策》《用户协议》以页内浮层打开（LegalDocPage 读本地资源），保证离线
- * 也能完整阅读，而不是一个点不动的外链。
+ * 《隐私政策》《用户协议》正文托管在应用外（GitHub Gist，母本与修订流程见仓库
+ * docs/legal/README.md；2026-10-05 起取消应用内离线渲染页 LegalDocPage），文字链
+ * 经系统浏览器打开，阅读依赖网络。
  */
 @Component
 export struct DisclaimerPage {
@@ -29,9 +25,6 @@ export struct DisclaimerPage {
   /** 协议文本较用户上次同意的版本有修订：标题下多一行更新提示。父组件传入状态变量，须用 @Prop 建立单向同步。 */
   @Prop reconfirmAfterUpdate: boolean = false;
   @State countdown: number = 5;
-  /** 空串表示未打开文档浮层，否则是 LEGAL_PRIVACY / LEGAL_AGREEMENT。经
-   *  AppStorage 与 Index.onBackPress 共享：浮层开着时系统返回先收起浮层。 */
-  @StorageLink(DISCLAIMER_OPENED_DOC_KEY) openedDoc: string = '';
   /**
    * 底部固定按钮区的上抬量，由 util/WindowMetrics.ets 按真实导航指示器避让区
    * 发布；默认值是指南常量，只在还没采到样时短暂生效。
@@ -88,8 +81,18 @@ export struct DisclaimerPage {
     });
   }
 
+  /** 打开托管的法律文档：拉起系统浏览器；失败只记日志，不打断合规流程。 */
+  private openDoc(url: string): void {
+    const context = AppStorage.get<common.UIAbilityContext>('abilityContext');
+    if (context === undefined || context === null) {
+      Logger.warn('disclaimer: ability context unavailable, cannot open legal doc');
+      return;
+    }
+    openExternalLink(context, url);
+  }
+
   @Builder
-  docLink(label: string, doc: string) {
+  docLink(label: string, url: string) {
     Text(label)
       .fontSize(13)
       .fontColor(Theme.primary(Theme.isDark()))
@@ -98,16 +101,13 @@ export struct DisclaimerPage {
       .height(40)
       .padding({ left: 4, right: 4 })
       .onClick(() => {
-        this.openedDoc = doc;
+        this.openDoc(url);
       })
   }
 
   build() {
-    // 文档浮层与正文同处一个 Stack：浮层要盖住整页，而自定义组件的根节点只允许
-    // 一个子节点。
-    Stack() {
-      // 600vp 正文栏宽 + 居中：这是首启第一屏，tablet 上原本一行排七八十个字。
-      Row() {
+    // 600vp 正文栏宽 + 居中：这是首启第一屏，tablet 上原本一行排七八十个字。
+    Row() {
       Column() {
         Scroll() {
           Column({ space: 12 }) {
@@ -135,11 +135,11 @@ export struct DisclaimerPage {
               .fontColor(Theme.textSecondary(Theme.isDark()))
 
             Row({ space: 8 }) {
-              this.docLink('《隐私政策》', LEGAL_PRIVACY)
+              this.docLink('《隐私政策》', Constants.LEGAL_PRIVACY_URL)
               Text('·')
                 .fontSize(13)
                 .fontColor(Theme.textDisabled(Theme.isDark()))
-              this.docLink('《用户协议》', LEGAL_AGREEMENT)
+              this.docLink('《用户协议》', Constants.LEGAL_AGREEMENT_URL)
             }
             .width('100%')
 
@@ -190,22 +190,10 @@ export struct DisclaimerPage {
       .width('100%')
       .height('100%')
       .constraintSize({ maxWidth: BAND_TEXT_VP })
-      }
-      .width('100%')
-      .height('100%')
-      .justifyContent(FlexAlign.Center)
-      .backgroundColor(Theme.background(Theme.isDark()))
-
-      if (this.openedDoc.length > 0) {
-        LegalDocPage({
-          doc: this.openedDoc,
-          onClose: () => {
-            this.openedDoc = '';
-          }
-        })
-      }
     }
     .width('100%')
     .height('100%')
+    .justifyContent(FlexAlign.Center)
+    .backgroundColor(Theme.background(Theme.isDark()))
   }
 }

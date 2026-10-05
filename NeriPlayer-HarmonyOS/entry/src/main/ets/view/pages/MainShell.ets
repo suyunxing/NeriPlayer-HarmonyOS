@@ -33,7 +33,6 @@ import { StatsPage } from './StatsPage';
 import { SettingsDetailPage } from './SettingsDetailPage';
 import { BiliWebLoginPage } from './BiliWebLoginPage';
 import { NeteaseWebLoginPage } from './NeteaseWebLoginPage';
-import { LegalDocPage } from './LegalDocPage';
 import { AlbumPage } from './AlbumPage';
 import { ArtistPage } from './ArtistPage';
 
@@ -753,9 +752,6 @@ export struct MainShell {
       ArtistPage({ artistParam: this.paramText(param) })
     } else if (name === Router.LISTEN_TOGETHER) {
       ListenTogetherPage()
-    } else if (name === Router.LEGAL_DOC) {
-      // 设置页入口按全屏路由打开，返回走 HdsNavDestination 标题栏返回键。
-      LegalDocPage({ doc: this.paramText(param), asRoute: true, onClose: () => Router.pop() })
     } else {
       // 未知路由名：给一个空白页而不是崩掉，返回键仍能退出。navDestination
       // builder 的根必须是 NavDestination 系组件；标准 NavDestination 官方

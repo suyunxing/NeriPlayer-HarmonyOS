@@ -7,7 +7,7 @@ import { AccentScheme } from '../view/theme/AccentScheme';
 import { SchemeCustomTheme } from '../view/theme/SchemeCustomTheme';
 import { CURRENT_DISCLAIMER_VERSION, isDisclaimerConfirmationRequired } from '../util/DisclaimerConsentPolicy';
 import { LoadingPage } from '../view/pages/LoadingPage';
-import { DisclaimerPage, DISCLAIMER_OPENED_DOC_KEY } from '../view/pages/DisclaimerPage';
+import { DisclaimerPage } from '../view/pages/DisclaimerPage';
 import { OnboardingPage } from '../view/pages/OnboardingPage';
 import { SafeModePage } from '../view/pages/SafeModePage';
 import { MainShell } from '../view/pages/MainShell';
@@ -109,18 +109,9 @@ struct Index {
    *
    * Consume it while the route stack has something to pop; at the root, and in
    * the startup gates (免责声明/引导/安全模式), fall through so the system
-   * default (leave the app) still applies. Exception: on the disclaimer page
-   * with the legal-doc overlay open, consume back to close the overlay first —
-   * the overlay state lives in DisclaimerPage and is shared via AppStorage.
+   * default (leave the app) still applies.
    */
   onBackPress(): boolean {
-    if (this.phase === StartupPhase.DISCLAIMER) {
-      const openedDoc = AppStorage.get<string>(DISCLAIMER_OPENED_DOC_KEY);
-      if (openedDoc !== undefined && openedDoc.length > 0) {
-        AppStorage.setOrCreate(DISCLAIMER_OPENED_DOC_KEY, '');
-        return true;
-      }
-    }
     if (this.phase === StartupPhase.MAIN && Router.canPop()) {
       Router.pop();
       return true;

@@ -31,8 +31,6 @@ export class Router {
   static readonly ALBUM: string = 'album';
   /** 网易云艺人页，param 为 JSON：{ artist: string, artistId: number }。 */
   static readonly ARTIST: string = 'artist';
-  /** 隐私政策 / 用户协议阅读页，param 取 LEGAL_PRIVACY / LEGAL_AGREEMENT。 */
-  static readonly LEGAL_DOC: string = 'legal_doc';
   /** B 站内嵌官方登录页（WebView），无参数。 */
   static readonly BILI_WEB_LOGIN: string = 'bili_web_login';
   /** 网易云内嵌官方登录页（WebView），无参数。 */

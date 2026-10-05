@@ -3,10 +3,11 @@
 /**
  * 首启合规页（免责声明/隐私政策/用户协议）的版本门控。
  *
- * 协议正文存于 resources/rawfile（privacy_policy.md / user_agreement.md），
- * 每当正文实质修订时把 CURRENT_DISCLAIMER_VERSION 加一：已同意过旧版文本的
- * 安装会在新版本首次启动时重新进入合规页一次（Index.ets 启动状态机）。
- * 版本化之前的老安装只记录过布尔同意、此键为空串，因此同样会被要求确认一次。
+ * 协议正文托管在应用外（2026-10-05 起，母本 docs/legal/、发布载体与 URL 见
+ * docs/legal/README.md），每当正文实质修订时把 CURRENT_DISCLAIMER_VERSION 加一：
+ * 已同意过旧版文本的安装会在新版本首次启动时重新进入合规页一次（Index.ets
+ * 启动状态机）。版本化之前的老安装只记录过布尔同意、此键为空串，因此同样会被
+ * 要求确认一次。
  */
 export const CURRENT_DISCLAIMER_VERSION: string = '2';
 

@@ -108,13 +108,15 @@
 
 ## 4. 隐私与合规收尾
 
-### 4.1 [ ] 隐私政策定稿与「版本变更重新征同意」机制
+### 4.1 [x] 隐私政策定稿与「版本变更重新征同意」机制
 
 - **事实**：应用内隐私政策与用户协议为 `v1.0.0-draft` 草案（「草案 · 待作者复核」横幅、生效日期待定，`string.json` 内嵌文案）。开源发布（GitHub Release 分发）不是应用市场上架，**不强制**要求定稿；但发布即面向公众，建议作者以自己的名义定稿 v1.0.0，替换 draft 横幅。
 - **2026-09-14 文案载体迁移（本清单执行轮）**：两份法律长文从 `string.json` 单行内嵌迁移至 `NeriPlayer-HarmonyOS/entry/src/main/resources/rawfile/privacy_policy.md` / `user_agreement.md`（可读 Markdown，`LegalDocPage` 经 `resourceManager.getRawFileContent` 异步读入；标题与 draft 横幅仍在 string.json）。**定稿操作由此简化为：直接编辑 rawfile 下两个 .md**（填生效日期、去 `-draft`、按作者名义复核措辞），不再需要改 JSON 转义文本；将来上 AGC 时同一份 .md 复制到后台上传。定稿后同步删除 string.json 的 `legal_draft_notice` 键与 `LegalDocPage.ets` 中对它的引用（约一行）。
+- **2026-09-20 定稿完成**：commit d3eadb3——两份正文正式定稿 `v1.0.0`、生效日期 2026-09-20、draft 横幅与 `legal_draft_notice` 已除。
+- **2026-10-05 载体再迁移（用户指令「换用标准化隐私声明托管」）**：两份 .md 自应用内 `rawfile/` 迁至仓库根 `docs/legal/`（母本），并以**公开 Gist** 托管（隐私政策 <https://gist.github.com/suyunxing/fdd0a09ceef38fbcf0b8711c519eb38e>、用户协议 <https://gist.github.com/suyunxing/ff06690f25426e520ebbfee65dba6b8f>）；应用内离线渲染页 `LegalDocPage`、`LEGAL_DOC` 路由与两个标题字符串键删除，首启文字链与「设置→隐私与协议」改系统浏览器打开 Gist 链接（`Constants.LEGAL_*_URL`）。将来上 AGC 时后台隐私政策 URL 直接填 Gist 链接，与应用内同源一致。修订流程见 `docs/legal/README.md`，沿革 `hm.md` §7.22。
 - 另登记：文案承诺的「重大政策变更重新征同意」代码未实现（仍是布尔标记 `KEY_DISCLAIMER_ACCEPTED`，改版本号不重新弹窗）。开源发布不阻塞；若未来上架 AGC 则为必办（`RELEASE_CHECKLIST.md` §5.5 已登记）。
 - **本项性质**：文案定稿（作者本人操作），agent 不代笔最终法律文案。
-- **⏸ 待作者定稿**（载体迁移已就绪）。
+- **✅ 定稿与载体均已就位**（2026-09-20 作者定稿 v1.0.0；2026-10-05 载体迁公开 Gist，见上）。
 
 ### 4.2 [ ] 权限 reason 补全（低优先级，可延后）
 
@@ -170,7 +172,7 @@
 | 2.4 | download_match_lyrics 开关处置 | 代码 | 30 分钟 | 中 | ✅ 完成（方案 a 隐藏） |
 | 2.5 | FEATURE_MATRIX 全量走查 | 文档 | 1-2 小时 | 中 | ✅ 完成（抽查 8/8 属实） |
 | 3.x | 已知限制清单固定化 | 文档 | 30 分钟 | 中 | ✅ 完成（README 新增「已知限制」节） |
-| 4.1 | 隐私政策定稿 | 文案 | 作者本人 | 低（开源不阻塞） | ⏸ 待作者 |
+| 4.1 | 隐私政策定稿 | 文案 | 作者本人 | 低（开源不阻塞） | ✅ 完成（2026-09-20 定稿 v1.0.0；2026-10-05 载体迁公开 Gist；版本门控 2026-09-22 已实现） |
 | 4.2 | 权限 reason 补全 | 工程 | 低 | 低 | ⏸ 可延后 |
 | 5.1 | 发布前验证基线 | 验证 | 1 小时 | 高 | ✅ 完成（构建/lint 通过；单测计数待 Windows） |
 | 5.2 | CI 门禁收口 | 工程 | 后续迭代 | 低 | ⏸ 明确解耦 |

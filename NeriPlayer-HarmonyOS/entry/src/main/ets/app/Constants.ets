@@ -14,6 +14,10 @@ export class Constants {
   static readonly LRCLIB_BASE: string = 'https://lrclib.net/api';
   static readonly AMLL_BASE: string = 'https://amlldb.bikonoo.com';
 
+  // 托管的法律文档（母本与修订流程见仓库 docs/legal/README.md）。
+  static readonly LEGAL_PRIVACY_URL: string = 'https://gist.github.com/suyunxing/fdd0a09ceef38fbcf0b8711c519eb38e';
+  static readonly LEGAL_AGREEMENT_URL: string = 'https://gist.github.com/suyunxing/ff06690f25426e520ebbfee65dba6b8f';
+
   // Public YouTube Music web client key (anonymous search only).
   static readonly YTM_WEB_API_KEY: string = 'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8';
 

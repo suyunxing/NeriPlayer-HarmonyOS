@@ -15,14 +15,6 @@
     {
       "name": "keep_background_running_reason",
       "value": "Keeps the current track playing and keeps the playback controls on the notification panel and lock screen after you switch to another app or lock the screen."
-    },
-    {
-      "name": "privacy_policy_title",
-      "value": "隐私政策"
-    },
-    {
-      "name": "user_agreement_title",
-      "value": "用户协议"
     }
   ]
 }

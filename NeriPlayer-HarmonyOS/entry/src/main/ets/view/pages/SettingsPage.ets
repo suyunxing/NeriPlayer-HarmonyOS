@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0
 
+import { common } from '@kit.AbilityKit';
+import { Constants } from '../../app/Constants';
 import { SettingsRepository } from '../../data/SettingsRepository';
+import { openExternalLink } from '../../util/LinkLauncher';
 import { Theme } from '../Theme';
 import { AccentScheme } from '../theme/AccentScheme';
 import {
@@ -11,7 +14,6 @@ import {
   FLOAT_TAB_CLEARANCE
 } from '../components/Ui';
 import { BAND_LIST_VP } from '../../util/Breakpoint';
-import { LEGAL_AGREEMENT, LEGAL_PRIVACY } from './LegalDocPage';
 import { Router } from '../Router';
 
 /** MINI 标题栏标准高度（MainShell 同名常量）：内容顶部让位，滚动时从标题栏背后滚过。 */
@@ -60,6 +62,15 @@ export struct SettingsPage {
   private schemeBg(dark: boolean): string {
     const hasScheme = this.coverScheme.light.background.length > 0;
     return hasScheme ? Theme.background(dark) : Theme.background(dark);
+  }
+
+  /** 托管的法律文档：拉起系统浏览器打开（正文不在应用内，母本见仓库 docs/legal/）。 */
+  private openLegalDoc(url: string): void {
+    const context = AppStorage.get<common.UIAbilityContext>('abilityContext');
+    if (context === undefined || context === null) {
+      return;
+    }
+    openExternalLink(context, url);
   }
 
   build() {
@@ -167,20 +178,20 @@ export struct SettingsPage {
         .width('100%')
 
         // 指南要求隐私政策与用户协议在应用内随时可达、可完整打开，不只出现在
-        // 首启弹窗里。
+        // 首启弹窗里。正文托管在应用外，点击经系统浏览器打开。
         this.sectionTitle('隐私与协议')
         Column({ space: 10 }) {
           SettingRow({
             title: '隐私政策',
             subtitle: '收集范围、权限用途与你的控制权',
             icon: '🔒',
-            onTap: () => Router.push(Router.LEGAL_DOC, LEGAL_PRIVACY)
+            onTap: () => this.openLegalDoc(Constants.LEGAL_PRIVACY_URL)
           })
           SettingRow({
             title: '用户协议',
             subtitle: '使用限制、账号与免责声明',
             icon: '📄',
-            onTap: () => Router.push(Router.LEGAL_DOC, LEGAL_AGREEMENT)
+            onTap: () => this.openLegalDoc(Constants.LEGAL_AGREEMENT_URL)
           })
         }
         .width('100%')
