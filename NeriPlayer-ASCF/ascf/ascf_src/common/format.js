@@ -24,14 +24,27 @@ function formatCount(count) {
   return '' + n;
 }
 
+// 实体须单遍一次解码（&amp; 与其他实体同一遍处理），链式多次 replace 会把 &amp;lt; 二次解码成 <
+function decodeEntities(text) {
+  return String(text || '').replace(/&(amp|lt|gt|quot);/g, function (match, entity) {
+    switch (entity) {
+      case 'amp': return '&';
+      case 'lt': return '<';
+      case 'gt': return '>';
+      default: return '"';
+    }
+  });
+}
+
 function stripHtml(text) {
-  return String(text || '')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .trim();
+  // 先解码实体再剥标签，且标签剥离须循环到收敛，防止 <scri<x>pt> 这类拼接重组出 <script>
+  let result = decodeEntities(text);
+  let previous;
+  do {
+    previous = result;
+    result = result.replace(/<[^>]*>/g, '');
+  } while (result !== previous);
+  return result.trim();
 }
 
 function parseDurationMs(durationText) {
