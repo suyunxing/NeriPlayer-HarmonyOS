@@ -85,9 +85,9 @@ HLS checkpoint 恢复（上游 open PR #508 的 operationId 问题）已核查**
 | P1-2 | #417 时长匹配守卫 | 网易/LRCLIB 主结果无任何时长校验（仅 YTM→AMLL 严格模式有） | **已完成（2026-10-10，commit 2ad4ec2）**：跨源回退经 SongMatchScorer（±8s 容差+漂移拒绝+阈值 70）守卫；LRCLIB 响应 duration 偏差超 8s 丢弃 |
 | P1-3 | #499 `keep counting listened time after a mid-track interruption` + 29c8d86e 统计口径 reconcile | `playCount` 每次 flush +1（暂停/恢复同曲记 2 次）；`listenedMs` 崩溃丢失窗口；「全部」与各区间口径天然不一致（`data/PlaybackStatsRepository.ets:35-70`、`sync/PlaybackStatsMergePolicy.ets`） | **已完成（2026-10-10，commit a26891a）**：recordPlay 拆中继（暂停/中断只落 listenMs）与终结（换曲/播完才计次）语义，ohosTest 补用例（待设备执行）；口径不一致维持「已知行为」不另行处理 |
 | P1-4 | #499 `stop failure auto-advance at the consecutive limit` | PlaybackFailurePolicy 只有队列绕完一圈才停，连续多曲失败会逐曲跳完（`player/PlaybackFailurePolicy.ets`） | **已完成（2026-10-10，commit f9e8654）**：MAX_CONSECUTIVE_FAILURES=10（已核对上游 master modules/playback PlayerManager.kt 与 #499 提交 651bc570 的确切数值与「真正出声才清零」语义），长队列第 10 次连续失败停止；鸿蒙 playing 状态即出声，清零时机语义等效 |
-| P1-5 | #368 封面替换仅限非远端歌 | `customCoverUrl` 编辑/匹配写回对所有平台歌曲生效，无本地门禁（`view/pages/NowPlayingPage.ets:465-472`、`data/LocalPlaylistRepository.ets:505-536`） | 设计后加门禁：远端歌曲的 customCover 只应由匹配流程写，用户手填仅对本地歌生效（注意与自动匹配写封面的语义边界） |
-| P1-6 | 5fe1a3f8 超长载荷防护 | 粘贴 Cookie 对话框 TextArea 无 maxLength、parser 无总长上限（鸿蒙不读剪贴板，风险低于上游） | 低成本加固：TextArea maxLength + parser 上限 + 提示 |
-| P1-7 | #499 `honor the cache size setting` / #327 无上限缓存 | 播放缓存 LRU 固定 24 条，无容量设置（`player/PlaybackCacheLedger.ets`） | 与 §4 存储分析波次合并：缓存容量档位（含无上限） |
+| P1-5 | #368 封面替换仅限非远端歌 | `customCoverUrl` 编辑/匹配写回对所有平台歌曲生效，无本地门禁（`view/pages/NowPlayingPage.ets:465-472`、`data/LocalPlaylistRepository.ets:505-536`） | **已完成（2026-10-10，commit 4ac53b4）**：编辑面板对在线歌隐藏封面输入+文案引导走匹配；保存防线保留匹配流程写入值；匹配面板/自动匹配器不受影响 |
+| P1-6 | 5fe1a3f8 超长载荷防护 | 粘贴 Cookie 对话框 TextArea 无 maxLength、parser 无总长上限（鸿蒙不读剪贴板，风险低于上游） | **已完成（2026-10-10，commit b20ea99）**：parser 上限 32768 超限解析为空 + 对话框 maxLength/导入拦截 + Token 输入 maxLength 1024 |
+| P1-7 | #499 `honor the cache size setting` / #327 无上限缓存 | 播放缓存 LRU 固定 24 条，无容量设置（`player/PlaybackCacheLedger.ets`） | **已完成（2026-10-10，commit f4438d8）**：np.playback_cache_max_entries（默认 24、0=无上限）+ 设置页档位行 + 调低立即收缩；存储分析页仍留 F-8 |
 
 ### 3.2 功能缺口但属「候选」（转 §4）
 
