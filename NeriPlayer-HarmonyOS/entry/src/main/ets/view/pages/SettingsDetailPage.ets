@@ -5,7 +5,6 @@ import { bundleManager, common } from '@kit.AbilityKit';
 import { SettingsRepository } from '../../data/SettingsRepository';
 import { AppColorMode } from '../../util/AppColorMode';
 import { SystemBars } from '../../util/SystemBars';
-import { DownloadStorage } from '../../download/DownloadStorage';
 import { DownloadEngine } from '../../download/DownloadEngine';
 import { DownloadDirectory } from '../../download/DownloadDirectory';
 import { PlaylistBackupManager } from '../../data/PlaylistBackupManager';
@@ -15,6 +14,10 @@ import {
 } from '../../download/DownloadDirectoryManager';
 import { PlayerManager } from '../../player/PlayerManager';
 import { PlaybackCacheManager } from '../../player/PlaybackCacheManager';
+import { LyricDispatcher } from '../../lyrics/LyricDispatcher';
+import { DiagnosticsStore } from '../../app/diagnostics/DiagnosticsStore';
+import { analyzeStorageUsage, StorageUsageSummary, StorageUsageCategory } from '../../data/StorageUsageAnalyzer';
+import { formatStorageBytes } from '../../util/StorageBytes';
 import { NeteaseCookieRepository } from '../../data/auth/NeteaseCookieRepository';
 import { MAX_PASTE_COOKIE_TEXT_LENGTH } from '../../data/auth/RawCookieTextParser';
 import { BiliCookieRepository } from '../../data/auth/BiliCookieRepository';
@@ -205,6 +208,8 @@ export struct SettingsDetailPage {
   @StorageProp('np.listen_together_share_audio_links') ltShareAudioLinks: boolean = true;
 
   @State cacheBytes: number = 0;
+  /** F-8 存储空间分析：分桶占用 + 总量；null = 尚未完成首次扫描。 */
+  @State storageSummary: StorageUsageSummary | null = null;
   /** 关于页版本行文案；版本号运行时读包信息，避免与 app.json5 / 发布 tag 脱节。 */
   @State aboutVersionLine: string = '';
 
@@ -288,17 +293,30 @@ export struct SettingsDetailPage {
 
   async aboutToAppear(): Promise<void> {
     this.aboutVersionLine = this.resolveAboutVersionLine();
-    const catalog = await DownloadStorage.getCatalog();
-    let bytes = 0;
-    for (const entry of catalog) {
-      bytes += DownloadStorage.fileSize(entry.audioPath);
-    }
-    this.cacheBytes = bytes;
+    await this.refreshStorageUsage();
     await GitHubConfigRepository.init();
     this.githubTokenSaved = GitHubConfigRepository.tokenPreview().length > 0;
     await WebDavConfigRepository.init();
     this.webdavCredentialsSaved = WebDavConfigRepository.isConfigured();
     await this.reloadMirrorList();
+  }
+
+  /** F-8：重扫各存储桶（下载/暂存/播放缓存/歌词缓存/诊断/应用数据）。 */
+  private async refreshStorageUsage(): Promise<void> {
+    try {
+      const summary = await analyzeStorageUsage();
+      let downloads = 0;
+      for (const category of summary.categories) {
+        if (category.key === 'downloads') {
+          downloads = category.bytes;
+        }
+      }
+      this.storageSummary = summary;
+      this.cacheBytes = downloads;
+    } catch (error) {
+      const e = error as Error;
+      promptAction.openToast({ message: `存储分析失败: ${e.message}` });
+    }
   }
 
   onSourceSyncTick(): void {
@@ -1863,11 +1881,56 @@ export struct SettingsDetailPage {
             }
           } else if (this.section === SETTING_STORAGE) {
             SettingRow({
-              title: '缓存占用',
-              subtitle: this.cacheBytes > 0 ? `${(this.cacheBytes / 1024 / 1024).toFixed(1)} MB` : '暂无下载缓存',
-              icon: '🗄',
+              title: '存储空间分析',
+              subtitle: this.storageSummary === null
+                ? '扫描中…'
+                : `总计 ${formatStorageBytes(this.storageSummary.totalBytes)}，点击重新扫描`,
+              icon: '📊',
               showArrow: false,
-              onTap: () => {
+              onTap: async () => {
+                await this.refreshStorageUsage();
+              }
+            })
+            if (this.storageSummary !== null) {
+              ForEach(this.storageSummary.categories, (category: StorageUsageCategory) => {
+                SettingRow({
+                  title: category.label,
+                  subtitle: category.detail,
+                  icon: '·',
+                  showArrow: false,
+                  onTap: () => {
+                  }
+                })
+              }, (category: StorageUsageCategory) => category.key)
+            }
+            SettingRow({
+              title: '清除播放缓存',
+              subtitle: '删除系统托管的离线播放副本（不影响下载的音乐）',
+              icon: '⚡',
+              onTap: async () => {
+                const removed = await PlaybackCacheManager.clearAllCache();
+                promptAction.openToast({ message: removed > 0 ? `已清除 ${removed} 首缓存` : '暂无可清除的缓存' });
+                await this.refreshStorageUsage();
+              }
+            })
+            SettingRow({
+              title: '清除歌词缓存',
+              subtitle: '删除已缓存的歌词，下次播放重新获取',
+              icon: '📝',
+              onTap: async () => {
+                await LyricDispatcher.clearPersistentCache();
+                promptAction.openToast({ message: '已清除歌词缓存' });
+                await this.refreshStorageUsage();
+              }
+            })
+            SettingRow({
+              title: '清空诊断记录',
+              subtitle: '删除崩溃与故障诊断明细文件',
+              icon: '🩺',
+              onTap: async () => {
+                await DiagnosticsStore.clearAll();
+                promptAction.openToast({ message: '已清空诊断记录' });
+                await this.refreshStorageUsage();
               }
             })
             SettingRow({
@@ -1877,7 +1940,7 @@ export struct SettingsDetailPage {
               onTap: async () => {
                 DownloadEngine.clearFinished();
                 promptAction.openToast({ message: '已清除已完成任务' });
-                await this.aboutToAppear();
+                await this.refreshStorageUsage();
               }
             })
           } else if (this.section === SETTING_ACCOUNTS) {

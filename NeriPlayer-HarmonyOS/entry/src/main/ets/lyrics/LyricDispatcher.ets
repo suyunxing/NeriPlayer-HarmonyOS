@@ -260,4 +260,11 @@ export class LyricDispatcher {
       LyricDispatcher.persistCache();
     }
   }
+
+  /** F-8 存储分析：歌词缓存条目数（preferences 值，字节量小按条计）。 */
+  static async cachedLyricEntryCount(): Promise<number> {
+    await LyricDispatcher.ensureCache();
+    const cache = LyricDispatcher.cache;
+    return cache !== null ? cache.size() : 0;
+  }
 }
