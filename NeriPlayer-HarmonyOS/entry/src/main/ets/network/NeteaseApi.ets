@@ -630,6 +630,16 @@ export class NeteaseApi {
     }
   }
 
+  /** 歌曲 id → 可播放 SongItem（探索页链接解析开播用）。 */
+  static async getSongsByIds(ids: number[]): Promise<SongItem[]> {
+    const songs = await NeteaseApi.fetchSongDetail(ids);
+    const items: SongItem[] = [];
+    for (const song of songs) {
+      items.push(NeteaseApi.toSongItem(song));
+    }
+    return items;
+  }
+
   /** Remote playlist header + fully resolved songs for the detail page. */
   static async getPlaylistOverview(id: number): Promise<NeteasePlaylistOverview> {
     const text = await HttpClient.getText(

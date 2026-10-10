@@ -70,4 +70,13 @@ export class YouTubeMusicApi {
     return YtmStreamResolver.resolveStreamUrl(videoId, quality);
   }
 
+  /** 裸 videoId → 可播放 SongItem（探索页链接解析；标题/封面留给自动匹配补全）。 */
+  static songFromVideoId(videoId: string): SongItem {
+    const song = new SongItem(0, '', '', '', 0, 0, '',
+      `${Constants.YOUTUBE_MUSIC_MEDIA_PREFIX}${videoId}`, MusicPlatform.YOUTUBE_MUSIC);
+    song.channelId = Constants.YOUTUBE_MUSIC_IDENTITY_ALBUM;
+    song.audioId = videoId;
+    return song;
+  }
+
 }
