@@ -5,6 +5,8 @@ import { common } from '@kit.AbilityKit';
 import { picker, fileShare } from '@kit.CoreFileKit';
 import { Playlist } from '../../model/Playlist';
 import { LocalPlaylistRepository } from '../../data/LocalPlaylistRepository';
+import { PlaylistDeleteSnapshot, PlaylistUndoOffer } from '../../data/LocalPlaylistRepository';
+import { UndoBanner } from '../components/UndoBanner';
 import { DownloadStorage } from '../../download/DownloadStorage';
 import { PlaybackStatsRepository } from '../../data/PlaybackStatsRepository';
 import { LocalMediaScanner } from '../../data/LocalMediaScanner';
@@ -99,6 +101,58 @@ export struct LibraryPage {
     DownloadStorage.getCatalog().then((catalog) => {
       this.downloadCount = catalog.length;
     }).catch(() => {});
+  }
+
+  /**
+   * F-10 歌单删除撤销：PlaylistDetailPage 删除时写入的快照载荷
+   * （ui.playlistUndoPending），返回本页后以底部横幅提供 6 秒撤销。
+   */
+  @StorageProp('ui.playlistUndoPending') @Watch('onPlaylistUndoOffered') playlistUndoJson: string = '';
+  @State playlistUndoVisible: boolean = false;
+  @State playlistUndoMessage: string = '';
+  private playlistUndoSnapshot: PlaylistDeleteSnapshot | null = null;
+
+  private onPlaylistUndoOffered(): void {
+    if (this.playlistUndoJson.length === 0) {
+      this.playlistUndoVisible = false;
+      return;
+    }
+    const offer = PlaylistUndoOffer.fromJson(this.playlistUndoJson);
+    if (offer === null) {
+      this.dismissPlaylistUndo();
+      return;
+    }
+    // 陈旧载荷（页面重建重放）不弹横幅。
+    if (Date.now() - offer.offeredAt > 15000) {
+      this.dismissPlaylistUndo();
+      return;
+    }
+    const snapshot = PlaylistDeleteSnapshot.fromJson(offer.snapshotJson);
+    if (snapshot === null) {
+      this.dismissPlaylistUndo();
+      return;
+    }
+    this.playlistUndoSnapshot = snapshot;
+    this.playlistUndoMessage = `已删除「${offer.name.length > 0 ? offer.name : '歌单'}」`;
+    this.playlistUndoVisible = true;
+  }
+
+  private async undoPlaylistDelete(): Promise<void> {
+    const snapshot = this.playlistUndoSnapshot;
+    this.dismissPlaylistUndo();
+    if (snapshot === null) {
+      return;
+    }
+    const restored = await LocalPlaylistRepository.restorePlaylistFromUndo(snapshot);
+    promptAction.openToast({ message: restored ? '已恢复歌单' : '恢复失败，同 ID 歌单可能已存在' });
+    await this.reload();
+  }
+
+  private dismissPlaylistUndo(): void {
+    this.playlistUndoVisible = false;
+    this.playlistUndoMessage = '';
+    this.playlistUndoSnapshot = null;
+    AppStorage.setOrCreate('ui.playlistUndoPending', '');
   }
 
   async aboutToAppear(): Promise<void> {
@@ -783,6 +837,24 @@ export struct LibraryPage {
       .width('100%')
       .height('100%')
       .padding({ top: TITLEBAR_SPACE_VP })
+
+      // F-10：歌单删除撤销横幅（底部浮层；外层透明不拦截列表触控）。
+      Column() {
+        Blank()
+        UndoBanner({
+          message: this.playlistUndoMessage,
+          visible: this.playlistUndoVisible,
+          onUndo: () => {
+            void this.undoPlaylistDelete();
+          },
+          onExpire: () => {
+            this.dismissPlaylistUndo();
+          }
+        })
+      }
+      .width('100%')
+      .height('100%')
+      .hitTestBehavior(HitTestMode.Transparent)
 
       if (this.showCreateDialog) {
         Column() {

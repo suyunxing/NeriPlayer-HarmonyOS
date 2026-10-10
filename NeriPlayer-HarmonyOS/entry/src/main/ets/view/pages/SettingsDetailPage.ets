@@ -210,6 +210,8 @@ export struct SettingsDetailPage {
   @State cacheBytes: number = 0;
   /** F-8 存储空间分析：分桶占用 + 总量；null = 尚未完成首次扫描。 */
   @State storageSummary: StorageUsageSummary | null = null;
+  /** F-10：备份导出/导入进行中（双击防抖，upstream b4075e10）。 */
+  @State backupBusy: boolean = false;
   /** 关于页版本行文案；版本号运行时读包信息，避免与 app.json5 / 发布 tag 脱节。 */
   @State aboutVersionLine: string = '';
 
@@ -649,8 +651,16 @@ export struct SettingsDetailPage {
     return saved;
   }
 
-  /** Exports playlists + history to a user-picked JSON file. */
+  /**
+   * Exports playlists + history to a user-picked JSON file. Guarded against
+   * double taps (upstream b4075e10): a second tap while the picker is up must
+   * not fire another save dialog / file write.
+   */
   private async exportPlaylistBackup(): Promise<void> {
+    if (this.backupBusy) {
+      return;
+    }
+    this.backupBusy = true;
     try {
       const message = await PlaylistBackupManager.exportViaPicker();
       if (message.length > 0) {
@@ -658,11 +668,17 @@ export struct SettingsDetailPage {
       }
     } catch (error) {
       promptAction.openToast({ message: `导出失败：${(error as Error).message}` });
+    } finally {
+      this.backupBusy = false;
     }
   }
 
-  /** Imports playlists + history from a picked backup JSON. */
+  /** Imports playlists + history from a picked backup JSON (same guard). */
   private async importPlaylistBackup(): Promise<void> {
+    if (this.backupBusy) {
+      return;
+    }
+    this.backupBusy = true;
     try {
       const result = await PlaylistBackupManager.importViaPicker();
       if (result.message.length > 0) {
@@ -670,6 +686,8 @@ export struct SettingsDetailPage {
       }
     } catch (error) {
       promptAction.openToast({ message: `导入失败：${(error as Error).message}` });
+    } finally {
+      this.backupBusy = false;
     }
   }
 
