@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0
 // Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
 
-import { picker, fileShare } from '@kit.CoreFileKit';
+import { picker, fileShare, fileIo, fileUri } from '@kit.CoreFileKit';
 import { common } from '@kit.AbilityKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { Logger } from '../app/Logger';
@@ -74,9 +74,20 @@ export class DownloadDirectoryManager {
         operationMode: fileShare.OperationMode.READ_MODE | fileShare.OperationMode.WRITE_MODE
       };
       await fileShare.persistPermission([policy]);
+      // Writability probe: a directory that cannot hold a throwaway file
+      // would only fail at commit time of the first full download (upstream
+      // #473/#499): surface it now and keep the previous directory active.
+      if (!(await DownloadDirectoryManager.probeWritable(uri))) {
+        result.code = DownloadDirectoryPickCode.FAILED;
+        result.message = '所选目录无法写入，请更换目录';
+        return result;
+      }
       const label = DownloadDirectory.labelFromUri(uri);
+      const history = SettingsRepository.getString(SettingsRepository.KEY_DOWNLOAD_DIRECTORY_HISTORY, '');
       SettingsRepository.setString(SettingsRepository.KEY_DOWNLOAD_DIRECTORY_URI, uri);
       SettingsRepository.setString(SettingsRepository.KEY_DOWNLOAD_DIRECTORY_LABEL, label);
+      SettingsRepository.setString(SettingsRepository.KEY_DOWNLOAD_DIRECTORY_HISTORY,
+        DownloadDirectory.mergeHistoryUris(history, uri));
       result.code = DownloadDirectoryPickCode.APPLIED;
       result.label = label;
       return result;
@@ -90,22 +101,68 @@ export class DownloadDirectoryManager {
   }
 
   /**
+   * Write-availability probe for a picked directory: creates, flushes and
+   * removes a hidden probe file through the same URI-to-path conversion the
+   * commit path uses, so failure modes (read-only share, no grant, wrong
+   * URI shape) are caught at selection time.
+   */
+  static async probeWritable(uri: string): Promise<boolean> {
+    if (!DownloadDirectory.isCustomUri(uri)) {
+      return true;
+    }
+    const probeUri = DownloadDirectory.fileInDir(uri, '.neriplayer_write_probe');
+    try {
+      const converted = new fileUri.FileUri(probeUri).path;
+      const target = converted.length > 0 ? converted : probeUri;
+      const file = fileIo.openSync(target,
+        fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC);
+      try {
+        fileIo.writeSync(file.fd, 'probe');
+      } finally {
+        fileIo.closeSync(file);
+      }
+      try {
+        fileIo.unlinkSync(target);
+      } catch (cleanupError) {
+        const e = cleanupError as BusinessError;
+        Logger.debug(`probeWritable cleanup ignored: ${e.message}`);
+      }
+      return true;
+    } catch (error) {
+      const e = error as BusinessError;
+      Logger.warn(`probeWritable(${uri}) failed: ${e.code} ${e.message}`);
+      return false;
+    }
+  }
+
+  /**
    * Cold start: persisted grants must be re-activated before any fs access
    * (official fileShare guide). Best-effort: committed files' playability
-   * depends on it, but a failure must not block startup.
+   * depends on it, but a failure must not block startup. Formerly applied
+   * directories are activated too — catalog rows still point into them and
+   * must stay playable after the user switched to a newer directory.
    */
   static activatePersisted(): void {
-    const uri = DownloadDirectoryManager.currentUri();
-    if (!DownloadDirectory.isCustomUri(uri)) {
-      return;
+    const current = DownloadDirectoryManager.currentUri();
+    const uris: string[] = [];
+    if (DownloadDirectory.isCustomUri(current)) {
+      uris.push(current);
     }
-    const policy: fileShare.PolicyInfo = {
-      uri: uri,
-      operationMode: fileShare.OperationMode.READ_MODE | fileShare.OperationMode.WRITE_MODE
-    };
-    fileShare.activatePermission([policy]).catch((error: BusinessError) => {
-      Logger.warn(`activate download directory permission failed: ${error.code} ${error.message}`);
-    });
+    const history = SettingsRepository.getString(SettingsRepository.KEY_DOWNLOAD_DIRECTORY_HISTORY, '');
+    for (const uri of DownloadDirectory.historyUrisOf(history)) {
+      if (uris.indexOf(uri) < 0) {
+        uris.push(uri);
+      }
+    }
+    for (const uri of uris) {
+      const policy: fileShare.PolicyInfo = {
+        uri: uri,
+        operationMode: fileShare.OperationMode.READ_MODE | fileShare.OperationMode.WRITE_MODE
+      };
+      fileShare.activatePermission([policy]).catch((error: BusinessError) => {
+        Logger.warn(`activate download directory permission failed: ${error.code} ${error.message}`);
+      });
+    }
   }
 
   /**

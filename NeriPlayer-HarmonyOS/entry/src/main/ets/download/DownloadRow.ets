@@ -15,6 +15,8 @@ export class DownloadRow {
   status: DownloadStatus = DownloadStatus.QUEUED;
   attemptId: number = 0;
   progress: DownloadProgress | null = null;
+  /** 引擎记录的技术性失败原因，空串表示无（展示前经 downloadFailureText 映射）。 */
+  failureReason: string = '';
   /** Non-null when a committed download (file + catalog row) backs this key. */
   entry: DownloadedSongEntry | null = null;
 }
@@ -43,6 +45,7 @@ export function buildDownloadRows(tasks: DownloadTask[], catalog: DownloadedSong
     row.status = task.status;
     row.attemptId = task.attemptId;
     row.progress = task.progress;
+    row.failureReason = task.failureReason;
     row.entry = entry;
     rows.push(row);
   }
