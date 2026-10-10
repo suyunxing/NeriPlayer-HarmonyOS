@@ -120,7 +120,7 @@ HLS checkpoint 恢复（上游 open PR #508 的 operationId 问题）已核查**
 | # | 功能 | 上游来源 | 鸿蒙衔接点与备注 | 建议波次 |
 | --- | --- | --- | --- | --- |
 | F-1 | 「下一首播放」插入 + 队列拖拽排序 UI | 90ee4f46/#482 + 队列引擎死代码 | **已完成（2026-10-10，commit 6a140b8）**：QueueEngine.applyQueueEdit/currentIndexAfterRemoval 接线，PlayerManager insertNext/addToQueueEnd/moveQueueItem/removeQueueItem（语义镜像上游 d062d23ee9 addToQueueNextImpl/EndImpl 与 PlayerQueueEditOwner），队列面板 ForEach.onMove 原生拖拽 + 行尾 ⋮ 菜单，SongRow 菜单加「下一首播放」「加入队列」，8 个引擎单测；拖拽手势待真机冒烟 | 早（成本低、收益直接） |
-| F-2 | 歌词域波次：源偏好设置（Kugou/LRCLIB/AMLL 默认偏移、偏好源先行、缓存先行显示）+ 翻译/音译快捷切换 + 歌词持久化缓存 | #417/#427/#349/#483/#507 | 与 P1-1/P1-2 合并为一个波次；LyricDispatcher 阶梯改造 + SchemaStore 缓存表 | 早 |
+| F-2 | 歌词域波次：源偏好设置（Kugou/LRCLIB/AMLL 默认偏移、偏好源先行、缓存先行显示）+ 翻译/音译快捷切换 + 歌词持久化缓存 | #417/#427/#349/#483/#507 | **已完成（2026-10-10，commit affc04c）**：LyricCacheStore（SchemaStore LRU 缓存表，200 条）+ loadLyricsResolved 缓存先行 + netease_first 优先源设置 + LRCLIB 源基准偏移 + 9 单测；#483 补齐与翻译/音译切换此前已在 P1-1/既有「多行歌词」胶囊覆盖；AMLL/Kugou 源鸿蒙不存在故不移植 | 早 |
 | F-3 | 评论模块（网易云/B站原生评论、三态面板、楼中楼点赞） | #432/#476/#487 | 全新模块（数据层+UI），体量大，独立立项 | 中 |
 | F-4 | 网易云歌单写回（选择器+同步到自建歌单） | #322 | 与既有镜像歌单（单向读）互补为双向 | 中 |
 | F-5 | 网易云推荐扩展（雷达歌单、个性化元数据、每日推荐缓存） | #319/#338/390 | 首页/探索页扩展；390 的并行加载 perf 一并参考 | 中 |
