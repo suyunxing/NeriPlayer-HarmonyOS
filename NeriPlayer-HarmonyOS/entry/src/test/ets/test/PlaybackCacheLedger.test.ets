@@ -1,7 +1,35 @@
 import { describe, it, expect } from '@ohos/hypium';
-import { PlaybackCacheLedger } from '../../../main/ets/player/PlaybackCacheLedger';
+import {
+  PlaybackCacheLedger,
+  clampPlaybackCacheCapacity,
+  DEFAULT_PLAYBACK_CACHE_ENTRIES,
+  UNLIMITED_PLAYBACK_CACHE_ENTRIES
+} from '../../../main/ets/player/PlaybackCacheLedger';
 
 export default function playbackCacheLedgerTest(): void {
+  describe('PlaybackCacheCapacity', () => {
+    it('clampsSettingsValueIntoCapacityTiers', 0, () => {
+      expect(DEFAULT_PLAYBACK_CACHE_ENTRIES).assertEqual(24);
+      expect(clampPlaybackCacheCapacity(0)).assertEqual(UNLIMITED_PLAYBACK_CACHE_ENTRIES);
+      expect(clampPlaybackCacheCapacity(-5)).assertEqual(UNLIMITED_PLAYBACK_CACHE_ENTRIES);
+      expect(clampPlaybackCacheCapacity(Number.NaN)).assertEqual(UNLIMITED_PLAYBACK_CACHE_ENTRIES);
+      expect(clampPlaybackCacheCapacity(12)).assertEqual(12);
+      expect(clampPlaybackCacheCapacity(96)).assertEqual(96);
+      expect(clampPlaybackCacheCapacity(999999999))
+        .assertEqual(UNLIMITED_PLAYBACK_CACHE_ENTRIES);
+    });
+
+    it('recordHonorsUnlimitedCapacity', 0, () => {
+      const ledger = new PlaybackCacheLedger();
+      for (let i = 0; i < 30; i++) {
+        const evicted = ledger.record(`k${i}`, `t${i}`, `/cache/${i}`, 100 + i,
+          UNLIMITED_PLAYBACK_CACHE_ENTRIES);
+        expect(evicted.length).assertEqual(0);
+      }
+      expect(ledger.size()).assertEqual(30);
+    });
+  });
+
   describe('PlaybackCacheLedger', () => {
     it('lookupMissReturnsNullAndRecordHits', 0, () => {
       const ledger = new PlaybackCacheLedger();

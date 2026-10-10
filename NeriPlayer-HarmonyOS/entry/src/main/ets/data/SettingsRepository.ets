@@ -124,6 +124,9 @@ export class SettingsRepository {
   // Fixed start page: 'last' (follow the tab used last time) or '0'..'3'.
   static readonly KEY_START_PAGE: string = 'np.start_page';
   static readonly KEY_PLAYBACK_CACHE: string = 'np.playback_cache';
+  // Playback cache LRU capacity (upstream #499 honor-the-cache-size-setting):
+  // number of cached songs; 0 means unlimited.
+  static readonly KEY_PLAYBACK_CACHE_MAX_ENTRIES: string = 'np.playback_cache_max_entries';
   static readonly KEY_LYRIC_TRANSLATION: string = 'np.lyric_translation';
   static readonly KEY_LYRIC_PHONETIC: string = 'np.lyric_phonetic';
   static readonly KEY_LYRIC_BLUR: string = 'np.lyric_blur';
@@ -226,6 +229,7 @@ export class SettingsRepository {
     // Opt-in: AVDownloaderManager playback cache is Wi-Fi only but still
     // re-downloads a copy of what was just streamed.
     [SettingsRepository.KEY_PLAYBACK_CACHE, false],
+    [SettingsRepository.KEY_PLAYBACK_CACHE_MAX_ENTRIES, 24],
     [SettingsRepository.KEY_LYRIC_TRANSLATION, true],
     [SettingsRepository.KEY_LYRIC_PHONETIC, false],
     [SettingsRepository.KEY_LYRIC_BLUR, true],
