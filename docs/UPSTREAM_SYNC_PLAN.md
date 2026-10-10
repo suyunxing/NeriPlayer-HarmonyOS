@@ -55,10 +55,10 @@ NeriPlayer 有个备份同步功能：把你的歌单、播放历史打包存到
 
 ### 2.2 WebDAV 发布原子性与错误分类（上游 #495/#491/#468/#499）
 
-已核查发现两个鸿蒙侧真缺口：
+**状态：已完成（2026-10-10，commit 5379bf5，分支 fix/upstream-sync-p0-p1）**。已核查的两个鸿蒙侧真缺口均已修复，实现要点与残余风险：
 
-- **发布非原子**：`WebDavTransport` 直接对最终 URL 单发 PUT 覆盖，无临时文件+MOVE 两阶段，传输中断可能留下截断文件且无回滚（`sync/webdav/WebDavTransport.ets:187-203`）。并发保护（ETag/If-Match 乐观写 + SHA-256 指纹复核 + 冲突重试）已完备，缺的只是发布原子性。→ 修法：PUT 临时名 + MOVE 覆盖（MOVE 不支持的服务器降级现行为）。
-- **404 分类粗**：目录探测（PROPFIND）与文件读取（GET）共用分类器，目录配错时用户看到「远端暂无备份文件（首次同步时将创建）」的误导文案；上游 #468 已把「目录不存在/非目录路径」单列为配置错误。→ 修法：PROPFIND 失败单独归类 `DIRECTORY_INVALID` 并给「请检查 WebDAV 目录配置」文案（`sync/webdav/WebDavErrors.ets:29-45`、`view/pages/SettingsDetailPage.ets:998-1014`）。
+- **发布原子性**：`uploadBackup` 改为「GET 前置校验 → PUT 临时名（指纹前缀+计数器唯一化）→ MOVE 覆盖」两阶段发布；MOVE 被服务器拒绝（403/405/501）时清理临时文件并降级为原条件 PUT 路径。发布前 GET 校验远端指纹/并发令牌与合并基线一致，不一致照旧抛 `CONTENT_CONFLICT` 由协调器重试闭环消化（vanish/已存在/指纹变化三场景均有单测）。残余风险：并发校验窗口从「条件 PUT 原子校验」变为「验证→MOVE 间隔」（与旧指纹回退路径同量级），落败方的下次同步经指纹比对重新合并，不丢数据；另 OhosWebDavExecutor 方法路由已泛化（MOVE/DELETE 走 customMethod）。**未做真机 + 真实 WebDAV 服务器实测**（本机无设备），单测编译级 0 error。
+- **404 分类**：新增 `DIRECTORY_INVALID` 错误类；PROPFIND 目录探测 404/409/410 单独归类（不再误入 `FILE_NOT_FOUND`/`CONTENT_CONFLICT`）；共享中文文案 `describeWebDavErrorForUser`；`syncWebDav` 与「检查远端备份」前置目录预检，目录配错时提示「请检查目录配置」。
 
 无行动项：LOCK/UNLOCK 租约机制鸿蒙不用（上游 #491/#495 的锁清理问题不适用）。
 
