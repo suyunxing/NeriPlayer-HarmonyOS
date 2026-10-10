@@ -14,7 +14,9 @@ import {
   DownloadDirectoryPickCode
 } from '../../download/DownloadDirectoryManager';
 import { PlayerManager } from '../../player/PlayerManager';
+import { PlaybackCacheManager } from '../../player/PlaybackCacheManager';
 import { NeteaseCookieRepository } from '../../data/auth/NeteaseCookieRepository';
+import { MAX_PASTE_COOKIE_TEXT_LENGTH } from '../../data/auth/RawCookieTextParser';
 import { BiliCookieRepository } from '../../data/auth/BiliCookieRepository';
 import {
   NeteaseQrLoginClient,
@@ -149,6 +151,7 @@ export struct SettingsDetailPage {
   @StorageProp('np.download_concurrency') downloadConcurrency: number = 6;
   @StorageProp('np.download_match_lyrics') downloadMatchLyrics: boolean = true;
   @StorageProp('np.playback_cache') playbackCache: boolean = false;
+  @StorageProp('np.playback_cache_max_entries') playbackCacheMaxEntries: number = 24;
   @StorageProp('np.download_directory_uri') downloadDirectoryUri: string = '';
   @StorageProp('np.download_directory_label') downloadDirectoryLabel: string = '';
   @StorageProp('np.save_traffic') saveTraffic: boolean = false;
@@ -1139,6 +1142,17 @@ export struct SettingsDetailPage {
     return options;
   }
 
+  private playbackCacheCapacityOptions(): OptionEntry[] {
+    const options: OptionEntry[] = [
+      { value: '0', label: '无上限' },
+      { value: '12', label: '12 首' },
+      { value: '24', label: '24 首（默认）' },
+      { value: '48', label: '48 首' },
+      { value: '96', label: '96 首' }
+    ];
+    return options;
+  }
+
   private concurrencyOptions(): OptionEntry[] {
     const options: OptionEntry[] = [];
     for (const concurrency of [1, 2, 4, 6, 8]) {
@@ -1606,6 +1620,19 @@ export struct SettingsDetailPage {
               value: this.playbackCache,
               onChange: (on: boolean) =>
                 SettingsRepository.setBoolean(SettingsRepository.KEY_PLAYBACK_CACHE, on)
+            })
+
+            OptionRow({
+              title: '播放缓存容量',
+              subtitle: '按最少重播优先逐出；无上限档会持续占用存储',
+              icon: '🗄',
+              options: this.playbackCacheCapacityOptions(),
+              current: `${this.playbackCacheMaxEntries}`,
+              onPick: (value: string) => {
+                SettingsRepository.setNumber(SettingsRepository.KEY_PLAYBACK_CACHE_MAX_ENTRIES,
+                  Number(value));
+                PlaybackCacheManager.applyCapacityNow();
+              }
             })
           } else if (this.section === SETTING_DOWNLOAD) {
             OptionRow({
@@ -2255,6 +2282,7 @@ struct PasteCookieDialog {
       TextArea({ placeholder: this.placeholder, text: this.cookieText })
         .height(110)
         .fontSize(13)
+        .maxLength(MAX_PASTE_COOKIE_TEXT_LENGTH)
         .onChange((value: string) => {
           this.cookieText = value;
         })
@@ -2275,6 +2303,10 @@ struct PasteCookieDialog {
           .backgroundColor(Theme.primary(Theme.isDark()))
           .fontColor(Theme.onPrimary(Theme.isDark()))
           .onClick(() => {
+            if (this.cookieText.length > MAX_PASTE_COOKIE_TEXT_LENGTH) {
+              promptAction.openToast({ message: '内容过长，请检查是否粘贴了整页内容' });
+              return;
+            }
             this.onConfirm(this.cookieText);
             this.controller?.close();
           })
@@ -2351,6 +2383,7 @@ struct GitHubConfigDialog {
       TextArea({ placeholder: 'ghp_… / github_pat_…', text: this.tokenText })
         .height(84)
         .fontSize(13)
+        .maxLength(1024)
         .onChange((value: string) => {
           this.tokenText = value;
         })
