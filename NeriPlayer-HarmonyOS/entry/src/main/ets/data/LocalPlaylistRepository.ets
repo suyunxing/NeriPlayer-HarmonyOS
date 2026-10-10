@@ -29,6 +29,83 @@ export class LocalPlaylistTombstone {
   }
 }
 
+/** toJson 的声明形态（ArkTS 对象字面量必须对应显式类）。 */
+class PlaylistDeleteSnapshotJson {
+  playlistJson: string = '';
+  index: number = 0;
+  deletedAt: number = 0;
+}
+
+/** 跨页撤销载荷（AppStorage ui.playlistUndoPending 的 JSON 形态）。 */
+export class PlaylistUndoOffer {
+  snapshotJson: string = '';
+  name: string = '';
+  offeredAt: number = 0;
+
+  static fromJson(json: string): PlaylistUndoOffer | null {
+    try {
+      const raw = JSON.parse(json) as Record<string, Object>;
+      const offer = new PlaylistUndoOffer();
+      offer.snapshotJson = String(raw['snapshot'] ?? '');
+      offer.name = String(raw['name'] ?? '');
+      offer.offeredAt = Number(raw['offeredAt'] ?? 0);
+      return offer.snapshotJson.length > 0 && offer.offeredAt > 0 ? offer : null;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  toJson(): string {
+    const holder = new PlaylistUndoOfferJson();
+    holder.snapshot = this.snapshotJson;
+    holder.name = this.name;
+    holder.offeredAt = this.offeredAt;
+    return JSON.stringify(holder);
+  }
+}
+
+class PlaylistUndoOfferJson {
+  snapshot: string = '';
+  name: string = '';
+  offeredAt: number = 0;
+}
+
+/** F-10 删除撤销：删除前捕获的歌单深拷贝 + 原下标。 */
+export class PlaylistDeleteSnapshot {
+  playlistJson: string = '';
+  index: number = 0;
+  deletedAt: number = 0;
+
+  static fromJson(json: string): PlaylistDeleteSnapshot | null {
+    try {
+      const raw = JSON.parse(json) as Record<string, Object>;
+      const snapshot = new PlaylistDeleteSnapshot();
+      snapshot.playlistJson = String(raw['playlistJson'] ?? '');
+      snapshot.index = Number(raw['index'] ?? 0);
+      snapshot.deletedAt = Number(raw['deletedAt'] ?? 0);
+      return snapshot.playlistJson.length > 0 ? snapshot : null;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  toJson(): string {
+    const holder = new PlaylistDeleteSnapshotJson();
+    holder.playlistJson = this.playlistJson;
+    holder.index = this.index;
+    holder.deletedAt = this.deletedAt;
+    return JSON.stringify(holder);
+  }
+}
+
+/** F-10 删除撤销：从歌单移除的单曲快照（歌单 id + 原下标 + 歌曲深拷贝）。 */
+export class PlaylistSongDeleteSnapshot {
+  playlistId: string = '';
+  songKey: string = '';
+  songJson: string = '';
+  index: number = 0;
+}
+
 /**
  * Local playlist + favorites repository, mirroring LocalPlaylistRepository and
  * FavoritePlaylistRepository. Membership is stable song keys.
@@ -492,6 +569,117 @@ export class LocalPlaylistRepository {
       playlistIdToSync(item.id) !== targetKey);
     next.push(new LocalPlaylistTombstone(playlistId, Date.now()));
     await LocalPlaylistRepository.replaceDeletedTombstones(next);
+  }
+
+  // ---- F-10 删除撤销（上游 90ee4f46 PlaylistDeleteFeedback 的仓库侧原语）----
+
+  static async removeSongForUndo(playlistId: string, songKey: string): Promise<PlaylistSongDeleteSnapshot | null> {
+    const playlists = await LocalPlaylistRepository.loadAll();
+    const playlist = LocalPlaylistRepository.findBySyncId(playlists, playlistId);
+    if (playlist === undefined) {
+      return null;
+    }
+    const index = playlist.songKeys.indexOf(songKey);
+    if (index < 0) {
+      return null;
+    }
+    const snapshot = new PlaylistSongDeleteSnapshot();
+    snapshot.playlistId = playlist.id;
+    snapshot.songKey = songKey;
+    snapshot.index = index;
+    snapshot.songJson = playlist.songs[index].toJson();
+    const removed = await LocalPlaylistRepository.removeSong(playlist.id, songKey);
+    return removed ? snapshot : null;
+  }
+
+  /**
+   * 撤销单曲移除：原位插回，并回退镜像 skipKeys 与跨端歌曲删除墓碑
+   * （清墓碑与 addSong 同路径），否则下一次同步仍会把移除传播出去。
+   */
+  static async restoreRemovedSong(snapshot: PlaylistSongDeleteSnapshot): Promise<boolean> {
+    if (snapshot.playlistId.length === 0 || snapshot.songKey.length === 0 || snapshot.songJson.length === 0) {
+      return false;
+    }
+    let song: SongItem;
+    try {
+      song = SongItem.fromJson(snapshot.songJson);
+    } catch (error) {
+      return false;
+    }
+    const playlists = await LocalPlaylistRepository.loadAll();
+    const playlist = LocalPlaylistRepository.findBySyncId(playlists, snapshot.playlistId);
+    if (playlist === undefined || playlist.songKeys.indexOf(snapshot.songKey) >= 0) {
+      return false;
+    }
+    const insertAt = Math.min(Math.max(snapshot.index, 0), playlist.songKeys.length);
+    playlist.songKeys.splice(insertAt, 0, snapshot.songKey);
+    playlist.songs.splice(insertAt, 0, song);
+    playlist.updatedAt = Date.now();
+    if (playlist.syncSource !== null) {
+      const skipIndex = playlist.syncSource.skipKeys.indexOf(snapshot.songKey);
+      if (skipIndex >= 0) {
+        playlist.syncSource.skipKeys.splice(skipIndex, 1);
+      }
+    }
+    await LocalPlaylistRepository.saveAll(playlists, [playlist.id]);
+    const syncSong = syncSongFromSongItem(song);
+    if (syncSong !== null) {
+      await SyncDeletionStore.clearPlaylistSongDeletion(
+        playlistIdToSync(playlist.id), syncSongIdentity(syncSong).stableKey());
+    }
+    return true;
+  }
+
+  /** 删除前的歌单深拷贝与原下标；收藏夹（本就不可删）或不存在返回 null。 */
+  static async snapshotPlaylistForUndo(playlistId: string): Promise<PlaylistDeleteSnapshot | null> {
+    const playlists = await LocalPlaylistRepository.loadAll();
+    const index = playlists.findIndex((item: Playlist): boolean =>
+      playlistIdToSync(item.id) === playlistIdToSync(playlistId));
+    if (index < 0 || playlists[index].id === LocalPlaylistRepository.FAVORITES_ID) {
+      return null;
+    }
+    const snapshot = new PlaylistDeleteSnapshot();
+    snapshot.playlistJson = playlists[index].toJson();
+    snapshot.index = index;
+    snapshot.deletedAt = Date.now();
+    return snapshot;
+  }
+
+  /**
+   * 撤销歌单删除：按快照原位恢复（镜像绑定随快照回来），并撤掉跨端删除
+   * 墓碑——saveAll 已把该歌单标为待上传，墓碑不撤的话下一次上传仍会把它
+   * 当作 isDeleted 传播。同 id 重新存在或收藏夹则拒绝（false）。
+   */
+  static async restorePlaylistFromUndo(snapshot: PlaylistDeleteSnapshot): Promise<boolean> {
+    if (snapshot.playlistJson.length === 0) {
+      return false;
+    }
+    let restored: Playlist;
+    try {
+      restored = Playlist.fromJson(snapshot.playlistJson);
+    } catch (error) {
+      return false;
+    }
+    if (restored.id === LocalPlaylistRepository.FAVORITES_ID) {
+      return false;
+    }
+    const targetKey = playlistIdToSync(restored.id);
+    const playlists = await LocalPlaylistRepository.loadAll();
+    if (playlists.some((item: Playlist): boolean => playlistIdToSync(item.id) === targetKey)) {
+      return false;
+    }
+    const insertAt = Math.min(Math.max(snapshot.index, 0), playlists.length);
+    playlists.splice(insertAt, 0, restored);
+    await LocalPlaylistRepository.saveAll(playlists, [restored.id]);
+    const tombstones = await LocalPlaylistRepository.getDeletedTombstones();
+    await LocalPlaylistRepository.replaceDeletedTombstones(
+      tombstones.filter((item: LocalPlaylistTombstone): boolean => playlistIdToSync(item.id) !== targetKey));
+    return true;
+  }
+
+  private static findBySyncId(playlists: Playlist[], playlistId: string): Playlist | undefined {
+    const targetKey = playlistIdToSync(playlistId);
+    return playlists.find((item: Playlist): boolean => playlistIdToSync(item.id) === targetKey);
   }
 
   /**

@@ -5,6 +5,8 @@ import { Playlist } from '../../model/Playlist';
 import { SongItem } from '../../model/SongItem';
 import { MusicPlatform } from '../../model/MusicPlatform';
 import { LocalPlaylistRepository } from '../../data/LocalPlaylistRepository';
+import { PlaylistSongDeleteSnapshot, PlaylistUndoOffer } from '../../data/LocalPlaylistRepository';
+import { UndoBanner } from '../components/UndoBanner';
 import { HistoryRepository } from '../../data/HistoryRepository';
 import { stableKeyOf } from '../../model/SongIdentity';
 import { PlayerManager } from '../../player/PlayerManager';
@@ -38,6 +40,10 @@ export struct PlaylistDetailPage {
   @State showAddDialog: boolean = false;
   @State showRenameDialog: boolean = false;
   @State renameValue: string = '';
+  /** F-10：单曲移除撤销横幅（6 秒）。 */
+  @State songUndoVisible: boolean = false;
+  @State songUndoMessage: string = '';
+  private songUndoSnapshot: PlaylistSongDeleteSnapshot | null = null;
   /** 供 HdsNavDestination.bindToScrollable 绑定的歌曲列表控制器。 */
   private scroller: Scroller = new Scroller();
 
@@ -145,8 +151,37 @@ export struct PlaylistDetailPage {
   }
 
   private async removeSong(songKey: string): Promise<void> {
-    await LocalPlaylistRepository.removeSong(this.playlistId, songKey);
+    // F-10：捕获移除快照供 6 秒撤销横幅回退（skipKeys/跨端墓碑由仓库侧恢复）。
+    const snapshot = await LocalPlaylistRepository.removeSongForUndo(this.playlistId, songKey);
     await this.reload();
+    if (snapshot !== null) {
+      let displayName = '歌曲';
+      try {
+        displayName = SongItem.fromJson(snapshot.songJson).displayName;
+      } catch (error) {
+        // 展示名解析失败就用兜底文案，不影响撤销本身。
+      }
+      this.songUndoSnapshot = snapshot;
+      this.songUndoMessage = `已移除「${displayName}」`;
+      this.songUndoVisible = true;
+    }
+  }
+
+  private async undoRemoveSong(): Promise<void> {
+    const snapshot = this.songUndoSnapshot;
+    this.dismissSongUndo();
+    if (snapshot === null) {
+      return;
+    }
+    const restored = await LocalPlaylistRepository.restoreRemovedSong(snapshot);
+    promptAction.openToast({ message: restored ? '已恢复' : '恢复失败，该歌曲可能已重新加入' });
+    await this.reload();
+  }
+
+  private dismissSongUndo(): void {
+    this.songUndoVisible = false;
+    this.songUndoMessage = '';
+    this.songUndoSnapshot = null;
   }
 
   private async confirmRename(): Promise<void> {
@@ -164,7 +199,16 @@ export struct PlaylistDetailPage {
     if (this.isFavorites()) {
       return;
     }
+    // F-10：删除前把快照塞进 AppStorage，返回资料库页后由其撤销横幅恢复。
+    const snapshot = await LocalPlaylistRepository.snapshotPlaylistForUndo(this.playlistId);
     await LocalPlaylistRepository.removePlaylist(this.playlistId);
+    if (snapshot !== null) {
+      const offer = new PlaylistUndoOffer();
+      offer.snapshotJson = snapshot.toJson();
+      offer.name = this.playlist?.name ?? '歌单';
+      offer.offeredAt = Date.now();
+      AppStorage.setOrCreate('ui.playlistUndoPending', offer.toJson());
+    }
     Router.pop();
   }
 
@@ -415,6 +459,24 @@ export struct PlaylistDetailPage {
           this.showRenameDialog = false;
         })
       }
+
+      // F-10：单曲移除撤销横幅（底部浮层；外层透明不拦截列表触控）。
+      Column() {
+        Blank()
+        UndoBanner({
+          message: this.songUndoMessage,
+          visible: this.songUndoVisible,
+          onUndo: () => {
+            void this.undoRemoveSong();
+          },
+          onExpire: () => {
+            this.dismissSongUndo();
+          }
+        })
+      }
+      .width('100%')
+      .height('100%')
+      .hitTestBehavior(HitTestMode.Transparent)
     }
     .width('100%')
     .height('100%')
