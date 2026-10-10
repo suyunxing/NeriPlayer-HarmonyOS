@@ -18,6 +18,7 @@ import {
   shouldFallbackRecommendToAnonymous,
   neteaseSongToSongItem
 } from './NeteasePlaylistParser';
+import { buildNeteasePlaylistAddTracksParams } from './NeteasePlaylistWriteback';
 import { AudioQualityPolicy } from '../player/AudioQualityPolicy';
 import { NetworkStatus } from '../util/NetworkStatus';
 import { MusicPlatform } from '../model/MusicPlatform';
@@ -450,6 +451,81 @@ export class NeteaseApi {
     const url = await NeteaseApi.weapiUrl('/weapi/user/playlist');
     const text = await HttpClient.postForm(url, params, 15000, NeteaseApi.headers(), true);
     return parseUserPlaylistsResponse(text);
+  }
+
+  /**
+   * 往自建歌单批量加歌（/weapi/playlist/manipulate/tracks，上游 #322）。
+   * 返回体 code 200 为成功；登录态下 301 先 resetSession 再重试一次。
+   */
+  static async addSongsToPlaylist(playlistId: number, songIds: number[]): Promise<boolean> {
+    let code = await NeteaseApi.callPlaylistManipulateTracks(playlistId, songIds);
+    if (code === 301 && NeteaseCookieRepository.isLoggedIn()) {
+      Logger.warn('NeteaseApi playlist manipulate got 301 while logged in, refreshing session');
+      NeteaseApi.resetSession();
+      code = await NeteaseApi.callPlaylistManipulateTracks(playlistId, songIds);
+    }
+    return code === 200;
+  }
+
+  private static async callPlaylistManipulateTracks(playlistId: number,
+    songIds: number[]): Promise<number> {
+    const payload: Record<string, Object> = {};
+    const params = buildNeteasePlaylistAddTracksParams(playlistId, songIds);
+    for (const key of Object.keys(params)) {
+      payload[key] = params[key];
+    }
+    const encrypted = await NeteaseCrypto.weapiParams(payload);
+    const url = await NeteaseApi.weapiUrl('/weapi/playlist/manipulate/tracks');
+    const text = await HttpClient.postForm(url, encrypted, 15000, NeteaseApi.headers(), true);
+    let root: Record<string, Object>;
+    try {
+      root = JSON.parse(text) as Record<string, Object>;
+    } catch (error) {
+      return -1;
+    }
+    const code = Number(root['code'] ?? -1);
+    return Number.isFinite(code) ? code : -1;
+  }
+
+  /**
+   * 目标歌单现有曲目 id 快照（写回去重与失败复核用）：null = 获取失败或
+   * 响应可疑（trackCount>0 却解析不出曲目）。复用 getPlaylistOverview 的
+   * 完整解析（含 trackIds 超出首屏的分批补拉）。
+   */
+  static async playlistTrackIdSet(playlistId: number): Promise<Set<number> | null> {
+    try {
+      const overview = await NeteaseApi.getPlaylistOverview(playlistId);
+      const ids = new Set<number>();
+      for (const song of overview.songs) {
+        const id = Number(song.audioId);
+        if (Number.isFinite(id) && id > 0) {
+          ids.add(id);
+        }
+      }
+      if (ids.size === 0 && overview.trackCount > 0) {
+        return null;
+      }
+      return ids;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  /**
+   * 批量解析曲目是否仍可访问（/song/detail）：写回失败归因用，返回仍存在
+   * 的 id 集；null = 查询失败（调用方不应据此猜测）。
+   */
+  static async resolvableNeteaseSongIds(ids: number[]): Promise<Set<number> | null> {
+    try {
+      const songs = await NeteaseApi.fetchSongDetail(ids);
+      const resolved = new Set<number>();
+      for (const song of songs) {
+        resolved.add(song.id);
+      }
+      return resolved;
+    } catch (error) {
+      return null;
+    }
   }
 
   /** Remote playlist header + fully resolved songs for the detail page. */
