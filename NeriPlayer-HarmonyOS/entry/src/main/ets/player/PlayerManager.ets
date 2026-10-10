@@ -1076,7 +1076,14 @@ export class PlayerManager {
     return PlayerManager.durationMs;
   }
 
-  static flushPlaybackStatsAsync(): void {
+  /**
+   * Flushes the listened-time increment since the last flush. Terminal
+   * flushes (track change/completion, countPlay=true) also count the play;
+   * checkpoint flushes (pause/interrupt, countPlay=false) persist listenMs
+   * only so pause/resume cycles on one track count as a single play and a
+   * crash still cannot lose the listened window (upstream #499).
+   */
+  static flushPlaybackStatsAsync(countPlay: boolean = true): void {
     const song = PlayerManager.getCurrentSong();
     if (song === null || PlayerManager.listenedMs <= 0) {
       return;
@@ -1084,7 +1091,7 @@ export class PlayerManager {
     const key = stableKeyOf(song);
     const listenMs = PlayerManager.listenedMs;
     PlayerManager.listenedMs = 0;
-    PlaybackStatsRepository.recordPlay(key, listenMs);
+    PlaybackStatsRepository.recordPlay(key, listenMs, countPlay);
   }
 
   // -------------------------------------------------------------------------
@@ -1580,7 +1587,9 @@ export class PlayerManager {
         break;
       case 'paused':
         PlayerManager.publishStatus(PlaybackStatus.PAUSED);
-        PlayerManager.flushPlaybackStatsAsync();
+        // Checkpoint, not a play: resuming the same track continues the
+        // session and must not count twice.
+        PlayerManager.flushPlaybackStatsAsync(false);
         PlayerManager.schedulePersist(0);
         PlayerManager.stopContinuousTask();
         break;
@@ -1862,7 +1871,8 @@ export class PlayerManager {
         // ticks instead of racing its volume handling.
         PlayerManager.volumeFader.cancel();
         PlayerManager.publishStatus(PlaybackStatus.PAUSED);
-        PlayerManager.flushPlaybackStatsAsync();
+        // System-owned transient pause; focus regain resumes the same session.
+        PlayerManager.flushPlaybackStatsAsync(false);
         break;
       case InterruptAction.PAUSE_PERMANENT:
         PlayerManager.resumeOnFocusRegain = false;
@@ -1882,7 +1892,9 @@ export class PlayerManager {
           });
         }
         PlayerManager.publishStatus(PlaybackStatus.PAUSED);
-        PlayerManager.flushPlaybackStatsAsync();
+        // Device-loss pause is still the same listening session if the user
+        // presses play again: persist the time without counting a play.
+        PlayerManager.flushPlaybackStatsAsync(false);
         PlayerManager.persistNow();
         break;
       case InterruptAction.RESUME:
