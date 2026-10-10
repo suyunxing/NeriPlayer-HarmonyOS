@@ -33,10 +33,17 @@ export function isIsoControl(value: string): boolean {
 
 /**
  * Parses pasted cookie text ("k1=v1; k2=v2" possibly across lines) into a
- * map, mirroring Android parseRawCookieText.
+ * map, mirroring Android parseRawCookieText. Payloads beyond the paste cap
+ * (upstream 5fe1a3f8 oversized-paste guard) parse to an empty map instead of
+ * churning the splitter over megabytes of pasted page content.
  */
+export const MAX_PASTE_COOKIE_TEXT_LENGTH: number = 32768;
+
 export function parseRawCookieText(raw: string): Map<string, string> {
   const out = new Map<string, string>();
+  if (raw.length > MAX_PASTE_COOKIE_TEXT_LENGTH) {
+    return out;
+  }
   const segments = raw.split(/[;\r\n]+/);
   for (const rawSegment of segments) {
     const segment = rawSegment.trim();
