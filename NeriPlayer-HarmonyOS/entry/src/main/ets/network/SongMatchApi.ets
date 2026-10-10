@@ -41,6 +41,7 @@ export class MatchedSongDetail {
   coverUrl: string = '';
   lyric: string = '';
   translatedLyric: string = '';
+  phoneticLyric: string = '';
 }
 
 export class SongMatchApi {
@@ -112,6 +113,7 @@ export class SongMatchApi {
       result.coverUrl = candidate.coverUrl;
       result.lyric = payload.lyric;
       result.translatedLyric = payload.translated;
+      result.phoneticLyric = payload.phonetic;
       return result;
     } catch (error) {
       const e = error as Error;
