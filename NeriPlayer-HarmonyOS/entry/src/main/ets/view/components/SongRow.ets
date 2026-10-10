@@ -3,6 +3,7 @@
 import { SongItem } from '../../model/SongItem';
 import { LocalPlaylistRepository } from '../../data/LocalPlaylistRepository';
 import { DownloadEngine } from '../../download/DownloadEngine';
+import { PlayerManager } from '../../player/PlayerManager';
 import { Theme } from '../Theme';
 import { AccentScheme } from '../theme/AccentScheme';
 
@@ -64,6 +65,20 @@ export struct SongRow {
     // 与 NowPlayingPage.downloadCurrentSong 同文案；若歌曲已在下载库，
     // 引擎结算路径还会再发「已在下载库中」的完成提示。
     this.getUIContext().getPromptAction().showToast({ message: '已加入下载队列', duration: 2000 });
+  }
+
+  // F-1：队列编辑入口（语义见 PlayerManager.insertNext/addToQueueEnd）。
+  // 队列为空时二者都会回退为直接播放该曲。
+  private playNextInQueue(): void {
+    void PlayerManager.insertNext(this.song());
+    this.menuOpen = false;
+    this.getUIContext().getPromptAction().showToast({ message: '将在下一首播放', duration: 2000 });
+  }
+
+  private addToQueue(): void {
+    void PlayerManager.addToQueueEnd(this.song());
+    this.menuOpen = false;
+    this.getUIContext().getPromptAction().showToast({ message: '已加入播放队列', duration: 2000 });
   }
 
 
@@ -171,6 +186,14 @@ export struct SongRow {
           MenuItemRow({
             label: this.favorite ? '取消收藏' : '收藏',
             onTap: () => this.toggleFavorite()
+          })
+          MenuItemRow({
+            label: '下一首播放',
+            onTap: () => this.playNextInQueue()
+          })
+          MenuItemRow({
+            label: '加入队列',
+            onTap: () => this.addToQueue()
           })
           MenuItemRow({
             label: '加入歌单',
