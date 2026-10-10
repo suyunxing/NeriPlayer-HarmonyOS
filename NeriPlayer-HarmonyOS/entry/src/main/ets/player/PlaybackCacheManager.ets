@@ -13,6 +13,7 @@ import {
   clampPlaybackCacheCapacity,
   DEFAULT_PLAYBACK_CACHE_ENTRIES
 } from './PlaybackCacheLedger';
+import { dirSizeBytes } from '../util/StorageBytes';
 
 const CACHE_CALL_TIMEOUT_MS = 8000;
 const LEDGER_KEY = 'playback_cache';
@@ -60,8 +61,7 @@ export class PlaybackCacheManager {
    * same eviction path a completed cache uses, instead of waiting for the
    * next cache completion to honor the new limit.
    */
-  static applyCapacityNow(): void {
-    PlaybackCacheManager.ensureLedger().then(() => {
+  static applyCapacityNow(): void {    PlaybackCacheManager.ensureLedger().then(() => {
       const ledger = PlaybackCacheManager.ledger;
       if (ledger === null) {
         return;
@@ -87,6 +87,44 @@ export class PlaybackCacheManager {
     }).catch((_error: Error) => {
       // Ledger not loadable: the next record() applies the new capacity anyway.
     });
+  }
+
+  /**
+   * F-8 存储分析：账本内全部已完成缓存的磁盘占用合计（系统托管目录按
+   * cacheDir 递归求和；未完成的 pending 任务目录未知，不计入）。
+   */
+  static async totalCacheBytes(): Promise<number> {
+    await PlaybackCacheManager.ensureLedger();
+    const ledger = PlaybackCacheManager.ledger;
+    if (ledger === null) {
+      return 0;
+    }
+    let total = 0;
+    for (let i = 0; i < ledger.size(); i++) {
+      total += dirSizeBytes(ledger.findAt(i).cacheDir);
+    }
+    return total;
+  }
+
+  /**
+   * F-8 存储分析「清除播放缓存」：逐条走既有剔除路径（账本移除 + 目录
+   * best-effort 删除），返回清除的条目数。
+   */
+  static async clearAllCache(): Promise<number> {
+    await PlaybackCacheManager.ensureLedger();
+    const ledger = PlaybackCacheManager.ledger;
+    if (ledger === null) {
+      return 0;
+    }
+    let removed = 0;
+    while (ledger.size() > 0) {
+      PlaybackCacheManager.removeEvicted(ledger, ledger.findAt(0).stableKey);
+      removed++;
+    }
+    if (removed > 0) {
+      PlaybackCacheManager.persistLedger();
+    }
+    return removed;
   }
 
   private static ensureLedger(): Promise<void> {
