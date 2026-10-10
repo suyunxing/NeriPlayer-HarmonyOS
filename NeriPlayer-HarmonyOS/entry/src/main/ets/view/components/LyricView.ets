@@ -2,6 +2,7 @@
 
 import { curves } from '@kit.ArkUI';
 import { LyricLine } from '../../model/LyricLine';
+import { LrcParser } from '../../lyrics/LrcParser';
 import { MusicPlatform } from '../../model/MusicPlatform';
 import { LyricLineLayout, LyricScrollMath } from '../../lyrics/LyricScrollMath';
 import { Theme } from '../Theme';
@@ -417,6 +418,8 @@ export struct LyricView {
                   .fontColor(Theme.textSecondary(Theme.isDark()))
                   .textAlign(this.lineTextAlign())
                   .width('100%')
+                  // 假名读音行字形密度高，加一点额外间距（上游 15f07073）。
+                  .margin({ top: LrcParser.containsKanaReading(line.translated) ? 3 : 0 })
               }
               if (this.lyricPhonetic && line.phonetic.length > 0) {
                 Text(line.phonetic)
@@ -424,6 +427,7 @@ export struct LyricView {
                   .fontColor(Theme.textSecondary(Theme.isDark()))
                   .textAlign(this.lineTextAlign())
                   .width('100%')
+                  .margin({ top: LrcParser.containsKanaReading(line.phonetic) ? 3 : 0 })
               }
             }
             .alignItems(this.lineColumnAlign())

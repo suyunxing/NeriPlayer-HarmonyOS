@@ -32,6 +32,17 @@ export class LrcParser {
     return LrcParser.YRC_DETECT_REGEX.test(content);
   }
 
+  private static readonly KANA_REGEX: RegExp = /[\u3040-\u309F\u30A0-\u30FF]/;
+
+  /**
+   * True when the secondary line is a Japanese kana reading（平假名/片假名，
+   * 上游 15f07073 kana 检测）：假名读音行的字形密度高，渲染层据此加一行
+   * 额外间距，避免与主行挤在一起。拉丁字母 romaji 与中文翻译不含假名。
+   */
+  static containsKanaReading(text: string): boolean {
+    return LrcParser.KANA_REGEX.test(text);
+  }
+
   static parse(text: string): LyricLine[] {
     return LrcParser.parseWithMetadata(text).lines;
   }
@@ -77,9 +88,33 @@ export class LrcParser {
     lines.sort((a: LyricLine, b: LyricLine) => a.timeMs - b.timeMs);
     LrcParser.applyOffset(lines, result.metadata.offsetMs);
     LrcParser.fillWordTimings(lines);
+    LrcParser.foldSameTimestampTranslations(lines);
     LrcParser.fillEndTimes(lines, explicitEndLines);
     result.lines = lines;
     return result;
+  }
+
+  /**
+   * #392 翻译折叠：增强 LRC 的逐词行后面紧跟同时间戳的普通行（音译/翻译
+   * 混排在同一 LRC 里的常见形态）时，把跟随行折入逐词行的 translated 并
+   * 移除该行，否则同时间戳双行会在渲染层重复高亮、在行尾链里互相顶掉。
+   * 只折入逐词行（words 非空且尚无翻译）；普通同时间戳多行（多语言重复
+   * 标签 LRC 依赖重复时间戳展开）保持原样，上游 foldAdjacentSquareBracket-
+   * Translations 同款条件。
+   */
+  private static foldSameTimestampTranslations(lines: LyricLine[]): void {
+    let i = 0;
+    while (i < lines.length) {
+      const entry = lines[i];
+      const follower = i + 1 < lines.length ? lines[i + 1] : null;
+      if (entry.words.length > 0 && entry.translated.length === 0 && follower !== null
+        && follower.words.length === 0 && follower.timeMs === entry.timeMs
+        && follower.text.trim().length > 0) {
+        entry.translated = follower.text;
+        lines.splice(i + 1, 1);
+      }
+      i++;
+    }
   }
 
   /**
