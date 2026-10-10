@@ -81,8 +81,8 @@ HLS checkpoint 恢复（上游 open PR #508 的 operationId 问题）已核查**
 
 | # | 上游来源 | 鸿蒙现状（2026-10-10 核查） | 行动 |
 | --- | --- | --- | --- |
-| P1-1 | #483 音译回退网易云 | 首选源缺音译无任何回退：LRCLIB 路径翻译恒空且无音译；AMLL 升级是整体替换，丢掉网易云已取到的翻译+音译；`matchedLyric` 分支终生无音译（`lyrics/LyricDispatcher.ets:27-66`） | 歌词域波次内做：AMLL 升级保留网易翻译/音译的合并、匹配详情带 roma、跨源补音译 |
-| P1-2 | #417 时长匹配守卫 | 网易/LRCLIB 主结果无任何时长校验（仅 YTM→AMLL 严格模式有） | 与 §4 歌词源偏好合并实现 |
+| P1-1 | #483 音译回退网易云 | 首选源缺音译无任何回退：LRCLIB 路径翻译恒空且无音译；AMLL 升级是整体替换，丢掉网易云已取到的翻译+音译；`matchedLyric` 分支终生无音译（`lyrics/LyricDispatcher.ets:27-66`） | **已完成（2026-10-10，commit 2ad4ec2）**：matchedLyric 分支持久化并合并音译（matchedPhoneticLyric）；LRCLIB 缺翻译/音译或空命中时回退网易补齐（会话缓存 50 条，失败静默）。注意核查基线中 AMLL 升级一项已随 AMLL/TTML 模块删除而不复存在 |
+| P1-2 | #417 时长匹配守卫 | 网易/LRCLIB 主结果无任何时长校验（仅 YTM→AMLL 严格模式有） | **已完成（2026-10-10，commit 2ad4ec2）**：跨源回退经 SongMatchScorer（±8s 容差+漂移拒绝+阈值 70）守卫；LRCLIB 响应 duration 偏差超 8s 丢弃 |
 | P1-3 | #499 `keep counting listened time after a mid-track interruption` + 29c8d86e 统计口径 reconcile | `playCount` 每次 flush +1（暂停/恢复同曲记 2 次）；`listenedMs` 崩溃丢失窗口；「全部」与各区间口径天然不一致（`data/PlaybackStatsRepository.ets:35-70`、`sync/PlaybackStatsMergePolicy.ets`） | 立项修 playCount 计次语义（按「一次连续播放会话」计）；口径问题先文档化为已知行为再评估 |
 | P1-4 | #499 `stop failure auto-advance at the consecutive limit` | PlaybackFailurePolicy 只有队列绕完一圈才停，连续多曲失败会逐曲跳完（`player/PlaybackFailurePolicy.ets`） | 补连续失败上限（建议对齐上游数值） |
 | P1-5 | #368 封面替换仅限非远端歌 | `customCoverUrl` 编辑/匹配写回对所有平台歌曲生效，无本地门禁（`view/pages/NowPlayingPage.ets:465-472`、`data/LocalPlaylistRepository.ets:505-536`） | 设计后加门禁：远端歌曲的 customCover 只应由匹配流程写，用户手填仅对本地歌生效（注意与自动匹配写封面的语义边界） |
