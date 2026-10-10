@@ -8,11 +8,15 @@ import { SongItem } from '../model/SongItem';
 import { stableKeyOf } from '../model/SongIdentity';
 import { SettingsRepository } from '../data/SettingsRepository';
 import { SchemaStore } from '../data/schema/SchemaStore';
-import { PlaybackCacheLedger } from './PlaybackCacheLedger';
+import {
+  PlaybackCacheLedger,
+  clampPlaybackCacheCapacity,
+  DEFAULT_PLAYBACK_CACHE_ENTRIES
+} from './PlaybackCacheLedger';
 
 const CACHE_CALL_TIMEOUT_MS = 8000;
 const LEDGER_KEY = 'playback_cache';
-const MAX_ENTRIES = 24;
+
 /** Purge a pending enqueue whose task never reported a terminal state. */
 const PENDING_GHOST_MS = 5 * 60 * 1000;
 
@@ -39,6 +43,50 @@ export class PlaybackCacheManager {
 
   static isEnabled(): boolean {
     return SettingsRepository.getBoolean(SettingsRepository.KEY_PLAYBACK_CACHE, false);
+  }
+
+  /**
+   * LRU capacity from settings (upstream #499 honor-the-cache-size-setting):
+   * 0 selects unlimited, otherwise the value clamps to 1..UNLIMITED.
+   */
+  static maxEntries(): number {
+    const raw = SettingsRepository.getNumber(SettingsRepository.KEY_PLAYBACK_CACHE_MAX_ENTRIES,
+      DEFAULT_PLAYBACK_CACHE_ENTRIES);
+    return clampPlaybackCacheCapacity(raw);
+  }
+
+  /**
+   * Applies a capacity change immediately: shrinks a loaded ledger with the
+   * same eviction path a completed cache uses, instead of waiting for the
+   * next cache completion to honor the new limit.
+   */
+  static applyCapacityNow(): void {
+    PlaybackCacheManager.ensureLedger().then(() => {
+      const ledger = PlaybackCacheManager.ledger;
+      if (ledger === null) {
+        return;
+      }
+      const capacity = PlaybackCacheManager.maxEntries();
+      while (ledger.size() > capacity) {
+        let oldest: string | null = null;
+        let oldestUse = Number.MAX_SAFE_INTEGER;
+        for (let i = 0; i < ledger.size(); i++) {
+          const probe = ledger.findAt(i);
+          const use = Math.max(probe.lastPlayedAt, probe.createdAt);
+          if (use < oldestUse) {
+            oldestUse = use;
+            oldest = probe.stableKey;
+          }
+        }
+        if (oldest === null) {
+          break;
+        }
+        PlaybackCacheManager.removeEvicted(ledger, oldest);
+      }
+      PlaybackCacheManager.persistLedger();
+    }).catch((_error: Error) => {
+      // Ledger not loadable: the next record() applies the new capacity anyway.
+    });
   }
 
   private static ensureLedger(): Promise<void> {
@@ -196,7 +244,7 @@ export class PlaybackCacheManager {
         Logger.warn(`PlaybackCacheManager getTaskCacheDirectory failed: ${e.message}`);
         return;
       }
-      const evicted = ledger.record(key, taskId, cacheDir, Date.now(), MAX_ENTRIES);
+      const evicted = ledger.record(key, taskId, cacheDir, Date.now(), PlaybackCacheManager.maxEntries());
       for (const evictedKey of evicted) {
         PlaybackCacheManager.removeEvicted(ledger, evictedKey);
       }
