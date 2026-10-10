@@ -496,7 +496,8 @@ export class LocalPlaylistRepository {
 
   /**
    * Applies user-edited metadata (customName/customArtist/customCoverUrl and
-   * the matched-lyric fields matchedSongId/matchedLyric/matchedTranslatedLyric)
+   * the matched-lyric fields matchedSongId/matchedLyric/matchedTranslatedLyric/
+   * matchedPhoneticLyric)
    * to every stored copy of the song, matched by stable key across all
    * playlists (favorites included). Membership bookkeeping (addedAt, causal
    * tokens) stays on the stored copy. Returns how many playlist entries were
@@ -517,13 +518,15 @@ export class LocalPlaylistRepository {
         if (stored.customName !== song.customName || stored.customArtist !== song.customArtist
           || stored.customCoverUrl !== song.customCoverUrl || stored.matchedSongId !== song.matchedSongId
           || stored.matchedLyric !== song.matchedLyric
-          || stored.matchedTranslatedLyric !== song.matchedTranslatedLyric) {
+          || stored.matchedTranslatedLyric !== song.matchedTranslatedLyric
+          || stored.matchedPhoneticLyric !== song.matchedPhoneticLyric) {
           stored.customName = song.customName;
           stored.customArtist = song.customArtist;
           stored.customCoverUrl = song.customCoverUrl;
           stored.matchedSongId = song.matchedSongId;
           stored.matchedLyric = song.matchedLyric;
           stored.matchedTranslatedLyric = song.matchedTranslatedLyric;
+          stored.matchedPhoneticLyric = song.matchedPhoneticLyric;
           changed = true;
         }
         replaced++;

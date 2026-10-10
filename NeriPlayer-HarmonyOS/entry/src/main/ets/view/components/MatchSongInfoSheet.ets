@@ -135,6 +135,7 @@ export struct MatchSongInfoSheet {
     updated.matchedSongId = `${matchSourceTag(detail.source)}:${detail.id}`;
     updated.matchedLyric = detail.lyric;
     updated.matchedTranslatedLyric = detail.translatedLyric;
+    updated.matchedPhoneticLyric = detail.phoneticLyric;
     const replaced = await LocalPlaylistRepository.updateSongMetadata(updated);
     PlayerManager.applySongMetadataUpdate(updated);
     this.getUIContext().getPromptAction().showToast({
