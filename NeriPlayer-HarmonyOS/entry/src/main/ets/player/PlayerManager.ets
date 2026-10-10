@@ -796,6 +796,145 @@ export class PlayerManager {
     PlayerManager.persistNow();
   }
 
+  // --------------------------------------------------------------------------
+  // Queue edits（UPSTREAM_SYNC_PLAN F-1：下一首播放 / 加入队列 / 拖拽排序 / 移除，
+  // 语义镜像上游 addToQueueNextImpl/addToQueueEndImpl 与 PlayerQueueEditOwner）
+  // --------------------------------------------------------------------------
+
+  /**
+   * 「下一首播放」：插入到当前曲目之后（已在队列中的同身份曲目先移除再
+   * 前移，去重语义），并把新位置压入 shuffle future 栈顶——随机模式下也
+   * 严格作为下一首播出。空队列回退为直接播放（上游 addToQueueNextImpl
+   * 同款行为）。
+   */
+  static async insertNext(song: SongItem): Promise<boolean> {
+    if (PlayerManager.queue.length === 0) {
+      await PlayerManager.playPlaylist([song], 0);
+      return true;
+    }
+    const currentSong = PlayerManager.getCurrentSong();
+    const existingIndex = PlayerManager.indexOfQueueSong(song);
+    let insertIndex = Math.min(Math.max(PlayerManager.engine.getCurrentQueueIndex() + 1, 0), PlayerManager.queue.length);
+    if (existingIndex >= 0) {
+      if (existingIndex < insertIndex) {
+        insertIndex -= 1;
+      }
+      PlayerManager.queue.splice(existingIndex, 1);
+    }
+    insertIndex = Math.min(Math.max(insertIndex, 0), PlayerManager.queue.length);
+    PlayerManager.queue.splice(insertIndex, 0, song);
+    PlayerManager.engine.applyQueueEdit(
+      existingIndex, insertIndex, insertIndex,
+      PlayerManager.queue.length,
+      PlayerManager.resolveCurrentIndexAfterEdit(currentSong),
+      false
+    );
+    PlayerManager.publishQueue();
+    return true;
+  }
+
+  /**
+   * 「加入队列末尾」：去重后追加到队尾；随机模式下重建 shuffle 袋（上游
+   * addToQueueEndImpl 行为）。空队列回退为直接播放。
+   */
+  static async addToQueueEnd(song: SongItem): Promise<boolean> {
+    if (PlayerManager.queue.length === 0) {
+      await PlayerManager.playPlaylist([song], 0);
+      return true;
+    }
+    const currentSong = PlayerManager.getCurrentSong();
+    const existingIndex = PlayerManager.indexOfQueueSong(song);
+    if (existingIndex >= 0) {
+      PlayerManager.queue.splice(existingIndex, 1);
+    }
+    PlayerManager.queue.push(song);
+    PlayerManager.engine.applyQueueEdit(
+      existingIndex, -1, -1,
+      PlayerManager.queue.length,
+      PlayerManager.resolveCurrentIndexAfterEdit(currentSong),
+      true
+    );
+    PlayerManager.publishQueue();
+    return true;
+  }
+
+  /**
+   * 队列面板拖拽排序：把 fromIndex 项移动到 toIndex，引擎当前下标经
+   * currentIndexAfterMove 重解析后仍指向同一首歌。
+   */
+  static moveQueueItem(fromIndex: number, toIndex: number): void {
+    const size = PlayerManager.queue.length;
+    if (size < 2 || fromIndex < 0 || fromIndex >= size || toIndex < 0 || toIndex >= size || fromIndex === toIndex) {
+      return;
+    }
+    const moved = PlayerManager.queue.splice(fromIndex, 1)[0];
+    PlayerManager.queue.splice(toIndex, 0, moved);
+    PlayerManager.engine.applyQueueEdit(
+      fromIndex, toIndex, -1, size,
+      QueueEngine.currentIndexAfterMove(size, PlayerManager.engine.getCurrentQueueIndex(), fromIndex, toIndex),
+      false
+    );
+    PlayerManager.publishQueue();
+  }
+
+  /**
+   * 队列面板移除单项。移除非当前曲不影响播放；移除当前曲则把播放推进到
+   * 补位歌曲（上游 RemovedQueuePlaybackAction：队列清空时 STOP，否则
+   * PLAY_NEXT；暂停态移除当前曲同样装载补位曲以保持引擎与播放器一致）。
+   */
+  static async removeQueueItem(index: number): Promise<void> {
+    const size = PlayerManager.queue.length;
+    if (index < 0 || index >= size) {
+      return;
+    }
+    const wasCurrent = index === PlayerManager.engine.getCurrentQueueIndex();
+    PlayerManager.queue.splice(index, 1);
+    if (PlayerManager.queue.length === 0) {
+      await PlayerManager.clearQueue();
+      return;
+    }
+    PlayerManager.engine.applyQueueEdit(
+      index, -1, -1, size,
+      QueueEngine.currentIndexAfterRemoval(size, PlayerManager.engine.getCurrentQueueIndex(), index),
+      false
+    );
+    PlayerManager.publishQueue();
+    if (wasCurrent) {
+      // 补位曲成为新的当前曲：走一次正常装载（保持 playWhenReady，暂停态
+      // 移除则装载后停在暂停）。
+      await PlayerManager.loadSong();
+    }
+  }
+
+  /** 队列内同身份曲目下标（stableKeyOf），无则 -1。 */
+  private static indexOfQueueSong(song: SongItem): number {
+    const key = stableKeyOf(song);
+    for (let i = 0; i < PlayerManager.queue.length; i++) {
+      if (stableKeyOf(PlayerManager.queue[i]) === key) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  /**
+   * 队列结构编辑后按身份重解析当前下标（上游 queueIndexOf(currentSong)
+   * 回退 coerceIn 的同款逻辑）：当前曲还在队列中就指回它，否则夹取到
+   * 合法区间。
+   */
+  private static resolveCurrentIndexAfterEdit(currentSong: SongItem | null): number {
+    if (currentSong !== null) {
+      const key = stableKeyOf(currentSong);
+      for (let i = 0; i < PlayerManager.queue.length; i++) {
+        if (stableKeyOf(PlayerManager.queue[i]) === key) {
+          return i;
+        }
+      }
+    }
+    const previous = PlayerManager.engine.getCurrentQueueIndex();
+    return Math.min(Math.max(previous, 0), Math.max(PlayerManager.queue.length - 1, 0));
+  }
+
   static async seekTo(
     timeMs: number,
     source: ListenTogetherPlaybackCommandSource = ListenTogetherPlaybackCommandSource.LOCAL

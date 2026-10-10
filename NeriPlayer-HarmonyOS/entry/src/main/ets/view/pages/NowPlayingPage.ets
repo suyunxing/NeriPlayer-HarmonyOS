@@ -1311,12 +1311,48 @@ struct QueueSheetContent {
               Text(formatDuration(song.durationMs))
                 .fontSize(11)
                 .fontColor(Theme.textDisabled(Theme.isDark()))
+              // F-1：行尾 ⋮ 拉起单曲操作（下一首播放/加入队列末尾/移除），
+              // 数组式 bindMenu 逐行捕获 song/index，无需子组件转参。
+              Image($r('app.media.ic_more_horiz_24'))
+                .width(36)
+                .height(36)
+                .fillColor(Theme.textSecondary(Theme.isDark()))
+                .padding(9)
+                .accessibilityText(`更多操作：${song.displayName}`)
+                .bindMenu([
+                  {
+                    value: '下一首播放',
+                    symbolIcon: new SymbolGlyphModifier($r('sys.symbol.play_fill')).fontSize(22),
+                    action: () => {
+                      void PlayerManager.insertNext(song);
+                    }
+                  },
+                  {
+                    value: '加入队列末尾',
+                    symbolIcon: new SymbolGlyphModifier($r('sys.symbol.music_note_list')).fontSize(22),
+                    action: () => {
+                      void PlayerManager.addToQueueEnd(song);
+                    }
+                  },
+                  {
+                    value: '移除',
+                    symbolIcon: new SymbolGlyphModifier($r('sys.symbol.trash')).fontSize(22),
+                    action: () => {
+                      void PlayerManager.removeQueueItem(index);
+                    }
+                  }
+                ])
             }
             .width('100%')
             .padding(8)
             .onClick(() => this.onPlay(index))
           }
-        }, (song: SongItem) => `${song.platform}_${song.audioId}_${song.id}`)
+        }, (song: SongItem, index: number) => `${song.platform}_${song.audioId}_${song.id}_${index}`)
+          // F-1：原生长按拖拽排序（List 内 ForEach 使能 onMove，框架负责长按、
+          // 让位与边缘自动滚动）；key 带序号，移动后强制行重建对齐新位置。
+          .onMove((from: number, to: number) => {
+            PlayerManager.moveQueueItem(from, to);
+          })
       }
       .layoutWeight(1)
       .scrollBar(BarState.Off)

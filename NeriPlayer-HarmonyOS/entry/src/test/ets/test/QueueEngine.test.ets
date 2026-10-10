@@ -283,6 +283,105 @@ export default function queueEngineTest(): void {
     });
   });
 
+  describe('QueueEngineEdits', () => {
+    it('applyInsertNextParksNewSongAtopFutureAndShiftsBag', 0, () => {
+      // [A,B,C,D] 播 B(1)，随机袋含其余三首；新曲 E 插到 2（下一首播放）。
+      const engine = engineWith(4, 11);
+      engine.start(1, true, RepeatMode.ALL);
+      const shifted = engine.getBag().map((v: number): number => v >= 2 ? v + 1 : v);
+      engine.applyQueueEdit(-1, 2, 2, 5, 1, false);
+      expectList(engine.getBag(), shifted, 'bag');
+      expectList(engine.getFuture(), [2], 'future');
+      expect(engine.getCurrentQueueIndex()).assertEqual(1);
+      expect(engine.getQueueSize()).assertEqual(5);
+      // future 栈顶就是 E：下一首严格播它。
+      expect(engine.next(false)).assertEqual(2);
+    });
+
+    it('applyInsertNextForExistingBagSongDrainsItIntoFuture', 0, () => {
+      // [A,B,C] 播 A(0)；把 bag 里任一首「下一首播放」（existing>current，
+      // insertIndex=1）：它必须离开 bag、压入 future 栈顶。
+      const engine = engineWith(3, 42);
+      engine.start(0, true, RepeatMode.ALL);
+      const target = engine.getBag()[0];
+      engine.applyQueueEdit(target, 1, 1, 3, 0, false);
+      expect(engine.getBag().indexOf(1)).assertEqual(-1);
+      expectList(engine.getFuture(), [1], 'future');
+      expect(engine.next(false)).assertEqual(1);
+    });
+
+    it('applyMoveKeepsSequentialCurrentOnSameSong', 0, () => {
+      // 顺序模式拖拽 B(1)->3：C 从 2 移到 1，next 继续播 D。
+      const engine = engineWith(4, 5);
+      engine.start(2, false, RepeatMode.ALL);
+      engine.applyQueueEdit(1, 3, -1, 4, QueueEngine.currentIndexAfterMove(4, 2, 1, 3), false);
+      expect(engine.getCurrentQueueIndex()).assertEqual(1);
+      expect(engine.getQueueSize()).assertEqual(4);
+      expect(engine.next(false)).assertEqual(2);
+    });
+
+    it('applyMoveUnderShuffleShiftsBagByRemovalThenInsertion', 0, () => {
+      const engine = engineWith(5, 9);
+      engine.start(0, true, RepeatMode.ALL);
+      const expected = engine.getBag()
+        .filter((v: number): boolean => v !== 4)
+        .map((v: number): number => v + 1);
+      engine.applyQueueEdit(4, 1, -1, 5, QueueEngine.currentIndexAfterMove(5, 0, 4, 1), false);
+      expectList(engine.getBag(), expected, 'bag');
+      expect(engine.getCurrentQueueIndex()).assertEqual(0);
+    });
+
+    it('applyRemovalUnderShuffleDropsAndShiftsBag', 0, () => {
+      const engine = engineWith(4, 21);
+      engine.start(0, true, RepeatMode.ALL);
+      engine.next(false);
+      const victim = engine.getBag()[0];
+      const newCurrent = QueueEngine.currentIndexAfterRemoval(4, engine.getCurrentQueueIndex(), victim);
+      const bagAfter = engine.getBag()
+        .filter((v: number): boolean => v !== victim)
+        .map((v: number): number => v > victim ? v - 1 : v);
+      engine.applyQueueEdit(victim, -1, -1, 3, newCurrent, false);
+      expectList(engine.getBag(), bagAfter, 'bag');
+      expect(engine.getCurrentQueueIndex()).assertEqual(newCurrent);
+      expect(engine.getQueueSize()).assertEqual(3);
+    });
+
+    it('applyEndAddRebuildsBagExcludingCurrentAndClearsStacks', 0, () => {
+      // 加入队列末尾（上游 addToQueueEndImpl：随机模式整袋重建）。
+      const engine = engineWith(3, 17);
+      engine.start(0, true, RepeatMode.ALL);
+      engine.next(false);
+      const current = engine.getCurrentQueueIndex();
+      engine.applyQueueEdit(-1, -1, -1, 4, current, true);
+      expect(engine.getQueueSize()).assertEqual(4);
+      expect(engine.getCurrentQueueIndex()).assertEqual(current);
+      expectList(engine.getHistory(), [], 'history');
+      expectList(engine.getFuture(), [], 'future');
+      const bag = engine.getBag();
+      expect(bag.length).assertEqual(3);
+      expect(bag.indexOf(current)).assertEqual(-1);
+      expect(bag.indexOf(3) >= 0).assertTrue();
+    });
+
+    it('applyEditWithoutShuffleOnlyResizesAndRepoints', 0, () => {
+      const engine = engineWith(4, 3);
+      engine.start(2, false, RepeatMode.ALL);
+      engine.applyQueueEdit(1, 3, -1, 4, QueueEngine.currentIndexAfterMove(4, 2, 1, 3), false);
+      expect(engine.getCurrentQueueIndex()).assertEqual(1);
+      expectList(engine.getBag(), [], 'bag');
+    });
+
+    it('currentIndexAfterRemovalCoversUpstreamCases', 0, () => {
+      expect(QueueEngine.currentIndexAfterRemoval(4, 2, 2)).assertEqual(2);
+      expect(QueueEngine.currentIndexAfterRemoval(4, 3, 3)).assertEqual(2);
+      expect(QueueEngine.currentIndexAfterRemoval(4, 2, 0)).assertEqual(1);
+      expect(QueueEngine.currentIndexAfterRemoval(4, 0, 2)).assertEqual(0);
+      expect(QueueEngine.currentIndexAfterRemoval(1, 0, 0)).assertEqual(-1);
+      expect(QueueEngine.currentIndexAfterRemoval(4, 2, 9)).assertEqual(2);
+      expect(QueueEngine.currentIndexAfterRemoval(4, -1, 1)).assertEqual(-1);
+    });
+  });
+
   describe('PlaylistStartIndex', () => {
     it('emptyPlaylistResolvesToMinusOne', 0, () => {
       expect(resolvePlaylistPlaybackStartIndex(0, false, 0)).assertEqual(-1);
