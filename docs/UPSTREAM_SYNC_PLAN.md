@@ -64,7 +64,7 @@ NeriPlayer 有个备份同步功能：把你的歌单、播放历史打包存到
 
 ### 2.3 下载目录切换与恢复缺口（上游 #473/#484/#499 同域）
 
-已核查发现 4+2 个缺口（上游修的是同类问题，鸿蒙实现不同但同样中招）：
+**状态：已完成（2026-10-10，commit 2a072b0，分支 fix/upstream-sync-p0-p1）**。已核查的 6 个缺口全部修复：切换目录前写探针校验（不可写当场拒绝、保留原目录）；commit 失败经 failTask 带 reason+日志并在下载页显示中文原因；新增 `np.download_directory_history`（去重、上限 8 条）冷启动对当前+历史目录逐个 activatePermission；`fileSize`/`hasPlausibleAudioHeader`/`hasExcessiveFillerRuns` 入口统一 `resolveFilePath`（file:// 编目不再被 stat 成 0，同时修复设置页/DebugPage 存储统计）；离线冷启动与 URL 解析失败保持/转入 WAITING_NETWORK 而非 FAILED；netUnavailable 置等待后 hasNetwork 复核防事件乱序卡死。**真机行为（picker 探针、历史授权激活、离线恢复）未验证**，需 Windows 工作站 + 设备跑 ohosTest 与手工 smoke。原核查记录：
 
 1. **新目录零校验**：切换下载目录只持久化授权+写设置，无写入探针，失败推迟到 commit 才暴露（`download/DownloadDirectoryManager.ets:52-90`）。
 2. **commit 失败静默**：`finalPath` 为空直接置 FAILED，无 reason、无日志、无 toast（`download/DownloadEngine.ets:546-551`）。
