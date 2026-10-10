@@ -138,6 +138,9 @@ export struct SettingsDetailPage {
   @StorageProp('np.dynamic_color') dynamicColor: boolean = true;
   @StorageProp('np.circular_cover') circularCover: boolean = false;
   @StorageProp('np.lyric_page_controls') lyricPageControls: boolean = true;
+  // 播放页/歌词页控件大小档位（PlaybackControlSize 序数，上游 2644267f）。
+  @StorageProp('np.nowplaying_control_size') nowPlayingControlSize: number = 1;
+  @StorageProp('np.lyric_control_size') lyricControlSize: number = 1;
   @StorageProp('np.mini_next_button') miniNextButton: boolean = true;
   @StorageProp('np.mini_show_lyric') miniShowLyric: boolean = true;
   @StorageProp('np.mini_expand_autoplay') miniExpandAutoplay: boolean = false;
@@ -1178,6 +1181,15 @@ export struct SettingsDetailPage {
     return options;
   }
 
+  // 播放控件大小档位（小 0.9 / 中 1.0 / 大 1.2，触控热区下限 40vp）。
+  private controlSizeOptions(): OptionEntry[] {
+    return [
+      { value: '0', label: '小' },
+      { value: '1', label: '中' },
+      { value: '2', label: '大' }
+    ];
+  }
+
   private playbackCacheCapacityOptions(): OptionEntry[] {
     const options: OptionEntry[] = [
       { value: '0', label: '无上限' },
@@ -1545,6 +1557,28 @@ export struct SettingsDetailPage {
               options: this.speedOptions(),
               current: `${this.speed}`,
               onPick: (value: string) => this.setSpeed(Number(value))
+            })
+
+            OptionRow({
+              title: '播放页控件大小',
+              subtitle: '调整播放页顶栏、传输行与底部工具行的控件大小',
+              icon: '🎚',
+              options: this.controlSizeOptions(),
+              current: `${this.nowPlayingControlSize}`,
+              onPick: (value: string) =>
+                SettingsRepository.setNumber(SettingsRepository.KEY_NOW_PLAYING_CONTROL_SIZE,
+                  Number(value))
+            })
+
+            OptionRow({
+              title: '歌词页控件大小',
+              subtitle: '调整歌词页底部控制胶囊的控件大小',
+              icon: '🎚',
+              options: this.controlSizeOptions(),
+              current: `${this.lyricControlSize}`,
+              onPick: (value: string) =>
+                SettingsRepository.setNumber(SettingsRepository.KEY_LYRIC_CONTROL_SIZE,
+                  Number(value))
             })
 
             OptionRow({

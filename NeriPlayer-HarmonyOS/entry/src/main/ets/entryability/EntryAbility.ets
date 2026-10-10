@@ -43,6 +43,9 @@ export default class EntryAbility extends UIAbility {
     // so the wrong value survived the whole session.
     AppStorage.setOrCreate('systemDark',
       this.context.config.colorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK);
+    // 系统字体缩放（MiniPlayer 字号封顶用，上游 #357）：onCreate 播种一次，
+    // 后续变更走 onConfigurationUpdate。默认值 1 兜底旧配置缺字段。
+    AppStorage.setOrCreate('systemFontScale', this.context.config.fontSizeScale ?? 1);
     // 冷启动即把已保存的深色模式选择交给系统，让首帧、系统弹窗与 sys.color.*
     // 资源都落在同一档配色上（'auto' 对应 COLOR_MODE_NOT_SET，即交还系统）。
     AppColorMode.apply(this.context,
@@ -120,6 +123,7 @@ export default class EntryAbility extends UIAbility {
   onConfigurationUpdate(newConfig: Configuration): void {
     const dark = newConfig.colorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK;
     AppStorage.setOrCreate('systemDark', dark);
+    AppStorage.setOrCreate('systemFontScale', newConfig.fontSizeScale ?? 1);
     SystemBars.apply(this.context, dark);
   }
 
