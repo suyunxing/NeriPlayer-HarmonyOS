@@ -10,12 +10,26 @@ import { stableKeyOf } from '../model/SongIdentity';
 import { Logger } from '../app/Logger';
 import { NeteaseApi } from '../network/NeteaseApi';
 import { SongMatchScorer } from '../util/SongMatchScorer';
+import { SettingsRepository } from '../data/SettingsRepository';
+import { SchemaStore } from '../data/schema/SchemaStore';
+import { LyricCacheStore, LyricSourceTag, DEFAULT_LYRIC_CACHE_ENTRIES } from './LyricCacheStore';
 
 /** Session-level supplement cache entry: one netease lyric payload per song key. */
 class NeteaseSupplementEntry {
   payloadLyric: string = '';
   payloadTranslated: string = '';
   payloadPhonetic: string = '';
+}
+
+/** Resolved lyric payload plus the source it came from (offsets + cache). */
+export class LyricLoadResult {
+  lines: LyricLine[] = [];
+  source: LyricSourceTag = LyricSourceTag.LRCLIB;
+
+  constructor(lines: LyricLine[], source: LyricSourceTag) {
+    this.lines = lines;
+    this.source = source;
+  }
 }
 
 /**
@@ -66,33 +80,88 @@ export function pickBestNeteaseCandidate(expected: SongItem,
  * PlayerLyricsProvider.getLyrics minus the AMLL word-timed TTML upgrade
  * source (removed together with the word-karaoke renderer; lyrics render
  * with the plain line highlight):
+ *  - matched: user-chosen「匹配歌曲信息」lyrics win over every source.
  *  - netease: platform lyrics (+translation/romalrc).
- *  - YouTube Music and everything else: LRCLIB, supplemented by a
- *    duration-guarded netease lookup for translation/romaji (#483).
+ *  - YouTube Music/local and everything else: LRCLIB, supplemented by a
+ *    duration-guarded netease lookup for translation/romaji (#483); the
+ *    np.lyric_source_preference setting can promote that guarded netease
+ *    hit to the primary lyric (#417).
+ *
+ * Resolved network results are persisted into an LRU cache table (#349) so
+ * replays and offline sessions show lyrics without re-fetching.
  */
 export class LyricDispatcher {
   private static supplementCache: Map<string, NeteaseSupplementEntry> = new Map<string, NeteaseSupplementEntry>();
   private static readonly SUPPLEMENT_CACHE_CAP: number = 50;
 
+  private static cache: LyricCacheStore | null = null;
+  private static cacheReady: Promise<void> | null = null;
+  private static readonly CACHE_SCHEMA_KEY: string = 'lyric_cache';
+
+  /** Compatibility wrapper (download sidecar etc.): lines only. */
   static async loadLyrics(song: SongItem): Promise<LyricLine[]> {
+    const result = await LyricDispatcher.loadLyricsResolved(song);
+    return result.lines;
+  }
+
+  static async loadLyricsResolved(song: SongItem): Promise<LyricLoadResult> {
     // An explicit「匹配歌曲信息」result wins over every automatic source:
     // it is the user's chosen lyric (and possibly translation) for this song.
     if (song.matchedLyric.trim().length > 0) {
       let parsed = LrcParser.parse(song.matchedLyric);
       parsed = LrcParser.mergeTranslation(parsed, song.matchedTranslatedLyric);
       parsed = LrcParser.mergePhonetic(parsed, song.matchedPhoneticLyric);
-      return parsed;
+      return new LyricLoadResult(parsed, LyricSourceTag.MATCHED);
     }
-    const name = song.displayName;
-    const artist = song.displayArtist;
+    const cacheEnabled = SettingsRepository.getBoolean(SettingsRepository.KEY_LYRIC_CACHE_ENABLED, true);
+    const key = stableKeyOf(song);
+    if (cacheEnabled) {
+      await LyricDispatcher.ensureCache();
+      const cache = LyricDispatcher.cache;
+      if (cache !== null) {
+        const hit = cache.lookup(key, Date.now());
+        if (hit !== null) {
+          LyricDispatcher.persistCache();
+          return new LyricLoadResult(hit.lines, hit.source);
+        }
+      }
+    }
+    const result = await LyricDispatcher.fetchLyrics(song);
+    if (cacheEnabled && result.lines.length > 0) {
+      await LyricDispatcher.ensureCache();
+      const cache = LyricDispatcher.cache;
+      if (cache !== null && cache.record(key, result.source, result.lines, Date.now(), DEFAULT_LYRIC_CACHE_ENTRIES)) {
+        LyricDispatcher.persistCache();
+      }
+    }
+    return result;
+  }
+
+  private static async fetchLyrics(song: SongItem): Promise<LyricLoadResult> {
     if (song.platform === MusicPlatform.NETEASE && song.audioId.length > 0) {
       const payload = await LyricApi.fetchFromNetease(Number(song.audioId));
       let parsed = LrcParser.parse(payload.lyric);
       parsed = LrcParser.mergeTranslation(parsed, payload.translated);
       parsed = LrcParser.mergePhonetic(parsed, payload.phonetic);
-      return parsed;
+      return new LyricLoadResult(parsed, LyricSourceTag.NETEASE);
     }
-    const payload = await LyricApi.fetchFromLrcLib(name, artist, song.durationMs);
+    // np.lyric_source_preference (#417): 'netease_first' promotes a
+    // duration-guarded netease hit to the primary lyric — users who care
+    // about built-in translations get them on the first try.
+    const preference = SettingsRepository.getString(
+      SettingsRepository.KEY_LYRIC_SOURCE_PREFERENCE, 'lrclib_first');
+    if (preference === 'netease_first') {
+      const supplement = await LyricDispatcher.neteaseSupplement(song);
+      if (supplement.payloadLyric.length > 0) {
+        let parsed = LrcParser.parse(supplement.payloadLyric);
+        parsed = LrcParser.mergeTranslation(parsed, supplement.payloadTranslated);
+        parsed = LrcParser.mergePhonetic(parsed, supplement.payloadPhonetic);
+        if (parsed.length > 0) {
+          return new LyricLoadResult(parsed, LyricSourceTag.NETEASE);
+        }
+      }
+    }
+    const payload = await LyricApi.fetchFromLrcLib(song.displayName, song.displayArtist, song.durationMs);
     let parsed = LrcParser.parse(payload.lyric);
     parsed = LrcParser.mergeTranslation(parsed, payload.translated);
     parsed = LrcParser.mergePhonetic(parsed, payload.phonetic);
@@ -104,7 +173,7 @@ export class LyricDispatcher {
       parsed = LrcParser.mergeTranslation(parsed, supplement.payloadTranslated);
       parsed = LrcParser.mergePhonetic(parsed, supplement.payloadPhonetic);
     }
-    return parsed;
+    return new LyricLoadResult(parsed, LyricSourceTag.LRCLIB);
   }
 
   /**
@@ -153,5 +222,42 @@ export class LyricDispatcher {
       }
     }
     LyricDispatcher.supplementCache.set(key, entry);
+  }
+
+  private static ensureCache(): Promise<void> {
+    if (LyricDispatcher.cacheReady === null) {
+      LyricDispatcher.cacheReady = SchemaStore.load(
+        LyricDispatcher.CACHE_SCHEMA_KEY,
+        new LyricCacheStore(),
+        (json: string): LyricCacheStore | null => LyricCacheStore.fromJson(json)
+      ).then((loaded: LyricCacheStore) => {
+        LyricDispatcher.cache = loaded;
+      }).catch((error: Error) => {
+        Logger.warn(`LyricDispatcher cache load failed: ${error.message}`);
+        LyricDispatcher.cache = new LyricCacheStore();
+      });
+    }
+    return LyricDispatcher.cacheReady;
+  }
+
+  private static persistCache(): void {
+    const cache = LyricDispatcher.cache;
+    if (cache === null) {
+      return;
+    }
+    SchemaStore.save(LyricDispatcher.CACHE_SCHEMA_KEY, cache, (value: LyricCacheStore): string => value.toJson())
+      .catch((error: Error) => {
+        Logger.warn(`LyricDispatcher cache persist failed: ${error.message}`);
+      });
+  }
+
+  /** Settings「清除歌词缓存」入口（F-8 存储分区接线）。 */
+  static async clearPersistentCache(): Promise<void> {
+    await LyricDispatcher.ensureCache();
+    const cache = LyricDispatcher.cache;
+    if (cache !== null) {
+      cache.clear();
+      LyricDispatcher.persistCache();
+    }
   }
 }

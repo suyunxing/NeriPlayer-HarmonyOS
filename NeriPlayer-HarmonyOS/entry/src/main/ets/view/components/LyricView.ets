@@ -12,6 +12,10 @@ const LYRIC_OFFSET_STORAGE_KEY = 'np.lyric_offset_ms';
 const LYRIC_NETEASE_OFFSET_STORAGE_KEY = 'np.netease_lyric_offset_ms';
 const LYRIC_BILI_OFFSET_STORAGE_KEY = 'np.bili_lyric_offset_ms';
 const LYRIC_YOUTUBE_OFFSET_STORAGE_KEY = 'np.youtube_lyric_offset_ms';
+// F-2（上游 #417 lrclib_lyric_default_offset_ms）：按「歌词来源」叠加的
+// LRCLIB 基准偏移——LRCLIB 库的计时偏差与歌曲平台无关，与平台基线正交，
+// 仅当歌词确实来自 LRCLIB 时叠加。
+const LYRIC_LRCLIB_OFFSET_STORAGE_KEY = 'np.lrclib_lyric_offset_ms';
 const LYRIC_TRANSLATION_STORAGE_KEY = 'np.lyric_translation';
 const LYRIC_PHONETIC_STORAGE_KEY = 'np.lyric_phonetic';
 const LYRIC_FONT_SIZE_STORAGE_KEY = 'np.lyric_font_size';
@@ -57,21 +61,27 @@ export struct LyricView {
   @StorageProp(LYRIC_NETEASE_OFFSET_STORAGE_KEY) neteaseOffsetMs: number = 0;
   @StorageProp(LYRIC_BILI_OFFSET_STORAGE_KEY) biliOffsetMs: number = 0;
   @StorageProp(LYRIC_YOUTUBE_OFFSET_STORAGE_KEY) youtubeOffsetMs: number = 0;
+  @StorageProp(LYRIC_LRCLIB_OFFSET_STORAGE_KEY) lrclibOffsetMs: number = 0;
   /** Platform of the song whose lyrics are shown; 0 (=LOCAL) adds nothing. */
   @Prop lyricPlatform: number = 0;
+  /** Lyric source tag (LyricSourceTag value) of the shown lines; 'lrclib'
+   * additionally stacks the LRCLIB source baseline (F-2, upstream #417). */
+  @Prop lyricSource: string = '';
 
-  /** Global + platform-baseline offset for the current song (backlog §6.2). */
+  /** Global + platform-baseline (+ LRCLIB source) offset for the current song. */
   private effectiveOffsetMs(): number {
+    let offset = this.lyricOffsetMs;
     if (this.lyricPlatform === MusicPlatform.NETEASE) {
-      return this.lyricOffsetMs + this.neteaseOffsetMs;
+      offset += this.neteaseOffsetMs;
+    } else if (this.lyricPlatform === MusicPlatform.BILIBILI) {
+      offset += this.biliOffsetMs;
+    } else if (this.lyricPlatform === MusicPlatform.YOUTUBE_MUSIC) {
+      offset += this.youtubeOffsetMs;
     }
-    if (this.lyricPlatform === MusicPlatform.BILIBILI) {
-      return this.lyricOffsetMs + this.biliOffsetMs;
+    if (this.lyricSource === 'lrclib') {
+      offset += this.lrclibOffsetMs;
     }
-    if (this.lyricPlatform === MusicPlatform.YOUTUBE_MUSIC) {
-      return this.lyricOffsetMs + this.youtubeOffsetMs;
-    }
-    return this.lyricOffsetMs;
+    return offset;
   }
   @StorageProp(LYRIC_TRANSLATION_STORAGE_KEY) lyricTranslation: boolean = true;
   @StorageProp(LYRIC_PHONETIC_STORAGE_KEY) lyricPhonetic: boolean = false;

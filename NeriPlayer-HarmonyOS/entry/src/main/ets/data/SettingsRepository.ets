@@ -131,6 +131,13 @@ export class SettingsRepository {
   static readonly KEY_LYRIC_PHONETIC: string = 'np.lyric_phonetic';
   static readonly KEY_LYRIC_BLUR: string = 'np.lyric_blur';
   static readonly KEY_LYRIC_OFFSET_MS: string = 'np.lyric_offset_ms';
+  // F-2（上游 #417/#349）：非网易云歌曲在线取词的优先源
+  // （'lrclib_first' 默认 = 现行阶梯；'netease_first' = 有守卫命中时网易
+  // 歌词作主源）；LRCLIB 源基准偏移（按歌词来源叠加，独立于歌曲平台）；
+  // 歌词持久缓存开关（命中后离线可看， replays 不再重复请求）。
+  static readonly KEY_LYRIC_SOURCE_PREFERENCE: string = 'np.lyric_source_preference';
+  static readonly KEY_LRCLIB_LYRIC_OFFSET_MS: string = 'np.lrclib_lyric_offset_ms';
+  static readonly KEY_LYRIC_CACHE_ENABLED: string = 'np.lyric_cache_enabled';
   // In-app floating lyric bar (D4 fallback for the Android system overlay).
   static readonly KEY_FLOATING_LYRIC: string = 'np.floating_lyric';
   // Lyric line in the AVSession title slot (notification / AVRCP lyric line).
@@ -234,6 +241,9 @@ export class SettingsRepository {
     [SettingsRepository.KEY_LYRIC_PHONETIC, false],
     [SettingsRepository.KEY_LYRIC_BLUR, true],
     [SettingsRepository.KEY_LYRIC_OFFSET_MS, 0],
+    [SettingsRepository.KEY_LYRIC_SOURCE_PREFERENCE, 'lrclib_first'],
+    [SettingsRepository.KEY_LRCLIB_LYRIC_OFFSET_MS, 0],
+    [SettingsRepository.KEY_LYRIC_CACHE_ENABLED, true],
     [SettingsRepository.KEY_FLOATING_LYRIC, false],
     [SettingsRepository.KEY_BT_LYRIC, false],
     [SettingsRepository.KEY_NOWPLAYING_BLUR_STRENGTH, 300],
