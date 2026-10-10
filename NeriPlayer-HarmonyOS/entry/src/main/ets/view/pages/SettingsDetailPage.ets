@@ -76,7 +76,7 @@ import {
   WebDavTransport
 } from '../../sync/webdav/WebDavTransport';
 import { OhosWebDavExecutor } from '../../sync/webdav/OhosWebDavExecutor';
-import { WebDavError, WebDavErrorKind } from '../../sync/webdav/WebDavErrors';
+import { WebDavError, WebDavErrorKind, describeWebDavErrorForUser } from '../../sync/webdav/WebDavErrors';
 import { SyncService } from '../../sync/SyncService';
 import { SyncReport } from '../../sync/SyncReport';
 import { ListenTogetherApi } from '../../listentogether/network/ListenTogetherApi';
@@ -995,23 +995,7 @@ export struct SettingsDetailPage {
   }
 
   private webdavErrorText(error: Error): string {
-    const apiError = error as WebDavError;
-    if (apiError instanceof WebDavError) {
-      if (apiError.kind === WebDavErrorKind.AUTH) {
-        return 'WebDAV 用户名或密码错误';
-      }
-      if (apiError.kind === WebDavErrorKind.FILE_NOT_FOUND) {
-        return '远端暂无备份文件（首次同步时将创建）';
-      }
-      if (apiError.kind === WebDavErrorKind.CONTENT_CONFLICT) {
-        return '远端文件已被其他设备修改，请重新拉取后同步';
-      }
-      if (apiError.kind === WebDavErrorKind.NETWORK) {
-        return `网络错误：${apiError.message}`;
-      }
-      return apiError.message;
-    }
-    return error.message;
+    return describeWebDavErrorForUser(error);
   }
 
   private async beginWebDavAction(): Promise<WebDavActionContext | null> {
@@ -1053,6 +1037,9 @@ export struct SettingsDetailPage {
       return;
     }
     try {
+      // Probe the collection first: a wrong directory must surface as a
+      // configuration error, not as "no backup file yet".
+      await context.transport.validateConnection(context.serverUrl, context.basePath);
       const snapshot = await new WebDavSyncClient(context.transport)
         .fetchRemoteSnapshot(context.remoteFileUrl);
       if (snapshot === null) {
@@ -2453,7 +2440,7 @@ struct WebDavConfigDialog {
       if (e instanceof WebDavError && e.kind === WebDavErrorKind.AUTH) {
         promptAction.openToast({ message: '验证失败：用户名或密码错误' });
       } else {
-        promptAction.openToast({ message: `验证失败：${(error as Error).message}` });
+        promptAction.openToast({ message: `验证失败：${describeWebDavErrorForUser(error as Error)}` });
       }
     } finally {
       this.saving = false;

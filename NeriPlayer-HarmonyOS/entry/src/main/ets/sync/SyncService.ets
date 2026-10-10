@@ -17,6 +17,7 @@ import { OhosGhExecutor } from './github/OhosGhExecutor';
 import { WebDavConfigRepository } from './webdav/WebDavConfigRepository';
 import { OhosWebDavExecutor } from './webdav/OhosWebDavExecutor';
 import { WebDavSyncClient, WebDavTransport } from './webdav/WebDavTransport';
+import { describeWebDavErrorForUser } from './webdav/WebDavErrors';
 
 /**
  * Upload serializer per the sync data-saver switch (backlog §1.3): JSON bytes
@@ -77,6 +78,13 @@ export class SyncService {
     }
     const local = new SyncAppLocalStore();
     const transport = new WebDavTransport(new OhosWebDavExecutor(), config.username, config.password);
+    // Directory pre-flight: a wrong path must fail as a config error here,
+    // otherwise the upload PUT would surface it as a misleading 409 conflict.
+    try {
+      await transport.validateConnection(config.serverUrl, config.basePath);
+    } catch (error) {
+      return failure(describeWebDavErrorForUser(error as Error));
+    }
     const backend = new WebDavSyncBackend(new WebDavSyncClient(transport), config.remoteFileUrl());
     const options = new SyncCoordinatorOptions();
     // Android treats data-saver as one global switch shared by GitHub/WebDAV;
