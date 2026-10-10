@@ -9,6 +9,7 @@ import downloadTaskStoreTest from './ets/test/DownloadTaskStore.test';
 import downloadDirectoryTest from './ets/test/DownloadDirectory.test';
 import downloadRowTest from './ets/test/DownloadRow.test';
 import lyricDispatcherTest from './ets/test/LyricDispatcher.test';
+import lyricCacheStoreTest from './ets/test/LyricCacheStore.test';
 import downloadPayloadCheckTest from './ets/test/DownloadPayloadCheck.test';
 import downloadUrlRedactionTest from './ets/test/DownloadUrlRedaction.test';
 import downloadLyricSidecarTest from './ets/test/DownloadLyricSidecar.test';
@@ -187,6 +188,7 @@ export default function testsuite(): void {
   playbackCacheLedgerTest();
   downloadRowTest();
   lyricDispatcherTest();
+  lyricCacheStoreTest();
   downloadPayloadCheckTest();
   downloadUrlRedactionTest();
   downloadLyricSidecarTest();

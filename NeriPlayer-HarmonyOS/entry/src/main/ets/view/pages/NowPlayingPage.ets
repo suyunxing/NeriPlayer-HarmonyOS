@@ -63,6 +63,9 @@ export struct NowPlayingPage {
   @StorageLink('player.favorite') favorite: boolean = false;
 
   @State lyrics: LyricLine[] = [];
+  // 当前歌词的来源（LyricSourceTag 值）：'lrclib' 时 LyricView 额外叠加
+  // LRCLIB 源基准偏移（F-2，上游 #417）。
+  @State lyricSource: string = '';
   // 播放页↔歌词页横向分页：0 = 封面页，1 = 歌词页。默认停在封面页（设计稿
   // 行为，取代旧的 showLyrics=true 一进页面就是歌词）。
   @State pageIndex: number = 0;
@@ -331,17 +334,19 @@ export struct NowPlayingPage {
     const song = this.song();
     this.lyricsSongKey = stableKeyOf(song);
     this.lyrics = [];
+    this.lyricSource = '';
     LyricLineTracker.getInstance().setLines([]);
     // matched* lyrics from「匹配歌曲信息」(manual sheet or the automatic
     // matcher) need no audioId — the dispatcher resolves them before any
     // platform branch, which is how local songs get lyrics at all.
     if (song.audioId.length > 0 || song.matchedLyric.trim().length > 0) {
       try {
-        const lines = await LyricDispatcher.loadLyrics(song);
+        const result = await LyricDispatcher.loadLyricsResolved(song);
         if (generation !== this.lyricsGeneration) {
           return;
         }
-        this.lyrics = lines;
+        this.lyrics = result.lines;
+        this.lyricSource = result.source;
         LyricLineTracker.getInstance().setLines(this.lyrics);
       } catch (error) {
         const e = error as Error;
@@ -738,6 +743,7 @@ export struct NowPlayingPage {
             LyricView({
               lyrics: this.lyrics,
               lyricPlatform: this.song().platform,
+              lyricSource: this.lyricSource,
               onSeek: (timeMs: number) => PlayerManager.seekTo(timeMs),
               // Lyric scrubbing previews the centered line's time in the shared
               // label channel (same previewMs the waveform drag uses); playback
