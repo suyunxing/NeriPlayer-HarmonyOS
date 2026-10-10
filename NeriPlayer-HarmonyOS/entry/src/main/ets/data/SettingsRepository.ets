@@ -38,6 +38,9 @@ export class SettingsRepository {
   // sandbox default <filesDir>/Download/NeriPlayer.
   static readonly KEY_DOWNLOAD_DIRECTORY_URI: string = 'np.download_directory_uri';
   static readonly KEY_DOWNLOAD_DIRECTORY_LABEL: string = 'np.download_directory_label';
+  // \n-joined list of formerly applied custom directories: cold start
+  // re-activates their fileShare grants so committed files stay playable.
+  static readonly KEY_DOWNLOAD_DIRECTORY_HISTORY: string = 'np.download_directory_history';
   // Local music library scan root (backlog §8): a persisted DocumentViewPicker
   // directory that the local library re-scans incrementally.
   static readonly KEY_LOCAL_SCAN_DIRECTORY_URI: string = 'np.local_scan_directory_uri';
@@ -181,6 +184,7 @@ export class SettingsRepository {
     [SettingsRepository.KEY_DOWNLOAD_CONCURRENCY, 6],
     [SettingsRepository.KEY_DOWNLOAD_DIRECTORY_URI, ''],
     [SettingsRepository.KEY_DOWNLOAD_DIRECTORY_LABEL, ''],
+    [SettingsRepository.KEY_DOWNLOAD_DIRECTORY_HISTORY, ''],
     [SettingsRepository.KEY_LOCAL_SCAN_DIRECTORY_URI, ''],
     [SettingsRepository.KEY_LOCAL_SCAN_DIRECTORY_LABEL, ''],
     [SettingsRepository.KEY_LISTEN_TOGETHER_SERVER, ''],

@@ -33,6 +33,16 @@ export default function downloadRowTest(): void {
       expect(rows[0].entry!.audioPath).assertEqual(`/data/fake/1.mp3`);
     });
 
+    it('failedTaskRowsCarryFailureReason', 0, () => {
+      const song = neteaseSong(9, 'Z');
+      const task = new DownloadTask(song, DownloadStatus.FAILED, 3);
+      task.failureReason = 'save to download directory failed';
+      const rows = buildDownloadRows([task], []);
+      expect(rows.length).assertEqual(1);
+      expect(rows[0].status).assertEqual(DownloadStatus.FAILED);
+      expect(rows[0].failureReason).assertEqual('save to download directory failed');
+    });
+
     it('catalogOnlyEntriesStayVisibleAfterClearingRecords', 0, () => {
       // 清空记录 removes task rows; the committed download must still render
       // as a manageable row or the library count cannot be reconciled.

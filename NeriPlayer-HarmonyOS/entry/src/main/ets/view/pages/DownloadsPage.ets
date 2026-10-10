@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0
 
 import { DownloadEngine, DownloadEngineListener } from '../../download/DownloadEngine';
-import { DownloadStatus, isDownloadTaskClearable } from '../../download/DownloadModels';
+import { DownloadStatus, downloadFailureText, isDownloadTaskClearable } from '../../download/DownloadModels';
 import { buildDownloadRows, DownloadRow } from '../../download/DownloadRow';
 import { DownloadStorage } from '../../download/DownloadStorage';
 import { PlayerManager } from '../../player/PlayerManager';
@@ -87,7 +87,8 @@ export struct DownloadsPage {
         // buildDownloadRows drops COMPLETED rows without a catalog entry.
         return '已下载';
       case DownloadStatus.FAILED:
-        return '失败';
+        // 裸「失败」不可诊断：带上引擎记录的原因（含保存目录失败等 commit 期错误）。
+        return `下载失败 · ${downloadFailureText(row.failureReason)}`;
       default:
         return '已取消';
     }

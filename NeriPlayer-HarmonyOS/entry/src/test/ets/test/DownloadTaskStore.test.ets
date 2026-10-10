@@ -5,6 +5,7 @@ import {
   DownloadStage,
   DownloadStatus,
   DownloadTask,
+  downloadFailureText,
   isDownloadTaskClearable,
   shouldApplyTaskMutation
 } from '../../../main/ets/download/DownloadModels';
@@ -138,6 +139,45 @@ export default function downloadTaskStoreTest(): void {
       expect(shouldApplyTaskMutation(task, 7)).assertTrue();
       expect(shouldApplyTaskMutation(task, 8)).assertFalse();
       expect(shouldApplyTaskMutation(task, -1)).assertTrue();
+    });
+
+    it('failTaskRecordsReasonClearsProgressAndHonorsGuard', 0, () => {
+      const store = new DownloadTaskStore();
+      const song = neteaseSong(11, 'K', 'X');
+      const task = store.prepare(song);
+      const progress = new DownloadProgress();
+      progress.attemptId = task.attemptId;
+      progress.bytesRead = 10;
+      progress.totalBytes = 100;
+      store.updateProgress(stableKeyOf(song), task.attemptId, progress);
+      expect(store.failTask(stableKeyOf(song), 999, 'stale attempt')).assertFalse();
+      expect(store.failTask(stableKeyOf(song), task.attemptId, 'save to download directory failed')).assertTrue();
+      const stored = store.getTask(stableKeyOf(song))!;
+      expect(stored.status).assertEqual(DownloadStatus.FAILED);
+      expect(stored.progress).assertNull();
+      expect(stored.failureReason).assertEqual('save to download directory failed');
+      // Requeueing issues a fresh attempt with a clean slate.
+      const next = store.prepare(song);
+      expect(store.getTask(stableKeyOf(song))!.failureReason).assertEqual('');
+      expect(next.attemptId > task.attemptId).assertTrue();
+    });
+  });
+
+  describe('DownloadFailureText', () => {
+    it('mapsEngineReasonsToChineseForUsers', 0, () => {
+      expect(downloadFailureText('no playable source')).assertEqual('未找到可下载的音源');
+      expect(downloadFailureText('downloaded payload is not audio')).assertEqual('下载内容不是有效音频');
+      expect(downloadFailureText('downloaded payload has filler corruption')).assertEqual('音源数据异常，已弃用损坏副本');
+      expect(downloadFailureText('save to download directory failed'))
+        .assertEqual('保存到下载目录失败，请检查目录是否可写');
+      expect(downloadFailureText('retry attempts exhausted')).assertEqual('多次重试后仍失败');
+      expect(downloadFailureText('unsupported HLS playlist')).assertEqual('不支持的音乐源格式');
+      expect(downloadFailureText('HLS segment 3 failed')).assertEqual('分段下载失败');
+      expect(downloadFailureText('HLS failed: socket hung up')).assertEqual('下载中断：socket hung up');
+      expect(downloadFailureText('HTTP 403')).assertEqual('服务端返回 HTTP 403');
+      expect(downloadFailureText('')).assertEqual('未知原因');
+      expect(downloadFailureText('  ')).assertEqual('未知原因');
+      expect(downloadFailureText('some raw net error')).assertEqual('some raw net error');
     });
   });
 
