@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0
 
 import { SongItem } from '../../model/SongItem';
+import { MusicPlatform } from '../../model/MusicPlatform';
 import { LocalPlaylistRepository } from '../../data/LocalPlaylistRepository';
 import { PlayerManager } from '../../player/PlayerManager';
 import { Theme } from '../Theme';
@@ -52,7 +53,14 @@ export struct EditSongInfoSheet {
     const coverUrl = this.coverUrl.trim();
     updated.customName = name !== base.name ? name : '';
     updated.customArtist = artist !== base.artist ? artist : '';
-    updated.customCoverUrl = coverUrl.length > 0 && coverUrl !== base.coverUrl ? coverUrl : '';
+    // Cover gate (upstream #368): a hand-typed cover only applies to local
+    // songs. Remote songs keep whatever the match flow wrote — hand edits on
+    // them would leak into sync payloads as dead local references.
+    if (base.platform === MusicPlatform.LOCAL) {
+      updated.customCoverUrl = coverUrl.length > 0 && coverUrl !== base.coverUrl ? coverUrl : '';
+    } else {
+      updated.customCoverUrl = base.customCoverUrl;
+    }
     const replaced = await LocalPlaylistRepository.updateSongMetadata(updated);
     PlayerManager.applySongMetadataUpdate(updated);
     this.getUIContext().getPromptAction().showToast({
@@ -61,6 +69,11 @@ export struct EditSongInfoSheet {
     });
     this.saving = false;
     this.onClose();
+  }
+
+  /** Hand-typed covers only apply to local songs (see save). */
+  private coverEditable(): boolean {
+    return this.song().platform === MusicPlatform.LOCAL;
   }
 
   @Builder
@@ -104,19 +117,27 @@ export struct EditSongInfoSheet {
           .onChange((value: string) => {
             this.artist = value;
           })
-        this.fieldLabel('封面地址（可选）')
-        TextInput({ text: this.coverUrl, placeholder: 'https://…' })
-          .fontSize(14)
-          .fontColor(Theme.textPrimary(Theme.isDark()))
-          .placeholderColor(Theme.textDisabled(Theme.isDark()))
-          .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
-          .borderRadius(10)
-          .height(44)
-          .width('100%')
-          .maxLength(500)
-          .onChange((value: string) => {
-            this.coverUrl = value;
-          })
+        if (this.coverEditable()) {
+          this.fieldLabel('封面地址（可选）')
+          TextInput({ text: this.coverUrl, placeholder: 'https://…' })
+            .fontSize(14)
+            .fontColor(Theme.textPrimary(Theme.isDark()))
+            .placeholderColor(Theme.textDisabled(Theme.isDark()))
+            .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+            .borderRadius(10)
+            .height(44)
+            .width('100%')
+            .maxLength(500)
+            .onChange((value: string) => {
+              this.coverUrl = value;
+            })
+        } else {
+          Text('在线歌曲的封面由平台提供，可通过「匹配歌曲信息」更换。')
+            .fontSize(11)
+            .fontColor(Theme.textSecondary(Theme.isDark()))
+            .width('100%')
+            .padding({ top: 8 })
+        }
         Text('修改保存在本机歌单与当前播放，清空字段即恢复原始值。')
           .fontSize(11)
           .fontColor(Theme.textSecondary(Theme.isDark()))
