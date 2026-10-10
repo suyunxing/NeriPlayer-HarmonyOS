@@ -16,6 +16,14 @@ import { AccentScheme, SchemeMode } from '../theme/AccentScheme';
 import { ColorScience } from '../theme/ColorScience';
 import { LyricView } from '../components/LyricView';
 import { WaveformSlider } from '../components/WaveformSlider';
+import {
+  MainControlsLayout,
+  playbackControlScale,
+  parsePlaybackControlSize,
+  scaleButtonSize,
+  scaleIconSize,
+  resolveMainControlsLayout
+} from '../components/PlaybackControlSizing';
 import { MarqueeText } from '../components/MarqueeText';
 import { LyricShareSheet } from '../components/LyricShareSheet';
 import { MatchSongInfoSheet } from '../components/MatchSongInfoSheet';
@@ -86,6 +94,13 @@ export struct NowPlayingPage {
   @State sleepLabel: string = '关闭';
   @StorageLink('player.sleepActive') sleepActive: boolean = false;
   @StorageLink('player.sleepRemainingMin') sleepRemainingMin: number = 0;
+  // 播放页/歌词页控件大小档位（PlaybackControlSize 序数，上游 2644267f）：
+  // 顶栏/传输行/底部工具行与歌词页胶囊按档位缩放，触控下限 40vp。
+  @StorageProp('np.nowplaying_control_size') nowPlayingControlSizeRaw: number = 1;
+  @StorageProp('np.lyric_control_size') lyricControlSizeRaw: number = 1;
+  // 传输行可用宽度（onAreaChange 采集），窄窗（分屏/折叠态）下按
+  // resolveMainControlsLayout 比例压缩主控组防溢出。
+  @State controlRowWidth: number = 0;
   /** 底部控件行的上抬量，由 util/WindowMetrics.ets 按真实避让区发布。 */
   @StorageProp('ui.bottomLiftVp') bottomLift: number = Theme.bottomBarLift();
   /**
@@ -419,6 +434,55 @@ export struct NowPlayingPage {
     });
   }
 
+  // ---- 播放控件大小档位（上游 2644267f，np.nowplaying_control_size）----
+
+  /** 播放页控件缩放系数（小 0.9 / 中 1.0 / 大 1.2）。 */
+  private controlScale(): number {
+    return playbackControlScale(parsePlaybackControlSize(this.nowPlayingControlSizeRaw));
+  }
+
+  /** 歌词页胶囊缩放系数（np.lyric_control_size）。 */
+  private lyricControlScale(): number {
+    return playbackControlScale(parsePlaybackControlSize(this.lyricControlSizeRaw));
+  }
+
+  /**
+   * 传输行（上一首/播放/下一首）布局：基准 58/30 次键 + 64/34 主键按档位
+   * 缩放（触控下限 40），可用宽度不足时整体同比压缩（间距仍交给
+   * SpaceEvenly 分配，preferredSpacing 传 0）。
+   */
+  private transportLayout(): MainControlsLayout {
+    const scale = this.controlScale();
+    return resolveMainControlsLayout(this.controlRowWidth,
+      scaleButtonSize(58, scale), scaleButtonSize(64, scale), 2, 0);
+  }
+
+  /** 传输行图标：跟随按钮压缩比，下限 18vp。 */
+  private transportIconSize(baseVp: number, layout: MainControlsLayout): number {
+    return Math.max(18, Math.round(scaleIconSize(baseVp, this.controlScale()) * layout.buttonScale));
+  }
+
+  /** 底部工具行/顶栏按钮热区：44/40 基准按档位缩放，下限 40。 */
+  private controlButtonSize(baseVp: number): number {
+    return scaleButtonSize(baseVp, this.controlScale());
+  }
+
+  /** 底部工具行/顶栏图标：24/22 基准按档位缩放，下限 18。 */
+  private controlIconSize(baseVp: number): number {
+    return scaleIconSize(baseVp, this.controlScale());
+  }
+
+  /** 歌词页胶囊按钮热区（44 基准）。 */
+  private lyricButtonSize(baseVp: number): number {
+    return scaleButtonSize(baseVp, this.lyricControlScale());
+  }
+
+  /** 歌词页胶囊图标（25/32/22 基准）。 */
+  private lyricIconSize(baseVp: number): number {
+    return scaleIconSize(baseVp, this.lyricControlScale());
+  }
+
+
   private setSleep(option: [string, number]): void {    this.sleepLabel = option[0];
     this.showSleep = false;
     if (option[1] > 0) {
@@ -605,13 +669,13 @@ export struct NowPlayingPage {
                 .fontColor([this.im().textPrimary])
             } else {
               Image($r('app.media.ic_arrow_back_24'))
-                .width(22)
-                .height(22)
+                .width(this.controlIconSize(22))
+                .height(this.controlIconSize(22))
                 .fillColor(this.im().textPrimary)
             }
           }
-          .width(40)
-          .height(40)
+          .width(this.controlButtonSize(40))
+          .height(this.controlButtonSize(40))
           .type(ButtonType.Circle)
           .backgroundColor(Theme.tagBg(Theme.isDark()))
           .accessibilityText(this.lyricsMode ? '收起歌词' : '返回')
@@ -634,12 +698,12 @@ export struct NowPlayingPage {
               .textAlign(TextAlign.Center)
             Button() {
               Image($r('app.media.ic_group_24'))
-                .width(20)
-                .height(20)
+                .width(this.controlIconSize(20))
+                .height(this.controlIconSize(20))
                 .fillColor(this.im().textPrimary)
             }
-            .width(40)
-            .height(40)
+            .width(this.controlButtonSize(40))
+            .height(this.controlButtonSize(40))
             .type(ButtonType.Circle)
             .backgroundColor(Theme.tagBg(Theme.isDark()))
             .accessibilityText('一起听')
@@ -706,12 +770,12 @@ export struct NowPlayingPage {
                   Image(this.favorite
                     ? $r('app.media.ic_baseline_favorite_24')
                     : $r('app.media.ic_outline_favorite_24'))
-                    .width(24)
-                    .height(24)
+                    .width(this.controlIconSize(24))
+                    .height(this.controlIconSize(24))
                     .fillColor(this.favorite ? Theme.danger(false) : this.im().textSecondary)
                 }
-                .width(44)
-                .height(44)
+                .width(this.controlButtonSize(44))
+                .height(this.controlButtonSize(44))
                 .justifyContent(FlexAlign.Center)
                 .accessibilityText(this.favorite ? '取消收藏' : '收藏')
                 .onClick(() => this.toggleFavorite())
@@ -781,6 +845,8 @@ export struct NowPlayingPage {
                 durationMs: this.durationMs,
                 playing: this.status === PlaybackStatus.PLAYING,
                 loading: this.status === PlaybackStatus.LOADING,
+                // 进度预测外推用的实际播放速率（含一起听同步率）。
+                playbackSpeed: this.speed,
                 // 未播放段用取色 scheme 的主色系（secondary），已播放段用
                 // 强调色（primary，与主页 FAB 同源）——M7.4：在页面表达式里
                 // 直读被跟踪的 coverScheme，取色变化即时重染。
@@ -812,14 +878,15 @@ export struct NowPlayingPage {
               .animation({ duration: 130, curve: Curve.EaseOut, delay: this.rowDelay(3) })
 
               // 传输行只保留上一曲/播放暂停/下一曲；播放模式收进下方控件行。
-              // 上一曲/下一曲放大到 58/30，与 64/34 的主播放键形成尺寸梯度。
+              // 上一曲/下一曲放大到 58/30，与 64/34 的主播放键形成尺寸梯度；
+              // 三钮随控件大小档位缩放（上游 2644267f），宽度不足时同比压缩。
               Row() {
                 PlayerControlButton({
                   icon: $r('app.media.round_skip_previous_24'),
                   tintOn: this.im().textPrimary,
                   tintOff: this.im().textSecondary,
-                  buttonSize: 58,
-                  iconSize: 30,
+                  buttonSize: this.transportLayout().secondaryButtonSize,
+                  iconSize: this.transportIconSize(30, this.transportLayout()),
                   label: '上一首',
                   onTap: () => PlayerManager.previous()
                 })
@@ -829,8 +896,8 @@ export struct NowPlayingPage {
                     : $r('app.media.round_play_arrow_24'),
                   tintOn: this.im().onPrimary,
                   active: true,
-                  buttonSize: 64,
-                  iconSize: 34,
+                  buttonSize: this.transportLayout().primaryButtonSize,
+                  iconSize: this.transportIconSize(34, this.transportLayout()),
                   label: this.status === PlaybackStatus.PLAYING ? '暂停' : '播放',
                   onTap: () => PlayerManager.togglePlayPause()
                 })
@@ -838,8 +905,8 @@ export struct NowPlayingPage {
                   icon: $r('app.media.round_skip_next_24'),
                   tintOn: this.im().textPrimary,
                   tintOff: this.im().textSecondary,
-                  buttonSize: 58,
-                  iconSize: 30,
+                  buttonSize: this.transportLayout().secondaryButtonSize,
+                  iconSize: this.transportIconSize(30, this.transportLayout()),
                   label: '下一首',
                   onTap: () => PlayerManager.next(false)
                 })
@@ -847,6 +914,9 @@ export struct NowPlayingPage {
               .width('100%')
               .padding({ top: 6 })
               .justifyContent(FlexAlign.SpaceEvenly)
+              .onAreaChange((_oldArea: Area, newArea: Area) => {
+                this.controlRowWidth = Number(newArea.width);
+              })
               .translate({ y: NowPlayingMotion.rowOffset(this.transitionProgress, 4) })
               .animation({ duration: this.rowDuration(), curve: ROW_CURVE, delay: this.rowDelay(4) })
               .opacity(NowPlayingMotion.rowOpacity(this.transitionProgress, 4))
@@ -860,34 +930,34 @@ export struct NowPlayingPage {
                 // 与整行裸图标保持同一灰阶，档位信息由无障碍文案补偿。
                 Column() {
                   Image(this.playModeIcon())
-                    .width(24)
-                    .height(24)
+                    .width(this.controlIconSize(24))
+                    .height(this.controlIconSize(24))
                     .fillColor(this.im().textSecondary)
                 }
-                .width(44)
-                .height(44)
+                .width(this.controlButtonSize(44))
+                .height(this.controlButtonSize(44))
                 .justifyContent(FlexAlign.Center)
                 .accessibilityText(this.playModeLabel())
                 .onClick(() => PlayerManager.cyclePlayMode())
 
                 Column() {
                   SymbolGlyph($r('sys.symbol.speed_multiple'))
-                    .fontSize(24)
+                    .fontSize(this.controlIconSize(24))
                     .fontColor([this.speed !== 1.0 ? this.im().textPrimary : this.im().textSecondary])
                 }
-                .width(44)
-                .height(44)
+                .width(this.controlButtonSize(44))
+                .height(this.controlButtonSize(44))
                 .justifyContent(FlexAlign.Center)
                 .accessibilityText(`播放速度 ${this.speed} 倍，点击选择`)
                 .bindMenu(this.speedMenuBuilder)
 
                 Column() {
                   SymbolGlyph($r('sys.symbol.timer'))
-                    .fontSize(24)
+                    .fontSize(this.controlIconSize(24))
                     .fontColor([this.sleepActive ? this.im().textPrimary : this.im().textSecondary])
                 }
-                .width(44)
-                .height(44)
+                .width(this.controlButtonSize(44))
+                .height(this.controlButtonSize(44))
                 .justifyContent(FlexAlign.Center)
                 .accessibilityText(this.sleepButtonText())
                 .onClick(() => {
@@ -896,11 +966,11 @@ export struct NowPlayingPage {
 
                 Column() {
                   SymbolGlyph($r('sys.symbol.share'))
-                    .fontSize(24)
+                    .fontSize(this.controlIconSize(24))
                     .fontColor([this.im().textSecondary])
                 }
-                .width(44)
-                .height(44)
+                .width(this.controlButtonSize(44))
+                .height(this.controlButtonSize(44))
                 .justifyContent(FlexAlign.Center)
                 .accessibilityText('分享歌词')
                 .onClick(() => {
@@ -909,11 +979,11 @@ export struct NowPlayingPage {
 
                 Column() {
                   SymbolGlyph($r('sys.symbol.music_note_list'))
-                    .fontSize(24)
+                    .fontSize(this.controlIconSize(24))
                     .fontColor([this.im().textSecondary])
                 }
-                .width(44)
-                .height(44)
+                .width(this.controlButtonSize(44))
+                .height(this.controlButtonSize(44))
                 .justifyContent(FlexAlign.Center)
                 .accessibilityText('播放列表')
                 .onClick(() => {
@@ -938,12 +1008,12 @@ export struct NowPlayingPage {
             Row() {
               Button() {
                 Image($r('app.media.ic_lyricon'))
-                  .width(25)
-                  .height(25)
+                  .width(this.lyricIconSize(25))
+                  .height(this.lyricIconSize(25))
                   .fillColor(this.im().textSecondary)
               }
-              .width(44)
-              .height(44)
+              .width(this.lyricButtonSize(44))
+              .height(this.lyricButtonSize(44))
               .type(ButtonType.Circle)
               .backgroundColor(Color.Transparent)
               .accessibilityText('歌词设置')
@@ -971,6 +1041,8 @@ export struct NowPlayingPage {
                 icon: $r('app.media.round_skip_previous_24'),
                 tintOn: this.im().textPrimary,
                 tintOff: this.im().textSecondary,
+                buttonSize: this.lyricButtonSize(48),
+                iconSize: this.lyricIconSize(24),
                 label: '上一首',
                 onTap: () => PlayerManager.previous()
               })
@@ -978,12 +1050,12 @@ export struct NowPlayingPage {
                 Image(this.status === PlaybackStatus.PLAYING
                   ? $r('app.media.round_pause_24')
                   : $r('app.media.round_play_arrow_24'))
-                  .width(32)
-                  .height(32)
+                  .width(this.lyricIconSize(32))
+                  .height(this.lyricIconSize(32))
                   .fillColor(this.im().textSecondary)
               }
-              .width(44)
-              .height(44)
+              .width(this.lyricButtonSize(44))
+              .height(this.lyricButtonSize(44))
               .type(ButtonType.Circle)
               .backgroundColor(Color.Transparent)
               .accessibilityText(this.status === PlaybackStatus.PLAYING ? '暂停' : '播放')
@@ -992,6 +1064,8 @@ export struct NowPlayingPage {
                 icon: $r('app.media.round_skip_next_24'),
                 tintOn: this.im().textPrimary,
                 tintOff: this.im().textSecondary,
+                buttonSize: this.lyricButtonSize(48),
+                iconSize: this.lyricIconSize(24),
                 label: '下一首',
                 onTap: () => PlayerManager.next(false)
               })
@@ -1000,12 +1074,12 @@ export struct NowPlayingPage {
                 Image(this.favorite
                   ? $r('app.media.ic_baseline_favorite_24')
                   : $r('app.media.ic_outline_favorite_24'))
-                  .width(22)
-                  .height(22)
+                  .width(this.lyricIconSize(22))
+                  .height(this.lyricIconSize(22))
                   .fillColor(this.favorite ? Theme.danger(false) : this.im().textSecondary)
               }
-              .width(44)
-              .height(44)
+              .width(this.lyricButtonSize(44))
+              .height(this.lyricButtonSize(44))
               .type(ButtonType.Circle)
               .backgroundColor(Color.Transparent)
               .accessibilityText(this.favorite ? '取消收藏' : '收藏')

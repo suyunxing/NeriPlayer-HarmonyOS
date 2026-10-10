@@ -11,6 +11,7 @@ import { coverThumbnailUrl } from '../../util/CoverUrls';
 import { AccentScheme, SchemeMode } from '../theme/AccentScheme';
 import { HdsLight } from '../theme/HdsLight';
 import { MarqueeText } from './MarqueeText';
+import { MiniPlayerTextSizing, MiniPlayerTextAutoSizeRange } from './MiniPlayerTextSizing';
 
 @Component
 export struct MiniPlayer {
@@ -72,6 +73,9 @@ export struct MiniPlayer {
   // visual offset eased with exponential resistance peaking at 52vp).
   @State swipeOffset: number = 0;
   @State swiping: boolean = false;
+  // 系统字体缩放（上游 #357）：标题/副行字号按行高上限封顶，防止大字体
+  // 设置下两行文字撑破固定行高的迷你条。EntryAbility 播种并随配置更新。
+  @StorageProp('systemFontScale') systemFontScale: number = 1;
 
   private static readonly SWIPE_TRIGGER_VP = 72;
   private static readonly SWIPE_MAX_OFFSET_VP = 52;
@@ -143,6 +147,23 @@ export struct MiniPlayer {
   /** 封面圆角：圆形形态（compact/row）取半边长，完整形态保留 8 圆角方形。 */
   private coverRadius(): number {
     return this.compact || this.row ? this.coverSize() / 2 : 8;
+  }
+
+  /**
+   * 标题字号（fp）：正常字体档就是基础值 14；系统字体放大时按 24vp 视觉
+   * 行高封顶（字号 × fontScale × 1.5 ≤ 24），超宽仍由跑马灯承接。
+   */
+  private titleFontSize(): number {
+    return MiniPlayerTextSizing.titleFontSize(14, this.systemFontScale);
+  }
+
+  /**
+   * 副行（歌词/歌手）字号范围：上限按 20vp 视觉行高封顶，下限保 9 视觉
+   * 字号——宽度不足时 minFontSize/maxFontSize 让 Text 向下自适应，仍不够
+   * 才省略号（上游 AutoSizingMiniPlayerText）。
+   */
+  private subLineFontRange(): MiniPlayerTextAutoSizeRange {
+    return MiniPlayerTextSizing.subLineRange(11, this.systemFontScale);
   }
 
   /**
@@ -303,7 +324,7 @@ export struct MiniPlayer {
             // 需求在 MarqueeText 上统一，不再按形态分叉。
             MarqueeText({
               text: this.song().displayName,
-              fontSize: 14,
+              fontSize: this.titleFontSize(),
               fontWeight: FontWeight.Medium,
               fontColor: Theme.textPrimary(Theme.isDark())
             })
@@ -315,14 +336,18 @@ export struct MiniPlayer {
             // 药丸）不受影响。
             if (this.showLyricLine()) {
               Text(this.lyricLineText)
-                .fontSize(11)
+                .fontSize(this.subLineFontRange().maxFontSize)
+                .minFontSize(this.subLineFontRange().minFontSize)
+                .maxFontSize(this.subLineFontRange().maxFontSize)
                 .fontColor(Theme.primary(Theme.isDark()))
                 .maxLines(1)
                 .textOverflow({ overflow: TextOverflow.Ellipsis })
                 .width('100%')
             } else if (!this.embedded) {
               Text(this.song().displayArtist)
-                .fontSize(11)
+                .fontSize(this.subLineFontRange().maxFontSize)
+                .minFontSize(this.subLineFontRange().minFontSize)
+                .maxFontSize(this.subLineFontRange().maxFontSize)
                 .fontColor(Theme.textSecondary(Theme.isDark()))
                 .maxLines(1)
                 .textOverflow({ overflow: TextOverflow.Ellipsis })

@@ -106,6 +106,10 @@ export class SettingsRepository {
   // NowPlaying backdrop style: 'blur' (blurred cover), 'solid', 'gradient'
   // (flowing cover-color gradient).
   static readonly KEY_NOWPLAYING_BG_STYLE: string = 'np.nowplaying_bg_style';
+  // 播放页/歌词页控件大小档位（PlaybackControlSize 序数：0 小 / 1 中 / 2 大，
+  // 上游 2644267f）。
+  static readonly KEY_NOW_PLAYING_CONTROL_SIZE: string = 'np.nowplaying_control_size';
+  static readonly KEY_LYRIC_CONTROL_SIZE: string = 'np.lyric_control_size';
   // Keep the screen on while the full-screen player is open.
   static readonly KEY_KEEP_SCREEN_ON: string = 'np.keep_screen_on';
   // Circular rotating vinyl cover on the full-screen player.
@@ -223,6 +227,8 @@ export class SettingsRepository {
     [SettingsRepository.KEY_AUTOPLAY_ON_LAUNCH, false],
     [SettingsRepository.KEY_KEEP_PLAYBACK_MODE_STATE, true],
     [SettingsRepository.KEY_NOWPLAYING_BG_STYLE, 'blur'],
+    [SettingsRepository.KEY_NOW_PLAYING_CONTROL_SIZE, 1],
+    [SettingsRepository.KEY_LYRIC_CONTROL_SIZE, 1],
     [SettingsRepository.KEY_KEEP_SCREEN_ON, false],
     [SettingsRepository.KEY_CIRCULAR_COVER, false],
     [SettingsRepository.KEY_LYRIC_PAGE_CONTROLS, true],
