@@ -15,6 +15,7 @@ import miniPlayerTextSizingTest from './ets/test/MiniPlayerTextSizing.test';
 import waveProgressPredictorTest from './ets/test/WaveProgressPredictor.test';
 import playbackControlSizingTest from './ets/test/PlaybackControlSizing.test';
 import neteasePlaylistWritebackTest from './ets/test/NeteasePlaylistWriteback.test';
+import neteaseHomeRecommendationsTest from './ets/test/NeteaseHomeRecommendations.test';
 import downloadPayloadCheckTest from './ets/test/DownloadPayloadCheck.test';
 import downloadUrlRedactionTest from './ets/test/DownloadUrlRedaction.test';
 import downloadLyricSidecarTest from './ets/test/DownloadLyricSidecar.test';
@@ -199,6 +200,7 @@ export default function testsuite(): void {
   waveProgressPredictorTest();
   playbackControlSizingTest();
   neteasePlaylistWritebackTest();
+  neteaseHomeRecommendationsTest();
   downloadPayloadCheckTest();
   downloadUrlRedactionTest();
   downloadLyricSidecarTest();

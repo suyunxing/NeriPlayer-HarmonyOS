@@ -19,6 +19,12 @@ import {
   neteaseSongToSongItem
 } from './NeteasePlaylistParser';
 import { buildNeteasePlaylistAddTracksParams } from './NeteasePlaylistWriteback';
+import {
+  NeteaseApiCodeError,
+  parseNeteaseHomePlaylists,
+  parseNeteaseHomeSongs,
+  parseNeteasePlaylistDetailSummaryOrNull
+} from './NeteaseHomeRecommendations';
 import { AudioQualityPolicy } from '../player/AudioQualityPolicy';
 import { NetworkStatus } from '../util/NetworkStatus';
 import { MusicPlatform } from '../model/MusicPlatform';
@@ -451,6 +457,102 @@ export class NeteaseApi {
     const url = await NeteaseApi.weapiUrl('/weapi/user/playlist');
     const text = await HttpClient.postForm(url, params, 15000, NeteaseApi.headers(), true);
     return parseUserPlaylistsResponse(text);
+  }
+
+  // ---- 首页推荐扩展（上游 #319/#338） ----
+
+  /**
+   * 推荐族 weapi 调用：登录态端点在响应 code 301（会话失效）时 resetSession
+   * 重试一次（parse 抛出的 NeteaseApiCodeError 包在 call 闭包内，重试才有
+   * 机会感知）。
+   */
+  private static async weapiHomeCall<T>(path: string, params: Map<string, string>,
+    parse: (raw: string) => T, loginRequired: boolean): Promise<T> {
+    const call = (): Promise<T> =>
+      NeteaseApi.callWeapiText(path, params).then((raw: string): T => parse(raw));
+    if (!loginRequired) {
+      return call();
+    }
+    try {
+      return await call();
+    } catch (error) {
+      if (error instanceof NeteaseApiCodeError && error.code === 301
+        && NeteaseCookieRepository.isLoggedIn()) {
+        Logger.warn(`NeteaseApi ${path} got 301 while logged in, refreshing session`);
+        NeteaseApi.resetSession();
+        return call();
+      }
+      if (error instanceof Error) {
+        throw error;
+      }
+      throw new Error(`NeteaseApi ${path} failed`);
+    }
+  }
+
+  /** 每日推荐歌单（/v1/discovery/recommend/resource，需登录）。 */
+  static async getDailyRecommendedPlaylists(): Promise<NeteasePlaylistSummary[]> {
+    return NeteaseApi.weapiHomeCall('/weapi/v1/discovery/recommend/resource',
+      new Map<string, string>(), parseNeteaseHomePlaylists, true);
+  }
+
+  /** 每日推荐歌曲（/v3/discovery/recommend/songs，需登录；afresh 换一批）。 */
+  static async getDailyRecommendedSongs(afresh: boolean): Promise<SongItem[]> {
+    const params = new Map<string, string>();
+    params.set('afresh', `${afresh}`);
+    return NeteaseApi.weapiHomeCall('/weapi/v3/discovery/recommend/songs',
+      params, parseNeteaseHomeSongs, true);
+  }
+
+  /** 私人 FM（/v1/radio/get，需登录）。 */
+  static async getPersonalFmSongs(): Promise<SongItem[]> {
+    return NeteaseApi.weapiHomeCall('/weapi/v1/radio/get',
+      new Map<string, string>(), parseNeteaseHomeSongs, true);
+  }
+
+  /** 推荐新歌（/personalized/newsong，匿名可用）。 */
+  static async getPersonalizedNewSongs(limit: number = 30): Promise<SongItem[]> {
+    const params = new Map<string, string>();
+    params.set('type', 'recommend');
+    params.set('limit', `${limit}`);
+    params.set('areaId', '0');
+    return NeteaseApi.weapiHomeCall('/weapi/personalized/newsong',
+      params, parseNeteaseHomeSongs, false);
+  }
+
+  /** 分类歌单（/top/playlist，匿名可用）。 */
+  static async getTopPlaylists(cat: string = '全部', order: string = 'hot',
+    limit: number = 30, offset: number = 0): Promise<NeteasePlaylistSummary[]> {
+    const params = new Map<string, string>();
+    params.set('cat', cat);
+    params.set('order', order);
+    params.set('limit', `${limit}`);
+    params.set('offset', `${offset}`);
+    params.set('total', 'true');
+    return NeteaseApi.weapiHomeCall('/weapi/top/playlist',
+      params, parseNeteaseHomePlaylists, false);
+  }
+
+  /**
+   * 轻量歌单摘要（雷达歌单元数据用）：只取 /api/v6/playlist/detail 头部对象，
+   * 不做 trackIds 全量补拉（getPlaylistOverview 会对大歌单分批拉曲，此处不需要）。
+   */
+  static async getPlaylistSummary(id: number): Promise<NeteasePlaylistSummary | null> {
+    const text = await HttpClient.getText(
+      `${Constants.NETEASE_BASE}/api/v6/playlist/detail?id=${id}`,
+      NeteaseApi.headers()
+    );
+    return parseNeteasePlaylistDetailSummaryOrNull(text);
+  }
+
+  private static async callWeapiText(path: string, params: Map<string, string>):
+    Promise<string> {
+    const payload: Record<string, Object> = {};
+    for (const entry of params) {
+      payload[entry[0]] = entry[1];
+    }
+    const encrypted = await NeteaseCrypto.weapiParams(payload);
+    const url = await NeteaseApi.weapiUrl(path);
+    return HttpClient.postForm(url, encrypted, 15000, NeteaseApi.headers(), true);
   }
 
   /**
