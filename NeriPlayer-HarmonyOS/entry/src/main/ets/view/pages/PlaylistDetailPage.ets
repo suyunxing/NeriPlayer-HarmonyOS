@@ -12,6 +12,10 @@ import { stableKeyOf } from '../../model/SongIdentity';
 import { PlayerManager } from '../../player/PlayerManager';
 import { resolvePlaylistPlaybackStartIndex } from '../../player/queue/QueueEngine';
 import { SourceSyncCoordinator } from '../../sourcesync/SourceSyncCoordinator';
+import { NeteaseApi } from '../../network/NeteaseApi';
+import { NeteasePlaylistSummary } from '../../network/NeteasePlaylistParser';
+import { NeteaseCookieRepository } from '../../data/auth/NeteaseCookieRepository';
+import { NeteaseWritebackDeps, syncSongsToNeteasePlaylist } from '../../network/NeteasePlaylistWriteback';
 import { Theme } from '../Theme';
 import { AccentScheme } from '../theme/AccentScheme';
 import { SongRow } from '../components/SongRow';
@@ -21,6 +25,21 @@ import { PlaylistHeader, HeaderPill } from '../components/PlaylistHeader';
 import { Router } from '../Router';
 import { HdsNavDestination } from '@kit.UIDesignKit';
 import { subPageTitleBar, SubPageBottomFade, SubPageMenuEntry, SUB_TITLEBAR_SPACE_VP, SUB_BOTTOM_CLEARANCE_VP } from '../components/HdsSubPage';
+
+/** 生产环境写回适配：把纯编排流程接到 NeteaseApi 的真实网络实现上。 */
+class LiveNeteaseWritebackDeps extends NeteaseWritebackDeps {
+  async fetchTargetTrackIds(playlistId: number): Promise<Set<number> | null> {
+    return NeteaseApi.playlistTrackIdSet(playlistId);
+  }
+
+  async addBatch(playlistId: number, ids: number[]): Promise<boolean> {
+    return NeteaseApi.addSongsToPlaylist(playlistId, ids);
+  }
+
+  async resolveSongIds(ids: number[]): Promise<Set<number> | null> {
+    return NeteaseApi.resolvableNeteaseSongIds(ids);
+  }
+}
 
 @Component
 export struct PlaylistDetailPage {
@@ -74,7 +93,78 @@ export struct PlaylistDetailPage {
         this.renameValue = this.playlist?.name ?? '';
         this.showRenameDialog = true;
       }
+    }, {
+      // F-4（上游 #322）：整单写回自建网易云歌单。
+      label: '同步到网易云歌单',
+      icon: $r('app.media.ic_music_note_24'),
+      action: (): void => {
+        void this.openNeteasePicker();
+      }
     }];
+  }
+
+  // ---- F-4 网易云歌单写回（选择器 + 执行） ----
+  @State showNeteasePicker: boolean = false;
+  @State neteasePickerLoading: boolean = false;
+  @State neteasePickerError: string = '';
+  @State neteaseTargets: NeteasePlaylistSummary[] = [];
+  @State neteaseWritebackBusy: boolean = false;
+
+  private async openNeteasePicker(): Promise<void> {
+    if (this.neteasePickerLoading || this.neteaseWritebackBusy) {
+      return;
+    }
+    if (!NeteaseCookieRepository.isLoggedIn()) {
+      promptAction.openToast({ message: '请先在设置中登录网易云音乐' });
+      return;
+    }
+    if (this.playlist === null || this.playlist.songs.length === 0) {
+      promptAction.openToast({ message: '歌单为空，没有可同步的歌曲' });
+      return;
+    }
+    this.showNeteasePicker = true;
+    this.neteasePickerLoading = true;
+    this.neteasePickerError = '';
+    this.neteaseTargets = [];
+    try {
+      const uid = await NeteaseApi.getCurrentUserId();
+      const playlists = await NeteaseApi.getUserPlaylists(0, 100);
+      // 只列自建歌单（creator.userId === 当前 uid）：收藏/他人歌单多数账号
+      // 无写权限，写回接口对它们会整批失败。
+      const targets: NeteasePlaylistSummary[] = [];
+      for (const item of playlists) {
+        if (uid > 0 && item.creatorUserId === uid) {
+          targets.push(item);
+        }
+      }
+      if (targets.length === 0) {
+        this.neteasePickerError = '没有找到你的自建歌单';
+      } else {
+        this.neteaseTargets = targets;
+      }
+    } catch (error) {
+      this.neteasePickerError = `获取歌单失败：${(error as Error).message}`;
+    } finally {
+      this.neteasePickerLoading = false;
+    }
+  }
+
+  private async runNeteaseWriteback(target: NeteasePlaylistSummary): Promise<void> {
+    const playlist = this.playlist;
+    if (playlist === null || this.neteaseWritebackBusy) {
+      return;
+    }
+    this.neteaseWritebackBusy = true;
+    this.showNeteasePicker = false;
+    try {
+      const result = await syncSongsToNeteasePlaylist(playlist.songs, target.id,
+        new LiveNeteaseWritebackDeps());
+      promptAction.openToast({ message: `「${target.name}」：${result.message}`, duration: 3000 });
+    } catch (error) {
+      promptAction.openToast({ message: `同步失败：${(error as Error).message}` });
+    } finally {
+      this.neteaseWritebackBusy = false;
+    }
   }
 
   @State syncingMirror: boolean = false;
@@ -457,6 +547,92 @@ export struct PlaylistDetailPage {
         .backgroundColor(Theme.scrim(Theme.isDark()))
         .onClick(() => {
           this.showRenameDialog = false;
+        })
+      }
+
+      // F-4：网易云自建歌单选择器（写回目标）。样式与重命名弹层同族。
+      if (this.showNeteasePicker) {
+        Column() {
+          Column({ space: 12 }) {
+            Text('同步到网易云歌单')
+              .fontSize(17)
+              .fontWeight(FontWeight.Bold)
+              .fontColor(Theme.textPrimary(Theme.isDark()))
+            Text(this.neteaseWritebackBusy ? '正在同步…'
+              : '选择一个自建歌单，把本歌单中可写回的歌曲（网易云曲目与已匹配网易源的歌曲）添加进去；已存在的会跳过。')
+              .fontSize(12)
+              .fontColor(Theme.textSecondary(Theme.isDark()))
+              .width('100%')
+            if (this.neteasePickerLoading) {
+              Column({ space: 8 }) {
+                LoadingProgress().width(28).height(28)
+                Text('正在获取自建歌单…')
+                  .fontSize(13)
+                  .fontColor(Theme.textSecondary(Theme.isDark()))
+              }
+              .width('100%')
+              .padding({ top: 18, bottom: 18 })
+            } else if (this.neteasePickerError.length > 0) {
+              Text(this.neteasePickerError)
+                .fontSize(13)
+                .fontColor(Theme.danger(Theme.isDark()))
+                .width('100%')
+                .padding({ top: 12, bottom: 12 })
+            } else {
+              List({ space: 2 }) {
+                ForEach(this.neteaseTargets, (target: NeteasePlaylistSummary) => {
+                  ListItem() {
+                    Row({ space: 10 }) {
+                      Column({ space: 2 }) {
+                        Text(target.name)
+                          .fontSize(15)
+                          .fontColor(Theme.textPrimary(Theme.isDark()))
+                          .maxLines(1)
+                          .textOverflow({ overflow: TextOverflow.Ellipsis })
+                        Text(`${target.trackCount} 首`)
+                          .fontSize(11)
+                          .fontColor(Theme.textSecondary(Theme.isDark()))
+                      }
+                      .layoutWeight(1)
+                      .alignItems(HorizontalAlign.Start)
+                      Text('同步')
+                        .fontSize(13)
+                        .fontColor(Theme.primary(Theme.isDark()))
+                        .padding({ left: 10, right: 10, top: 6, bottom: 6 })
+                        .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+                        .borderRadius(14)
+                    }
+                    .width('100%')
+                    .padding({ top: 8, bottom: 8 })
+                    .onClick(() => {
+                      void this.runNeteaseWriteback(target);
+                    })
+                  }
+                }, (target: NeteasePlaylistSummary) => `${target.id}`)
+              }
+              .width('100%')
+              .height(Math.min(320, this.neteaseTargets.length * 56 + 8))
+              .scrollBar(BarState.Auto)
+            }
+            Button('取消')
+              .width('100%')
+              .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+              .fontColor(Theme.textPrimary(Theme.isDark()))
+              .onClick(() => {
+                this.showNeteasePicker = false;
+              })
+          }
+          .width('86%')
+          .padding(20)
+          .backgroundColor(Theme.surface(Theme.isDark()))
+          .borderRadius(18)
+        }
+        .width('100%')
+        .height('100%')
+        .justifyContent(FlexAlign.Center)
+        .backgroundColor(Theme.scrim(Theme.isDark()))
+        .onClick(() => {
+          this.showNeteasePicker = false;
         })
       }
 
