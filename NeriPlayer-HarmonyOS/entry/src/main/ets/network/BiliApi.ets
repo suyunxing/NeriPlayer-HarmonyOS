@@ -87,6 +87,71 @@ interface BiliViewResponse {
 
 interface BiliViewData {
   cid?: number;
+  bvid?: string;
+  title?: string;
+  pic?: string;
+  duration?: number;
+  owner?: BiliViewOwner;
+  pages?: BiliViewPageRaw[];
+  ugc_season?: BiliUgcSeasonRaw;
+}
+
+interface BiliViewOwner {
+  mid?: number;
+  name?: string;
+}
+
+interface BiliViewPageRaw {
+  cid?: number;
+  page?: number;
+  part?: string;
+  duration?: number;
+}
+
+interface BiliViewEpisodeRaw {
+  bvid?: string;
+  title?: string;
+  cover?: string;
+  page?: BiliViewPageRaw;
+  duration?: number;
+}
+
+interface BiliUgcSeasonRaw {
+  id?: number;
+  mid?: number;
+  title?: string;
+  episodes?: BiliViewEpisodeRaw[];
+}
+
+/** 分 P 摘要（链接解析用）。 */
+export class BiliVideoPage {
+  page: number = 1;
+  cid: number = 0;
+  title: string = '';
+  durationMs: number = 0;
+}
+
+/** 合集（ugc_season）单集摘要。 */
+export class BiliSeasonEpisode {
+  bvid: string = '';
+  title: string = '';
+  durationMs: number = 0;
+  coverUrl: string = '';
+}
+
+/** wbi/view 的结构化摘要（上游 VideoBasicInfo 的鸿蒙子集）。 */
+export class BiliVideoInfo {
+  bvid: string = '';
+  title: string = '';
+  coverUrl: string = '';
+  durationMs: number = 0;
+  ownerMid: number = 0;
+  ownerName: string = '';
+  pages: BiliVideoPage[] = [];
+  seasonId: number = 0;
+  seasonOwnerMid: number = 0;
+  seasonTitle: string = '';
+  seasonEpisodes: BiliSeasonEpisode[] = [];
 }
 
 /**
@@ -242,6 +307,65 @@ export class BiliApi {
     }
     BiliApi.cidCache.set(bvid, cid);
     return cid;
+  }
+
+  /**
+   * wbi/view 完整摘要（探索页链接解析，上游 a8440275）：标题/UP 主/封面、
+   * 分 P 列表与 ugc_season 合集单集。bvid 缺席时按 aid 查（av 号链接）。
+   */
+  static async getVideoInfo(bvid: string, avid: number = 0): Promise<BiliVideoInfo> {
+    const params = new Map<string, string>();
+    if (bvid.length > 0) {
+      params.set('bvid', bvid);
+    } else if (avid > 0) {
+      params.set('aid', `${avid}`);
+    }
+    const url = await BiliApi.getWbiSignedUrl(`${Constants.BILI_BASE}/x/web-interface/wbi/view`, params);
+    const text = await HttpClient.getText(url, BiliApi.biliHeaders(), 15000, true);
+    const response = JSON.parse(text) as BiliViewResponse;
+    const data = response.data;
+    if (response.code !== 0 || data === undefined) {
+      throw new Error(`bili view failed: code=${response.code} bvid=${bvid} message=${response.message ?? ''}`);
+    }
+    const info = new BiliVideoInfo();
+    info.bvid = data.bvid ?? bvid;
+    info.title = BiliApi.stripHtml(data.title ?? '');
+    info.coverUrl = (data.pic ?? '').replace('http://', 'https://');
+    info.durationMs = (data.duration ?? 0) * 1000;
+    info.ownerMid = data.owner?.mid ?? 0;
+    info.ownerName = BiliApi.stripHtml(data.owner?.name ?? '');
+    const rawPages = data.pages ?? [];
+    for (const raw of rawPages) {
+      const page = new BiliVideoPage();
+      page.page = raw.page ?? 0;
+      page.cid = raw.cid ?? 0;
+      page.title = BiliApi.stripHtml(raw.part ?? '');
+      page.durationMs = (raw.duration ?? 0) * 1000;
+      if (page.cid > 0) {
+        info.pages.push(page);
+      }
+    }
+    const season = data.ugc_season;
+    if (season !== undefined && (season.id ?? 0) > 0) {
+      info.seasonId = season.id ?? 0;
+      info.seasonOwnerMid = season.mid ?? 0;
+      info.seasonTitle = BiliApi.stripHtml(season.title ?? '');
+      for (const episode of season.episodes ?? []) {
+        const entry = new BiliSeasonEpisode();
+        entry.bvid = episode.bvid ?? '';
+        entry.title = BiliApi.stripHtml(episode.title ?? '');
+        entry.durationMs = (episode.page?.duration ?? episode.duration ?? 0) * 1000;
+        entry.coverUrl = (episode.cover ?? '').replace('http://', 'https://');
+        if (entry.bvid.length > 0 && !info.seasonEpisodes.some((seen: BiliSeasonEpisode): boolean => seen.bvid === entry.bvid)) {
+          info.seasonEpisodes.push(entry);
+        }
+      }
+    }
+    const cid = data.cid ?? 0;
+    if (cid > 0) {
+      BiliApi.cidCache.set(info.bvid, cid);
+    }
+    return info;
   }
 
   static async search(keyword: string, limit: number = 20): Promise<SongItem[]> {

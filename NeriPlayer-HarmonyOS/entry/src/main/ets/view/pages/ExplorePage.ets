@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0
 
-import { LengthMetrics } from '@kit.ArkUI';
+import { LengthMetrics, promptAction } from '@kit.ArkUI';
 import { SongItem } from '../../model/SongItem';
+import { MusicPlatform } from '../../model/MusicPlatform';
 import { NeteaseApi } from '../../network/NeteaseApi';
 import { BiliApi } from '../../network/BiliApi';
 import { YouTubeMusicApi } from '../../network/YouTubeMusicApi';
+import { ExploreLinkTarget, ExploreLinkKind, recognizeExploreLink } from '../../network/ExploreLinkRecognizer';
 import { NetworkStatus } from '../../util/NetworkStatus';
 import { SearchHistoryRepository } from '../../data/SearchHistoryRepository';
 import { UsageRepository } from '../../data/UsageRepository';
@@ -81,6 +83,14 @@ export struct ExplorePage {
     if (keyword.length === 0) {
       return;
     }
+    // 链接优先于关键词（上游 ExploreLinkRecognizer）：粘贴分享链接直接解析
+    // 跳转/开播，不再把 URL 当搜索词。识别为「不支持的链接形态」也拦下并
+    // toast 说明，避免无意义的搜索结果。
+    const link = recognizeExploreLink(keyword);
+    if (link !== null) {
+      await this.openLink(link);
+      return;
+    }
     this.history = await SearchHistoryRepository.add(keyword);
     const online = await NetworkStatus.hasNetwork();
     if (!online) {
@@ -109,6 +119,115 @@ export struct ExplorePage {
       this.results = [];
     }
     this.loading = false;
+  }
+
+  /**
+   * 链接解析落地（上游 a8440275/1dbb2964 的鸿蒙接线）：
+   * - 网易歌曲 → 拉详情直接开播；歌单/艺人 → 跳对应页
+   * - B 站视频（BV/av 号，支持 ?p/?cid 识别）→ 拉视频摘要开播；多 P 视频
+   *   播第 1P 并提示（鸿蒙播放器暂无分 P 定向播放）
+   * - B 站合集分享（带 season 参数）→ ugc_season 单集列表落到结果区，逐集可播
+   * - 收藏夹（medialist/space favlist）→ 跳 B 站收藏页
+   * - 短链/合集 season 链接/UP 主空间/YouTube 播放列表 → 拦下并 toast 说明
+   *   （不再把链接当关键词搜索出垃圾结果）
+   */
+  private async openLink(link: ExploreLinkTarget): Promise<void> {
+    try {
+      const online = await NetworkStatus.hasNetwork();
+      if (!online) {
+        this.error = '离线模式：请联网后再打开链接';
+        this.results = [];
+        this.searched = true;
+        return;
+      }
+      if (link.kind === ExploreLinkKind.NETEASE_SONG) {
+        const songs = await NeteaseApi.getSongsByIds([link.id]);
+        if (songs.length === 0) {
+          promptAction.openToast({ message: '未找到该歌曲（可能已下架）' });
+          return;
+        }
+        this.results = songs;
+        this.searched = true;
+        await this.play(0);
+        return;
+      }
+      if (link.kind === ExploreLinkKind.NETEASE_PLAYLIST) {
+        Router.push(Router.NETEASE_PLAYLIST, `${link.id}`);
+        return;
+      }
+      if (link.kind === ExploreLinkKind.NETEASE_ARTIST) {
+        Router.push(Router.ARTIST, JSON.stringify({ artist: '', artistId: link.id }));
+        return;
+      }
+      if (link.kind === ExploreLinkKind.BILI_VIDEO) {
+        await this.openBiliVideoLink(link);
+        return;
+      }
+      if (link.kind === ExploreLinkKind.BILI_FAV_FOLDER
+        || link.kind === ExploreLinkKind.BILI_FAV_FOLDER_BY_OWNER) {
+        const mediaId = link.kind === ExploreLinkKind.BILI_FAV_FOLDER
+          ? link.id : link.folderId;
+        Router.push(Router.BILI_FAV, `${mediaId}`);
+        return;
+      }
+      if (link.kind === ExploreLinkKind.YOUTUBE_VIDEO) {
+        const song = YouTubeMusicApi.songFromVideoId(link.videoId);
+        this.results = [song];
+        this.searched = true;
+        await this.play(0);
+        return;
+      }
+      if (link.kind === ExploreLinkKind.BILI_SHORT_LINK || link.kind === ExploreLinkKind.NETEASE_SHORT_LINK) {
+        promptAction.openToast({ message: '短链暂不支持，请在浏览器打开后复制完整链接', duration: 2500 });
+        return;
+      }
+      const note = link.note.length > 0 ? link.note : '该链接暂不支持';
+      promptAction.openToast({ message: note, duration: 2500 });
+    } catch (error) {
+      promptAction.openToast({ message: `链接打开失败：${(error as Error).message}` });
+    }
+  }
+
+  private async openBiliVideoLink(link: ExploreLinkTarget): Promise<void> {
+    this.loading = true;
+    try {
+      const info = await BiliApi.getVideoInfo(link.bvid, link.avid);
+      // 合集分享：ugc_season 单集全部落到结果区（每集是一个独立 BV，可播）。
+      if (link.isCollectionShare && info.seasonEpisodes.length > 0) {
+        const episodes: SongItem[] = [];
+        for (const episode of info.seasonEpisodes) {
+          const song = new SongItem(0, episode.title, info.ownerName, 'Bilibili', 0,
+            episode.durationMs, episode.coverUrl, '', MusicPlatform.BILIBILI);
+          song.channelId = 'bilibili';
+          song.audioId = episode.bvid;
+          episodes.push(song);
+        }
+        this.results = episodes;
+        this.searched = true;
+        this.error = '';
+        promptAction.openToast({ message: `「${info.seasonTitle}」共 ${episodes.length} 集` });
+        return;
+      }
+      const song = new SongItem(0, info.title, info.ownerName, 'Bilibili', 0,
+        info.durationMs, info.coverUrl, '', MusicPlatform.BILIBILI);
+      song.channelId = 'bilibili';
+      song.audioId = info.bvid;
+      this.results = [song];
+      this.searched = true;
+      this.error = '';
+      if (info.pages.length > 1) {
+        const wanted = link.page > 0 ? link.page : 1;
+        promptAction.openToast({
+          message: wanted > 1
+            ? `该视频共 ${info.pages.length} 个分P，当前播放第 1P（分P定向播放暂未支持）`
+            : `该视频共 ${info.pages.length} 个分P，当前播放第 1P`,
+          duration: 2500
+        });
+      }
+      await this.play(0);
+    } finally {
+      this.loading = false;
+    }
   }
 
   private async play(index: number): Promise<void> {
