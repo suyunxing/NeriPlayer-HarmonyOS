@@ -5,6 +5,7 @@
 
 export enum WebDavErrorKind {
   AUTH = 'auth',
+  DIRECTORY_INVALID = 'directory_invalid',
   FILE_NOT_FOUND = 'file_not_found',
   CONTENT_CONFLICT = 'content_conflict',
   MISSING_CONCURRENCY_TOKEN = 'missing_concurrency_token',
@@ -26,11 +27,20 @@ export class WebDavError extends Error {
   }
 }
 
+/**
+ * Maps an HTTP status to a typed failure. `dirProbe` marks collection-level
+ * operations (PROPFIND): a missing/broken path there is a configuration error,
+ * not "backup file does not exist yet" and never a merge conflict.
+ */
 export function classifyWebDavFailure(operation: string, statusCode: number,
-  bodyText: string): WebDavError {
+  bodyText: string, dirProbe: boolean = false): WebDavError {
   if (statusCode === 401 || statusCode === 403) {
     return new WebDavError(WebDavErrorKind.AUTH, statusCode,
       `WebDAV authentication failed (${operation} ${statusCode})`);
+  }
+  if (dirProbe && (statusCode === 404 || statusCode === 409 || statusCode === 410)) {
+    return new WebDavError(WebDavErrorKind.DIRECTORY_INVALID, statusCode,
+      `WebDAV directory not accessible (${operation} ${statusCode})${bodySuffix(bodyText)}`);
   }
   if (statusCode === 404) {
     return new WebDavError(WebDavErrorKind.FILE_NOT_FOUND, statusCode,
@@ -57,4 +67,27 @@ export function trimWebDavError(message: string): string {
 function bodySuffix(bodyText: string): string {
   const trimmed = bodyText.trim();
   return trimmed.length === 0 ? '' : ` - ${trimmed}`;
+}
+
+/** User-facing Chinese text for every WebDAV error kind (shared by settings UI and sync reports). */
+export function describeWebDavErrorForUser(error: Error): string {
+  if (error instanceof WebDavError) {
+    if (error.kind === WebDavErrorKind.AUTH) {
+      return 'WebDAV 用户名或密码错误';
+    }
+    if (error.kind === WebDavErrorKind.DIRECTORY_INVALID) {
+      return 'WebDAV 目录不存在或不可访问，请检查目录配置';
+    }
+    if (error.kind === WebDavErrorKind.FILE_NOT_FOUND) {
+      return '远端暂无备份文件（首次同步时将创建）';
+    }
+    if (error.kind === WebDavErrorKind.CONTENT_CONFLICT) {
+      return '远端文件已被其他设备修改，请重新拉取后同步';
+    }
+    if (error.kind === WebDavErrorKind.NETWORK) {
+      return `网络错误：${error.message}`;
+    }
+    return error.message;
+  }
+  return error.message;
 }

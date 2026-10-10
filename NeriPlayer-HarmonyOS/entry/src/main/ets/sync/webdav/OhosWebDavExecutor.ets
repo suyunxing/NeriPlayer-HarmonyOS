@@ -17,18 +17,17 @@ export class OhosWebDavExecutor implements WebDavExecutor {
   async execute(request: WebDavRequest): Promise<WebDavResponse> {
     const client = http.createHttp();
     try {
-      const isCustom = request.method === 'PROPFIND';
+      const standard = standardMethodOf(request.method);
       const options: http.HttpRequestOptions = {
-        method: request.method === 'PUT' ? http.RequestMethod.PUT :
-          isCustom ? http.RequestMethod.POST : http.RequestMethod.GET,
+        method: standard === null ? http.RequestMethod.POST : standard,
         header: headerRecord(request.headers),
         connectTimeout: CONNECT_TIMEOUT_MS,
         readTimeout: READ_TIMEOUT_MS,
         usingCache: false,
         expectDataType: http.HttpDataType.ARRAY_BUFFER
       };
-      if (isCustom) {
-        // RequestMethod has no PROPFIND value; customMethod is available since API 23.
+      if (standard === null) {
+        // RequestMethod lacks PROPFIND/MOVE values; customMethod covers them since API 23.
         options.customMethod = request.method;
       }
       if (request.bodyBytes.length > 0) {
@@ -47,6 +46,25 @@ export class OhosWebDavExecutor implements WebDavExecutor {
     } finally {
       client.destroy();
     }
+  }
+}
+
+function standardMethodOf(method: string): http.RequestMethod | null {
+  switch (method) {
+    case 'GET':
+      return http.RequestMethod.GET;
+    case 'POST':
+      return http.RequestMethod.POST;
+    case 'PUT':
+      return http.RequestMethod.PUT;
+    case 'DELETE':
+      return http.RequestMethod.DELETE;
+    case 'HEAD':
+      return http.RequestMethod.HEAD;
+    case 'OPTIONS':
+      return http.RequestMethod.OPTIONS;
+    default:
+      return null;
   }
 }
 
