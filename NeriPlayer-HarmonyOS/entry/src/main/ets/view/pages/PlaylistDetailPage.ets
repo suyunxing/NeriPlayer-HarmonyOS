@@ -25,6 +25,8 @@ import { PlaylistHeader, HeaderPill } from '../components/PlaylistHeader';
 import { Router } from '../Router';
 import { HdsNavDestination } from '@kit.UIDesignKit';
 import { subPageTitleBar, SubPageBottomFade, SubPageMenuEntry, SUB_TITLEBAR_SPACE_VP, SUB_BOTTOM_CLEARANCE_VP } from '../components/HdsSubPage';
+import { SearchTextMatcher, SearchValue } from '../../util/search/SearchTextMatcher';
+import { songSearchValues } from '../../util/search/SongSearchValues';
 
 /** 生产环境写回适配：把纯编排流程接到 NeteaseApi 的真实网络实现上。 */
 class LiveNeteaseWritebackDeps extends NeteaseWritebackDeps {
@@ -73,8 +75,46 @@ export struct PlaylistDetailPage {
   private songsDs: SongListDataSource = new SongListDataSource();
   private historyDs: SongListDataSource = new SongListDataSource();
 
+  /** F-9（上游 dfa37db0）：歌单内搜索词；非空时列表为过滤+重排视图。 */
+  @State filterQuery: string = '';
+
   onPlaylistChanged(): void {
-    this.songsDs.reset(this.playlist?.songs ?? []);
+    this.applySongFilter();
+  }
+
+  /**
+   * 过滤视图点歌：按歌曲身份回原歌单定位起播（队列保持全歌单，与上游
+   * 歌单搜索行为一致）；定位失败（理论不可达）退化为只播当前列表。
+   */
+  private playFromFiltered(song: SongItem): void {
+    if (this.playlist !== null) {
+      let index = -1;
+      for (let i = 0; i < this.playlist.songs.length; i++) {
+        const candidate = this.playlist.songs[i];
+        if (candidate.platform === song.platform
+          && candidate.audioId === song.audioId && candidate.id === song.id) {
+          index = i;
+          break;
+        }
+      }
+      if (index >= 0) {
+        PlayerManager.playPlaylist(this.playlist.songs, index);
+        Router.push(Router.NOW_PLAYING);
+        return;
+      }
+    }
+  }
+
+  /** 过滤视图：SearchTextMatcher 按词重排（标题命中 > 艺人 > 专辑…，含拼音）。 */
+  private applySongFilter(): void {
+    const songs = this.playlist?.songs ?? [];
+    const query = this.filterQuery.trim();
+    if (query.length === 0) {
+      this.songsDs.reset(songs);
+      return;
+    }
+    this.songsDs.reset(SearchTextMatcher.filterAndRank(query, songs,
+      (song: SongItem): SearchValue[] => songSearchValues(song)));
   }
 
   onHistoryChanged(): void {
@@ -371,6 +411,49 @@ export struct PlaylistDetailPage {
               .width('100%')
             }
 
+            if (this.playlist.songs.length > 0) {
+              // F-9：歌单内搜索（上游歌单现代搜索的去动效形态）。
+              ListItem() {
+                Row({ space: 8 }) {
+                  SymbolGlyph($r('sys.symbol.magnifyingglass'))
+                    .fontSize(15)
+                    .fontColor([Theme.textSecondary(Theme.isDark())])
+                  TextInput({ placeholder: '在歌单内搜索' })
+                    .layoutWeight(1)
+                    .height(38)
+                    .fontSize(13)
+                    .padding({ left: 0, right: 0 })
+                    .backgroundColor(Color.Transparent)
+                    .onChange((value: string) => {
+                      this.filterQuery = value;
+                      this.applySongFilter();
+                    })
+                  if (this.filterQuery.length > 0) {
+                    Button() {
+                      Image($r('app.media.ic_close_24'))
+                        .width(14)
+                        .height(14)
+                        .fillColor(Theme.textSecondary(Theme.isDark()))
+                    }
+                    .width(30)
+                    .height(30)
+                    .type(ButtonType.Circle)
+                    .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+                    .accessibilityText('清除搜索')
+                    .onClick(() => {
+                      this.filterQuery = '';
+                      this.applySongFilter();
+                    })
+                  }
+                }
+                .width('100%')
+                .height(44)
+                .padding({ left: 12, right: 8 })
+                .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+                .borderRadius(22)
+              }
+            }
+
             if (this.playlist.songs.length === 0) {
               ListItem() {
                 EmptyState({
@@ -378,6 +461,14 @@ export struct PlaylistDetailPage {
                   title: '歌单为空',
                   subtitle: this.isFavorites() ? '在歌曲列表点 ♡ 收藏歌曲' :
                     (this.isMirrored() ? '等待自动同步从来源拉取歌曲，也可点「立即同步」' : '点击「添加」从播放历史选歌')
+                })
+              }
+            } else if (this.songsDs.totalCount() === 0) {
+              ListItem() {
+                EmptyState({
+                  icon: '🔍',
+                  title: '没有匹配的歌曲',
+                  subtitle: '换个关键词试试（支持拼音/首字母）'
                 })
               }
             } else {
@@ -388,10 +479,7 @@ export struct PlaylistDetailPage {
                       songJson: song.toJson(),
                       index: index,
                       onPlay: () => {
-                        if (this.playlist !== null) {
-                          PlayerManager.playPlaylist(this.playlist.songs, index);
-                          Router.push(Router.NOW_PLAYING);
-                        }
+                        this.playFromFiltered(song);
                       }
                     })
                     Button() {

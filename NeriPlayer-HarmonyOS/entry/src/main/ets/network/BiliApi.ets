@@ -48,6 +48,16 @@ interface BiliSearchResponse {
 
 interface BiliSearchData {
   result?: BiliSearchItem[];
+  /** 服务端分页元数据（numPages 从 1 计）。 */
+  numPages?: number;
+  page?: number;
+}
+
+/** 搜索分页结果（上游 BiliVideoSearchPage 的鸿蒙子集）。 */
+export class BiliSearchPage {
+  items: SongItem[] = [];
+  page: number = 1;
+  numPages: number = 1;
 }
 
 interface BiliDashAudio {
@@ -384,22 +394,36 @@ export class BiliApi {
   }
 
   static async search(keyword: string, limit: number = 20): Promise<SongItem[]> {
+    const page = await BiliApi.searchPage(keyword, limit, 1);
+    return page.items;
+  }
+
+  /**
+   * 上游 searchVideos(keyword, page)：wbi/search/type 带 page 参数；
+   * 返回本页条目与 numPages（hasMore = page < numPages）。
+   */
+  static async searchPage(keyword: string, limit: number, page: number): Promise<BiliSearchPage> {
     await BiliApi.ensureAnonymousFingerprint();
-    const items = await BiliApi.searchOnce(keyword, limit);
-    if (items.length > 0) {
-      return items;
+    let result = await BiliApi.searchOnce(keyword, limit, page);
+    if (result.items.length > 0 || page > 1) {
+      return result;
     }
     // Anonymous WBI search is intermittently rejected with an empty result
     // on the first request of a session (risk control warms up per buvid);
     // one delayed retry hides this from users.
     await new Promise<void>((resolve) => setTimeout(resolve, 600));
-    return BiliApi.searchOnce(keyword, limit);
+    result = await BiliApi.searchOnce(keyword, limit, page);
+    if (result.items.length === 0) {
+      Logger.warn(`bili search empty after retry: page=${page} keywordLen=${keyword.length}`);
+    }
+    return result;
   }
 
-  private static async searchOnce(keyword: string, limit: number): Promise<SongItem[]> {
+  private static async searchOnce(keyword: string, limit: number, page: number): Promise<BiliSearchPage> {
     const params = new Map<string, string>();
     params.set('search_type', 'video');
     params.set('keyword', keyword);
+    params.set('page', `${page}`);
     const url = await BiliApi.getWbiSignedUrl(
       `${Constants.BILI_BASE}/x/web-interface/wbi/search/type`,
       params
@@ -429,7 +453,12 @@ export class BiliApi {
       song.audioId = item.bvid;
       items.push(song);
     }
-    return items;
+    const out = new BiliSearchPage();
+    out.items = items;
+    const numPages = response.data?.numPages ?? 0;
+    out.page = page;
+    out.numPages = numPages > 0 ? numPages : (items.length > 0 ? page : 0);
+    return out;
   }
 
   /**

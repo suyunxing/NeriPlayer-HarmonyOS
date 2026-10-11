@@ -2,6 +2,7 @@
 
 import { AppPreferences } from './AppPreferences';
 import { Logger } from '../app/Logger';
+import { updatedSearchHistory } from './SearchHistoryPolicy';
 
 /**
  * Recent search keywords per platform, mirroring the Android explore
@@ -24,18 +25,15 @@ export class SearchHistoryRepository {
   }
 
   static async add(keyword: string): Promise<string[]> {
-    const trimmed = keyword.trim();
-    if (trimmed.length === 0) {
+    // 上游 updatedExploreSearchHistory：忽略大小写去重（旧数据里的重复项
+    // 顺带被归一掉），超限截断。
+    const history = await SearchHistoryRepository.load();
+    const updated = updatedSearchHistory(history, keyword, SearchHistoryRepository.LIMIT);
+    if (updated.length === 0) {
       return SearchHistoryRepository.load();
     }
-    const history = await SearchHistoryRepository.load();
-    const filtered = history.filter((item: string) => item !== trimmed);
-    filtered.unshift(trimmed);
-    if (filtered.length > SearchHistoryRepository.LIMIT) {
-      filtered.splice(SearchHistoryRepository.LIMIT);
-    }
-    await AppPreferences.putString(SearchHistoryRepository.KEY, JSON.stringify(filtered));
-    return filtered;
+    await AppPreferences.putString(SearchHistoryRepository.KEY, JSON.stringify(updated));
+    return updated;
   }
 
   static async remove(keyword: string): Promise<string[]> {
