@@ -7,6 +7,7 @@ import { NeteaseApi } from '../../network/NeteaseApi';
 import { BiliApi } from '../../network/BiliApi';
 import { YouTubeMusicApi } from '../../network/YouTubeMusicApi';
 import { ExploreLinkTarget, ExploreLinkKind, recognizeExploreLink } from '../../network/ExploreLinkRecognizer';
+import { expandExploreShortLink } from '../../network/ShortLinkExpander';
 import { NetworkStatus } from '../../util/NetworkStatus';
 import { SearchHistoryRepository } from '../../data/SearchHistoryRepository';
 import { UsageRepository } from '../../data/UsageRepository';
@@ -128,8 +129,10 @@ export struct ExplorePage {
    *   播第 1P 并提示（鸿蒙播放器暂无分 P 定向播放）
    * - B 站合集分享（带 season 参数）→ ugc_season 单集列表落到结果区，逐集可播
    * - 收藏夹（medialist/space favlist）→ 跳 B 站收藏页
-   * - 短链/合集 season 链接/UP 主空间/YouTube 播放列表 → 拦下并 toast 说明
-   *   （不再把链接当关键词搜索出垃圾结果）
+   * - UP 主空间（space/{mid}）→ 跳 UP 主空间页；合集/系列（lists/{id}）→
+   *   跳合集/系列详情页（上游 e95b2ef9）
+   * - 短链（b23.tv / 163cn.tv）→ 跟随重定向展开后重新识别分发，失败退回提示
+   * - YouTube 频道/播放列表 → 拦下并 toast 说明（不再当关键词搜索出垃圾结果）
    */
   private async openLink(link: ExploreLinkTarget): Promise<void> {
     try {
@@ -170,6 +173,19 @@ export struct ExplorePage {
         Router.push(Router.BILI_FAV, `${mediaId}`);
         return;
       }
+      if (link.kind === ExploreLinkKind.BILI_ARTIST) {
+        Router.push(Router.BILI_UPLOADER, JSON.stringify({ mid: link.id }));
+        return;
+      }
+      if (link.kind === ExploreLinkKind.BILI_COLLECTION
+        || link.kind === ExploreLinkKind.BILI_SERIES) {
+        Router.push(Router.BILI_COLLECTION, JSON.stringify({
+          kind: link.kind === ExploreLinkKind.BILI_SERIES ? 'series' : 'collection',
+          id: link.seasonId,
+          mid: link.ownerMid
+        }));
+        return;
+      }
       if (link.kind === ExploreLinkKind.YOUTUBE_VIDEO) {
         const song = YouTubeMusicApi.songFromVideoId(link.videoId);
         this.results = [song];
@@ -178,7 +194,21 @@ export struct ExplorePage {
         return;
       }
       if (link.kind === ExploreLinkKind.BILI_SHORT_LINK || link.kind === ExploreLinkKind.NETEASE_SHORT_LINK) {
-        promptAction.openToast({ message: '短链暂不支持，请在浏览器打开后复制完整链接', duration: 2500 });
+        // 短链展开（b23.tv / 163cn.tv）：跟随重定向拿最终 URL 后重新识别分发；
+        // 展开失败或展开结果仍是短链时退回原提示。
+        this.loading = true;
+        try {
+          const expanded = await expandExploreShortLink(link.url);
+          const target = recognizeExploreLink(expanded);
+          if (target !== null && target.kind !== ExploreLinkKind.BILI_SHORT_LINK
+            && target.kind !== ExploreLinkKind.NETEASE_SHORT_LINK) {
+            await this.openLink(target);
+            return;
+          }
+        } finally {
+          this.loading = false;
+        }
+        promptAction.openToast({ message: '短链解析失败，请在浏览器打开后复制完整链接', duration: 2500 });
         return;
       }
       const note = link.note.length > 0 ? link.note : '该链接暂不支持';

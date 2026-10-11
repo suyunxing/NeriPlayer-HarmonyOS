@@ -3,6 +3,7 @@
 import { curves, SymbolGlyphModifier, LengthMetrics, window } from '@kit.ArkUI';
 import { SongItem } from '../../model/SongItem';
 import { MusicPlatform } from '../../model/MusicPlatform';
+import { BiliApi } from '../../network/BiliApi';
 import { stableKeyOf } from '../../model/SongIdentity';
 import { LyricLine } from '../../model/LyricLine';
 import { QueueState } from '../../model/QueueState';
@@ -530,6 +531,25 @@ export struct NowPlayingPage {
     if (song.platform === MusicPlatform.NETEASE && song.artistId > 0) {
       Router.push(Router.ARTIST, JSON.stringify({ artist: song.displayArtist, artistId: song.artistId }));
       return;
+    }
+    // B 站歌曲的「艺人」是 UP 主：audioId 即 bvid，ownerMid 从视频摘要反查
+    // 后进 UP 主空间页（上游 e95b2ef9 的 artist 导航）。
+    if (song.platform === MusicPlatform.BILIBILI && song.audioId.length > 0) {
+      this.openBiliUploaderSpace(song.audioId);
+      return;
+    }
+    this.getUIContext().getPromptAction().showToast({ message: '暂无艺人信息', duration: 2000 });
+  }
+
+  private async openBiliUploaderSpace(bvid: string): Promise<void> {
+    try {
+      const info = await BiliApi.getVideoInfo(bvid);
+      if (info.ownerMid > 0) {
+        Router.push(Router.BILI_UPLOADER, JSON.stringify({ mid: info.ownerMid, name: info.ownerName }));
+        return;
+      }
+    } catch (_error) {
+      // 网络失败落到通用提示。
     }
     this.getUIContext().getPromptAction().showToast({ message: '暂无艺人信息', duration: 2000 });
   }

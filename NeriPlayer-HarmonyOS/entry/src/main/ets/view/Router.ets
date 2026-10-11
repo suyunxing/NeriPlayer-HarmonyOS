@@ -21,6 +21,10 @@ export class Router {
   static readonly PLAYLIST_DETAIL: string = 'playlist_detail';
   static readonly NETEASE_PLAYLIST: string = 'netease_playlist';
   static readonly BILI_FAV: string = 'bili_fav';
+  /** B 站 UP 主空间页，param 为 JSON：{ mid: number, name?: string }。 */
+  static readonly BILI_UPLOADER: string = 'bili_uploader';
+  /** B 站合集/系列详情页，param 为 JSON：{ kind, id, mid, title? }。 */
+  static readonly BILI_COLLECTION: string = 'bili_collection';
   static readonly RECENT: string = 'recent';
   static readonly DOWNLOADS: string = 'downloads';
   static readonly STATS: string = 'stats';
