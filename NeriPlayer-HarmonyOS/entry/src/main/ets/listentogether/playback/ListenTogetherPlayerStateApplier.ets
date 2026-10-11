@@ -35,9 +35,11 @@ import {
 import {
   hasSameListenTogetherTrackSequence,
   indexOfListenTogetherTrack,
+  isListenTogetherQueueUpdateCause,
   listenTogetherAuthoritativeStreamUrlsForCurrentTrack,
   listenTogetherCurrentStableKey,
-  sameListenTogetherTrack
+  sameListenTogetherTrack,
+  shouldApplyListenTogetherQueueUpdateWithoutReload
 } from './ListenTogetherPlaybackTrack';
 import { mergeListenTogetherCurrentTrack } from './ListenTogetherShareableQueueSnapshot';
 import {
@@ -106,6 +108,13 @@ export class ListenTogetherPlayerStateApplier {
     }
     const queue = this.roomQueue(state);
     if (queue.length === 0) {
+      // Upstream 89a8694c: a SET_QUEUE family update that empties the room
+      // clears the local queue too (the controller already stopped); anything
+      // else with an empty queue stays a skip.
+      if (isListenTogetherQueueUpdateCause(causeType)) {
+        this.surface.applyRemoteQueueUpdate([], -1);
+        return true;
+      }
       Logger.warn(`${TAG}: skip empty queue, roomId=${state.roomId}, version=${state.version}, causeType=${causeType}`);
       return false;
     }
@@ -114,7 +123,18 @@ export class ListenTogetherPlayerStateApplier {
     const targetSong = queue[targetIndex];
     const currentQueue = this.surface.currentQueue();
     const currentSong = this.surface.currentSong();
-    const localCurrentIndex = indexOfListenTogetherTrack(currentQueue, currentSong);
+    // Upstream 89a8694c: a queue-only update whose current track is already
+    // playing lands without a reload — the listener's player keeps streaming
+    // while the surrounding queue slots swap in place.
+    const queueUpdatedWithoutReload = shouldApplyListenTogetherQueueUpdateWithoutReload(
+      causeType, queue, targetIndex, currentQueue, currentSong);
+    if (queueUpdatedWithoutReload) {
+      this.surface.applyRemoteQueueUpdate(queue, targetIndex);
+    }
+    const synchronizedQueue = queueUpdatedWithoutReload ? this.surface.currentQueue() : currentQueue;
+    const localCurrentIndex = queueUpdatedWithoutReload
+      ? targetIndex
+      : indexOfListenTogetherTrack(synchronizedQueue, currentSong);
     const targetStableKey = listenTogetherCurrentStableKey(state);
     const authoritativeStreamUrls = listenTogetherAuthoritativeStreamUrlsForCurrentTrack(state);
     const authoritativeStreamUrl = authoritativeStreamUrls.length > 0 ? authoritativeStreamUrls[0] : null;
@@ -174,7 +194,7 @@ export class ListenTogetherPlayerStateApplier {
       this.lastUnavailableAuthoritativeStreamReloadStableKey = null;
     }
     const playbackContextChanged =
-      !hasSameListenTogetherTrackSequence(currentQueue, queue) ||
+      !hasSameListenTogetherTrackSequence(synchronizedQueue, queue) ||
       needsAuthoritativeStreamReload ||
       shouldReloadForUnavailableAuthoritativeStream ||
       forcePlaybackStallReload;

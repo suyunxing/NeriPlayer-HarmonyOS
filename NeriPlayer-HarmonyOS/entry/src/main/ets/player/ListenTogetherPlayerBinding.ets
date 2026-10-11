@@ -99,6 +99,10 @@ export class PlayerManagerListenTogetherSurface implements ListenTogetherPlayerS
     return PlayerManager.currentPlaybackRequiresListenTogetherAuthoritativeStream();
   }
 
+  applyRemoteQueueUpdate(queue: SongItem[], currentIndex: number): void {
+    PlayerManager.applyRemoteListenTogetherQueueUpdate(queue, currentIndex);
+  }
+
   elapsedRealtimeMs(): number {
     // ArkTS has no separate monotonic-uptime API in the base runtime; the
     // event-loop clock does not step backwards, which is the property the
