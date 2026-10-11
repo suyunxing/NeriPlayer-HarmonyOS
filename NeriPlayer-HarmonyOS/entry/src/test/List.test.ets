@@ -18,6 +18,7 @@ import neteasePlaylistWritebackTest from './ets/test/NeteasePlaylistWriteback.te
 import neteaseHomeRecommendationsTest from './ets/test/NeteaseHomeRecommendations.test';
 import exploreLinkRecognizerTest from './ets/test/ExploreLinkRecognizer.test';
 import biliUploaderSpaceTest from './ets/test/BiliUploaderSpace.test';
+import ytmCreatorParserTest from './ets/test/YtmCreatorParser.test';
 import neteaseCommentMapperTest from './ets/test/NeteaseCommentMapper.test';
 import biliCommentMapperTest from './ets/test/BiliCommentMapper.test';
 import commentRepositoryCoreTest from './ets/test/CommentRepositoryCore.test';
@@ -217,6 +218,7 @@ export default function testsuite(): void {
   neteaseHomeRecommendationsTest();
   exploreLinkRecognizerTest();
   biliUploaderSpaceTest();
+  ytmCreatorParserTest();
   neteaseCommentMapperTest();
   biliCommentMapperTest();
   commentRepositoryCoreTest();

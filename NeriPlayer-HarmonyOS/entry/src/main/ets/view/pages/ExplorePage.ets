@@ -5,7 +5,8 @@ import { SongItem } from '../../model/SongItem';
 import { MusicPlatform } from '../../model/MusicPlatform';
 import { NeteaseApi } from '../../network/NeteaseApi';
 import { BiliApi } from '../../network/BiliApi';
-import { YouTubeMusicApi } from '../../network/YouTubeMusicApi';
+import { YouTubeMusicApi, YtmSearchFilter } from '../../network/YouTubeMusicApi';
+import { YtmCreatorSummary } from '../../network/ytm/YtmCreatorParser';
 import { ExploreLinkTarget, ExploreLinkKind, recognizeExploreLink } from '../../network/ExploreLinkRecognizer';
 import { expandExploreShortLink } from '../../network/ShortLinkExpander';
 import { NetworkStatus } from '../../util/NetworkStatus';
@@ -40,7 +41,11 @@ export struct ExplorePage {
   @StorageProp('player.coverScheme') coverScheme: AccentScheme = AccentScheme.neutralFallback();
   @State query: string = '';
   @State platform: number = 0;
+  /** YTM 源的搜索类型（上游 YouTubeExploreSearchType）：0 歌曲 / 1 视频 / 2 艺人。 */
+  @State ytmType: number = 0;
   @Watch('onResultsChanged') @State results: SongItem[] = [];
+  /** ytmType === 2 时的创作者结果（与 results 互斥展示）。 */
+  @State creators: YtmCreatorSummary[] = [];
   @State loading: boolean = false;
   @State error: string = '';
   @State history: string[] = [];
@@ -108,16 +113,23 @@ export struct ExplorePage {
         this.results = await NeteaseApi.search(keyword, 30);
       } else if (this.platform === 1) {
         this.results = await BiliApi.search(keyword, 20);
+      } else if (this.ytmType === 2) {
+        // 上游 CREATOR 过滤：结果行跳创作者主页，不落歌曲列表。
+        this.creators = await YouTubeMusicApi.searchCreators(keyword, 20);
+        this.results = [];
       } else {
-        this.results = await YouTubeMusicApi.search(keyword, 20);
+        this.results = await YouTubeMusicApi.search(keyword, 20,
+          this.ytmType === 1 ? YtmSearchFilter.VIDEOS : YtmSearchFilter.SONGS);
+        this.creators = [];
       }
-      if (this.results.length === 0) {
+      if (this.results.length === 0 && this.creators.length === 0) {
         this.error = '没有找到结果';
       }
     } catch (searchError) {
       const e = searchError as Error;
       this.error = `搜索失败：${e.message}`;
       this.results = [];
+      this.creators = [];
     }
     this.loading = false;
   }
@@ -301,9 +313,35 @@ export struct ExplorePage {
     .onClick(() => {
       this.platform = index;
       this.results = [];
+      this.creators = [];
       this.error = '';
       this.searched = false;
     })
+  }
+
+  /** YTM 源的类型 chips（上游 YouTubeExploreSearchType：歌曲/视频/艺人）。 */
+  @Builder
+  ytmTypeButton(index: number, label: string) {
+    Text(label)
+      .fontSize(12)
+      .fontColor(this.ytmType === index
+        ? this.accentOnPrimary(Theme.isDark()) : Theme.textSecondary(Theme.isDark()))
+      .padding({ left: 12, right: 12, top: 6, bottom: 6 })
+      .backgroundColor(this.ytmType === index
+        ? this.accentPrimary(Theme.isDark()) : this.accentSurfaceVariant(Theme.isDark()))
+      .borderRadius(15)
+      .clickEffect({ level: ClickEffectLevel.LIGHT })
+      .onClick(() => {
+        if (this.ytmType === index) {
+          return;
+        }
+        this.ytmType = index;
+        // 上游 setYouTubeMusicSearchType：切类型即清空当前搜索态。
+        this.results = [];
+        this.creators = [];
+        this.error = '';
+        this.searched = false;
+      })
   }
 
 
@@ -401,6 +439,16 @@ export struct ExplorePage {
       .zIndex(1)
       .width('100%')
 
+      if (this.platform === 2) {
+        Flex({ wrap: FlexWrap.Wrap, space: { main: LengthMetrics.vp(8) } }) {
+          this.ytmTypeButton(0, '歌曲')
+          this.ytmTypeButton(1, '视频')
+          this.ytmTypeButton(2, '艺人')
+        }
+        .zIndex(1)
+        .width('100%')
+      }
+
       if (!this.searched && this.history.length > 0) {
         Column({ space: 8 }) {
           Row() {
@@ -437,6 +485,67 @@ export struct ExplorePage {
         LoadingState()
       } else if (this.error.length > 0) {
         EmptyState({ icon: '!', title: this.error })
+      } else if (this.searched && this.platform === 2 && this.ytmType === 2) {
+        // 艺人结果行（上游 YouTubeCreatorSearchRow）：头像 + 名字 + 订阅信息。
+        List({ scroller: this.scroller }) {
+          ForEach(this.creators, (creator: YtmCreatorSummary, index: number) => {
+            ListItem() {
+              Row({ space: 12 }) {
+                Image(creator.coverUrl.length > 0 ? creator.coverUrl : $r('app.media.ic_music_note_24'))
+                  .width(52)
+                  .height(52)
+                  .borderRadius(26)
+                  .objectFit(ImageFit.Cover)
+                  .fillColor(creator.coverUrl.length > 0
+                    ? Color.Transparent : this.accentPrimary(Theme.isDark()))
+                  .backgroundColor(this.accentSurfaceVariant(Theme.isDark()))
+                  .alt($r('app.media.ic_music_note_24'))
+                Column({ space: 3 }) {
+                  Text(creator.title)
+                    .fontSize(14)
+                    .fontWeight(FontWeight.Medium)
+                    .fontColor(Theme.textPrimary(Theme.isDark()))
+                    .maxLines(1)
+                    .textOverflow({ overflow: TextOverflow.Ellipsis })
+                  if (creator.subtitle.length > 0) {
+                    Text(creator.subtitle)
+                      .fontSize(12)
+                      .fontColor(Theme.textSecondary(Theme.isDark()))
+                      .maxLines(1)
+                      .textOverflow({ overflow: TextOverflow.Ellipsis })
+                  }
+                }
+                .layoutWeight(1)
+                .alignItems(HorizontalAlign.Start)
+                Image($r('app.media.ic_chevron_right_24'))
+                  .width(16)
+                  .height(16)
+                  .fillColor(Theme.textDisabled(Theme.isDark()))
+              }
+              .width('100%')
+              .padding({ top: 7, bottom: 7 })
+              .clickEffect({ level: ClickEffectLevel.LIGHT })
+              .onClick(() => {
+                Router.push(Router.YTM_CREATOR, JSON.stringify({
+                  browseId: creator.browseId,
+                  title: creator.title,
+                  subtitle: creator.subtitle,
+                  coverUrl: creator.coverUrl
+                }));
+              })
+            }
+          }, (creator: YtmCreatorSummary) => creator.browseId)
+        }
+        .layoutWeight(1)
+        .scrollBar(BarState.Off)
+        .cachedCount(3, true)
+        .onScrollFrameBegin((offset: number) => {
+          this.onBarScroll(offset);
+          return { offsetRemain: offset };
+        })
+        .clip(false)
+        .expandSafeArea([SafeAreaType.SYSTEM, SafeAreaType.CUTOUT], [SafeAreaEdge.TOP])
+        .width('100%')
       } else if (this.searched && this.results.length > 0) {
         List({ scroller: this.scroller }) {
           LazyForEach(this.resultsDs, (item: SongItem, index: number) => {
