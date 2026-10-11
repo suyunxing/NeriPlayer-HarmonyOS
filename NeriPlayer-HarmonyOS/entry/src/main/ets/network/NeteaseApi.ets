@@ -162,9 +162,9 @@ export class NeteaseApi {
     return `${Constants.NETEASE_BASE}${path}?csrf_token=${csrf}`;
   }
 
-  static async search(keyword: string, limit: number = 30): Promise<SongItem[]> {
+  static async search(keyword: string, limit: number = 30, offset: number = 0): Promise<SongItem[]> {
     try {
-      let response = await NeteaseApi.searchWeapi(keyword, limit);
+      let response = await NeteaseApi.searchWeapi(keyword, limit, offset);
       // 2026-08-29 实测：登录态 jar 请求 cloudsearch 会被风控（code=50000005），
       // 匿名请求正常——与推荐接口同款行为。命中降级码时仅本次移除 MUSIC_U
       // 重试，完了恢复 cookie 种子；仍拿不到歌再走 legacy 兜底。
@@ -173,7 +173,7 @@ export class NeteaseApi {
         Logger.warn(`NeteaseApi weapi search code=${response.code} while logged in, retrying anonymously`);
         HttpClient.removeCookie(`${Constants.NETEASE_BASE}/`, 'MUSIC_U');
         try {
-          response = await NeteaseApi.searchWeapi(keyword, limit);
+          response = await NeteaseApi.searchWeapi(keyword, limit, offset);
         } finally {
           NeteaseCookieRepository.seedHttpClient();
         }
@@ -191,15 +191,15 @@ export class NeteaseApi {
       const e = error as Error;
       Logger.warn(`NeteaseApi weapi search failed, falling back to legacy API: ${e.message}`);
     }
-    return NeteaseApi.searchLegacy(keyword, limit);
+    return NeteaseApi.searchLegacy(keyword, limit, offset);
   }
 
-  private static async searchWeapi(keyword: string, limit: number): Promise<NeteaseSearchResponse> {
+  private static async searchWeapi(keyword: string, limit: number, offset: number): Promise<NeteaseSearchResponse> {
     const payload: Record<string, Object> = {};
     payload['s'] = keyword;
     payload['type'] = '1';
     payload['limit'] = `${limit}`;
-    payload['offset'] = '0';
+    payload['offset'] = `${offset}`;
     payload['total'] = 'true';
     const params = await NeteaseCrypto.weapiParams(payload);
     const url = await NeteaseApi.weapiUrl('/weapi/cloudsearch/get/web');
@@ -214,8 +214,8 @@ export class NeteaseApi {
     return JSON.parse(text) as NeteaseSearchResponse;
   }
 
-  private static async searchLegacy(keyword: string, limit: number): Promise<SongItem[]> {
-    const url = `${Constants.NETEASE_BASE}/api/search/get/web?s=${encodeURIComponent(keyword)}&type=1&offset=0&limit=${limit}`;
+  private static async searchLegacy(keyword: string, limit: number, offset: number = 0): Promise<SongItem[]> {
+    const url = `${Constants.NETEASE_BASE}/api/search/get/web?s=${encodeURIComponent(keyword)}&type=1&offset=${offset}&limit=${limit}`;
     const text = await HttpClient.getText(url, NeteaseApi.headers(), 15000, true);
     Logger.debug(`legacy search resp len=${text.length} head=${text.substring(0, 160)}`);
     const response = JSON.parse(text) as NeteaseSearchResponse;

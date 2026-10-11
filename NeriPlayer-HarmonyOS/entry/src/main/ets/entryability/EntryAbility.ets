@@ -22,6 +22,7 @@ import { AutoSyncScheduler } from '../sync/AutoSyncScheduler';
 import { SyncService } from '../sync/SyncService';
 import { SyncReport } from '../sync/SyncReport';
 import { SourceSyncCoordinator } from '../sourcesync/SourceSyncCoordinator';
+import { installSearchPinyinResolver } from '../util/search/SongPinyinSource';
 
 const TAG: string = 'EntryAbility';
 const DOMAIN: number = 0x4E50;
@@ -30,6 +31,8 @@ export default class EntryAbility extends UIAbility {
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
     hilog.info(DOMAIN, TAG, 'Ability onCreate');
     SettingsRepository.initialize(this.context);
+    // F-9：注入歌单/搜索拼音匹配能力（pinyin-pro，纯离线）。
+    installSearchPinyinResolver();
     // Start the diagnostics loop before Index resolves the startup phase:
     // init() pulls this app's fault history, arms the SafeMode flag when a
     // fault falls inside the window since the previous launch (the crash or

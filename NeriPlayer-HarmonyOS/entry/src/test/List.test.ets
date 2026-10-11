@@ -19,6 +19,7 @@ import neteaseHomeRecommendationsTest from './ets/test/NeteaseHomeRecommendation
 import exploreLinkRecognizerTest from './ets/test/ExploreLinkRecognizer.test';
 import biliUploaderSpaceTest from './ets/test/BiliUploaderSpace.test';
 import ytmCreatorParserTest from './ets/test/YtmCreatorParser.test';
+import searchTextMatcherTest from './ets/test/SearchTextMatcher.test';
 import neteaseCommentMapperTest from './ets/test/NeteaseCommentMapper.test';
 import biliCommentMapperTest from './ets/test/BiliCommentMapper.test';
 import commentRepositoryCoreTest from './ets/test/CommentRepositoryCore.test';
@@ -219,6 +220,7 @@ export default function testsuite(): void {
   exploreLinkRecognizerTest();
   biliUploaderSpaceTest();
   ytmCreatorParserTest();
+  searchTextMatcherTest();
   neteaseCommentMapperTest();
   biliCommentMapperTest();
   commentRepositoryCoreTest();

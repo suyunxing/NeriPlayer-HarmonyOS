@@ -11,6 +11,9 @@ import { ExploreLinkTarget, ExploreLinkKind, recognizeExploreLink } from '../../
 import { expandExploreShortLink } from '../../network/ShortLinkExpander';
 import { NetworkStatus } from '../../util/NetworkStatus';
 import { SearchHistoryRepository } from '../../data/SearchHistoryRepository';
+import { resolveExploreSearchKeyword } from '../../data/SearchHistoryPolicy';
+import { BiliSearchPage } from '../../network/BiliApi';
+import { mergeSongItemsDeduped, rankExploreSongSearchResults } from '../../util/search/SongSearchValues';
 import { UsageRepository } from '../../data/UsageRepository';
 import { PlayerManager } from '../../player/PlayerManager';
 import { Router } from '../Router';
@@ -50,6 +53,11 @@ export struct ExplorePage {
   @State error: string = '';
   @State history: string[] = [];
   @State searched: boolean = false;
+  /** 搜索分页（上游 c5a95707）：网易 offset、B 站 page，YTM 单页。 */
+  @State hasMore: boolean = false;
+  @State loadingMore: boolean = false;
+  private searchPage: number = 1;
+  private searchedKeyword: string = '';
   /** 由 util/WindowMetrics.ets 发布，这里只用来决定空态是否竖向居中。 */
   @StorageProp('ui.breakpoint') breakpoint: string = 'sm';
   /** 常驻 Tab 页的显式刷新钩子，详见 HomePage 同名成员。 */
@@ -97,6 +105,10 @@ export struct ExplorePage {
       await this.openLink(link);
       return;
     }
+    // 上游 resolveExploreSearchKeyword：输入 >= 2 字符且历史里有强匹配别名
+    // （整串/前缀级）时用历史全称搜索；输入框显示保持用户原词。
+    const history = await SearchHistoryRepository.load();
+    const effectiveKeyword = resolveExploreSearchKeyword(keyword, history);
     this.history = await SearchHistoryRepository.add(keyword);
     const online = await NetworkStatus.hasNetwork();
     if (!online) {
@@ -108,19 +120,30 @@ export struct ExplorePage {
     this.loading = true;
     this.error = '';
     this.searched = true;
+    this.searchedKeyword = effectiveKeyword;
+    this.searchPage = 1;
     try {
       if (this.platform === 0) {
-        this.results = await NeteaseApi.search(keyword, 30);
+        const songs = await NeteaseApi.search(effectiveKeyword, 30, 0);
+        this.results = rankExploreSongSearchResults(effectiveKeyword, songs);
+        // 上游 hasMoreExploreSearchResults 无 songCount 时的兜底：满页即可能还有。
+        this.hasMore = songs.length >= 30;
       } else if (this.platform === 1) {
-        this.results = await BiliApi.search(keyword, 20);
+        const page: BiliSearchPage = await BiliApi.searchPage(effectiveKeyword, 20, 1);
+        this.results = rankExploreSongSearchResults(effectiveKeyword, page.items);
+        this.hasMore = page.page < page.numPages && page.items.length > 0;
+        this.searchPage = page.page;
       } else if (this.ytmType === 2) {
         // 上游 CREATOR 过滤：结果行跳创作者主页，不落歌曲列表。
-        this.creators = await YouTubeMusicApi.searchCreators(keyword, 20);
+        this.creators = await YouTubeMusicApi.searchCreators(effectiveKeyword, 20);
         this.results = [];
+        this.hasMore = false;
       } else {
-        this.results = await YouTubeMusicApi.search(keyword, 20,
+        this.results = await YouTubeMusicApi.search(effectiveKeyword, 20,
           this.ytmType === 1 ? YtmSearchFilter.VIDEOS : YtmSearchFilter.SONGS);
         this.creators = [];
+        // 上游 YTM 歌曲搜索同样不分页。
+        this.hasMore = false;
       }
       if (this.results.length === 0 && this.creators.length === 0) {
         this.error = '没有找到结果';
@@ -130,8 +153,37 @@ export struct ExplorePage {
       this.error = `搜索失败：${e.message}`;
       this.results = [];
       this.creators = [];
+      this.hasMore = false;
     }
     this.loading = false;
+  }
+
+  /** 上游 loadMoreSearchResults：page+1 追加，去重合并后整体按查询词重排。 */
+  private async loadMore(): Promise<void> {
+    if (!this.hasMore || this.loadingMore || this.loading) {
+      return;
+    }
+    const nextPage = this.searchPage + 1;
+    this.loadingMore = true;
+    try {
+      let incoming: SongItem[] = [];
+      if (this.platform === 0) {
+        // 网易 offset 从 0 起：第 nextPage 页 = (nextPage-1)*30。
+        incoming = await NeteaseApi.search(this.searchedKeyword, 30, (nextPage - 1) * 30);
+        this.hasMore = incoming.length >= 30;
+      } else if (this.platform === 1) {
+        const page: BiliSearchPage = await BiliApi.searchPage(this.searchedKeyword, 20, nextPage);
+        incoming = page.items;
+        this.hasMore = page.page < page.numPages && page.items.length > 0;
+        this.searchPage = page.page;
+      }
+      this.results = rankExploreSongSearchResults(this.searchedKeyword,
+        mergeSongItemsDeduped(this.results, incoming));
+    } catch (error) {
+      const e = error as Error;
+      promptAction.openToast({ message: `加载更多失败：${e.message}` });
+    }
+    this.loadingMore = false;
   }
 
   /**
@@ -316,6 +368,7 @@ export struct ExplorePage {
       this.creators = [];
       this.error = '';
       this.searched = false;
+      this.hasMore = false;
     })
   }
 
@@ -341,6 +394,7 @@ export struct ExplorePage {
         this.creators = [];
         this.error = '';
         this.searched = false;
+        this.hasMore = false;
       })
   }
 
@@ -559,11 +613,31 @@ export struct ExplorePage {
           // key 含 index：新搜索后行内缓存的 index（onPlay 定位）会过期，
           // 靠 key 变化强制重建受影响行。
           }, (item: SongItem, index: number) => `${index}_${item.platform}_${item.audioId}_${item.id}`)
+          if (this.hasMore) {
+            ListItem() {
+              Column() {
+                if (this.loadingMore) {
+                  LoadingState()
+                } else {
+                  Button('加载更多')
+                    .height(40)
+                    .fontSize(13)
+                    .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+                    .fontColor(Theme.textPrimary(Theme.isDark()))
+                    .onClick(() => this.loadMore())
+                }
+              }
+              .width('100%')
+              .padding(14)
+              .alignItems(HorizontalAlign.Center)
+            }
+          }
         }
         .layoutWeight(1)
         .scrollBar(BarState.Off)
         // LazyForEach 视口外预建行数（与其他歌曲列表页一致）。
         .cachedCount(3, true)
+        .onReachEnd(() => this.loadMore())
         // 滚动自适应悬浮栏：增量交壳层（不消费，见 MainShell.handleTabBarScroll）。
         .onScrollFrameBegin((offset: number) => {
           this.onBarScroll(offset);
