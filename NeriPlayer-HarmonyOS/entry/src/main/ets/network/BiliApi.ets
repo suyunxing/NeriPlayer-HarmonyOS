@@ -86,6 +86,7 @@ interface BiliViewResponse {
 }
 
 interface BiliViewData {
+  aid?: number;
   cid?: number;
   bvid?: string;
   title?: string;
@@ -142,6 +143,7 @@ export class BiliSeasonEpisode {
 /** wbi/view 的结构化摘要（上游 VideoBasicInfo 的鸿蒙子集）。 */
 export class BiliVideoInfo {
   bvid: string = '';
+  aid: number = 0;
   title: string = '';
   coverUrl: string = '';
   durationMs: number = 0;
@@ -329,6 +331,7 @@ export class BiliApi {
     }
     const info = new BiliVideoInfo();
     info.bvid = data.bvid ?? bvid;
+    info.aid = data.aid ?? 0;
     info.title = BiliApi.stripHtml(data.title ?? '');
     info.coverUrl = (data.pic ?? '').replace('http://', 'https://');
     info.durationMs = (data.duration ?? 0) * 1000;
@@ -612,5 +615,112 @@ export class BiliApi {
       return 0;
     }
     return (minutes * 60 + seconds) * 1000;
+  }
+
+  // ---------- 评论端点（UPSTREAM_SYNC_PLAN F-3，上游 #432/#476 BiliCommentApi） ----------
+
+  /**
+   * 评论缓存会话键：登录 cookie（SESSDATA）存在才非空，账号切换后自动隔离
+   * 缓存；值只作缓存键，不入日志。
+   */
+  static biliCommentSessionKey(): string | null {
+    const sessdata = HttpClient.getCookiesMap(`${Constants.BILI_BASE}/`).get('SESSDATA') ?? '';
+    return sessdata.length > 0 ? sessdata : null;
+  }
+
+  /**
+   * 视频评论列表（/x/v2/reply，type=1 视频）。sort：0 最新 / 1 热门。
+   * 匿名也可读，但可能被风控截断为全零分页（由 BiliCommentMapper 防御）。
+   */
+  static async getVideoComments(aid: number, page: number, pageSize: number,
+    sort: number): Promise<string> {
+    if (!(aid > 0) || page < 1 || pageSize < 1 || pageSize > 49) {
+      throw new Error('invalid video comments request');
+    }
+    const url = `${Constants.BILI_BASE}/x/v2/reply?type=1&oid=${aid}` +
+      `&pn=${page}&ps=${pageSize}&sort=${sort}`;
+    return HttpClient.getText(url, BiliApi.biliHeaders(), 15000, true);
+  }
+
+  /** 楼中楼回复列表（/x/v2/reply/reply）。 */
+  static async getVideoCommentReplies(aid: number, rootId: string,
+    page: number, pageSize: number): Promise<string> {
+    if (!(aid > 0) || !(Number(rootId) > 0) || page < 1 || pageSize < 1 || pageSize > 20) {
+      throw new Error('invalid video comment replies request');
+    }
+    const url = `${Constants.BILI_BASE}/x/v2/reply/reply?type=1&oid=${aid}` +
+      `&root=${rootId}&pn=${page}&ps=${pageSize}`;
+    return HttpClient.getText(url, BiliApi.biliHeaders(), 15000, true);
+  }
+
+  /**
+   * 点赞 / 取消点赞评论（/x/v2/reply/action）。需要 SESSDATA + bili_jct；
+   * 未登录时返回 code=-101 的 JSON（与上游 loginRequired() 一致，由仓库层
+   * 转 PERMISSION 错误），成功以业务 code 0 判定。
+   */
+  static async setVideoCommentLiked(aid: number, commentId: string,
+    liked: boolean): Promise<string> {
+    if (!(aid > 0) || !(Number(commentId) > 0)) {
+      throw new Error('invalid video comment like request');
+    }
+    const csrf = await BiliApi.requireCommentCsrf();
+    if (csrf === null) {
+      return '{"code":-101}';
+    }
+    const form: Record<string, string> = {
+      'type': '1',
+      'oid': `${aid}`,
+      'rpid': commentId,
+      'action': liked ? '1' : '0',
+      'csrf': csrf
+    };
+    return HttpClient.postForm(`${Constants.BILI_BASE}/x/v2/reply/action`,
+      form, 15000, BiliApi.biliHeaders(), true);
+  }
+
+  /**
+   * 发表评论 / 楼中楼回复（/x/v2/reply/add）。需要 SESSDATA + bili_jct；
+   * 网络结果不确定时不自动重发（发评无幂等键，重复发出由用户自行核对）。
+   */
+  static async sendVideoComment(aid: number, content: string,
+    rootId: string | null, parentId: string | null): Promise<string> {
+    if (!(aid > 0) || content.trim().length === 0) {
+      throw new Error('invalid video comment send request');
+    }
+    if ((rootId === null) !== (parentId === null)) {
+      throw new Error('reply target must be complete');
+    }
+    const csrf = await BiliApi.requireCommentCsrf();
+    if (csrf === null) {
+      return '{"code":-101}';
+    }
+    const form: Record<string, string> = {
+      'type': '1',
+      'oid': `${aid}`,
+      'message': content,
+      'root': rootId ?? '0',
+      'parent': parentId ?? '0',
+      'plat': '1',
+      'statistics': '{"appId":100,"platform":5}',
+      'gaia_source': 'main_web',
+      'csrf': csrf
+    };
+    return HttpClient.postForm(`${Constants.BILI_BASE}/x/v2/reply/add`,
+      form, 15000, BiliApi.biliHeaders(), true);
+  }
+
+  /**
+   * 评论写操作的前置：确保匿名指纹已种下并校验登录 cookie（SESSDATA +
+   * bili_jct 缺一不可，后者即 csrf）。未登录返回 null。
+   */
+  private static async requireCommentCsrf(): Promise<string | null> {
+    await BiliApi.ensureAnonymousFingerprint();
+    const cookies = HttpClient.getCookiesMap(`${Constants.BILI_BASE}/`);
+    const sessdata = cookies.get('SESSDATA') ?? '';
+    const csrf = cookies.get('bili_jct') ?? '';
+    if (sessdata.length === 0 || csrf.length === 0) {
+      return null;
+    }
+    return csrf;
   }
 }
