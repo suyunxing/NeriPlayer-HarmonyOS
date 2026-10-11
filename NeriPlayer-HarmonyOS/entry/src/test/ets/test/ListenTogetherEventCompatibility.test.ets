@@ -327,6 +327,11 @@ export default function listenTogetherEventCompatibilityTest(): void {
       expect(isListenTogetherControllerHeartbeatRecoveryType('PLAY')).assertTrue();
       expect(isListenTogetherControllerHeartbeatRecoveryType('MEMBER_JOINED')).assertTrue();
       expect(isListenTogetherControllerHeartbeatRecoveryType('HEARTBEAT')).assertFalse();
+      // 上游 89a8694c：队列更新族加入心跳恢复与请求/受控类型。
+      expect(isListenTogetherControllerHeartbeatRecoveryType('REQUEST_SET_QUEUE')).assertTrue();
+      expect(isListenTogetherRequestControlEventType('REQUEST_SET_QUEUE')).assertTrue();
+      expect(isListenTogetherRequestControlEventType('SET_QUEUE')).assertFalse();
+      expect(isListenTogetherControlledPlaybackCommandType('SET_QUEUE')).assertTrue();
 
       expect(isListenTogetherPassivePositionUpdateType('HEARTBEAT')).assertTrue();
       expect(isListenTogetherPassivePositionUpdateType('WATCHDOG_STALL')).assertTrue();

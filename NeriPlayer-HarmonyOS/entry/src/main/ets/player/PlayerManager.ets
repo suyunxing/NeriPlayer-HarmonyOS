@@ -41,6 +41,10 @@ import { advanceForceFor, peekNextIndex, shouldPrimeNext } from './AvPlaylistPol
 import { decideLoadFailureAction, LoadFailureAction } from './PlaybackFailurePolicy';
 import { PlaybackCacheManager } from './PlaybackCacheManager';
 import {
+  resolveSongUrlOrWaitForAuthoritativeStream,
+  retrySongUrlResolution
+} from './SongUrlResolutionRetry';
+import {
   ListenTogetherPlaybackCommand,
   ListenTogetherPlaybackCommandSource,
   createListenTogetherPlaybackCommand
@@ -73,6 +77,12 @@ export interface PlayerListener {
 interface ResolvedStream {
   url: string;
   catalogKey: string;
+  /**
+   * Upstream 89a8694c `SongUrlResult.WaitingForAuthoritativeStream`: a
+   * listener waiting for the room link resolves to nothing — the load stays
+   * pending until LINK_READY / the authoritative room state lands.
+   */
+  waitingForAuthoritativeStream?: boolean;
 }
 
 /** Bridges AutoSongMatcher back into the queue without a circular import at
@@ -545,7 +555,13 @@ export class PlayerManager {
     if (authoritativeUrls.length > 0) {
       return PlayerManager.httpShareableOnly(authoritativeUrls[0]);
     }
-    return PlayerManager.httpShareableOnly(await StreamResolver.resolveWithNeteaseAutoFallback(song));
+    // Upstream 89a8694c: the controller's shareable-link resolution retries on
+    // transient failures (5x, 250ms·n) before publishing LINK_UNAVAILABLE.
+    const resolvedUrl = await retrySongUrlResolution<string>(
+      (): Promise<string> => StreamResolver.resolveWithNeteaseAutoFallback(song),
+      (url: string): boolean => url.length === 0
+    );
+    return PlayerManager.httpShareableOnly(resolvedUrl);
   }
 
   private static httpShareableOnly(url: string): string[] {
@@ -886,6 +902,7 @@ export class PlayerManager {
       false
     );
     PlayerManager.publishQueue();
+    PlayerManager.emitQueueUpdateCommand();
     return true;
   }
 
@@ -911,6 +928,7 @@ export class PlayerManager {
       true
     );
     PlayerManager.publishQueue();
+    PlayerManager.emitQueueUpdateCommand();
     return true;
   }
 
@@ -931,6 +949,7 @@ export class PlayerManager {
       false
     );
     PlayerManager.publishQueue();
+    PlayerManager.emitQueueUpdateCommand();
   }
 
   /**
@@ -944,9 +963,14 @@ export class PlayerManager {
       return;
     }
     const wasCurrent = index === PlayerManager.engine.getCurrentQueueIndex();
+    // Upstream 89a8694c: removing the current track tells the room whether
+    // playback continues onto the replacement (true) or stops (false).
+    const continuePlayback = wasCurrent &&
+      (PlayerManager.playWhenReady || PlayerManager.status === PlaybackStatus.PLAYING);
     PlayerManager.queue.splice(index, 1);
     if (PlayerManager.queue.length === 0) {
       await PlayerManager.clearQueue();
+      PlayerManager.emitQueueUpdateCommand(false);
       return;
     }
     PlayerManager.engine.applyQueueEdit(
@@ -960,6 +984,7 @@ export class PlayerManager {
       // 移除则装载后停在暂停）。
       await PlayerManager.loadSong();
     }
+    PlayerManager.emitQueueUpdateCommand(wasCurrent ? continuePlayback : null);
   }
 
   /** 队列内同身份曲目下标（stableKeyOf），无则 -1。 */
@@ -971,6 +996,49 @@ export class PlayerManager {
       }
     }
     return -1;
+  }
+
+  // --------------------------------------------------------------------------
+  // 一起听全量队列同步（上游 89a8694c）
+  // --------------------------------------------------------------------------
+
+  /**
+   * Upstream `emitQueueUpdateCommand`: every local queue edit publishes a
+   * SET_QUEUE command so the room mirrors the full queue (the event factory
+   * turns it into a V2 mutation or a legacy snapshot as the server allows).
+   */
+  private static emitQueueUpdateCommand(shouldPlay: boolean | null = null): void {
+    const command = createListenTogetherPlaybackCommand(
+      'SET_QUEUE', ListenTogetherPlaybackCommandSource.LOCAL, Date.now());
+    command.queue = PlayerManager.queue.slice();
+    command.currentIndex = PlayerManager.engine.getCurrentQueueIndex();
+    command.positionMs = Math.max(0, PlayerManager.positionMs);
+    command.shouldPlay = shouldPlay;
+    PlayerManager.emitPlaybackCommand(command);
+  }
+
+  /**
+   * Upstream `applyRemoteQueueUpdateImpl`: replace the queue from an
+   * authoritative room state without reloading the current track — the
+   * listener's player keeps playing while the queue lands around it. An empty
+   * queue stops playback and clears the engine.
+   */
+  static applyRemoteListenTogetherQueueUpdate(queue: SongItem[], currentIndexInQueue: number): void {
+    if (queue.length === 0) {
+      // Reuses the queue-clear path (stop + engine reset + defaults); the
+      // extra media-url drop matches upstream clearMediaUrl=true.
+      PlayerManager.setCurrentMediaUrl(null);
+      PlayerManager.clearQueue().catch((error: Object): void => {
+        Logger.warn(`applyRemoteQueueUpdate clear failed: ${(error as Error).message}`);
+      });
+      return;
+    }
+    PlayerManager.queue = queue.slice();
+    const clamped = Math.min(Math.max(currentIndexInQueue, 0), queue.length - 1);
+    PlayerManager.engine.setQueueSize(queue.length);
+    PlayerManager.engine.start(clamped, PlayerManager.engine.shuffle, PlayerManager.engine.repeatMode);
+    PlayerManager.publishQueue();
+    PlayerManager.persistNow();
   }
 
   /**
@@ -1440,6 +1508,12 @@ export class PlayerManager {
           // *current* chain must not see this chain's key).
           return;
         }
+        if (resolved.waitingForAuthoritativeStream === true) {
+          // Upstream 89a8694c: the load stays pending (LOADING) — the room
+          // link or authoritative state will trigger the reload that lands it.
+          Logger.debug(`PlayerManager: awaiting authoritative stream for ${song.displayName}`);
+          return;
+        }
         if (resolved.url.length === 0) {
           throw new Error(`No playable stream for ${song.displayName}`);
         }
@@ -1601,6 +1675,20 @@ export class PlayerManager {
   }
 
   private static async resolveStreamUrl(song: SongItem): Promise<ResolvedStream> {
+    // Upstream 89a8694c `resolveSongUrlOrWaitForAuthoritativeStream`: a
+    // listener waiting for the room's link must not resolve on its own — the
+    // waiting sentinel keeps the load pending (no error churn) until
+    // LINK_READY or the room state triggers the reload that lands the link.
+    const delegate = PlayerManager.listenTogetherDelegate;
+    const waiting = delegate !== null && delegate.shouldWaitForAuthoritativeStream(song);
+    return resolveSongUrlOrWaitForAuthoritativeStream<ResolvedStream>(
+      waiting,
+      (): ResolvedStream => ({ url: '', catalogKey: '', waitingForAuthoritativeStream: true }),
+      async (): Promise<ResolvedStream> => PlayerManager.resolveLocalStreamUrl(song)
+    );
+  }
+
+  private static async resolveLocalStreamUrl(song: SongItem): Promise<ResolvedStream> {
     const resolved: ResolvedStream = { url: '', catalogKey: '' };
     if (song.platform !== MusicPlatform.LOCAL) {
       // A completed download short-circuits network resolution so catalog
@@ -1622,8 +1710,12 @@ export class PlayerManager {
         return resolved;
       }
       // NetEase songs fall back to a matched Bilibili source when the direct
-      // stream is unavailable and the setting is on.
-      resolved.url = await StreamResolver.resolveWithNeteaseAutoFallback(song);
+      // stream is unavailable and the setting is on. Upstream 89a8694c: a
+      // transient resolution failure retries (5x, 250ms·n) before giving up.
+      resolved.url = await retrySongUrlResolution<string>(
+        (): Promise<string> => StreamResolver.resolveWithNeteaseAutoFallback(song),
+        (url: string): boolean => url.length === 0
+      );
       return resolved;
     }
     const uri = song.localFilePath.length > 0 ? song.localFilePath : song.mediaUri;

@@ -87,6 +87,7 @@ import listenTogetherConfigSnapshotTest from './ets/test/ListenTogetherConfigSna
 import listenTogetherStateApplierTest from './ets/test/ListenTogetherStateApplier.test';
 import listenTogetherQueueMutationTest from './ets/test/ListenTogetherQueueMutation.test';
 import listenTogetherRobustnessTest from './ets/test/ListenTogetherRobustness.test';
+import songUrlResolutionRetryTest from './ets/test/SongUrlResolutionRetry.test';
 import paletteTest from './ets/test/Palette.test';
 import dynamicThemeTest from './ets/test/DynamicTheme.test';
 import colorScienceTest from './ets/test/ColorScience.test';
@@ -184,6 +185,7 @@ export default function testsuite(): void {
   listenTogetherStateApplierTest();
   listenTogetherQueueMutationTest();
   listenTogetherRobustnessTest();
+  songUrlResolutionRetryTest();
   paletteTest();
   dynamicThemeTest();
   colorScienceTest();

@@ -72,6 +72,8 @@ class RecordedSurface implements ListenTogetherPlayerSurface {
 
   reloadedQueues: number = 0;
   lastReloadIndex: number = -1;
+  remoteQueueUpdates: number = 0;
+  lastRemoteQueueUpdateIndex: number = -2;
   seekCalls: number[] = [];
   pauseCalls: number = 0;
   playCalls: number = 0;
@@ -107,6 +109,13 @@ class RecordedSurface implements ListenTogetherPlayerSurface {
     this.lastReloadIndex = index;
     this.queue = queue;
     this.song = queue[index];
+  }
+
+  applyRemoteQueueUpdate(queue: SongItem[], currentIndex: number): void {
+    this.remoteQueueUpdates++;
+    this.lastRemoteQueueUpdateIndex = currentIndex;
+    this.queue = queue.slice();
+    this.song = queue.length > 0 ? queue[Math.min(Math.max(currentIndex, 0), queue.length - 1)] : null;
   }
 
   applyListenTogetherPlaybackMode(repeatMode: number | null, shuffleEnabled: boolean | null): void {
@@ -390,6 +399,58 @@ export default function listenTogetherStateApplierTest() {
       const resolvingApplier = applierFor(resolving, () => room);
       resolvingApplier.apply(room, 'HEARTBEAT', 1000);
       expect(resolving.playCalls).assertEqual(1);
+    });
+
+    it('applies a SET_QUEUE update around the playing track without a reload', 0, () => {
+      // Upstream 89a8694c: a queue-only update whose current track is already
+      // loaded swaps the surrounding slots in place — no reload, no seek storm.
+      const surface = new RecordedSurface();
+      surface.queue = [neteaseSong('1')];
+      surface.song = surface.queue[0];
+      surface.playing = true;
+      surface.playWhenReady = true;
+      surface.positionMs = 1000;
+      const room = createListenTogetherRoomState('ABC234', 2);
+      room.queue = [neteaseTrack('1'), neteaseTrack('2'), neteaseTrack('3')];
+      room.currentIndex = 0;
+      room.track = neteaseTrack('1');
+      room.playback.state = 'playing';
+      room.playback.basePositionMs = 1000;
+      room.playback.baseTimestampMs = 1000;
+      const applier = applierFor(surface, () => room);
+
+      expect(applier.apply(room, 'SET_QUEUE', 1000)).assertTrue();
+      expect(surface.remoteQueueUpdates).assertEqual(1);
+      expect(surface.lastRemoteQueueUpdateIndex).assertEqual(0);
+      expect(surface.queue.length).assertEqual(3);
+      expect(surface.reloadedQueues).assertEqual(0);
+
+      // The same state under a passive cause is not a queue update at all.
+      expect(applier.apply(room, 'HEARTBEAT', 1000)).assertTrue();
+      expect(surface.remoteQueueUpdates).assertEqual(1);
+    });
+
+    it('clears the local queue when a SET_QUEUE empties the room', 0, () => {
+      const surface = new RecordedSurface();
+      surface.queue = [neteaseSong('1')];
+      surface.song = surface.queue[0];
+      surface.positionMs = 1000;
+      const emptied = createListenTogetherRoomState('ABC234', 5);
+      emptied.queue = [];
+      emptied.currentIndex = -1;
+      emptied.track = null;
+      emptied.playback.state = 'paused';
+      const applier = applierFor(surface, () => emptied);
+
+      expect(applier.apply(emptied, 'SET_QUEUE', null)).assertTrue();
+      expect(surface.remoteQueueUpdates).assertEqual(1);
+      expect(surface.lastRemoteQueueUpdateIndex).assertEqual(-1);
+      expect(surface.queue.length).assertEqual(0);
+      expect(surface.reloadedQueues).assertEqual(0);
+
+      // A passive cause with an empty queue stays a skip.
+      expect(applier.apply(emptied, 'HEARTBEAT', null)).assertFalse();
+      expect(surface.remoteQueueUpdates).assertEqual(1);
     });
   });
 }

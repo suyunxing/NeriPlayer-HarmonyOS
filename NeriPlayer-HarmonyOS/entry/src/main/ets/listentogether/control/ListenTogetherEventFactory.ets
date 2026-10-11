@@ -168,6 +168,53 @@ export class ListenTogetherEventFactory {
     return this.playbackSnapshotEvent('PLAY', positionMs);
   }
 
+  /**
+   * Upstream 89a8694c `buildSetQueueEvent` (master form, merged with #359's
+   * mutation transport): the controller publishes a whole-queue change — or a
+   * member requests one — as a single event. An empty queue is the "room is
+   * emptied" signal (paused, index -1); a queue whose current slot cannot be
+   * made shareable publishes nothing at all.
+   */
+  buildSetQueueEvent(
+    queue: SongItem[],
+    currentIndex: number,
+    positionMs: number,
+    commandShouldPlay: boolean | null = null
+  ): ListenTogetherEvent | null {
+    const playback = this.playbackSnapshotProvider();
+    const type = this.isControllerProvider() ? 'SET_QUEUE' : 'REQUEST_SET_QUEUE';
+    if (queue.length === 0) {
+      const event = this.newEnvelope(type);
+      event.positionMs = 0;
+      event.currentIndex = -1;
+      event.queue = [];
+      event.shouldPlay = false;
+      event.state = 'paused';
+      event.repeatMode = playback.repeatMode;
+      event.shuffleEnabled = playback.shuffleEnabled;
+      return event;
+    }
+    const snapshot = this.shareableSnapshot(queue, currentIndex, false, playback);
+    const currentTrack = trackAt(snapshot.tracks, snapshot.currentIndex);
+    if (currentTrack === null) {
+      this.report(`buildSetQueueEvent(): current track missing, `
+        + `resolvedCurrentIndex=${snapshot.currentIndex}, queueSize=${snapshot.tracks.length}`);
+      return null;
+    }
+    const event = this.newEnvelope(type);
+    event.positionMs = Math.max(positionMs, 0);
+    event.currentIndex = snapshot.currentIndex;
+    event.track = currentTrack;
+    this.applyQueueTransport(event, snapshot);
+    const shouldPlay = commandShouldPlay ?? (playback.transportActive || playback.isPlaying);
+    event.shouldPlay = shouldPlay;
+    event.state = shouldPlay ? 'playing' : 'paused';
+    event.repeatMode = playback.repeatMode;
+    event.shuffleEnabled = playback.shuffleEnabled;
+    event.requestTrackStableKey = currentTrack.stableKey;
+    return event;
+  }
+
   buildPauseEvent(positionMs: number): ListenTogetherEvent {
     return this.playbackSnapshotEvent('PAUSE', positionMs);
   }
@@ -510,6 +557,12 @@ export class ListenTogetherEventFactory {
         command.repeatMode ?? playback.repeatMode,
         command.shuffleEnabled ?? playback.shuffleEnabled
       );
+    }
+    if (type === 'SET_QUEUE') {
+      // The command's queue wins even when empty (the "room emptied" signal);
+      // every other type falls back to the playback queue.
+      const eventQueue = command.queue !== null ? command.queue : queue;
+      return this.buildSetQueueEvent(eventQueue, currentIndex, positionMs, command.shouldPlay);
     }
     if (type === 'TRACK_FINISHED') {
       return this.buildTrackFinishedEvent(command, queue, currentSong, positionMs);
