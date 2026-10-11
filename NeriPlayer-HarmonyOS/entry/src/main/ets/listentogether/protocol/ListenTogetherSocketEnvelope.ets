@@ -41,6 +41,11 @@ import {
   listenTogetherCauseToRecord
 } from './ListenTogetherEventModels';
 import {
+  ListenTogetherQueueMutation,
+  listenTogetherQueueMutationFromRecord,
+  listenTogetherQueueMutationToRecord
+} from './ListenTogetherQueueMutation';
+import {
   ListenTogetherControlResponse,
   listenTogetherControlResponseFromRecord,
   listenTogetherControlResponseToRecord
@@ -73,6 +78,7 @@ export class ListenTogetherSocketEnvelope {
   stateName: string | null = null;
   repeatMode: number | null = null;
   shuffleEnabled: boolean | null = null;
+  queueMutation: ListenTogetherQueueMutation | null = null;
   clientTimeMs: number | null = null;
   clientInstanceId: string | null = null;
   clientSequence: number | null = null;
@@ -122,6 +128,10 @@ export function listenTogetherSocketEnvelopeFromRecord(
   envelope.stateName = optString(raw, 'stateName');
   envelope.repeatMode = optNumber(raw, 'repeatMode');
   envelope.shuffleEnabled = optBoolean(raw, 'shuffleEnabled');
+  const queueMutationRecord = optRecord(raw, 'queueMutation');
+  envelope.queueMutation = queueMutationRecord === null
+    ? null
+    : listenTogetherQueueMutationFromRecord(queueMutationRecord);
   envelope.clientTimeMs = optNumber(raw, 'clientTimeMs');
   envelope.clientInstanceId = optString(raw, 'clientInstanceId');
   envelope.clientSequence = optNumber(raw, 'clientSequence');
@@ -164,6 +174,8 @@ export function listenTogetherSocketEnvelopeToRecord(
   putString(raw, 'stateName', envelope.stateName);
   putNumber(raw, 'repeatMode', envelope.repeatMode);
   putBoolean(raw, 'shuffleEnabled', envelope.shuffleEnabled);
+  putRecord(raw, 'queueMutation',
+    envelope.queueMutation === null ? null : listenTogetherQueueMutationToRecord(envelope.queueMutation));
   putNumber(raw, 'clientTimeMs', envelope.clientTimeMs);
   putString(raw, 'clientInstanceId', envelope.clientInstanceId);
   putNumber(raw, 'clientSequence', envelope.clientSequence);

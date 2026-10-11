@@ -113,10 +113,20 @@ export interface ListenTogetherPlaybackDelegate {
   /** Upstream `shouldWaitForListenTogetherAuthoritativeStream(song)`. */
   shouldWaitForAuthoritativeStream(song: SongItem): boolean;
   resolveAuthoritativeStreamUrls(song: SongItem): string[];
+  /**
+   * Upstream #359 `isListenTogetherAuthoritativeStreamConfirmedUnavailable(song)`:
+   * the controller confirmed twice it cannot share a link for this track.
+   */
+  isAuthoritativeStreamConfirmedUnavailable(song: SongItem): boolean;
 }
 
 class PlayerControlListener implements SessionControlListener {
   onPlay(): void {
+    // Upstream #359: the notification's play control restores the captured
+    // volume when the listener is route-muted, mirroring the play button.
+    if (PlayerManager.isListenTogetherAudioRouteMuteSuppressed()) {
+      PlayerManager.restoreListenTogetherAudioRouteMute();
+    }
     PlayerManager.play();
   }
 
@@ -292,11 +302,11 @@ export class PlayerManager {
   }
 
   static setListenTogetherDelegate(delegate: ListenTogetherPlaybackDelegate | null): void {
-    // 会话结束（delegate 置空）时解除路由丢失静音：仍在播放则恢复捕获
-    // 音量（上游无此清理，属鸿蒙侧补强——否则退出房间后一直哑音）。
+    // 会话结束（delegate 置空）时解除路由丢失静音（含 #359 的显式恢复态）：
+    // 强制清理并回放捕获音量（上游无此清理，属鸿蒙侧补强——否则退出房间
+    // 后一直哑音）。
     if (delegate === null && PlayerManager.audioRouteMuteRestoreVolume >= 0) {
-      PlayerManager.restorePlaybackAfterListenTogetherRouteMute(
-        PlayerManager.status === PlaybackStatus.PLAYING, 'session_end');
+      PlayerManager.clearListenTogetherAudioRouteMute('session_end');
     }
     PlayerManager.listenTogetherDelegate = delegate;
   }
@@ -451,6 +461,35 @@ export class PlayerManager {
   static shouldWaitForListenTogetherAuthoritativeStream(song: SongItem): boolean {
     const delegate = PlayerManager.listenTogetherDelegate;
     return delegate !== null && delegate.shouldWaitForAuthoritativeStream(song);
+  }
+
+  /**
+   * Upstream #359: the player is still resolving this very track — an
+   * authoritative-stream verdict racing that load must neither reload nor hold
+   * playback (the local resolution may be about to land on the same url).
+   */
+  static isListenTogetherLocalResolutionPendingFor(song: SongItem): boolean {
+    if (PlayerManager.status !== PlaybackStatus.LOADING) {
+      return false;
+    }
+    const current = PlayerManager.getCurrentSong();
+    return current !== null && stableKeyOf(current) === stableKeyOf(song);
+  }
+
+  /** Upstream #359: the controller twice-confirmed no shareable link. */
+  static isListenTogetherAuthoritativeStreamConfirmedUnavailable(song: SongItem): boolean {
+    const delegate = PlayerManager.listenTogetherDelegate;
+    return delegate !== null && delegate.isAuthoritativeStreamConfirmedUnavailable(song);
+  }
+
+  /**
+   * Upstream #359: the current playback depends on the room's link — the local
+   * media url is missing (or, upstream, only a preview clip). This port has no
+   * preview-clip tier, so a missing/blank url is the whole condition.
+   */
+  static currentPlaybackRequiresListenTogetherAuthoritativeStream(): boolean {
+    const url = PlayerManager.currentMediaUrl;
+    return url === null || url.trim().length === 0;
   }
 
   /** Upstream `isTransportActive()` mapped onto this port's state model. */
@@ -694,6 +733,12 @@ export class PlayerManager {
   }
 
   static async togglePlayPause(): Promise<void> {
+    // Upstream #359 `togglePlayPauseImpl`: while the listener is route-muted,
+    // the button restores the captured volume instead of pausing the room.
+    if (PlayerManager.isListenTogetherAudioRouteMuteSuppressed()) {
+      PlayerManager.restoreListenTogetherAudioRouteMute();
+      return;
+    }
     if (PlayerManager.status === PlaybackStatus.PLAYING) {
       await PlayerManager.pause();
     } else {
@@ -2004,21 +2049,29 @@ export class PlayerManager {
 
   private static onOutputDeviceChange(info: audio.AudioStreamDeviceChangeInfo): void {
     const action = AudioInterruptPolicy.decideForDeviceChange(info.changeReason);
-    // Upstream #318: a listener losing its output device keeps playing muted
-    // instead of pausing — a local pause would desync the room, and the safety
-    // resume can only catch up whole segments. The captured volume is restored
-    // when a new output device arrives (or the session ends).
+    // Upstream #318/#359: a listener losing its output device keeps playing
+    // muted instead of pausing — a local pause would desync the room, and the
+    // safety resume can only catch up whole segments. #359 extends this to
+    // every listener and makes the mute explicit-restore: the captured volume
+    // only comes back when the user asks for it (play button / notification),
+    // not merely because a new device appeared.
     const delegate = PlayerManager.listenTogetherDelegate;
-    const listenerSafetyPauseApplies = delegate !== null
-      && delegate.shouldUseListenerSafetyPause();
+    const listenerRouteLossMute = delegate !== null &&
+      shouldMuteListenTogetherListenerForAudioRouteLoss(
+        delegate.isListenTogetherActive(),
+        delegate.isCurrentUserController()
+      );
     const wasPlaying = PlayerManager.status === PlaybackStatus.PLAYING;
-    if (action === InterruptAction.PAUSE_PERMANENT
-      && shouldMuteListenTogetherListenerForAudioRouteLoss(listenerSafetyPauseApplies, wasPlaying)) {
+    if (action === InterruptAction.PAUSE_PERMANENT && listenerRouteLossMute) {
       PlayerManager.suppressPlaybackForListenTogetherRouteLoss('output_disconnect');
       return;
     }
     if (info.changeReason === InterruptValues.REASON_NEW_DEVICE_AVAILABLE
       && PlayerManager.audioRouteMuteRestoreVolume >= 0) {
+      if (PlayerManager.audioRouteMuteRequiresExplicitRestore) {
+        Logger.debug('listen-together route-loss mute kept until explicit restore (new device)');
+        return;
+      }
       PlayerManager.restorePlaybackAfterListenTogetherRouteMute(
         shouldRestoreListenTogetherRouteMuteVolume(true, wasPlaying), 'device_connected');
       return;
@@ -2034,10 +2087,25 @@ export class PlayerManager {
     PlayerManager.applyInterruptAction(action);
   }
 
-  // ---- 一起听听友路由丢失静音（上游 #318 suppress/clear/restore） ----
+  // ---- 一起听听友路由丢失静音（上游 #318 suppress/clear/restore，#359 显式恢复） ----
 
   /** -1 = 未抑制；其余为待恢复音量（0..1）。 */
   private static audioRouteMuteRestoreVolume: number = -1;
+  /** 上游 #359 `audioRouteMuteRequiresExplicitRestore`：静音只等用户显式恢复。 */
+  private static audioRouteMuteRequiresExplicitRestore: boolean = false;
+
+  /** 静音抑制是否生效（UI 播放按钮据此显示「恢复音量」）。 */
+  static isListenTogetherAudioRouteMuteSuppressed(): boolean {
+    return PlayerManager.audioRouteMuteRestoreVolume >= 0;
+  }
+
+  /** 抑制状态变化时发布给 UI（播放按钮图标随 suppress/restore 切换）。 */
+  private static publishListenTogetherMuteSuppressed(): void {
+    AppStorage.setOrCreate(
+      PlaybackConstants.KEY_LT_MUTE_SUPPRESSED,
+      PlayerManager.audioRouteMuteRestoreVolume >= 0
+    );
+  }
 
   /** 捕获当前音量并静音继续播（不暂停、不写设置，捕获值只记一次）。 */
   private static suppressPlaybackForListenTogetherRouteLoss(reason: string): void {
@@ -2049,8 +2117,27 @@ export class PlayerManager {
       PlayerManager.audioRouteMuteRestoreVolume =
         SettingsRepository.getNumber(SettingsRepository.KEY_PLAYBACK_VOLUME, 1.0);
     }
+    PlayerManager.audioRouteMuteRequiresExplicitRestore = true;
     PlayerManager.applyPlayerVolume(0);
+    PlayerManager.publishListenTogetherMuteSuppressed();
     Logger.info(`listen-together listener muted for audio route loss (${reason})`);
+  }
+
+  /**
+   * 显式恢复（上游 #359 `restoreAudioRouteMuteImpl`）：播放按钮/通知栏在静音态
+   * 点击时恢复被捕获的音量而不是切换播放。
+   */
+  static restoreListenTogetherAudioRouteMute(): void {
+    const captured = PlayerManager.audioRouteMuteRestoreVolume;
+    if (captured < 0) {
+      PlayerManager.audioRouteMuteRequiresExplicitRestore = false;
+      return;
+    }
+    PlayerManager.audioRouteMuteRestoreVolume = -1;
+    PlayerManager.audioRouteMuteRequiresExplicitRestore = false;
+    PlayerManager.publishListenTogetherMuteSuppressed();
+    Logger.info(`listen-together route-loss mute explicitly restored (captured=${captured})`);
+    PlayerManager.volumeFader.snapTo(captured);
   }
 
   /** 解除静音抑制：仍在播放则恢复捕获音量，否则只解除（音量交给后续播放）。 */
@@ -2060,10 +2147,29 @@ export class PlayerManager {
     if (captured < 0) {
       return;
     }
+    // #359：听友的显式静音不随自动路径（如既有会话结束清理）静默恢复。
+    if (PlayerManager.audioRouteMuteRequiresExplicitRestore && restoreVolume) {
+      Logger.debug(`listen-together mute kept for explicit restore (${reason})`);
+      return;
+    }
     PlayerManager.audioRouteMuteRestoreVolume = -1;
+    PlayerManager.audioRouteMuteRequiresExplicitRestore = false;
+    PlayerManager.publishListenTogetherMuteSuppressed();
     Logger.info(`listen-together route-loss mute ${restoreVolume ? 'restored' : 'cleared'} `
       + `(${reason}, captured=${captured})`);
     if (restoreVolume) {
+      PlayerManager.volumeFader.snapTo(captured);
+    }
+  }
+
+  /** 会话结束/解除抑制的强制清理（不保留显式恢复意图）。 */
+  static clearListenTogetherAudioRouteMute(reason: string): void {
+    const captured = PlayerManager.audioRouteMuteRestoreVolume;
+    PlayerManager.audioRouteMuteRestoreVolume = -1;
+    PlayerManager.audioRouteMuteRequiresExplicitRestore = false;
+    PlayerManager.publishListenTogetherMuteSuppressed();
+    if (captured >= 0) {
+      Logger.info(`listen-together route-loss mute cleared (${reason}, captured=${captured})`);
       PlayerManager.volumeFader.snapTo(captured);
     }
   }

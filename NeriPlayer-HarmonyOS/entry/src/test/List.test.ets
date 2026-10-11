@@ -85,6 +85,8 @@ import listenTogetherEventFactoryTest from './ets/test/ListenTogetherEventFactor
 import listenTogetherSessionRuntimeTest from './ets/test/ListenTogetherSessionRuntime.test';
 import listenTogetherConfigSnapshotTest from './ets/test/ListenTogetherConfigSnapshot.test';
 import listenTogetherStateApplierTest from './ets/test/ListenTogetherStateApplier.test';
+import listenTogetherQueueMutationTest from './ets/test/ListenTogetherQueueMutation.test';
+import listenTogetherRobustnessTest from './ets/test/ListenTogetherRobustness.test';
 import paletteTest from './ets/test/Palette.test';
 import dynamicThemeTest from './ets/test/DynamicTheme.test';
 import colorScienceTest from './ets/test/ColorScience.test';
@@ -180,6 +182,8 @@ export default function testsuite(): void {
   listenTogetherSessionRuntimeTest();
   listenTogetherConfigSnapshotTest();
   listenTogetherStateApplierTest();
+  listenTogetherQueueMutationTest();
+  listenTogetherRobustnessTest();
   paletteTest();
   dynamicThemeTest();
   colorScienceTest();

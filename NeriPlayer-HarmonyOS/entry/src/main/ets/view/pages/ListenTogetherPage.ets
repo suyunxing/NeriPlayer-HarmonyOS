@@ -31,6 +31,27 @@ function hasPlayableQueue(): boolean {
   return PlayerManager.getQueue().length > 0 && PlayerManager.getCurrentSong() !== null;
 }
 
+/**
+ * Upstream #359 strings: the room notice carries canonical codes
+ * (ListenTogetherRoomNotice) that the UI localises; server-supplied free text
+ * and the controller_offline countdown pass through verbatim.
+ */
+function listenTogetherNoticeText(raw: string | null): string {
+  if (raw === null || raw.length === 0) {
+    return '';
+  }
+  if (raw === 'controller_left') {
+    return '房主已离开，房间已结束';
+  }
+  if (raw === 'controller_reconnected') {
+    return '房主已重连，同步已恢复';
+  }
+  if (raw === 'controller_timeout' || raw === 'room_closed') {
+    return '房主长时间未返回，房间已自动关闭';
+  }
+  return raw;
+}
+
 /** View-only member row: nickname plus a precomputed controller flag. */
 class ListenTogetherRoomMemberView {
   userUuid: string = '';
@@ -424,7 +445,7 @@ export struct ListenTogetherPage {
       .width('100%')
 
       if ((this.sessionView.roomNotice ?? '').length > 0) {
-        Text(this.sessionView.roomNotice ?? '')
+        Text(listenTogetherNoticeText(this.sessionView.roomNotice))
           .fontSize(12)
           .fontColor(Theme.textSecondary(Theme.isDark()))
           .width('100%')

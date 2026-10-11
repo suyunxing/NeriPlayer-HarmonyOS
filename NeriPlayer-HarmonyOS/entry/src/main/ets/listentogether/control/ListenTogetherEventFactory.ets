@@ -55,13 +55,23 @@ import {
   hasShareableListenTogetherTrackAt,
   isShareableForListenTogether
 } from '../playback/ListenTogetherShareabilityPolicy';
-import { indexOfListenTogetherTrack } from '../playback/ListenTogetherPlaybackTrack';
+import {
+  indexOfListenTogetherTrack,
+  listenTogetherCurrentTrack,
+  sameListenTogetherTrack
+} from '../playback/ListenTogetherPlaybackTrack';
+import { wrapListenTogetherSingleTrackRepeatPosition } from '../playback/ListenTogetherPlaybackPosition';
 import {
   resolveListenTogetherLinkReadyState,
   resolveListenTogetherPlaybackCommandShouldPlay
 } from '../compat/ListenTogetherEventCompatibility';
 import { resolveListenTogetherPlaybackCommandSnapshot } from './ListenTogetherPlaybackCommandSnapshot';
 import { ListenTogetherPlaybackCommand } from './ListenTogetherPlaybackCommand';
+import {
+  buildListenTogetherQueueMutationPlan,
+  ListenTogetherQueueMutationPlan
+} from './ListenTogetherQueueMutationBuilder';
+import { LISTEN_TOGETHER_QUEUE_MUTATION_SCHEMA_VERSION } from '../protocol/ListenTogetherQueueMutation';
 
 const REQUEST_TYPE_PREFIX: string = 'REQUEST_';
 
@@ -141,12 +151,15 @@ export class ListenTogetherEventFactory {
     positionMs: number,
     shouldPlay: boolean
   ): ListenTogetherEvent {
-    const snapshot = this.shareableSnapshot(queue, currentIndex, this.isControllerProvider());
+    // Upstream #359: resolved urls never ride along a queue snapshot any more —
+    // LINK_READY is the only path a controller's stream urls leave the device —
+    // and a schema-V2 room gets the queue as a mutation instead of a snapshot.
+    const snapshot = this.shareableSnapshot(queue, currentIndex, false);
     const event = this.newEnvelope('SET_TRACK');
     event.positionMs = Math.max(positionMs, 0);
     event.currentIndex = snapshot.currentIndex;
     event.track = trackAt(snapshot.tracks, snapshot.currentIndex);
-    event.queue = snapshot.tracks;
+    this.applyQueueTransport(event, snapshot);
     event.shouldPlay = shouldPlay;
     return event;
   }
@@ -178,12 +191,19 @@ export class ListenTogetherEventFactory {
   /**
    * The mode change carries the *current* position rather than a caller-supplied
    * one: nothing about repeat or shuffle moves the playhead, so re-sending where
-   * it already is keeps peers from seeking.
+   * it already is keeps peers from seeking. Upstream #359 additionally wraps the
+   * position for single-track repeat (a mode toggle just before the track end
+   * must not push peers past the wrap point) and ships the queue as a mutation.
    */
   buildPlaybackModeEvent(repeatMode: number, shuffleEnabled: boolean): ListenTogetherEvent {
     const playback = this.playbackSnapshotProvider();
     const type = this.isControllerProvider() ? 'PLAYBACK_MODE' : 'REQUEST_PLAYBACK_MODE';
-    const event = this.playbackSnapshotEvent(type, Math.max(playback.positionMs, 0), playback);
+    const event = this.playbackSnapshotEvent(
+      type,
+      this.playbackModePositionSnapshot(Math.max(playback.positionMs, 0)),
+      playback,
+      true
+    );
     event.repeatMode = repeatMode;
     event.shuffleEnabled = shuffleEnabled;
     return event;
@@ -279,24 +299,13 @@ export class ListenTogetherEventFactory {
       return null;
     }
     // Candidate order is the trust order: what the caller just resolved, then
-    // what the player holds, then whatever survived the snapshot.
-    const candidates: string[] = [];
-    for (const url of streamUrlsOverride) {
-      candidates.push(url);
-    }
-    if (streamUrlOverride !== null) {
-      candidates.push(streamUrlOverride);
-    }
-    for (const url of playback.shareableStreamUrls) {
-      candidates.push(url);
-    }
-    for (const url of shareableTrack.streamUrls) {
-      candidates.push(url);
-    }
-    if (shareableTrack.streamUrl !== null) {
-      candidates.push(shareableTrack.streamUrl);
-    }
-    const trustedTrack = listenTogetherTrackWithStreamUrls(shareableTrack, candidates);
+    // what the player holds. Upstream #359 dropped the snapshot track's own
+    // urls from this chain — a stale link from an older LINK_READY round must
+    // not outvote a fresh resolution.
+    const resolvedStreamUrls: string[] = streamUrlsOverride.length > 0
+      ? streamUrlsOverride
+      : this.resolvedLinkCandidates(streamUrlOverride, playback);
+    const trustedTrack = listenTogetherTrackWithStreamUrls(shareableTrack, resolvedStreamUrls);
     if (trustedTrack.streamUrls.length === 0) {
       this.report(`buildLinkReadyEvent(): direct stream urls missing, stableKey=${stableKey}, track=${shareableTrack.name}`);
       return null;
@@ -312,6 +321,29 @@ export class ListenTogetherEventFactory {
       playback.isPlaying
     );
     event.positionMs = Math.max(positionMs, 0);
+    event.requestTrackStableKey = stableKey;
+    return event;
+  }
+
+  /**
+   * Upstream #359: the controller giving up on a link after exhausting its
+   * resolution attempts. Carries the stripped track so listeners know which
+   * track the verdict applies to, and no url at all.
+   */
+  buildLinkUnavailableEvent(stableKey: string): ListenTogetherEvent | null {
+    const playback = this.playbackSnapshotProvider();
+    const currentSong = playback.currentSong;
+    if (currentSong === null) {
+      return null;
+    }
+    const currentTrack = songItemToListenTogetherTrackOrNull(currentSong);
+    if (currentTrack === null || currentTrack.stableKey !== stableKey) {
+      return null;
+    }
+    const currentIndex = indexOfListenTogetherTrack(playback.queue, currentSong);
+    const event = this.newEnvelope('LINK_UNAVAILABLE');
+    event.currentIndex = currentIndex >= 0 ? currentIndex : null;
+    event.track = listenTogetherTrackWithStreamUrls(currentTrack, []);
     event.requestTrackStableKey = stableKey;
     return event;
   }
@@ -368,7 +400,11 @@ export class ListenTogetherEventFactory {
     event.track = isController && shouldAdvance
       ? trackAt(snapshot.tracks, snapshot.currentIndex)
       : null;
-    event.queue = isController ? snapshot.tracks : null;
+    if (isController) {
+      this.applyQueueTransport(event, snapshot);
+    } else {
+      event.queue = null;
+    }
     event.shouldPlay = isController ? shouldAdvance : null;
     event.finishedTrackStableKey = finishedTrack.stableKey;
     return event;
@@ -396,7 +432,12 @@ export class ListenTogetherEventFactory {
     const commitType = requestType.substring(REQUEST_TYPE_PREFIX.length);
     const rawPositionMs = message.positionMs ?? message.expectedPositionMs ?? 0;
     const event = this.newEnvelope(commitType);
-    event.positionMs = Math.max(rawPositionMs, 0);
+    event.positionMs = Math.max(
+      commitType === 'PLAYBACK_MODE'
+        ? this.playbackModePositionSnapshot(rawPositionMs)
+        : rawPositionMs,
+      0
+    );
     event.currentIndex = message.currentIndex;
     event.track = message.track;
     event.queue = message.queue;
@@ -404,6 +445,7 @@ export class ListenTogetherEventFactory {
     event.state = message.stateName;
     event.repeatMode = message.repeatMode;
     event.shuffleEnabled = message.shuffleEnabled;
+    event.queueMutation = message.queueMutation;
     event.requestTrackStableKey = message.requestTrackStableKey;
     return event;
   }
@@ -480,8 +522,9 @@ export class ListenTogetherEventFactory {
         return null;
       }
       // A seek re-states which track it applies to, because a seek that lands on
-      // a peer after a track switch must be discardable.
-      const snapshot = this.shareableSnapshot(queue, currentIndex, isController);
+      // a peer after a track switch must be discardable. Resolved urls never
+      // ride along (upstream #359: LINK_READY is the only url path).
+      const snapshot = this.shareableSnapshot(queue, currentIndex, false);
       const event = isController
         ? this.buildSeekEvent(positionMs)
         : this.buildRequestSeekEvent(positionMs);
@@ -495,14 +538,19 @@ export class ListenTogetherEventFactory {
   /**
    * `positionMs` is passed rather than read so PLAYBACK_MODE can reuse the same
    * snapshot it took for the position; `playback` is passed for the same reason.
+   * `includeQueueMutation` is set only by PLAYBACK_MODE (upstream #359): a mode
+   * toggle reshapes the queue, so the room needs the mutation — transport-only
+   * snapshots never touch the queue.
    */
   private playbackSnapshotEvent(
     type: string,
     positionMs: number,
-    playbackSnapshot: ListenTogetherLocalPlaybackSnapshot | null = null
+    playbackSnapshot: ListenTogetherLocalPlaybackSnapshot | null = null,
+    includeQueueMutation: boolean = false
   ): ListenTogetherEvent {
     const playback = playbackSnapshot ?? this.playbackSnapshotProvider();
-    const snapshot = this.currentTrackSnapshot(playback, this.isControllerProvider());
+    const snapshot = this.currentTrackSnapshot(playback, false);
+    const roomState = this.roomStateProvider();
     const bareType = type.startsWith(REQUEST_TYPE_PREFIX)
       ? type.substring(REQUEST_TYPE_PREFIX.length)
       : type;
@@ -520,12 +568,90 @@ export class ListenTogetherEventFactory {
     event.positionMs = Math.max(positionMs, 0);
     event.currentIndex = snapshot.currentIndex;
     event.track = trackAt(snapshot.tracks, snapshot.currentIndex);
-    event.queue = snapshot.tracks;
+    if (includeQueueMutation) {
+      this.applyQueueTransport(event, snapshot);
+    } else {
+      // A pre-V2 server still needs the occasional full snapshot to stay in
+      // sync; a V2 one reads the queue from mutations only.
+      event.queue = this.shouldIncludeLegacyQueueSnapshot(roomState) ? snapshot.tracks : null;
+    }
     event.shouldPlay = resolvedState === 'playing';
     event.state = resolvedState;
     event.repeatMode = playback.repeatMode;
     event.shuffleEnabled = playback.shuffleEnabled;
     return event;
+  }
+
+  /**
+   * Upstream #359 queue transport: a schema-V2 room receives the queue as a
+   * mutation plus an in-memory snapshot for the legacy fallback; anything else
+   * (older room, or a diff too large to express) ships the full snapshot.
+   */
+  private applyQueueTransport(
+    event: ListenTogetherEvent,
+    snapshot: ListenTogetherShareableQueueSnapshot
+  ): void {
+    const plan = this.queueMutationPlanFor(snapshot);
+    if (plan !== null && !plan.requiresSnapshotFallback) {
+      event.queue = null;
+      event.queueMutation = plan.mutation;
+      event.legacyQueueSnapshot = snapshot.tracks;
+      return;
+    }
+    event.queue = snapshot.tracks;
+    event.queueMutation = null;
+    event.legacyQueueSnapshot = null;
+  }
+
+  /** A mutation is only attempted against a room that speaks schema V2. */
+  private queueMutationPlanFor(
+    snapshot: ListenTogetherShareableQueueSnapshot
+  ): ListenTogetherQueueMutationPlan | null {
+    const roomState = this.roomStateProvider();
+    if (roomState === null || roomState.schemaVersion < LISTEN_TOGETHER_QUEUE_MUTATION_SCHEMA_VERSION) {
+      return null;
+    }
+    return buildListenTogetherQueueMutationPlan(
+      roomState,
+      snapshot.tracks,
+      snapshot.currentIndex
+    );
+  }
+
+  /** Whether a room still expects full queue snapshots on transport events. */
+  private shouldIncludeLegacyQueueSnapshot(roomState: ListenTogetherRoomState | null): boolean {
+    return (roomState === null ? 1 : roomState.schemaVersion) < LISTEN_TOGETHER_QUEUE_MUTATION_SCHEMA_VERSION;
+  }
+
+  /**
+   * Upstream #359 `playbackModePositionSnapshot`: wrap a mode-change position
+   * through the *previous* repeat mode, so toggling single-track repeat near the
+   * end does not hand peers a position past the wrap point.
+   */
+  private playbackModePositionSnapshot(positionMs: number): number {
+    const roomState = this.roomStateProvider();
+    const roomTrack = roomState === null ? null : listenTogetherCurrentTrack(roomState);
+    const playback = this.playbackSnapshotProvider();
+    const durationMs = (roomTrack !== null ? roomTrack.durationMs : 0) ||
+      (playback.currentSong !== null ? playback.currentSong.durationMs : 0) || 0;
+    const previousRepeatMode = roomState !== null
+      ? roomState.playback.repeatMode
+      : playback.repeatMode;
+    return wrapListenTogetherSingleTrackRepeatPosition(positionMs, previousRepeatMode, durationMs);
+  }
+
+  private resolvedLinkCandidates(
+    streamUrlOverride: string | null,
+    playback: ListenTogetherLocalPlaybackSnapshot
+  ): string[] {
+    const candidates: string[] = [];
+    if (streamUrlOverride !== null) {
+      candidates.push(streamUrlOverride);
+    }
+    for (const url of playback.shareableStreamUrls) {
+      candidates.push(url);
+    }
+    return candidates;
   }
 
   /** The snapshot centred on whatever the local player currently has loaded. */

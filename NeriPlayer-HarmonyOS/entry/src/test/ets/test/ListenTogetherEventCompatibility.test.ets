@@ -16,14 +16,19 @@ import {
   createListenTogetherTrack
 } from '../../../main/ets/listentogether/protocol/ListenTogetherTrack';
 import {
+  buildListenTogetherLegacyQueueMutationFallback,
   buildTrackFinishedLegacyFallbackEvent,
   isListenTogetherMemberControlTargetCurrent,
   isListenTogetherPendingMemberControlSatisfied,
+  isListenTogetherQueueMutationCompatibilityError,
   isUnsupportedTrackFinishedEventError,
   resolveListenTogetherLinkReadyState,
   resolveListenTogetherPlaybackCommandShouldPlay,
   shouldSuppressListenerControlWhileAwaitingStream
 } from '../../../main/ets/listentogether/compat/ListenTogetherEventCompatibility';
+import {
+  ListenTogetherQueueMutation
+} from '../../../main/ets/listentogether/protocol/ListenTogetherQueueMutation';
 import {
   isListenTogetherControlledPlaybackCommandType,
   isListenTogetherControllerHeartbeatRecoveryType,
@@ -87,6 +92,24 @@ function trackFinishedEvent(shouldPlay: boolean, nextIndex: number | null): List
   event.queue = [track('1'), track('2'), track('3')];
   event.shouldPlay = shouldPlay;
   return event;
+}
+
+/** A V2 SET_QUEUE carrying a queue mutation against base version 2. */
+function mutationEvent(): ListenTogetherEvent {
+  const event = createListenTogetherEvent('SET_QUEUE');
+  event.eventId = 'evt-9';
+  const mutation = new ListenTogetherQueueMutation();
+  mutation.baseRoomVersion = 2;
+  event.queueMutation = mutation;
+  return event;
+}
+
+function mirroredRoom(): ListenTogetherRoomState {
+  const state = createListenTogetherRoomState('ABC234', 3);
+  state.queue = [track('1'), track('2')];
+  state.currentIndex = 0;
+  state.track = track('1');
+  return state;
 }
 
 export default function listenTogetherEventCompatibilityTest(): void {
@@ -385,6 +408,93 @@ export default function listenTogetherEventCompatibilityTest(): void {
       expect(isListenTogetherSeekControlSatisfied(playback, 63000)).assertFalse();
       expect(isListenTogetherSeekControlSatisfied(playback, 63000, 5000)).assertTrue();
       expect(isListenTogetherSeekControlSatisfied(pausedPlayback(0), -100)).assertTrue();
+    });
+  });
+
+  describe('ListenTogetherQueueMutationCompatibility', () => {
+    it('settlesAQueueMutationOnlyOnItsOwnCommit', 0, () => {
+      const event = mutationEvent();
+      const state = mirroredRoom();
+      expect(isListenTogetherPendingMemberControlSatisfied(event, state, 1500, 'evt-9')).assertTrue();
+      // Someone else's commit (or a missing one) must not release the retry.
+      expect(isListenTogetherPendingMemberControlSatisfied(event, state, 1500, 'evt-8')).assertFalse();
+      expect(isListenTogetherPendingMemberControlSatisfied(event, state, 1500, null)).assertFalse();
+      // The room must have moved past the base version.
+      const stale = mirroredRoom();
+      stale.version = 2;
+      expect(isListenTogetherPendingMemberControlSatisfied(event, stale, 1500, 'evt-9')).assertFalse();
+      // No event id on the request at all: never satisfied.
+      const anonymous = mutationEvent();
+      anonymous.eventId = null;
+      expect(isListenTogetherPendingMemberControlSatisfied(anonymous, state, 1500, 'evt-9')).assertFalse();
+    });
+
+    it('settlesALegacySetQueueOnTheExactMirror', 0, () => {
+      const event = createListenTogetherEvent('SET_QUEUE');
+      event.queue = [track('1'), track('2'), track('3')];
+      event.currentIndex = 2;
+
+      const mirrored = mirroredRoom();
+      mirrored.version = 3;
+      mirrored.queue = [track('1'), track('2'), track('3')];
+      mirrored.currentIndex = 2;
+      mirrored.track = track('3');
+      expect(isListenTogetherPendingMemberControlSatisfied(event, mirrored)).assertTrue();
+
+      const wrongIndex = mirroredRoom();
+      wrongIndex.queue = [track('1'), track('2'), track('3')];
+      wrongIndex.currentIndex = 1;
+      wrongIndex.track = track('2');
+      expect(isListenTogetherPendingMemberControlSatisfied(event, wrongIndex)).assertFalse();
+
+      const wrongLength = mirroredRoom();
+      wrongLength.queue = [track('1'), track('2')];
+      wrongLength.currentIndex = 2;
+      expect(isListenTogetherPendingMemberControlSatisfied(event, wrongLength)).assertFalse();
+
+      const emptied = createListenTogetherEvent('SET_QUEUE');
+      emptied.queue = [];
+      emptied.currentIndex = -1;
+      const emptyRoom = mirroredRoom();
+      emptyRoom.queue = [];
+      emptyRoom.currentIndex = -1;
+      emptyRoom.track = null;
+      expect(isListenTogetherPendingMemberControlSatisfied(emptied, emptyRoom)).assertTrue();
+    });
+
+    it('rewritesAMutationIntoTheLegacySnapshotFallback', 0, () => {
+      const event = createListenTogetherEvent('SET_QUEUE');
+      event.eventId = 'e1';
+      event.queueMutation = new ListenTogetherQueueMutation();
+      event.legacyQueueSnapshot = [track('1'), track('2')];
+
+      const fallback = buildListenTogetherLegacyQueueMutationFallback(event, 'e1-legacy');
+      expect(fallback === null).assertFalse();
+      expect(fallback?.eventId).assertEqual('e1-legacy');
+      expect(fallback?.queue?.length).assertEqual(2);
+      expect(fallback?.queueMutation).assertNull();
+      expect(fallback?.legacyQueueSnapshot).assertNull();
+      // The original event is untouched (the rewrite works on a clone).
+      expect(event.queueMutation === null).assertFalse();
+      expect(event.legacyQueueSnapshot?.length).assertEqual(2);
+
+      // Missing snapshot, mutation or a blank id all refuse the rewrite.
+      const snapshotless = createListenTogetherEvent('SET_QUEUE');
+      snapshotless.queueMutation = new ListenTogetherQueueMutation();
+      expect(buildListenTogetherLegacyQueueMutationFallback(snapshotless, 'x')).assertNull();
+      expect(buildListenTogetherLegacyQueueMutationFallback(event, '')).assertNull();
+    });
+
+    it('classifiesTheV2QueueMutationRejections', 0, () => {
+      expect(isListenTogetherQueueMutationCompatibilityError('Queue Mutation is Invalid')).assertTrue();
+      expect(isListenTogetherQueueMutationCompatibilityError('queue mutation base version is ahead'))
+        .assertTrue();
+      expect(isListenTogetherQueueMutationCompatibilityError('QUEUE MUTATION EVENT TYPE UNSUPPORTED'))
+        .assertTrue();
+      expect(isListenTogetherQueueMutationCompatibilityError('queue update queue required')).assertTrue();
+      expect(isListenTogetherQueueMutationCompatibilityError('room not found')).assertFalse();
+      expect(isListenTogetherQueueMutationCompatibilityError(null)).assertFalse();
+      expect(isListenTogetherQueueMutationCompatibilityError('   ')).assertFalse();
     });
   });
 }

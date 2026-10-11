@@ -279,6 +279,31 @@ export default function listenTogetherMappingTest(): void {
       ).length).assertEqual(0);
     });
 
+    it('capsStreamCandidatesPerPlatform', 0, () => {
+      // 上游 #359：B 站 URL 按画质签名且轮换快、YouTube 直链只有一种形态，
+      // 平台上限（netease 3 / bili 2 / youtube 1）压过全局默认 3。
+      const biliUrls: string[] = ['https://upos-sz-mirror.bilivideo.com/a.m4s',
+        'https://upos-sz-mirror2.bilivideo.cn/b.m4s',
+        'https://edge-apollo.hdslb.com/c.m4s'];
+      expect(trustedListenTogetherStreamUrls(ListenTogetherChannels.BILIBILI, biliUrls).length)
+        .assertEqual(2);
+
+      const youtubeUrls: string[] = ['https://rr1---sn-x.googlevideo.com/a.mp4',
+        'https://rr2---sn-y.googlevideo.com/b.mp4'];
+      expect(trustedListenTogetherStreamUrls(ListenTogetherChannels.YOUTUBE_MUSIC, youtubeUrls).length)
+        .assertEqual(1);
+
+      // 调用方更小的预算仍然生效：min(maxCount, platformMax)。
+      expect(trustedListenTogetherStreamUrls(
+        ListenTogetherChannels.NETEASE, [PRIMARY_STREAM_URL, BACKUP_A_STREAM_URL], null, 1).length)
+        .assertEqual(1);
+
+      // #359：mountaintoys.cn 加入 B 站直链白名单。
+      expect(trustedListenTogetherStreamUrl(ListenTogetherChannels.BILIBILI,
+        'https://cdn.mountaintoys.cn/x.m4s'))
+        .assertEqual('https://cdn.mountaintoys.cn/x.m4s');
+    });
+
     it('reusesTheTrackWhenNothingMoved', 0, () => {
       const track = neteaseTrack('2');
       track.streamUrl = PRIMARY_STREAM_URL;

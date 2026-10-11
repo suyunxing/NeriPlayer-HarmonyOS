@@ -17,6 +17,7 @@ export class PlaybackConstants {
   static readonly KEY_FAVORITE: string = 'player.favorite';
   static readonly KEY_SLEEP_ACTIVE: string = 'player.sleepActive';
   static readonly KEY_SLEEP_REMAINING_MIN: string = 'player.sleepRemainingMin';
+  static readonly KEY_LT_MUTE_SUPPRESSED: string = 'player.ltMuteSuppressed';
 }
 
 export enum PlaybackStatus {
