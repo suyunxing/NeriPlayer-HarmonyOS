@@ -12,12 +12,30 @@ import { LISTEN_TOGETHER_ROLE_LISTENER } from '../protocol/ListenTogetherSession
 
 export const LISTEN_TOGETHER_JOIN_AUTO_PAUSE_CAUSE: string = 'JOIN_AUTO_PAUSE';
 
+/**
+ * Upstream #359 `shouldAutoPauseListenTogetherForMemberChange`: the
+ * `autoPauseOnMemberChange` setting gates both join and departure pauses, so
+ * both routes share one decision.
+ */
+export function shouldAutoPauseListenTogetherForMemberChange(
+  autoPauseOnMemberChange: boolean,
+  memberChangeType: string | null
+): boolean {
+  if (!autoPauseOnMemberChange) {
+    return false;
+  }
+  return memberChangeType === 'MEMBER_JOINED' || memberChangeType === 'MEMBER_LEFT';
+}
+
 export function resolveListenTogetherJoinAutoPauseCause(
   autoPauseOnJoin: boolean,
   role: string | null,
   state: ListenTogetherRoomState
 ): string | null {
-  if (!autoPauseOnJoin || role !== LISTEN_TOGETHER_ROLE_LISTENER) {
+  if (
+    !shouldAutoPauseListenTogetherForMemberChange(autoPauseOnJoin, 'MEMBER_JOINED') ||
+    role !== LISTEN_TOGETHER_ROLE_LISTENER
+  ) {
     return null;
   }
   return state.playback.state === 'paused' ? LISTEN_TOGETHER_JOIN_AUTO_PAUSE_CAUSE : null;

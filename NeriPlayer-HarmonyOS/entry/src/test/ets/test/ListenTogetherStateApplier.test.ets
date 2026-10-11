@@ -64,6 +64,10 @@ class RecordedSurface implements ListenTogetherPlayerSurface {
   mediaUrl: string | null = null;
   holdSafetyPause: boolean = false;
   waitForAuthoritativeStream: boolean = false;
+  // Upstream #359 surface answers, mirrored as plain flags.
+  localResolutionPendingFor: boolean = false;
+  confirmedUnavailableFor: boolean = false;
+  requiresAuthoritativeStream: boolean = false;
   elapsedMs: number = 10_000;
 
   reloadedQueues: number = 0;
@@ -135,6 +139,18 @@ class RecordedSurface implements ListenTogetherPlayerSurface {
 
   shouldWaitForAuthoritativeStream(song: SongItem): boolean {
     return this.waitForAuthoritativeStream;
+  }
+
+  isLocalResolutionPendingFor(song: SongItem): boolean {
+    return this.localResolutionPendingFor;
+  }
+
+  isAuthoritativeStreamConfirmedUnavailable(song: SongItem): boolean {
+    return this.confirmedUnavailableFor;
+  }
+
+  currentPlaybackRequiresAuthoritativeStream(): boolean {
+    return this.requiresAuthoritativeStream;
   }
 
   elapsedRealtimeMs(): number {
@@ -331,6 +347,49 @@ export default function listenTogetherStateApplierTest() {
 
       expect(applier.apply(room, 'WATCHDOG_STALL', 1000)).assertTrue();
       expect(surface.reloadedQueues).assertEqual(1);
+    });
+
+    it('reloads exactly once for a confirmed LINK_UNAVAILABLE fallback', 0, () => {
+      const surface = new RecordedSurface();
+      surface.queue = [neteaseSong('1')];
+      surface.song = surface.queue[0];
+      surface.mediaUrl = null;
+      surface.requiresAuthoritativeStream = true;
+      surface.confirmedUnavailableFor = true;
+      const room = roomWith('1', false, 1000);
+      const applier = applierFor(surface, () => room);
+
+      // The room link is confirmed gone: fall back to the local resolution
+      // once for this track.
+      expect(applier.apply(room, 'LINK_UNAVAILABLE', null)).assertTrue();
+      expect(surface.reloadedQueues).assertEqual(1);
+      // A second state for the same track must not repeat the fallback.
+      expect(applier.apply(room, 'LINK_UNAVAILABLE', null)).assertTrue();
+      expect(surface.reloadedQueues).assertEqual(1);
+    });
+
+    it('lets a pending local resolution lift the authoritative-stream hold', 0, () => {
+      // Without a pending resolution the listener waits for the room link:
+      // no reload and no play while the hold is armed.
+      const held = new RecordedSurface();
+      held.queue = [neteaseSong('1')];
+      held.song = held.queue[0];
+      held.waitForAuthoritativeStream = true;
+      const room = roomWith('1', true, 1000);
+      const heldApplier = applierFor(held, () => room);
+      heldApplier.apply(room, 'HEARTBEAT', 1000);
+      expect(held.playCalls).assertEqual(0);
+
+      // The same room with a local resolution in flight (#359): the hold is
+      // suppressed so the listener that is about to resolve can play.
+      const resolving = new RecordedSurface();
+      resolving.queue = [neteaseSong('1')];
+      resolving.song = resolving.queue[0];
+      resolving.waitForAuthoritativeStream = true;
+      resolving.localResolutionPendingFor = true;
+      const resolvingApplier = applierFor(resolving, () => room);
+      resolvingApplier.apply(room, 'HEARTBEAT', 1000);
+      expect(resolving.playCalls).assertEqual(1);
     });
   });
 }

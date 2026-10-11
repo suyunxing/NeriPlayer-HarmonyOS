@@ -40,6 +40,9 @@ export struct MiniPlayer {
   onMeasured: (area: Area) => void = (_area: Area): void => {};
   @StorageLink('player.currentSong') currentSongJson: string = '';
   @StorageLink('player.status') @Watch('onStatusChanged') status: number = PlaybackStatus.IDLE;
+  // 上游 #359：一起听听友路由丢失静音时，播放键变「恢复音量」符号（点击
+  // 恢复捕获音量而非暂停）；@Watch 复用 onStatusChanged 让符号替换动效生效。
+  @StorageProp('player.ltMuteSuppressed') @Watch('onStatusChanged') ltMuteSuppressed: boolean = false;
   /**
    * ReplaceSymbolEffect 触发计数：播放/暂停切换时 +1 驱动交叉淡入。初值必须
    * 为 -1（官方语义：triggerValue 变更才触发动效，「首次不希望触发动效，
@@ -374,9 +377,11 @@ export struct MiniPlayer {
           Button() {
             Stack({ alignContent: Alignment.Center }) {
               // S6: 官方符号替换动效（CROSS_FADE），播放/暂停切换不再是硬切。
-              SymbolGlyph(this.status === PlaybackStatus.PLAYING
-                ? $r('sys.symbol.pause_fill')
-                : $r('sys.symbol.play_fill'))
+              SymbolGlyph(this.ltMuteSuppressed
+                ? $r('sys.symbol.speaker_wave_2_fill')
+                : (this.status === PlaybackStatus.PLAYING
+                  ? $r('sys.symbol.pause_fill')
+                  : $r('sys.symbol.play_fill')))
                 .fontSize(this.compact ? 15 : (this.row ? 16 : 22))
                 .fontColor([this.compact || this.row ? this.scheme().primary : '#FFFFFF'])
                 .symbolEffect(this.replaceEffect, this.symbolTrigger)
@@ -388,7 +393,9 @@ export struct MiniPlayer {
           .backgroundColor(this.compact || this.row ? Color.Transparent : this.playBackground())
           // Icon-only control: without an explicit label a screen reader reads
           // nothing at all (device audit 2026-08-24 found 9 such buttons).
-          .accessibilityText(this.status === PlaybackStatus.PLAYING ? '暂停' : '播放')
+          .accessibilityText(this.ltMuteSuppressed
+            ? '恢复音量'
+            : (this.status === PlaybackStatus.PLAYING ? '暂停' : '播放'))
           .onClick(() => {
             PlayerManager.togglePlayPause();
           })

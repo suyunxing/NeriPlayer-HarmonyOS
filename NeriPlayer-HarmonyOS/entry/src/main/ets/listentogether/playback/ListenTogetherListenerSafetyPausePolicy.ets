@@ -38,15 +38,39 @@ export function shouldHoldListenTogetherPlaybackForSafetyPause(
 }
 
 /**
- * 输出设备丢失（拔耳机/断蓝牙）时听友的动作（上游 #318/6308fa60）：
- * 听友暂停会与房主失步，安全恢复也只能整段追平——改为本地静音继续播，
- * 音量捕获待新输出设备接入时恢复。非听友/未在播维持原硬暂停。
+ * 输出设备丢失（拔耳机/断蓝牙）时听友的动作（上游 #318/6308fa60 引入，
+ * #359/3cfd7037 放宽）：任何听友（不再只限 allowMemberControl=false）在
+ * 路由丢失时都改为本地静音继续播而非硬暂停——听友暂停会与房主失步，
+ * 安全恢复也只能整段追平。音量捕获待新输出设备接入时恢复。
  */
 export function shouldMuteListenTogetherListenerForAudioRouteLoss(
-  listenerSafetyPauseApplies: boolean,
-  isPlaying: boolean
+  listenTogetherActive: boolean,
+  isCurrentUserController: boolean
 ): boolean {
-  return listenerSafetyPauseApplies && isPlaying;
+  return listenTogetherActive && !isCurrentUserController;
+}
+
+/**
+ * Upstream #359 `shouldMuteListenTogetherListenerForOutputDisconnect`: the
+ * narrow variant for a device-change event — muting only when a headset-like
+ * route actually went away and the system fell back to the builtin speaker (or
+ * the route genuinely changed with the device removed).
+ */
+export function shouldMuteListenTogetherListenerForOutputDisconnect(
+  listenTogetherActive: boolean,
+  isCurrentUserController: boolean,
+  previousRouteWasHeadsetLike: boolean,
+  newRouteIsBuiltinSpeaker: boolean,
+  outputDeviceRemoved: boolean,
+  routeChanged: boolean
+): boolean {
+  if (!shouldMuteListenTogetherListenerForAudioRouteLoss(listenTogetherActive, isCurrentUserController)) {
+    return false;
+  }
+  if (!previousRouteWasHeadsetLike) {
+    return false;
+  }
+  return newRouteIsBuiltinSpeaker || (outputDeviceRemoved && routeChanged);
 }
 
 /**

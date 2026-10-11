@@ -100,6 +100,9 @@ export struct NowPlayingPage {
   @State sleepLabel: string = '关闭';
   @StorageLink('player.sleepActive') sleepActive: boolean = false;
   @StorageLink('player.sleepRemainingMin') sleepRemainingMin: number = 0;
+  // 上游 #359：一起听听友路由丢失静音时，播放键变「恢复音量」（点击恢复
+  // 捕获音量而非暂停，PlayerManager.togglePlayPause 内短路）。
+  @StorageProp('player.ltMuteSuppressed') ltMuteSuppressed: boolean = false;
   // 播放页/歌词页控件大小档位（PlaybackControlSize 序数，上游 2644267f）：
   // 顶栏/传输行/底部工具行与歌词页胶囊按档位缩放，触控下限 40vp。
   @StorageProp('np.nowplaying_control_size') nowPlayingControlSizeRaw: number = 1;
@@ -912,14 +915,18 @@ export struct NowPlayingPage {
                   onTap: () => PlayerManager.previous()
                 })
                 PlayerControlButton({
-                  icon: this.status === PlaybackStatus.PLAYING
-                    ? $r('app.media.round_pause_24')
-                    : $r('app.media.round_play_arrow_24'),
+                  icon: this.ltMuteSuppressed
+                    ? $r('app.media.round_volume_up_24')
+                    : (this.status === PlaybackStatus.PLAYING
+                      ? $r('app.media.round_pause_24')
+                      : $r('app.media.round_play_arrow_24')),
                   tintOn: this.im().onPrimary,
                   active: true,
                   buttonSize: this.transportLayout().primaryButtonSize,
                   iconSize: this.transportIconSize(34, this.transportLayout()),
-                  label: this.status === PlaybackStatus.PLAYING ? '暂停' : '播放',
+                  label: this.ltMuteSuppressed
+                    ? '恢复音量'
+                    : (this.status === PlaybackStatus.PLAYING ? '暂停' : '播放'),
                   onTap: () => PlayerManager.togglePlayPause()
                 })
                 PlayerControlButton({
@@ -1068,9 +1075,11 @@ export struct NowPlayingPage {
                 onTap: () => PlayerManager.previous()
               })
               Button() {
-                Image(this.status === PlaybackStatus.PLAYING
-                  ? $r('app.media.round_pause_24')
-                  : $r('app.media.round_play_arrow_24'))
+                Image(this.ltMuteSuppressed
+                  ? $r('app.media.round_volume_up_24')
+                  : (this.status === PlaybackStatus.PLAYING
+                    ? $r('app.media.round_pause_24')
+                    : $r('app.media.round_play_arrow_24')))
                   .width(this.lyricIconSize(32))
                   .height(this.lyricIconSize(32))
                   .fillColor(this.im().textSecondary)
@@ -1079,7 +1088,9 @@ export struct NowPlayingPage {
               .height(this.lyricButtonSize(44))
               .type(ButtonType.Circle)
               .backgroundColor(Color.Transparent)
-              .accessibilityText(this.status === PlaybackStatus.PLAYING ? '暂停' : '播放')
+              .accessibilityText(this.ltMuteSuppressed
+                ? '恢复音量'
+                : (this.status === PlaybackStatus.PLAYING ? '暂停' : '播放'))
               .onClick(() => PlayerManager.togglePlayPause())
               PlayerControlButton({
                 icon: $r('app.media.round_skip_next_24'),

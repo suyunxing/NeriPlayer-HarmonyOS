@@ -49,18 +49,23 @@ export function listenTogetherShareableQueueSnapshot(
   const targetIndex = Math.min(Math.max(currentIndex, 0), lastIndex);
   const targetTrack = songItemToListenTogetherTrackOrNull(queue[targetIndex]);
   const targetStableKey = targetTrack === null ? null : targetTrack.stableKey;
-  const streamUrls = includeResolvedStreamUrl ? currentStreamUrls : [];
-  const shareAudioLinks = normalizedListenTogetherRoomSettings(roomSettings).shareAudioLinks;
+  // Upstream #359: resolved urls only leave this device through the explicit
+  // gate below — and every other track ships with its raw stream urls stripped
+  // so a stale link can never slip past the whitelist via the snapshot.
+  const canShareResolvedStreamUrls = includeResolvedStreamUrl &&
+    normalizedListenTogetherRoomSettings(roomSettings).shareAudioLinks;
+  const streamUrls = canShareResolvedStreamUrls ? currentStreamUrls : [];
   const mapped: ListenTogetherTrack[] = [];
   for (const song of queue) {
     const track = songItemToListenTogetherTrackOrNull(song);
     if (track === null) {
       continue;
     }
-    if (shareAudioLinks && targetStableKey !== null && track.stableKey === targetStableKey) {
-      mapped.push(listenTogetherTrackWithStreamUrls(track, streamUrls, onBlocked));
+    const stripped = listenTogetherTrackWithStreamUrls(track, [], onBlocked);
+    if (canShareResolvedStreamUrls && targetStableKey !== null && track.stableKey === targetStableKey) {
+      mapped.push(listenTogetherTrackWithStreamUrls(stripped, streamUrls, onBlocked));
     } else {
-      mapped.push(track);
+      mapped.push(stripped);
     }
   }
   const shareableQueue = boundedListenTogetherQueueAroundStableKey(mapped, targetStableKey);
@@ -89,6 +94,11 @@ export function mergeListenTogetherCurrentTrack(
     return queue;
   }
   if (currentIndex < 0 || currentIndex >= queue.length) {
+    return queue;
+  }
+  // Upstream #359: the slot only accepts a track that names itself — merging a
+  // mismatched track would silently swap the song under the current index.
+  if (queue[currentIndex].stableKey !== currentTrack.stableKey) {
     return queue;
   }
   if (listenTogetherTrackEquals(queue[currentIndex], currentTrack)) {
