@@ -12,6 +12,10 @@ import { PlayerManager } from '../../player/PlayerManager';
 import { PlaybackStatus, RepeatMode } from '../../player/PlaybackConstants';
 import { Theme } from '../Theme';
 import { DynamicTheme } from '../theme/DynamicTheme';
+import { CommentSource } from '../../model/CommentModels';
+import { resolveCommentSource } from '../../network/comments/CommentSourceResolver';
+import { CommentSourceCodec } from '../components/comment/CommentCodec';
+import { CommentSheetContent } from '../components/comment/CommentSheetContent';
 import { AccentScheme, SchemeMode } from '../theme/AccentScheme';
 import { ColorScience } from '../theme/ColorScience';
 import { LyricView } from '../components/LyricView';
@@ -83,6 +87,8 @@ export struct NowPlayingPage {
   @State showQueue: boolean = false;
   // 「词」按钮拉起的歌词设置半模态面板（原生 bindSheet，与播放列表同规格）。
   @State showLyricSettings: boolean = false;
+  // 评论面板（F-3）：入口在封面页顶栏，仅当前歌曲的音源支持评论时显示。
+  @State showCommentSheet: boolean = false;
   @State showSleep: boolean = false;
   @State showShare: boolean = false;
   // ⋯ menu action sheets (the queue keeps its dedicated bottom-right button).
@@ -709,6 +715,21 @@ export struct NowPlayingPage {
             .accessibilityText('一起听')
             .onClick(() => Router.push(Router.LISTEN_TOGETHER))
           }
+          // 评论入口（F-3）：仅封面模式且当前音源支持评论时出现（上游
+          // NowPlayingCoverTopBar 的评论按钮等价位）。
+          if (!this.lyricsMode && this.commentSource() !== null) {
+            Button() {
+              SymbolGlyph($r('sys.symbol.text_bubble_left_2'))
+                .fontSize(this.controlIconSize(20))
+                .fontColor([this.im().textPrimary])
+            }
+            .width(this.controlButtonSize(40))
+            .height(this.controlButtonSize(40))
+            .type(ButtonType.Circle)
+            .backgroundColor(Theme.tagBg(Theme.isDark()))
+            .accessibilityText('查看评论')
+            .onClick(() => this.openCommentSheet())
+          }
           Button('⋯')
             .width(40)
             .height(40)
@@ -1221,6 +1242,34 @@ export struct NowPlayingPage {
         this.showQueue = false;
       }
     })
+    // 评论面板与播放列表同规格；来源 JSON 先行写入 AppStorage，面板组件
+    // aboutToAppear 即读（打开期间切歌经 @Watch 换绑）。
+    .bindSheet($$this.showCommentSheet, this.commentSheetBuilder(), {
+      detents: [SheetSize.MEDIUM, SheetSize.LARGE],
+      dragBar: true,
+      showClose: false,
+      onDisappear: () => {
+        this.showCommentSheet = false;
+      }
+    })
+  }
+
+  private commentSource(): CommentSource | null {
+    return resolveCommentSource(this.song());
+  }
+
+  private openCommentSheet(): void {
+    const source = this.commentSource();
+    if (source === null) {
+      return;
+    }
+    AppStorage.setOrCreate('ui.commentSource', CommentSourceCodec.toJson(source));
+    this.showCommentSheet = true;
+  }
+
+  @Builder
+  commentSheetBuilder() {
+    CommentSheetContent()
   }
 
   @Builder

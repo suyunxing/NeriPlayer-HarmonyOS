@@ -555,6 +555,66 @@ export class NeteaseApi {
     return HttpClient.postForm(url, encrypted, 15000, NeteaseApi.headers(), true);
   }
 
+  // ---------- 评论端点（UPSTREAM_SYNC_PLAN F-3，上游 #432/#476） ----------
+
+  /**
+   * 评论缓存会话键：登录 cookie（MUSIC_U）存在才非空，账号切换后自动隔离
+   * 缓存（上游 commentCacheSessionKey 的语义；值只作缓存键，不入日志）。
+   */
+  static commentCacheSessionKey(): string | null {
+    const cookies = HttpClient.getCookiesMap(`${Constants.NETEASE_BASE}/`);
+    const musicU = cookies.get('MUSIC_U') ?? '';
+    return musicU.length > 0 ? musicU : null;
+  }
+
+  /**
+   * 歌曲评论列表（/api/v2/resource/comments，API 模式明文 GET，上游
+   * getSongCommentsCancellable）。sortType：2 热门 / 3 最新 / 99 推荐；
+   * 最新排序翻页必须传上一页返回的时间游标，不能用 offset 替代时间边界。
+   */
+  static async getSongComments(songId: number, page: number, pageSize: number,
+    sortType: number, cursor: string | null): Promise<string> {
+    if (!(songId > 0) || page <= 0 || pageSize < 1 || pageSize > 100) {
+      throw new Error('invalid song comments request');
+    }
+    if (sortType !== 2 && sortType !== 3 && sortType !== 99) {
+      throw new Error('invalid song comments sortType');
+    }
+    if (sortType === 3 && page > 1 && (cursor === null || cursor.length === 0)) {
+      throw new Error('newest song comments require the previous cursor');
+    }
+    const offset = (page - 1) * pageSize;
+    let nextCursor: string;
+    if (sortType === 2) {
+      nextCursor = `normalHot#${offset}`;
+    } else if (sortType === 3) {
+      nextCursor = page === 1 ? '0' : cursor as string;
+    } else {
+      nextCursor = `${offset}`;
+    }
+    const url = `${Constants.NETEASE_BASE}/api/v2/resource/comments` +
+      `?threadId=R_SO_4_${songId}&pageNo=${page}&pageSize=${pageSize}` +
+      `&sortType=${sortType}&cursor=${encodeURIComponent(nextCursor)}&showInner=true`;
+    return HttpClient.getText(url, NeteaseApi.headers(), 15000, true);
+  }
+
+  /**
+   * 楼中楼回复列表（/weapi/resource/comment/floor/get）。
+   * cursor 为上一页 data.time 时间戳，首页传 null（接口按 -1 处理）。
+   */
+  static async getSongCommentReplies(songId: number, rootId: string,
+    pageSize: number, cursor: string | null): Promise<string> {
+    if (!(songId > 0) || !(Number(rootId) > 0) || pageSize < 1 || pageSize > 100) {
+      throw new Error('invalid song comment replies request');
+    }
+    const params = new Map<string, string>();
+    params.set('threadId', `R_SO_4_${songId}`);
+    params.set('parentCommentId', rootId);
+    params.set('limit', `${pageSize}`);
+    params.set('time', cursor !== null && cursor.length > 0 ? cursor : '-1');
+    return NeteaseApi.callWeapiText('resource/comment/floor/get', params);
+  }
+
   /**
    * 往自建歌单批量加歌（/weapi/playlist/manipulate/tracks，上游 #322）。
    * 返回体 code 200 为成功；登录态下 301 先 resetSession 再重试一次。
