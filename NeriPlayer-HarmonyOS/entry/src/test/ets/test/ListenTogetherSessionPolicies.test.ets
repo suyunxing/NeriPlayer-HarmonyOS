@@ -8,6 +8,11 @@
  */
 import { describe, it, expect } from '@ohos/hypium';
 import {
+  shouldMuteListenTogetherListenerForAudioRouteLoss,
+  volumeWhileListenTogetherRouteMuted,
+  shouldRestoreListenTogetherRouteMuteVolume
+} from '../../../main/ets/listentogether/playback/ListenTogetherListenerSafetyPausePolicy';
+import {
   LISTEN_TOGETHER_DEFAULT_RECENT_EVENT_LIMIT,
   ListenTogetherRecentEventTracker
 } from '../../../main/ets/listentogether/session/ListenTogetherRecentEventTracker';
@@ -402,6 +407,29 @@ export default function listenTogetherSessionPoliciesTest() {
       expect(attempted.createdAtElapsedMs).assertEqual(2_000);
       // The original stays unattempted, so the rewrite decision is the caller's.
       expect(pending.attempted).assertFalse();
+    });
+  });
+
+  // 上游 #318/6308fa60：听友路由丢失静音而非暂停。
+  describe('ListenTogetherRouteLossMute', () => {
+    it('mutesOnlyPlayingListeners', 0, () => {
+      expect(shouldMuteListenTogetherListenerForAudioRouteLoss(true, true)).assertTrue();
+      // 未在播/非听友（安全暂停策略不适用）维持原硬暂停路径。
+      expect(shouldMuteListenTogetherListenerForAudioRouteLoss(true, false)).assertFalse();
+      expect(shouldMuteListenTogetherListenerForAudioRouteLoss(false, true)).assertFalse();
+      expect(shouldMuteListenTogetherListenerForAudioRouteLoss(false, false)).assertFalse();
+    });
+
+    it('clampsAppliedVolumeWhileSuppressed', 0, () => {
+      expect(volumeWhileListenTogetherRouteMuted(0.7, true)).assertEqual(0);
+      expect(volumeWhileListenTogetherRouteMuted(0, true)).assertEqual(0);
+      expect(volumeWhileListenTogetherRouteMuted(0.7, false)).assertEqual(0.7);
+    });
+
+    it('restoresOnlyWhileStillPlaying', 0, () => {
+      expect(shouldRestoreListenTogetherRouteMuteVolume(true, true)).assertTrue();
+      expect(shouldRestoreListenTogetherRouteMuteVolume(true, false)).assertFalse();
+      expect(shouldRestoreListenTogetherRouteMuteVolume(false, true)).assertFalse();
     });
   });
 }
