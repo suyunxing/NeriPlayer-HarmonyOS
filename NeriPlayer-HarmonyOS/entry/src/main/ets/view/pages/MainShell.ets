@@ -27,6 +27,8 @@ import { NeteasePlaylistPage } from './NeteasePlaylistPage';
 import { BiliFavPage } from './BiliFavPage';
 import { BiliUploaderPage } from './BiliUploaderPage';
 import { BiliCollectionPage } from './BiliCollectionPage';
+import { YtmCreatorPage } from './YtmCreatorPage';
+import { YtmCreatorItemsPage } from './YtmCreatorItemsPage';
 import { DebugPage } from './DebugPage';
 import { DownloadsPage } from './DownloadsPage';
 import { ListenTogetherPage } from './ListenTogetherPage';
@@ -767,6 +769,10 @@ export struct MainShell {
       BiliUploaderPage({ uploaderParam: this.paramText(param) })
     } else if (name === Router.BILI_COLLECTION) {
       BiliCollectionPage({ collectionParam: this.paramText(param) })
+    } else if (name === Router.YTM_CREATOR) {
+      YtmCreatorPage({ creatorParam: this.paramText(param) })
+    } else if (name === Router.YTM_CREATOR_ITEMS) {
+      YtmCreatorItemsPage({ itemsParam: this.paramText(param) })
     } else if (name === Router.RECENT) {
       RecentPage()
     } else if (name === Router.STATS) {
