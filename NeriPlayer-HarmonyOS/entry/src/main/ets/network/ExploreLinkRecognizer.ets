@@ -12,6 +12,8 @@ export enum ExploreLinkKind {
   BILI_FAV_FOLDER,
   BILI_FAV_FOLDER_BY_OWNER,
   BILI_COLLECTION,
+  /** space.bilibili.com/{mid}/lists/{id}?type=series（系列链接，区别于合集）。 */
+  BILI_SERIES,
   BILI_ARTIST,
   BILI_SHORT_LINK,
   YOUTUBE_VIDEO,
@@ -200,8 +202,9 @@ function recognizeBiliCollectionLink(uri: ParsedUrl): ExploreLinkTarget | null {
   }
   const listType = (queryParameters(uri.rawQuery).get('type') ?? '').toLowerCase();
   if (listType === 'series') {
-    const target = new ExploreLinkTarget(ExploreLinkKind.UNSUPPORTED);
-    target.note = 'Bilibili 系列（series）暂不支持，请使用合集链接';
+    const target = new ExploreLinkTarget(ExploreLinkKind.BILI_SERIES);
+    target.ownerMid = ownerMid;
+    target.seasonId = seasonId;
     return target;
   }
   const target = new ExploreLinkTarget(ExploreLinkKind.BILI_COLLECTION);

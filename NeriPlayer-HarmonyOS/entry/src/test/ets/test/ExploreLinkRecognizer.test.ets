@@ -52,13 +52,15 @@ export default function exploreLinkRecognizerTest(): void {
     });
 
     it('recognizesBiliSpaceLinks', 0, () => {
-      // space/{mid}/lists/{seasonId}?type=season → 合集；type=series → 不支持。
+      // space/{mid}/lists/{seasonId}?type=season → 合集；type=series → 系列。
       const season = recognizeExploreLink('https://space.bilibili.com/529249/lists/777831?type=season');
       expect(season?.kind).assertEqual(ExploreLinkKind.BILI_COLLECTION);
       expect(season?.ownerMid).assertEqual(529249);
       expect(season?.seasonId).assertEqual(777831);
       const series = recognizeExploreLink('https://space.bilibili.com/529249/lists/777831?type=series');
-      expect(series?.kind).assertEqual(ExploreLinkKind.UNSUPPORTED);
+      expect(series?.kind).assertEqual(ExploreLinkKind.BILI_SERIES);
+      expect(series?.ownerMid).assertEqual(529249);
+      expect(series?.seasonId).assertEqual(777831);
       // favlist fid 带 ml 前缀；medialist 路径直接给 mediaId。
       const favlist = recognizeExploreLink('https://space.bilibili.com/529249/favlist?fid=ml2265867256');
       expect(favlist?.kind).assertEqual(ExploreLinkKind.BILI_FAV_FOLDER_BY_OWNER);

@@ -20,6 +20,18 @@ import {
   biliFavMediaDedupKey
 } from './BiliFavParser';
 import { BiliCookieRepository } from '../data/auth/BiliCookieRepository';
+import {
+  BiliUploaderProfile,
+  BiliUploaderVideoPage,
+  BiliUploaderContentPage,
+  BiliCollectionArchivePage,
+  BiliSeriesArchivePage,
+  parseBiliUploaderProfile,
+  parseBiliUploaderVideoPage,
+  parseBiliUploaderContentPage,
+  parseBiliCollectionArchivePage,
+  parseBiliSeriesArchivePage
+} from './BiliUploaderSpace';
 
 interface BiliSearchItem {
   bvid: string;
@@ -722,5 +734,138 @@ export class BiliApi {
       return null;
     }
     return csrf;
+  }
+
+  // ---- UP 主空间（上游 e95b2ef9）----
+
+  /** Uploader archive page size (Android UPLOADER_VIDEO_PAGE_SIZE). */
+  private static readonly UPLOADER_VIDEO_PAGE_SIZE: number = 30;
+  /** Uploader collection/series page size (Android UPLOADER_CONTENT_PAGE_SIZE). */
+  private static readonly UPLOADER_CONTENT_PAGE_SIZE: number = 20;
+  /** Collection/series content page size (Android COLLECTION_ARCHIVE_PAGE_SIZE). */
+  private static readonly COLLECTION_ARCHIVE_PAGE_SIZE: number = 30;
+
+  /**
+   * Android requireSuccessfulData: HTTP 200 body must carry code=0 with a
+   * data object, otherwise the call throws with the endpoint's business
+   * message (e.g. acc/info answers -404 for a hidden uploader).
+   */
+  private static async requireSuccessfulData(url: string, what: string): Promise<Record<string, Object>> {
+    await BiliApi.ensureAnonymousFingerprint();
+    const text = await HttpClient.getText(url, BiliApi.biliHeaders(), 15000, true);
+    const root = JSON.parse(text) as Record<string, Object>;
+    const code = Number(root['code'] ?? -1);
+    const dataRaw = root['data'];
+    if (code !== 0 || dataRaw === undefined || dataRaw === null) {
+      throw new Error(`bili ${what} failed: code=${code} message=${String(root['message'] ?? '')}`);
+    }
+    return dataRaw as Record<string, Object>;
+  }
+
+  /** x/space/wbi/acc/info: uploader profile (name/avatar/sign/banner). */
+  static async getUploaderProfile(mid: number): Promise<BiliUploaderProfile> {
+    if (mid <= 0) {
+      throw new Error('Uploader mid must be positive');
+    }
+    const params = new Map<string, string>();
+    params.set('mid', `${mid}`);
+    params.set('platform', 'web');
+    params.set('web_location', '1550101');
+    const url = await BiliApi.getWbiSignedUrl(
+      `${Constants.BILI_BASE}/x/space/wbi/acc/info`, params);
+    const data = await BiliApi.requireSuccessfulData(url, 'uploader profile');
+    return parseBiliUploaderProfile(data, mid);
+  }
+
+  /** x/space/wbi/arc/search: uploader archive videos, newest first by default. */
+  static async getUploaderVideos(
+    mid: number,
+    page: number = 1,
+    pageSize: number = BiliApi.UPLOADER_VIDEO_PAGE_SIZE,
+    order: string = 'pubdate'
+  ): Promise<BiliUploaderVideoPage> {
+    if (mid <= 0) {
+      throw new Error('Uploader mid must be positive');
+    }
+    const resolvedPage = Math.max(1, Math.floor(page));
+    const resolvedPageSize = Math.min(Math.max(1, Math.floor(pageSize)), BiliApi.UPLOADER_VIDEO_PAGE_SIZE);
+    const params = new Map<string, string>();
+    params.set('mid', `${mid}`);
+    params.set('pn', `${resolvedPage}`);
+    params.set('ps', `${resolvedPageSize}`);
+    params.set('order', order);
+    const url = await BiliApi.getWbiSignedUrl(
+      `${Constants.BILI_BASE}/x/space/wbi/arc/search`, params);
+    const data = await BiliApi.requireSuccessfulData(url, 'uploader videos');
+    return parseBiliUploaderVideoPage(data, resolvedPage, resolvedPageSize, mid);
+  }
+
+  /** x/polymer/web-space/seasons_series_list: uploader collections + series. */
+  static async getUploaderContents(
+    mid: number,
+    page: number = 1,
+    pageSize: number = BiliApi.UPLOADER_CONTENT_PAGE_SIZE
+  ): Promise<BiliUploaderContentPage> {
+    if (mid <= 0) {
+      throw new Error('Uploader mid must be positive');
+    }
+    const resolvedPage = Math.max(1, Math.floor(page));
+    const resolvedPageSize = Math.min(Math.max(1, Math.floor(pageSize)), BiliApi.UPLOADER_CONTENT_PAGE_SIZE);
+    const params = new Map<string, string>();
+    params.set('mid', `${mid}`);
+    params.set('page_num', `${resolvedPage}`);
+    params.set('page_size', `${resolvedPageSize}`);
+    params.set('web_location', '333.999');
+    const url = await BiliApi.getWbiSignedUrl(
+      `${Constants.BILI_BASE}/x/polymer/web-space/seasons_series_list`, params);
+    const data = await BiliApi.requireSuccessfulData(url, 'uploader collections and series');
+    return parseBiliUploaderContentPage(data, resolvedPage, resolvedPageSize, mid);
+  }
+
+  /**
+   * x/polymer/web-space/seasons_archives_list: one page of a collection's
+   * (合集) videos. The meta block gives the canonical title/total.
+   */
+  static async getCollectionArchives(
+    mid: number,
+    seasonId: number,
+    page: number = 1,
+    pageSize: number = BiliApi.COLLECTION_ARCHIVE_PAGE_SIZE
+  ): Promise<BiliCollectionArchivePage> {
+    if (mid <= 0 || seasonId <= 0) {
+      throw new Error('Collection id must be positive');
+    }
+    const resolvedPage = Math.max(1, Math.floor(page));
+    const resolvedPageSize = Math.min(Math.max(1, Math.floor(pageSize)), BiliApi.COLLECTION_ARCHIVE_PAGE_SIZE);
+    const params = new Map<string, string>();
+    params.set('mid', `${mid}`);
+    params.set('season_id', `${seasonId}`);
+    params.set('sort_reverse', 'false');
+    params.set('page_num', `${resolvedPage}`);
+    params.set('page_size', `${resolvedPageSize}`);
+    params.set('web_location', '333.999');
+    const url = await BiliApi.getWbiSignedUrl(
+      `${Constants.BILI_BASE}/x/polymer/web-space/seasons_archives_list`, params);
+    const data = await BiliApi.requireSuccessfulData(url, 'collection archives');
+    return parseBiliCollectionArchivePage(data, seasonId, mid);
+  }
+
+  /** x/series/archives: one page of a series' (系列) videos, newest first. */
+  static async getSeriesArchives(
+    mid: number,
+    seriesId: number,
+    page: number = 1,
+    pageSize: number = BiliApi.COLLECTION_ARCHIVE_PAGE_SIZE
+  ): Promise<BiliSeriesArchivePage> {
+    if (mid <= 0 || seriesId <= 0) {
+      throw new Error('Series id must be positive');
+    }
+    const resolvedPage = Math.max(1, Math.floor(page));
+    const resolvedPageSize = Math.min(Math.max(1, Math.floor(pageSize)), BiliApi.COLLECTION_ARCHIVE_PAGE_SIZE);
+    const url =
+      `${Constants.BILI_BASE}/x/series/archives?mid=${mid}&series_id=${seriesId}` +
+      `&only_normal=true&sort=desc&pn=${resolvedPage}&ps=${resolvedPageSize}`;
+    const data = await BiliApi.requireSuccessfulData(url, 'series archives');
+    return parseBiliSeriesArchivePage(data, resolvedPage, resolvedPageSize);
   }
 }
