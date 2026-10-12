@@ -125,7 +125,7 @@ NeriPlayer for HarmonyOS
 | | AVSession 媒体中心 | ✅ 已闭环 | 锁屏/通知栏/控制中心联动、双向元数据同步、逐行歌词、单曲收藏、拉起 Ability 回跳 |
 | | 后台播放与保活 | ✅ 已闭环 | 申请 `AUDIO_PLAYBACK` 长时任务，进入后台稳定连续播放，暂停即释放合规治理 |
 | | USB 独占输出 | 🚫 不移植 | 受系统限制，SDK 缺公开 USB DDK 头文件且 ArkTS 单线程无法满足 1ms 等时节拍；系统 AVPlayer 经系统 HAL 已能正常 USB 输出 |
-| **歌词与视觉** | AMLL TTML / LRC 歌词 | ✅ 已闭环 | 逐行/逐字跳变/逐字渐变三选一高亮跟随、双语翻译对照、单双行排版、点击时间戳跳转、NLP 缺省自动匹配 |
+| **歌词与视觉** | LRC 歌词（含网易云 YRC 逐词解析） | ✅ 已闭环 | 逐行高亮跟随、双语翻译对照、单双行排版、点击时间戳跳转、NLP 缺省自动匹配；YRC 逐词时间轴已解析入库，逐字渲染待回归 |
 | | 一镜到底转场 | ✅ 已闭环 | MiniPlayer ↔ 正在播放页面属性动画展开/收拢、封面弹性位移、沉浸式状态栏渐变穿透 |
 | | ColorScience 取色 | ✅ 已闭环 | 纯 ArkTS CIE Lab / LCh / ΔE00 算法，毫秒级封面取色并生成动态呼吸流光背景 |
 | | 桌面悬浮歌词 | ⏳ 演进中 | 受系统限制难以实现，应用内悬浮条已完成；系统级桌面歌词已打通至系统服务层，图形上屏待真机验证 |
@@ -189,7 +189,7 @@ NeriPlayer-HarmonyOS/
 │       │   ├── data/             # 数据持久化、Asset 凭据保险箱、历史与统计
 │       │   ├── download/         # 下载引擎、任务状态机与两阶段编目落盘
 │       │   ├── listentogether/   # 一起听 WebSocket 协议、会话管理与时钟同步
-│       │   ├── lyrics/           # AMLL TTML / LRC 歌词解析器与渲染驱动
+│       │   ├── lyrics/           # LRC 歌词解析器（含网易云 YRC 逐词时间轴）、LRU 缓存与自动评分匹配分发
 │       │   ├── model/            # 领域模型定义（Song, Playlist, Lyric, Task）
 │       │   ├── network/          # HTTP 客户端、网易云/B站/YTM 平台适配器
 │       │   ├── player/           # AVPlayer / AVSession 播放控制器与音量平滑
