@@ -23,6 +23,8 @@ import { SyncService } from '../sync/SyncService';
 import { SyncReport } from '../sync/SyncReport';
 import { SourceSyncCoordinator } from '../sourcesync/SourceSyncCoordinator';
 import { installSearchPinyinResolver } from '../util/search/SongPinyinSource';
+import { PlaybackCardBridge } from '../player/PlaybackCardBridge';
+import { rpc } from '@kit.IPCKit';
 
 const TAG: string = 'EntryAbility';
 const DOMAIN: number = 0x4E50;
@@ -33,6 +35,11 @@ export default class EntryAbility extends UIAbility {
     SettingsRepository.initialize(this.context);
     // F-9：注入歌单/搜索拼音匹配能力（pinyin-pro，纯离线）。
     installSearchPinyinResolver();
+    // F-12：播放控制桌面卡片——应用侧推送桥 + call 事件接收（卡片按钮把
+    // UIAbility 拉到后台执行，不弹界面；应用被杀时冷启动后队列已在
+    // PlayerManager.initialize 内恢复）。
+    PlaybackCardBridge.start(this.context);
+    this.registerPlaybackCardCallee();
     // Start the diagnostics loop before Index resolves the startup phase:
     // init() pulls this app's fault history, arms the SafeMode flag when a
     // fault falls inside the window since the previous launch (the crash or
@@ -64,6 +71,15 @@ export default class EntryAbility extends UIAbility {
     BiliCookieRepository.init();
     GitHubConfigRepository.init();
     WebDavConfigRepository.init();
+  }
+
+  private registerPlaybackCardCallee(): void {
+    // call 事件（卡片 postCardAction）把本 singleton UIAbility 拉到后台并
+    // 调用该方法；params = {formId, action: toggle|prev|next}。
+    this.callee.on('playbackCardControl', (data: rpc.MessageSequence): rpc.Parcelable => {
+      PlaybackCardBridge.handleControlCall(data.readString());
+      return new PlaybackCardAck();
+    });
   }
 
   onDestroy(): void {
@@ -173,5 +189,17 @@ export default class EntryAbility extends UIAbility {
       const e = error as Error;
       hilog.warn(DOMAIN, TAG, 'applyEdgeToEdge failed: %{public}s', e.message);
     }
+  }
+}
+
+
+/** call 事件应答占位（callee 回调必须返回 Parcelable）。 */
+class PlaybackCardAck implements rpc.Parcelable {
+  marshalling(_data: rpc.MessageSequence): boolean {
+    return true;
+  }
+
+  unmarshalling(_data: rpc.MessageSequence): boolean {
+    return true;
   }
 }
