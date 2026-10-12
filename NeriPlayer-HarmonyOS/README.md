@@ -21,7 +21,7 @@ entry/src/main/ets/
 ├── download/         # 工业级断点续传引擎 (两阶段事务提交、Range/HLS 分块续传、断网自愈)
 ├── network/          # 网易云 (WEAPI)、哔哩哔哩 (WBI/DASH)、YouTube Music 与通用 HTTP 客户端
 ├── player/           # 播放控制器 (AVPlayer)、系统播控中心 (AVSession)、后台任务与音量淡入淡出
-├── lyrics/           # AMLL TTML / 标准 LRC 歌词解析器、逐字跟随与自动评分匹配管线
+├── lyrics/           # LRC 歌词解析器（含网易云 YRC 逐词时间轴）、LRU 缓存与自动评分匹配分发
 ├── listentogether/   # 一起听长连接 (纯 ArkTS WebSocket、时钟漂移平滑对齐与权威直链共享)
 ├── sync/             # 跨端因果云同步 (兼容 Android 端 Protobuf/JSON、三路因果合并与墓碑防复活)
 ├── util/             # ColorScience 动态色彩科学、二维码生成、响应式断点与窗口度量
