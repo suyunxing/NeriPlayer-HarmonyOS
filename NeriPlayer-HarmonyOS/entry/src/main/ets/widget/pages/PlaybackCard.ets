@@ -19,11 +19,17 @@ struct PlaybackCard {
   @LocalStorageProp('formId') formId: string = '';
 
   private control(action: string): void {
+    // call 事件的 method 必须放在 params 内（官方 js-apis-postCardAction 约定，
+    // 顶层仅 action/bundleName/moduleName/abilityName/uri/params 合法）：放顶层
+    // 会被系统静默丢弃，卡片按钮完全无响应（2026-10-13 真机反馈实证）。
     postCardAction(this, {
       action: 'call',
       abilityName: 'EntryAbility',
-      method: 'playbackCardControl',
-      params: { formId: this.formId, action: action }
+      params: {
+        method: 'playbackCardControl',
+        formId: this.formId,
+        action: action
+      }
     });
   }
 
