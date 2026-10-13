@@ -29,6 +29,7 @@ import { CoverArtColorCache } from '../view/theme/CoverArtColorCache';
 import { LyricLineTracker } from '../lyrics/LyricLineTracker';
 import { LyricLine } from '../model/LyricLine';
 import { LocalPlaylistRepository } from '../data/LocalPlaylistRepository';
+import { LocalDirectoryScanner } from '../data/LocalDirectoryScanner';
 import { SettingsRepository } from '../data/SettingsRepository';
 import { QueueEngine, TrackEndAction } from './queue/QueueEngine';
 import { AudioInterruptPolicy, InterruptAction, InterruptValues } from './AudioInterruptPolicy';
@@ -699,6 +700,13 @@ export class PlayerManager {
       // from the persisted position.
       const resumeMs = PlayerManager.restoredPositionMs;
       await PlayerManager.loadSong(resumeMs);
+      return;
+    }
+    if (PlayerManager.status === PlaybackStatus.ERROR) {
+      // ERROR 是播放键的死角：下方分支只处理 PAUSED/COMPLETED，队列加
+      // 载全失败停下后（如本地文件授权失效导致整队列跳完）点播放键会
+      // 直接穿帮返回。重载当前曲，把播放键恢复成「失败后可重试」。
+      await PlayerManager.loadSong();
       return;
     }
     if (PlayerManager.status === PlaybackStatus.COMPLETED) {
@@ -1718,9 +1726,38 @@ export class PlayerManager {
       );
       return resolved;
     }
-    const uri = song.localFilePath.length > 0 ? song.localFilePath : song.mediaUri;
-    resolved.url = PlayerManager.openLocalFd(uri);
+    // LOCAL：本地文件直开 fd。localFilePath 与 mediaUri 形态可能不同
+    // （目录扫描=沙箱路径，选择器导入=file:// URI），逐候选尝试；全部打
+    // 不开时激活扫描目录的持久授权后重试一轮——系统可能已回收目录权限
+    // （2026-10-13 真机反馈本地歌单无法播放的兜底链）。
+    const localCandidates: string[] = [];
+    if (song.localFilePath.length > 0) {
+      localCandidates.push(song.localFilePath);
+    }
+    if (song.mediaUri.length > 0 && song.mediaUri !== song.localFilePath) {
+      localCandidates.push(song.mediaUri);
+    }
+    resolved.url = PlayerManager.openFirstLocalFd(localCandidates);
+    if (resolved.url.length === 0 && localCandidates.length > 0) {
+      const scanDirUri = SettingsRepository.getString(
+        SettingsRepository.KEY_LOCAL_SCAN_DIRECTORY_URI, '');
+      if (scanDirUri.length > 0
+        && await LocalDirectoryScanner.ensureReadPermission(scanDirUri)) {
+        resolved.url = PlayerManager.openFirstLocalFd(localCandidates);
+      }
+    }
     return resolved;
+  }
+
+  /** Tries each candidate path in order; '' when none can be opened. */
+  private static openFirstLocalFd(candidates: string[]): string {
+    for (const candidate of candidates) {
+      const url = PlayerManager.openLocalFd(candidate);
+      if (url.length > 0) {
+        return url;
+      }
+    }
+    return '';
   }
 
   /** Opens a sandbox audio file for AVPlayer; '' when unreadable. */

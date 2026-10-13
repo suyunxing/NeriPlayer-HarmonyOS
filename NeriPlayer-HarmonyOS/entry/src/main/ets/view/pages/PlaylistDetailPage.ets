@@ -100,11 +100,14 @@ export struct PlaylistDetailPage {
    */
   private playFromFiltered(song: SongItem): void {
     if (this.playlist !== null) {
+      // 用稳定键定位：platform/audioId/id 三元组对本地歌全部相同
+      // （LOCAL/''/0），三元组匹配永远命中第 0 首——「本地音乐」歌单点
+      // 哪首都播第一首的根因（2026-10-13 真机反馈）；stableKeyOf 含
+      // mediaUri，本地歌互不相同。
+      const key = stableKeyOf(song);
       let index = -1;
       for (let i = 0; i < this.playlist.songs.length; i++) {
-        const candidate = this.playlist.songs[i];
-        if (candidate.platform === song.platform
-          && candidate.audioId === song.audioId && candidate.id === song.id) {
+        if (stableKeyOf(this.playlist.songs[i]) === key) {
           index = i;
           break;
         }

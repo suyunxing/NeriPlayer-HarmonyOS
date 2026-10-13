@@ -28,6 +28,10 @@ export default function localMusicPlaylistTest(): void {
       // 成员键按扫描顺序全量生成，与歌曲一一对应。
       expect(playlist.songKeys[0]).assertEqual(stableKeyOf(songs[0]));
       expect(playlist.songKeys[1]).assertEqual(stableKeyOf(songs[1]));
+      // 稳定键互不相同：歌单内过滤视图按 stableKeyOf 定位点歌才能命中
+      // 点击的那首——三元组 platform/audioId/id 对本地歌全部相同（LOCAL/
+      // ''/0），不可用于列表定位（2026-10-13 真机反馈的点歌错位根因）。
+      expect(playlist.songKeys[0] === playlist.songKeys[1]).assertFalse();
       // 引用保持：详情页直接以 songs 播放，无需再拷贝。
       expect(playlist.songs[0] === songs[0]).assertTrue();
     });

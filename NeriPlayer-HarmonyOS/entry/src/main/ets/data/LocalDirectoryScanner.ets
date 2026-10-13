@@ -270,17 +270,29 @@ export class LocalDirectoryScanner {
     });
   }
 
-  /** Re-activates the persisted directory permission after cold start. */
-  static activatePersistedPermission(dirUri: string): void {
+  /**
+   * Re-activates the persisted directory permission; resolves true once the
+   * permission is active, false when activation failed (caller decides
+   * whether to retry its file access).
+   */
+  static ensureReadPermission(dirUri: string): Promise<boolean> {
     if (dirUri.length === 0) {
-      return;
+      return Promise.resolve(false);
     }
     const policy: fileShare.PolicyInfo = {
       uri: dirUri,
       operationMode: fileShare.OperationMode.READ_MODE
     };
-    fileShare.activatePermission([policy]).catch((error: Error) => {
-      Logger.warn(`activate local scan permission failed: ${error.message}`);
-    });
+    return fileShare.activatePermission([policy])
+      .then((): boolean => true)
+      .catch((error: Error): boolean => {
+        Logger.warn(`activate local scan permission failed: ${error.message}`);
+        return false;
+      });
+  }
+
+  /** Re-activates the persisted directory permission after cold start. */
+  static activatePersistedPermission(dirUri: string): void {
+    void LocalDirectoryScanner.ensureReadPermission(dirUri);
   }
 }
