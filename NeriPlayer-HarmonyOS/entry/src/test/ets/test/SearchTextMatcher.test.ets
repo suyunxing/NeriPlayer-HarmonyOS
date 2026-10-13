@@ -6,6 +6,7 @@
 import { describe, it, expect } from '@ohos/hypium';
 import {
   NO_SEARCH_MATCH,
+  PreparedSearchEntries,
   SearchTextMatcher,
   SearchValue
 } from '../../../main/ets/util/search/SearchTextMatcher';
@@ -184,6 +185,41 @@ export default function SearchTextMatcherTest() {
       expect(weak).assertEqual('zz');
       // 单字符查询不触发别名（< 2）。
       expect(resolveExploreSearchKeyword('t', history)).assertEqual('t');
+    });
+
+    it('preparedSearchEntries_matchesFilterAndRankSemantics', 0, () => {
+      // 预计算索引与逐次 filterAndRank 语义一致：过滤结果与排序完全相同，
+      // 空查询返回原列表（歌单内搜索防抖改造的等价性保障）。
+      SearchTextMatcher.setPinyinResolver(fakePinyin);
+      try {
+        const songs = [
+          song('晴天', '周杰伦', '叶惠美', 'n1'),
+          song('测试歌单主打歌', '测试歌手', '测试专辑', 'n2'),
+          song('Sunny Day', 'Test Artist', 'Test Album', 'n3')
+        ];
+        const index = new PreparedSearchEntries<SongItem>(songs,
+          (item: SongItem): SearchValue[] => songSearchValues(item));
+        expect(index.count()).assertEqual(3);
+        // 空查询原列表。
+        expect(index.filterAndRank('')).assertEqual(songs);
+        // 拼音命中并重排到前。
+        const ranked = index.filterAndRank('ceshi');
+        expect(ranked.length >= 1).assertTrue();
+        expect(ranked[0].audioId).assertEqual('n2');
+        // 与一次性 filterAndRank 结果一致（同一 song 集合）。
+        const once = SearchTextMatcher.filterAndRank('ceshi', songs,
+          (item: SongItem): SearchValue[] => songSearchValues(item));
+        expect(ranked.length).assertEqual(once.length);
+        for (let i = 0; i < ranked.length; i++) {
+          expect(ranked[i].audioId).assertEqual(once[i].audioId);
+        }
+        // 无匹配返回空。
+        expect(index.filterAndRank('zzzznothing').length).assertEqual(0);
+        // 纯分隔符查询返回原列表。
+        expect(index.filterAndRank('   ')).assertEqual(songs);
+      } finally {
+        SearchTextMatcher.setPinyinResolver(null);
+      }
     });
   });
 }
