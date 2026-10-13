@@ -807,6 +807,18 @@ $hdc = 'D:\HarmonyOS\Tools\command-line-tools\sdk\default\openharmony\toolchains
 - **壳层滚动器换绑（`view/pages/MainShell.ets`）**：标题栏渐变模糊（`bindToScrollable`）与迷你条滚动阈值（`handleTabBarScroll`/`selectTab`）原按「每个底部 Tab 一个 Scroller」绑定；资料库现有三个窗格滚动容器，LibraryPage 经新增 `onPaneScroller` 回调上报激活窗格 Scroller，MainShell 侧 `shellScroller()` 统一三处读取。约束：状态装饰器不接受 Scroller（编译器报 `cannot be a 'Scroller' object`），实例放普通成员 + `libraryPaneTick` 计数 @State 在 `shellScroller()` 内被 build 路径读取注册依赖，上报即计数变化触发重渲染换绑——与 resolveDark/schemeBg 读被跟踪成员注册依赖同一手法。
 - **验证**：`assembleHap` BUILD SUCCESSFUL；codelinter 改动两文件 0 问题；纯 UI 重构无新纯逻辑，未加单测。**未验证（本机无设备）**：真机三窗格切换/标签下划线观感、标题栏模糊随平台切换换绑的生效性、迷你条展开折叠阈值在窗格滚动上的手感、lg 断点（≥840vp 侧栏形态）下页内标签布局、文本缩放与横竖屏走查。安卓版「网易云-歌单/网易云-歌曲」二级标签拆分（对应安卓内部态）本版未做，网易云窗格暂为歌单单列表，专辑页已有独立路由入口。
 
+### 7.23 2026-10-13 真机反馈五问题修复：卡片控制/网易翻页/本地音乐歌单/歌单搜索卡顿/短链（服务器 Linux CLT 26.0.0.105，无设备，分支 `fix/upstream-sync-p0-p1`）
+
+用户基于本分支签名包的真机反馈，五个问题全部定位到确切根因并修复：
+
+- **桌面卡片按钮无响应（F-12 缺陷）**：`PlaybackCard.ets` 的 `postCardAction` call 事件把 `method: 'playbackCardControl'` 误放 action 对象顶层——官方 `js-apis-postCardAction` 约定顶层仅 action/bundleName/moduleName/abilityName/uri/params 六字段，`call` 的 `method` 必须放 `params` 内；顶层多余字段被系统静默丢弃、事件根本到不了 `callee.on`，表现为按钮全无响应而主体 router 点击（只依赖 abilityName/params）正常。已把 method 移入 params（接收侧 `readString()` 解析 `action` 字段不受影响）。
+- **网易云搜索滚到底无法加载更多（F-9 缺陷）**：`ExplorePage.loadMore()` 网易分支漏推进 `this.searchPage`（B 站分支有），每次触底都重拉第 2 页（offset=30），去重合并后原地踏步、上限约 60 首。已补 `this.searchPage = nextPage`。
+- **本地扫描后无本地音乐歌单（§8 缺口）**：扫描结果只落 `local_music_catalog`/内存缓存，歌单体系零接线。补系统歌单「本地音乐」：`LocalPlaylistRepository.LOCAL_MUSIC_ID`（`local_music`）+ `buildLocalMusicPlaylist()`（上游 LocalFilesPlaylist SYSTEM_ID=-1002 / SystemLocalPlaylists.normalize 注入式对应物——**不落歌单库**，由扫描缓存即时装配，本地文件条目不进跨端同步）；资料库本地窗格「我的收藏」下固定入口行（扫描缓存非空才显示）；PlaylistDetailPage 只读视图（优先 LocalDirectoryScanner.loadCached 持久缓存、回退 LocalMediaScanner 进程缓存），隐藏改名/删除/添加/单曲移除（F-10 撤销快照侧同步拒绝该 id）。`playLocalLibrary` 立即播放入口保留。
+- **歌单内搜索非常卡顿（F-9 缺陷）**：每 keystroke 对全歌单逐首重建 14 字段候选（NFKD 归一+分词/驼峰/缩写+逐字拼音解析）再打分，全部压 UI 线程。新增 `PreparedSearchEntries<T>`（SearchTextMatcher.ets）：候选只依赖歌曲本身，随歌单整体重建一次、每次按键仅打分；PlaylistDetailPage 接索引 + 200ms 输入防抖（aboutToDisappear 清定时器）。语义与 `filterAndRank` 完全一致（等价性单测）。
+- **B 站短链无法进 UP 空间/无自动展开（F-7 缺陷，三处叠加）**：① `HttpClient.expandRedirectUrl` 创建 `HttpInterceptorChain` 后**漏调 `chain.apply(request)`**（SDK d.ts：apply 才把链挂到请求实例），REDIRECTION 拦截器从未触发、hops 恒空、原样返回短链 → 恒走「短链解析失败」toast——这是带完整 https:// 链接也失败的根因；② 识别器 `extractExploreHttpUrl` 只认带 scheme 链接，裸域名粘贴（`b23.tv/xxx`）落入关键词搜索分支——补已知平台主机（b23.tv/163cn.tv/bilibili.com/space.bilibili.com/music.163.com/y.music.163.com/youtu.be/youtube.com）行首正则回退，命中补 `https://`；③ 展开只在提交搜索时触发——TextInput 补 `onPaste`：整段粘贴内容（无空白）本身是可识别链接时自动 `openLink` 跳转（长文本内嵌链接不自动跳，仍走提交抽取）。
+
+**验证**：`assembleHap` BUILD SUCCESSFUL；`hvigorw test` Unit 编译 0 error（Linux 执行阶段挂死如常，通过计数待 Windows 工作站，新增用例：ExploreLinkRecognizer 裸域名 1 组、SearchTextMatcher 预计算索引等价 1 组、LocalMusicPlaylist 2 例）；codelinter 改动文件 0 error（ExplorePage 1 条存量 reusable-component warn）。**未验证（本机无设备）**：卡片按钮真机复验、短链真机展开（REDIRECTION 拦截器 API 22+ 首次真机实证）、网易翻页连续加载、本地音乐歌单入口与播放、搜索手感——均待下一轮真机反馈。
+
 每次 SDK 或上游 Android 更新，都更新本文件的核验日期、版本矩阵、源码状态和测试结果。
 
 
