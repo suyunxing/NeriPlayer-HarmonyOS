@@ -100,6 +100,31 @@ export default function exploreLinkRecognizerTest(): void {
       expect(extractExploreHttpUrl('')).assertNull();
     });
 
+    it('recognizesBareDomainLinksByPrependingScheme', 0, () => {
+      // 无 scheme 的裸域名（移动端粘贴常见）补 https:// 后正常识别；
+      // 仅限已知平台主机，普通关键词不会误入链接分支。
+      const biliShort = recognizeExploreLink('b23.tv/abcd123');
+      expect(biliShort !== null).assertTrue();
+      expect(biliShort?.kind).assertEqual(ExploreLinkKind.BILI_SHORT_LINK);
+      expect(biliShort?.url).assertEqual('https://b23.tv/abcd123');
+      const neteaseShort = recognizeExploreLink('163cn.tv/AbCdEf');
+      expect(neteaseShort?.kind).assertEqual(ExploreLinkKind.NETEASE_SHORT_LINK);
+      const space = recognizeExploreLink('space.bilibili.com/529249');
+      expect(space !== null).assertTrue();
+      expect(space?.kind).assertEqual(ExploreLinkKind.BILI_ARTIST);
+      expect(space?.id).assertEqual(529249);
+      const video = recognizeExploreLink('www.bilibili.com/video/BV1GJ411x7h7');
+      expect(video?.kind).assertEqual(ExploreLinkKind.BILI_VIDEO);
+      const netease = recognizeExploreLink('music.163.com/song/?id=186016');
+      expect(netease?.kind).assertEqual(ExploreLinkKind.NETEASE_SONG);
+      expect(netease?.id).assertEqual(186016);
+      // 中文句读尾缀照常剪掉。
+      expect(extractExploreHttpUrl('b23.tv/abcd123。')).assertEqual('https://b23.tv/abcd123');
+      // 普通关键词/未知 host 仍为 null。
+      expect(recognizeExploreLink('b23.tv')).assertNull();
+      expect(recognizeExploreLink('example.com/whatever')).assertNull();
+    });
+
     it('nonLinkInputYieldsNull', 0, () => {
       expect(recognizeExploreLink('周杰伦 晴天')).assertNull();
       expect(recognizeExploreLink('')).assertNull();

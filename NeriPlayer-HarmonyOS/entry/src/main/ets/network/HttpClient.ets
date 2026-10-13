@@ -136,6 +136,15 @@ export class HttpClient {
     chain.addChain([watcher]);
     const request = http.createHttp();
     try {
+      // addChain 只把拦截器装进链对象，必须再 apply 到请求实例才生效（SDK
+      // d.ts：apply「Adds an interceptor chain to the target HTTP request」）。
+      // 漏掉 apply 时 hops 恒为空、原样返回短链，表现为「短链解析失败」
+      // （2026-10-13 真机反馈实证）。
+      try {
+        chain.apply(request);
+      } catch (chainError) {
+        Logger.warn(`HttpClient.expandRedirectUrl chain.apply failed: ${(chainError as Error).message}`);
+      }
       await request.request(url, {
         method: http.RequestMethod.GET,
         header: { 'User-Agent': HttpClient.DEFAULT_UA } as Record<string, string>,
