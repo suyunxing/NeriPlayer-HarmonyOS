@@ -817,6 +817,9 @@ $hdc = 'D:\HarmonyOS\Tools\command-line-tools\sdk\default\openharmony\toolchains
 - **歌单内搜索非常卡顿（F-9 缺陷）**：每 keystroke 对全歌单逐首重建 14 字段候选（NFKD 归一+分词/驼峰/缩写+逐字拼音解析）再打分，全部压 UI 线程。新增 `PreparedSearchEntries<T>`（SearchTextMatcher.ets）：候选只依赖歌曲本身，随歌单整体重建一次、每次按键仅打分；PlaylistDetailPage 接索引 + 200ms 输入防抖（aboutToDisappear 清定时器）。语义与 `filterAndRank` 完全一致（等价性单测）。
 - **B 站短链无法进 UP 空间/无自动展开（F-7 缺陷，三处叠加）**：① `HttpClient.expandRedirectUrl` 创建 `HttpInterceptorChain` 后**漏调 `chain.apply(request)`**（SDK d.ts：apply 才把链挂到请求实例），REDIRECTION 拦截器从未触发、hops 恒空、原样返回短链 → 恒走「短链解析失败」toast——这是带完整 https:// 链接也失败的根因；② 识别器 `extractExploreHttpUrl` 只认带 scheme 链接，裸域名粘贴（`b23.tv/xxx`）落入关键词搜索分支——补已知平台主机（b23.tv/163cn.tv/bilibili.com/space.bilibili.com/music.163.com/y.music.163.com/youtu.be/youtube.com）行首正则回退，命中补 `https://`；③ 展开只在提交搜索时触发——TextInput 补 `onPaste`：整段粘贴内容（无空白）本身是可识别链接时自动 `openLink` 跳转（长文本内嵌链接不自动跳，仍走提交抽取）。
 
+
+**修订（2026-10-13 二，真机反馈「本地歌单点歌错位 + 无法播放」）**：入口生效后暴露三处缺陷——① `playFromFiltered` 按 platform/audioId/id 三元组在原歌单定位点播歌曲，本地歌三者全同（LOCAL/''/0），点哪首都命中第 0 首——改 `stableKeyOf`（含 mediaUri，本地歌互不相同）定位；② `PlayerManager.play()` 只处理 PAUSED/COMPLETED，队列加载全失败停下（publishStatus ERROR）后播放键穿帮返回成死角——补 ERROR 分支重载当前曲；③ LOCAL 取流原为单路径 `openLocalFd(localFilePath || mediaUri)` 无兜底——改多候选（localFilePath、mediaUri 形态可能不同：目录扫描=沙箱路径、选择器导入=file:// URI）逐个尝试，全失败时 `LocalDirectoryScanner.ensureReadPermission`（新增可等待变体，activatePersistedPermission 改为其包装）激活扫描目录持久授权后重试一轮（系统回收权限场景）。LocalMusicPlaylist 测试补稳定键互异断言。真机待复验。
+
 **验证**：`assembleHap` BUILD SUCCESSFUL；`hvigorw test` Unit 编译 0 error（Linux 执行阶段挂死如常，通过计数待 Windows 工作站，新增用例：ExploreLinkRecognizer 裸域名 1 组、SearchTextMatcher 预计算索引等价 1 组、LocalMusicPlaylist 2 例）；codelinter 改动文件 0 error（ExplorePage 1 条存量 reusable-component warn）。**未验证（本机无设备）**：卡片按钮真机复验、短链真机展开（REDIRECTION 拦截器 API 22+ 首次真机实证）、网易翻页连续加载、本地音乐歌单入口与播放、搜索手感——均待下一轮真机反馈。
 
 每次 SDK 或上游 Android 更新，都更新本文件的核验日期、版本矩阵、源码状态和测试结果。
