@@ -49,6 +49,10 @@ export class ExploreLinkTarget {
 }
 
 const HTTP_URL_REGEX: RegExp = /https?:\/\/[^\s]+/i;
+// 无 scheme 的裸域名回退（仅限本识别器支持的平台主机，命中才补 https://；
+// 普通关键词不会误入链接分支）。移动端分享粘贴常丢 scheme。
+const BARE_HOST_URL_REGEX: RegExp =
+  /^(?:b23\.tv|163cn\.tv|(?:www\.|m\.)?bilibili\.com|space\.bilibili\.com|music\.163\.com|y\.music\.163\.com|youtu\.be|(?:www\.|m\.)?youtube\.com)\/[^\s]+/i;
 const BILI_BVID_REGEX: RegExp = /BV[0-9A-Za-z]{10}/;
 const BILI_AVID_REGEX: RegExp = /(?:\/video\/av|[?&]aid=)(\d+)/;
 const BILI_MEDIA_LIST_REGEX: RegExp = /\/medialist\/(?:detail|play)\/(?:ml)?(\d+)/i;
@@ -135,7 +139,18 @@ export function extractExploreHttpUrl(input: string): string | null {
       .replace(/[。，,.)）\]】}》>]+$/, '');
     return cleaned.length > 0 ? cleaned : null;
   }
-  return trimmed.startsWith('http://') || trimmed.startsWith('https://') ? trimmed : null;
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+    return trimmed;
+  }
+  // 无 scheme 的已知平台裸域名（如「b23.tv/xxx」）补 https:// 再走解析；
+  // 其余文本保持 null，按关键词搜索。
+  const bare = BARE_HOST_URL_REGEX.exec(trimmed);
+  if (bare !== null) {
+    const cleaned = bare[0]
+      .replace(/[。，,.)）\]】}》>]+$/, '');
+    return cleaned.length > 0 ? `https://${cleaned}` : null;
+  }
+  return null;
 }
 
 function positive(value: number): number {

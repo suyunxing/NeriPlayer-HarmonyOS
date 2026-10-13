@@ -168,9 +168,12 @@ export struct ExplorePage {
     try {
       let incoming: SongItem[] = [];
       if (this.platform === 0) {
-        // 网易 offset 从 0 起：第 nextPage 页 = (nextPage-1)*30。
+        // 网易 offset 从 0 起：第 nextPage 页 = (nextPage-1)*30。必须推进
+        // searchPage，否则每次触底都重拉第 2 页，去重合并后原地踏步
+        // （2026-10-13 真机反馈「滚到底无法加载更多」的根因）。
         incoming = await NeteaseApi.search(this.searchedKeyword, 30, (nextPage - 1) * 30);
         this.hasMore = incoming.length >= 30;
+        this.searchPage = nextPage;
       } else if (this.platform === 1) {
         const page: BiliSearchPage = await BiliApi.searchPage(this.searchedKeyword, 20, nextPage);
         incoming = page.items;
@@ -347,6 +350,23 @@ export struct ExplorePage {
     await this.search();
   }
 
+  /**
+   * 粘贴即识别：仅当整段粘贴内容（无空白分隔）本身是可识别链接时自动
+   * 展开/跳转；混在长文本里的链接不自动跳（仍走提交搜索时的抽取识别），
+   * 避免粘贴普通段落被误跳转。
+   */
+  private handlePastedText(value: string): void {
+    const trimmed = value.trim();
+    if (trimmed.length === 0 || /\s/.test(trimmed)) {
+      return;
+    }
+    const link = recognizeExploreLink(trimmed);
+    if (link !== null) {
+      this.query = value;
+      void this.openLink(link);
+    }
+  }
+
   @Builder
   platformButton(index: number, label: string, icon: Resource) {
     Row({ space: 6 }) {
@@ -452,6 +472,11 @@ export struct ExplorePage {
             .padding({ left: 0, right: 0 })
             .onChange((value: string) => {
               this.query = value;
+            })
+            // 粘贴即识别：整段粘贴内容本身是可识别链接时直接展开跳转，
+            // 不必再点搜索键（2026-10-13 真机反馈「粘贴短链无反应」）。
+            .onPaste((value: string) => {
+              this.handlePastedText(value);
             })
             .onSubmit(() => {
               this.search();
