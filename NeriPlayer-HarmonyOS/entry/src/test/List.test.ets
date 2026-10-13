@@ -32,6 +32,7 @@ import downloadPayloadCheckTest from './ets/test/DownloadPayloadCheck.test';
 import downloadUrlRedactionTest from './ets/test/DownloadUrlRedaction.test';
 import downloadLyricSidecarTest from './ets/test/DownloadLyricSidecar.test';
 import localDirectoryScannerTest from './ets/test/LocalDirectoryScanner.test';
+import localMusicPlaylistTest from './ets/test/LocalMusicPlaylist.test';
 import playbackFailurePolicyTest from './ets/test/PlaybackFailurePolicy.test';
 import qrEncoderTest from './ets/test/QrEncoder.test';
 import neteaseAuthTest from './ets/test/NeteaseAuth.test';
@@ -235,6 +236,7 @@ export default function testsuite(): void {
   downloadUrlRedactionTest();
   downloadLyricSidecarTest();
   localDirectoryScannerTest();
+  localMusicPlaylistTest();
   playbackFailurePolicyTest();
   audioQualityPolicyTest();
   historyRepositoryTest();

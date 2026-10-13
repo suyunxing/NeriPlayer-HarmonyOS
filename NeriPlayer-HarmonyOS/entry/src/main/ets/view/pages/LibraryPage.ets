@@ -62,6 +62,7 @@ export struct LibraryPage {
   private paneScrollers: Scroller[] = [new Scroller(), new Scroller(), new Scroller()];
   @State playlists: Playlist[] = [];
   @State favorites: Playlist | null = null;
+  @State localMusic: Playlist | null = null;
   @State downloadCount: number = 0;
   @State localSongCount: number = 0;
   @State scanning: boolean = false;
@@ -182,10 +183,15 @@ export struct LibraryPage {
     const catalog = await DownloadStorage.getCatalog();
     this.downloadCount = catalog.length;
     // Directory library cache (persisted) wins; picker imports stay in the
-    // session memory cache as before.
-    const persisted = await LocalDirectoryScanner.loadCached();
-    this.localSongCount = persisted.length > 0 ? persisted.length
-      : (await LocalMediaScanner.loadCached()).length;
+    // session memory cache as before. The cache also feeds the fixed
+    // 「本地音乐」 system playlist view (scan → browse → play, never persisted).
+    let localSongs = await LocalDirectoryScanner.loadCached();
+    if (localSongs.length === 0) {
+      localSongs = await LocalMediaScanner.loadCached();
+    }
+    this.localSongCount = localSongs.length;
+    this.localMusic = localSongs.length > 0
+      ? LocalPlaylistRepository.buildLocalMusicPlaylist(localSongs) : null;
     this.playCount = await PlaybackStatsRepository.getTotalPlayCount();
     const listenMs = await PlaybackStatsRepository.getTotalListenMs();
     this.listenHours = Math.floor(listenMs / 3600000);
@@ -476,6 +482,42 @@ export struct LibraryPage {
           .padding({ left: 14, right: 14, top: 10, bottom: 10 })
           .backgroundColor(Theme.surface(Theme.isDark()))
           .onClick(() => Router.push(Router.PLAYLIST_DETAIL, LocalPlaylistRepository.FAVORITES_ID))
+        }
+        if (this.localMusic !== null) {
+          // 系统歌单「本地音乐」：扫描缓存装配的只读视图，点进详情即可
+          // 浏览/搜索/整单播放（此前扫描后无处可看，2026-10-13 真机反馈）。
+          Row({ space: 12 }) {
+            Image($r('app.media.ic_library_music_24'))
+              .width(22)
+              .height(22)
+              .fillColor(this.accentPrimary(Theme.isDark()))
+              .margin({ left: 11, right: 11, top: 11, bottom: 11 })
+              .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+              .borderRadius(8)
+            Column({ space: 2 }) {
+              Text('本地音乐')
+                .fontSize(15)
+                .fontWeight(FontWeight.Medium)
+                .fontColor(Theme.textPrimary(Theme.isDark()))
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+              Text(this.localMusic.songKeys.length > 0
+                ? `${this.localMusic.songKeys.length} 首` : '空')
+                .fontSize(12)
+                .fontColor(Theme.textSecondary(Theme.isDark()))
+            }
+            .layoutWeight(1)
+            .alignItems(HorizontalAlign.Start)
+            Image($r('app.media.ic_chevron_right_24'))
+              .width(18)
+              .height(18)
+              .fillColor(Theme.textDisabled(Theme.isDark()))
+          }
+          .width('100%')
+          .padding({ left: 14, right: 14, top: 10, bottom: 10 })
+          .backgroundColor(Theme.surface(Theme.isDark()))
+          .onClick(() => Router.push(Router.PLAYLIST_DETAIL,
+            LocalPlaylistRepository.LOCAL_MUSIC_ID))
         }
         ForEach(this.localUserPlaylists(), (playlist: Playlist) => {
           Row({ space: 12 }) {

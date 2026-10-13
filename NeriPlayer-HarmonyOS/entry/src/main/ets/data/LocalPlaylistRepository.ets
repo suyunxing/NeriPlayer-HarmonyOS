@@ -112,6 +112,12 @@ export class PlaylistSongDeleteSnapshot {
  */
 export class LocalPlaylistRepository {
   static readonly FAVORITES_ID: string = 'favorites';
+  /**
+   * 系统歌单「本地音乐」固定 id（上游 LocalFilesPlaylist SYSTEM_ID=-1002 的
+   * 鸿蒙形态）。不落歌单库：由扫描缓存即时装配（buildLocalMusicPlaylist），
+   * 避免本地文件条目进入跨端同步与歌单库 JSON。
+   */
+  static readonly LOCAL_MUSIC_ID: string = 'local_music';
   private static readonly KEY: string = 'playlists';
   private static readonly DELETED_KEY: string = 'playlists.deleted';
 
@@ -206,6 +212,22 @@ export class LocalPlaylistRepository {
     playlists.unshift(favorites);
     await LocalPlaylistRepository.saveAll(playlists, [LocalPlaylistRepository.FAVORITES_ID]);
     return favorites;
+  }
+
+  /**
+   * 装配「本地音乐」系统歌单视图（上游 SystemLocalPlaylists.normalize 的
+   * 注入式形态）：不写入歌单库，歌曲来自本地扫描缓存，成员键按扫描顺序
+   * 全量生成。页面侧据此渲染固定入口并跳转歌单详情播放。
+   */
+  static buildLocalMusicPlaylist(songs: SongItem[]): Playlist {
+    const playlist = new Playlist(LocalPlaylistRepository.LOCAL_MUSIC_ID, '本地音乐', MusicPlatform.LOCAL);
+    const keys: string[] = [];
+    for (const song of songs) {
+      keys.push(stableKeyOf(song));
+    }
+    playlist.songKeys = keys;
+    playlist.songs = songs;
+    return playlist;
   }
 
   static async createPlaylist(name: string): Promise<Playlist> {
@@ -630,12 +652,13 @@ export class LocalPlaylistRepository {
     return true;
   }
 
-  /** 删除前的歌单深拷贝与原下标；收藏夹（本就不可删）或不存在返回 null。 */
+  /** 删除前的歌单深拷贝与原下标；系统歌单（收藏/本地音乐，本就不可删）或不存在返回 null。 */
   static async snapshotPlaylistForUndo(playlistId: string): Promise<PlaylistDeleteSnapshot | null> {
     const playlists = await LocalPlaylistRepository.loadAll();
     const index = playlists.findIndex((item: Playlist): boolean =>
       playlistIdToSync(item.id) === playlistIdToSync(playlistId));
-    if (index < 0 || playlists[index].id === LocalPlaylistRepository.FAVORITES_ID) {
+    if (index < 0 || playlists[index].id === LocalPlaylistRepository.FAVORITES_ID
+      || playlists[index].id === LocalPlaylistRepository.LOCAL_MUSIC_ID) {
       return null;
     }
     const snapshot = new PlaylistDeleteSnapshot();
@@ -660,7 +683,8 @@ export class LocalPlaylistRepository {
     } catch (error) {
       return false;
     }
-    if (restored.id === LocalPlaylistRepository.FAVORITES_ID) {
+    if (restored.id === LocalPlaylistRepository.FAVORITES_ID
+      || restored.id === LocalPlaylistRepository.LOCAL_MUSIC_ID) {
       return false;
     }
     const targetKey = playlistIdToSync(restored.id);
