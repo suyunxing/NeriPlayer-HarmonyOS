@@ -28,7 +28,6 @@ import {
   ListenTogetherTrack,
   createListenTogetherTrack
 } from '../../../main/ets/listentogether/protocol/ListenTogetherTrack';
-import { MAX_LISTEN_TOGETHER_STREAM_URL_CANDIDATES } from '../../../main/ets/listentogether/mapping/ListenTogetherStreamUrlPolicy';
 
 const CLOCK_MS: number = 1_700_000_000_000;
 const CLIENT_INSTANCE_ID: string = 'client-1';
@@ -144,7 +143,7 @@ export default function listenTogetherEventFactoryTest() {
       expect(second.clientSequence).assertEqual(2);
     });
 
-    it('builds SET_TRACK with the controller resolved url folded in', 0, () => {
+    it('builds SET_TRACK without any resolved url (LINK_READY only)', 0, () => {
       const harness = new FactoryHarness();
       const queue = harness.loadQueue([neteaseSong('1001'), neteaseSong('1002'), neteaseSong('1003')], 1);
       harness.playback.shareableStreamUrls = [TRUSTED_URL_A];
@@ -160,16 +159,17 @@ export default function listenTogetherEventFactoryTest() {
       expect(track === null).assertFalse();
       if (track !== null) {
         expect(track.stableKey).assertEqual('netease:1002');
-        expect(track.streamUrl).assertEqual(TRUSTED_URL_A);
-        expect(track.streamUrls.length).assertEqual(1);
+        // Upstream #359: queue snapshots never carry urls — the player-side
+        // resolution stays private and LINK_READY is the only publish path.
+        expect(track.streamUrl === null).assertTrue();
+        expect(track.streamUrls.length).assertEqual(0);
       }
       const wireQueue = event.queue;
       expect(wireQueue === null).assertFalse();
       if (wireQueue !== null) {
         expect(wireQueue.length).assertEqual(3);
-        // Only the playing track carries a url: the others have not been resolved.
         expect(wireQueue[0].streamUrls.length).assertEqual(0);
-        expect(wireQueue[1].streamUrls.length).assertEqual(1);
+        expect(wireQueue[1].streamUrls.length).assertEqual(0);
       }
     });
 
@@ -401,12 +401,10 @@ export default function listenTogetherEventFactoryTest() {
         const track = event.track;
         expect(track === null).assertFalse();
         if (track !== null) {
-          // Candidate order is the trust order: what the caller just resolved, then
-          // its single-url form, then what the player holds.
+          // A non-empty resolved list is the complete candidate set: no
+          // merging with the single-url form or the player-held urls.
           expect(track.streamUrls[0]).assertEqual(TRUSTED_URL_B);
-          expect(track.streamUrls[1]).assertEqual(TRUSTED_URL_C);
-          expect(track.streamUrls[2]).assertEqual(TRUSTED_URL_A);
-          expect(track.streamUrls.length).assertEqual(MAX_LISTEN_TOGETHER_STREAM_URL_CANDIDATES);
+          expect(track.streamUrls.length).assertEqual(1);
           expect(track.streamUrl).assertEqual(TRUSTED_URL_B);
         }
       }

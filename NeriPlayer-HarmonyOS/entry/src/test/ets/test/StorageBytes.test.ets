@@ -15,8 +15,8 @@ export default function storageBytesTest(): void {
       expect(formatStorageBytes(1536 * 1024)).assertEqual('1.5 MB');
       expect(formatStorageBytes(3 * 1024 * 1024 * 1024)).assertEqual('3.0 GB');
       expect(formatStorageBytes(2.5 * 1024 * 1024 * 1024 * 1024)).assertEqual('2.5 TB');
-      // TB 封顶，不再进位到 PB。
-      expect(formatStorageBytes(9000 * 1024 ** 4)).assertEqual('8.8 TB');
+      // TB 封顶，不再进位到 PB（超大值原样按 TB 展示）。
+      expect(formatStorageBytes(9000 * 1024 ** 4)).assertEqual('9000.0 TB');
     });
 
     it('summaryAggregatesCategoryBytes', 0, () => {

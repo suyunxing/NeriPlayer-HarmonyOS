@@ -181,6 +181,12 @@ function objectField(record: Record<string, Object>, key: string): Record<string
 
 /** 各推荐响应的歌曲数组位置（上游 firstSongArray）。 */
 function firstSongArray(root: Record<string, Object>): Object[] | null {
+  // 私人 FM 等接口 data 直接就是歌曲数组，须先于 objectField 判定
+  //（objectField 遇数组返回 null，放进其分支内永远不可达）。
+  const dataArray = arrayField(root, 'data');
+  if (dataArray !== null) {
+    return dataArray;
+  }
   const data = objectField(root, 'data');
   if (data !== null) {
     const dailySongs = arrayField(data, 'dailySongs');
@@ -190,9 +196,6 @@ function firstSongArray(root: Record<string, Object>): Object[] | null {
     const songs = arrayField(data, 'songs');
     if (songs !== null) {
       return songs;
-    }
-    if (Array.isArray(root['data'])) {
-      return root['data'] as Object[];
     }
   }
   const result = arrayField(root, 'result');

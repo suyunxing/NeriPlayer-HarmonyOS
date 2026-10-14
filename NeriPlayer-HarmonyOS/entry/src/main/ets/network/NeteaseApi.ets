@@ -612,7 +612,7 @@ export class NeteaseApi {
     params.set('parentCommentId', rootId);
     params.set('limit', `${pageSize}`);
     params.set('time', cursor !== null && cursor.length > 0 ? cursor : '-1');
-    return NeteaseApi.callWeapiText('resource/comment/floor/get', params);
+    return NeteaseApi.callWeapiText('/weapi/resource/comment/floor/get', params);
   }
 
   /**
