@@ -261,6 +261,11 @@ export struct CommentSheetContent {
                     this.controller.toggleReplies(comment.id);
                   }
                 },
+                onLoadMoreReplies: () => {
+                  if (this.controller !== null) {
+                    void this.controller.loadReplies(comment.id);
+                  }
+                },
                 onReply: (target: CommentReplyTarget) => {
                   if (this.controller !== null) {
                     this.controller.replyTo(target);
@@ -348,6 +353,7 @@ struct CommentItemRow {
   @Prop canInteract: boolean = false;
   onToggleLike: (commentId: string) => void = (_commentId: string) => {};
   onToggleReplies: () => void = () => {};
+  onLoadMoreReplies: () => void = () => {};
   onReply: (target: CommentReplyTarget) => void = (_target: CommentReplyTarget) => {};
 
   private comment(): SongComment {
@@ -478,7 +484,7 @@ struct CommentItemRow {
           canInteract: this.canInteract,
           onToggleLike: this.onToggleLike,
           onReply: this.onReply,
-          onLoadMore: () => this.onToggleReplies()
+          onLoadMore: () => this.onLoadMoreReplies()
         })
       }
     }

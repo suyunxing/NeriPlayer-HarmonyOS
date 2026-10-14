@@ -261,6 +261,16 @@ export struct NowPlayingPage {
     if (stableKeyOf(this.song()) !== this.lyricsSongKey) {
       void this.reloadSongData();
     }
+    // 评论面板打开期间切歌：@Watch 绑定的是 currentSongJson 而非来源，需在
+    // 此重写 ui.commentSource 让面板换绑到新歌；新歌不支持评论则关闭面板。
+    if (this.showCommentSheet) {
+      const source = this.commentSource();
+      if (source === null) {
+        this.showCommentSheet = false;
+      } else {
+        AppStorage.setOrCreate('ui.commentSource', CommentSourceCodec.toJson(source));
+      }
+    }
     this.transitionCover(this.song().effectiveCoverUrl);
   }
 

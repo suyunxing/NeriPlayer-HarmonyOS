@@ -410,12 +410,12 @@ export default function listenTogetherSessionPoliciesTest() {
     });
   });
 
-  // 上游 #318/6308fa60：听友路由丢失静音而非暂停。
+  // 上游 #318/6308fa60：听友路由丢失静音而非暂停；#359 收窄为「静音所有
+  // 听友、控制者除外」（第二参数 isCurrentUserController，播放状态不再参与）。
   describe('ListenTogetherRouteLossMute', () => {
-    it('mutesOnlyPlayingListeners', 0, () => {
-      expect(shouldMuteListenTogetherListenerForAudioRouteLoss(true, true)).assertTrue();
-      // 未在播/非听友（安全暂停策略不适用）维持原硬暂停路径。
-      expect(shouldMuteListenTogetherListenerForAudioRouteLoss(true, false)).assertFalse();
+    it('mutesEveryActiveListenerButNotTheController', 0, () => {
+      expect(shouldMuteListenTogetherListenerForAudioRouteLoss(true, false)).assertTrue();
+      expect(shouldMuteListenTogetherListenerForAudioRouteLoss(true, true)).assertFalse();
       expect(shouldMuteListenTogetherListenerForAudioRouteLoss(false, true)).assertFalse();
       expect(shouldMuteListenTogetherListenerForAudioRouteLoss(false, false)).assertFalse();
     });
