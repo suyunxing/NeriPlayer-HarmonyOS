@@ -37,6 +37,29 @@ export interface ListenTogetherPlayerSurface {
   playForRemoteSync(): void;
   shouldHoldPlaybackForSafetyPause(causeType: string | null): boolean;
   shouldWaitForAuthoritativeStream(song: SongItem): boolean;
+  /**
+   * Upstream #359 `isListenTogetherLocalResolutionPendingFor(song)`: the local
+   * player is still resolving this very track, so an authoritative-stream
+   * verdict racing it must neither reload nor hold playback.
+   */
+  isLocalResolutionPendingFor(song: SongItem): boolean;
+  /**
+   * Upstream #359 `isListenTogetherAuthoritativeStreamConfirmedUnavailable(song)`:
+   * the controller confirmed (twice) it has no shareable link for this track.
+   */
+  isAuthoritativeStreamConfirmedUnavailable(song: SongItem): boolean;
+  /**
+   * Upstream 89a8694c `currentPlaybackRequiresListenTogetherAuthoritativeStream()`:
+   * the current media url is missing or a preview stand-in, so the listener
+   * genuinely depends on the room's link.
+   */
+  currentPlaybackRequiresAuthoritativeStream(): boolean;
+  /**
+   * Upstream 89a8694c `PlayerManager.applyRemoteQueueUpdate(queue, index)`:
+   * replace the local queue from an authoritative room state without reloading
+   * the current track (empty queue stops playback and clears the engine).
+   */
+  applyRemoteQueueUpdate(queue: SongItem[], currentIndex: number): void;
   /** Monotonic uptime, upstream `SystemClock.elapsedRealtime()`. */
   elapsedRealtimeMs(): number;
   /** Wall clock, upstream `System.currentTimeMillis()`. */

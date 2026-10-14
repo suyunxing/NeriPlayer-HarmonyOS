@@ -1,0 +1,19 @@
+{
+  "forms": [
+    {
+      "name": "playback_card",
+      "displayName": "$string:playback_card_name",
+      "description": "$string:playback_card_desc",
+      "src": "./ets/widget/pages/PlaybackCard.ets",
+      "uiSyntax": "arkts",
+      "isDynamic": true,
+      "supportDimensions": [
+        "2*2",
+        "2*4"
+      ],
+      "defaultDimension": "2*2",
+      "updateEnabled": false,
+      "isDefault": true
+    }
+  ]
+}

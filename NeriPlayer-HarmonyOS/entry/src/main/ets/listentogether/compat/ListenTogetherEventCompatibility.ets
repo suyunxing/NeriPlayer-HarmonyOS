@@ -13,6 +13,7 @@ import {
 } from '../protocol/ListenTogetherEventModels';
 import { ListenTogetherRoomState } from '../protocol/ListenTogetherRoomModels';
 import { isListenTogetherSeekControlSatisfied } from '../playback/ListenTogetherPlaybackPosition';
+import { listenTogetherCurrentStableKey } from '../playback/ListenTogetherPlaybackTrack';
 
 const TRANSPORT_DRIVEN_COMMAND_TYPES: Set<string> = new Set<string>([
   'PLAY_PLAYLIST',
@@ -36,6 +37,37 @@ const STREAM_DEPENDENT_MEMBER_CONTROL_TYPES: Set<string> = new Set<string>([
 ]);
 
 const REQUEST_TYPE_PREFIX: string = 'REQUEST_';
+
+/**
+ * Upstream #359: rewrite a rejected V2 queue-mutation event into the legacy
+ * full-snapshot form, using the snapshot stashed on the event at build time.
+ */
+export function buildListenTogetherLegacyQueueMutationFallback(
+  event: ListenTogetherEvent,
+  fallbackEventId: string
+): ListenTogetherEvent | null {
+  const snapshot = event.legacyQueueSnapshot;
+  if (snapshot === null || event.queueMutation === null || fallbackEventId.length === 0) {
+    return null;
+  }
+  const fallback = cloneListenTogetherEvent(event);
+  fallback.eventId = fallbackEventId;
+  fallback.queue = snapshot.slice();
+  fallback.queueMutation = null;
+  fallback.legacyQueueSnapshot = null;
+  return fallback;
+}
+
+/** The error strings an older room server answers a V2 queue mutation with. */
+export function isListenTogetherQueueMutationCompatibilityError(
+  errorMessageText: string | null
+): boolean {
+  const normalized = errorMessageText === null ? '' : errorMessageText.trim().toLowerCase();
+  return normalized.includes('queue mutation is invalid') ||
+    normalized.includes('queue mutation base version is ahead') ||
+    normalized.includes('queue mutation event type unsupported') ||
+    normalized.includes('queue update queue required');
+}
 
 function trimmedOrNull(value: string | null): string | null {
   if (value === null) {
@@ -110,24 +142,35 @@ export function shouldSuppressListenerControlWhileAwaitingStream(
 }
 
 function currentStableKeyForCompatibility(state: ListenTogetherRoomState): string | null {
-  if (state.track !== null) {
-    return state.track.stableKey;
-  }
-  const index = state.currentIndex;
-  if (index < 0 || index >= state.queue.length) {
-    return null;
-  }
-  return state.queue[index].stableKey;
+  return listenTogetherCurrentStableKey(state);
 }
 
 /** True once the room state reflects what a pending member request asked for. */
 export function isListenTogetherPendingMemberControlSatisfied(
   event: ListenTogetherEvent,
   state: ListenTogetherRoomState | null,
-  seekSatisfiedDriftMs: number = 1500
+  seekSatisfiedDriftMs: number = 1500,
+  committedEventId: string | null = null
 ): boolean {
   if (state === null) {
     return false;
+  }
+  // A V2 queue mutation only counts as satisfied once the room moved past the
+  // base version *because of this very event* — a newer version from someone
+  // else's mutation must not release our pending retry.
+  const queueMutation = event.queueMutation;
+  if (queueMutation !== null) {
+    const rawEventId = event.eventId;
+    const requestEventId = rawEventId !== null && rawEventId.trim().length > 0 ? rawEventId : null;
+    if (requestEventId === null) {
+      return false;
+    }
+    if (requestEventId !== committedEventId) {
+      return false;
+    }
+    if (state.version <= queueMutation.baseRoomVersion) {
+      return false;
+    }
   }
   const requestedType = event.type.startsWith(REQUEST_TYPE_PREFIX)
     ? event.type.substring(REQUEST_TYPE_PREFIX.length)
@@ -168,6 +211,40 @@ export function isListenTogetherPendingMemberControlSatisfied(
     if (requestedStableKey === null) {
       return false;
     }
+    return currentStableKeyForCompatibility(state) === requestedStableKey;
+  }
+  if (requestedType === 'SET_QUEUE') {
+    // A mutation-shaped request carries no legacy queue; the committed
+    // stableKey (or any stableKey at all) counts as reflected.
+    if (queueMutation !== null && event.queue === null) {
+      const requestedStableKey = event.track === null ? null : event.track.stableKey;
+      const committedStableKey = currentStableKeyForCompatibility(state);
+      return requestedStableKey === null || requestedStableKey === committedStableKey;
+    }
+    const requestedQueue = event.queue;
+    const requestedIndex = event.currentIndex;
+    if (requestedQueue === null || requestedIndex === null) {
+      return false;
+    }
+    if (requestedQueue.length === 0) {
+      return requestedIndex === -1 &&
+        state.queue.length === 0 &&
+        state.currentIndex === -1 &&
+        state.track === null;
+    }
+    if (requestedIndex < 0 || requestedIndex >= requestedQueue.length ||
+      state.currentIndex !== requestedIndex) {
+      return false;
+    }
+    if (state.queue.length !== requestedQueue.length) {
+      return false;
+    }
+    for (let index = 0; index < requestedQueue.length; index++) {
+      if (state.queue[index].stableKey !== requestedQueue[index].stableKey) {
+        return false;
+      }
+    }
+    const requestedStableKey = requestedQueue[requestedIndex].stableKey;
     return currentStableKeyForCompatibility(state) === requestedStableKey;
   }
   return false;

@@ -41,6 +41,11 @@ import {
   listenTogetherTracksFromRecords,
   listenTogetherTracksToRecords
 } from './ListenTogetherTrack';
+import {
+  ListenTogetherQueueMutation,
+  listenTogetherQueueMutationFromRecord,
+  listenTogetherQueueMutationToRecord
+} from './ListenTogetherQueueMutation';
 
 export class ListenTogetherCause {
   userUuid: string | null = null;
@@ -76,9 +81,17 @@ export class ListenTogetherEvent {
   state: string | null = null;
   repeatMode: number | null = null;
   shuffleEnabled: boolean | null = null;
+  /** Upstream #359: the V2 queue diff; `queue` stays null when it is used. */
+  queueMutation: ListenTogetherQueueMutation | null = null;
   requestTrackStableKey: string | null = null;
   forceRefresh: boolean | null = null;
   finishedTrackStableKey: string | null = null;
+  /**
+   * Upstream `@Transient legacyQueueSnapshot`: the full queue the mutation was
+   * computed from, held only in memory for the legacy fallback rewrite. Never
+   * serialized — it is deliberately absent from both codecs below.
+   */
+  legacyQueueSnapshot: ListenTogetherTrack[] | null = null;
 }
 
 export function createListenTogetherCause(
@@ -127,9 +140,11 @@ export function cloneListenTogetherEvent(event: ListenTogetherEvent): ListenToge
   copy.state = event.state;
   copy.repeatMode = event.repeatMode;
   copy.shuffleEnabled = event.shuffleEnabled;
+  copy.queueMutation = event.queueMutation;
   copy.requestTrackStableKey = event.requestTrackStableKey;
   copy.forceRefresh = event.forceRefresh;
   copy.finishedTrackStableKey = event.finishedTrackStableKey;
+  copy.legacyQueueSnapshot = event.legacyQueueSnapshot === null ? null : event.legacyQueueSnapshot.slice();
   return copy;
 }
 
@@ -205,6 +220,10 @@ export function listenTogetherEventFromRecord(raw: JsonRecord): ListenTogetherEv
   event.state = optString(raw, 'state');
   event.repeatMode = optNumber(raw, 'repeatMode');
   event.shuffleEnabled = optBoolean(raw, 'shuffleEnabled');
+  const queueMutationRecord = optRecord(raw, 'queueMutation');
+  event.queueMutation = queueMutationRecord === null
+    ? null
+    : listenTogetherQueueMutationFromRecord(queueMutationRecord);
   event.requestTrackStableKey = optString(raw, 'requestTrackStableKey');
   event.forceRefresh = optBoolean(raw, 'forceRefresh');
   event.finishedTrackStableKey = optString(raw, 'finishedTrackStableKey');
@@ -230,6 +249,8 @@ export function listenTogetherEventToRecord(event: ListenTogetherEvent): JsonRec
   putString(raw, 'state', event.state);
   putNumber(raw, 'repeatMode', event.repeatMode);
   putBoolean(raw, 'shuffleEnabled', event.shuffleEnabled);
+  putRecord(raw, 'queueMutation',
+    event.queueMutation === null ? null : listenTogetherQueueMutationToRecord(event.queueMutation));
   putString(raw, 'requestTrackStableKey', event.requestTrackStableKey);
   putBoolean(raw, 'forceRefresh', event.forceRefresh);
   putString(raw, 'finishedTrackStableKey', event.finishedTrackStableKey);

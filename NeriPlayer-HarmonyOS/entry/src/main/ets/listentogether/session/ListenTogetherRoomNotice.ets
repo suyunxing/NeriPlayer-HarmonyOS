@@ -18,12 +18,56 @@ export const LISTEN_TOGETHER_DEFAULT_CONTROLLER_GRACE_PERIOD_MS: number = 10 * 6
 
 export const LISTEN_TOGETHER_NOTICE_CONTROLLER_OFFLINE: string = 'controller_offline';
 export const LISTEN_TOGETHER_NOTICE_ROOM_CLOSED: string = 'room_closed';
+export const LISTEN_TOGETHER_NOTICE_CONTROLLER_LEFT: string = 'controller_left';
+export const LISTEN_TOGETHER_NOTICE_CONTROLLER_RECONNECTED: string = 'controller_reconnected';
+
+/**
+ * Upstream #359: trims free-text close reasons to the canonical codes the UI
+ * knows how to localize; unknown text passes through verbatim.
+ */
+export function normalizeListenTogetherRoomClosureReason(reason: string | null): string | null {
+  if (reason === null) {
+    return null;
+  }
+  const normalizedReason = reason.trim();
+  if (normalizedReason.length === 0) {
+    return null;
+  }
+  const lowered = normalizedReason.toLowerCase();
+  if (lowered === 'controller_left') {
+    return LISTEN_TOGETHER_NOTICE_CONTROLLER_LEFT;
+  }
+  if (lowered === 'controller_timeout') {
+    return 'controller_timeout';
+  }
+  if (lowered === 'room_closed') {
+    return LISTEN_TOGETHER_NOTICE_ROOM_CLOSED;
+  }
+  return normalizedReason;
+}
+
+/** `controller_left` is the one closure that is not an error anywhere. */
+export function isNormalListenTogetherRoomClosureReason(reason: string | null): boolean {
+  return normalizeListenTogetherRoomClosureReason(reason) === LISTEN_TOGETHER_NOTICE_CONTROLLER_LEFT;
+}
+
+/**
+ * Upstream #359: a listener that saw the controller go offline deserves a
+ * "controller reconnected" line when the room resumes.
+ */
+export function shouldShowListenTogetherControllerReconnectedNotice(
+  isCurrentUserController: boolean,
+  observedControllerOffline: boolean
+): boolean {
+  return !isCurrentUserController && observedControllerOffline;
+}
 
 export function resolveListenTogetherRoomNotice(
   state: ListenTogetherRoomState | null,
   fallbackMessage: string | null = null,
   nowMs: number = Date.now(),
-  controllerGracePeriodMs: number = LISTEN_TOGETHER_DEFAULT_CONTROLLER_GRACE_PERIOD_MS
+  controllerGracePeriodMs: number = LISTEN_TOGETHER_DEFAULT_CONTROLLER_GRACE_PERIOD_MS,
+  showControllerReconnected: boolean = false
 ): string | null {
   if (state === null) {
     return fallbackMessage;
@@ -40,7 +84,17 @@ export function resolveListenTogetherRoomNotice(
     return `${LISTEN_TOGETHER_NOTICE_CONTROLLER_OFFLINE}:${remainingMinutes + 1}`;
   }
   if (state.roomStatus === ListenTogetherRoomStatuses.CLOSED) {
-    return fallbackMessage ?? state.closedReason ?? LISTEN_TOGETHER_NOTICE_ROOM_CLOSED;
+    // The server's close reason is authoritative over any relayed text.
+    const closedReason = state.closedReason === null ? null : state.closedReason.trim();
+    if (closedReason !== null && closedReason.length > 0) {
+      return closedReason;
+    }
+    return fallbackMessage ?? LISTEN_TOGETHER_NOTICE_ROOM_CLOSED;
+  }
+  if (fallbackMessage !== null &&
+    fallbackMessage.toLowerCase() === LISTEN_TOGETHER_NOTICE_CONTROLLER_RECONNECTED &&
+    !showControllerReconnected) {
+    return null;
   }
   return fallbackMessage;
 }

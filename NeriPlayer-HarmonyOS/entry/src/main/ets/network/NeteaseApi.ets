@@ -18,6 +18,13 @@ import {
   shouldFallbackRecommendToAnonymous,
   neteaseSongToSongItem
 } from './NeteasePlaylistParser';
+import { buildNeteasePlaylistAddTracksParams } from './NeteasePlaylistWriteback';
+import {
+  NeteaseApiCodeError,
+  parseNeteaseHomePlaylists,
+  parseNeteaseHomeSongs,
+  parseNeteasePlaylistDetailSummaryOrNull
+} from './NeteaseHomeRecommendations';
 import { AudioQualityPolicy } from '../player/AudioQualityPolicy';
 import { NetworkStatus } from '../util/NetworkStatus';
 import { MusicPlatform } from '../model/MusicPlatform';
@@ -155,9 +162,9 @@ export class NeteaseApi {
     return `${Constants.NETEASE_BASE}${path}?csrf_token=${csrf}`;
   }
 
-  static async search(keyword: string, limit: number = 30): Promise<SongItem[]> {
+  static async search(keyword: string, limit: number = 30, offset: number = 0): Promise<SongItem[]> {
     try {
-      let response = await NeteaseApi.searchWeapi(keyword, limit);
+      let response = await NeteaseApi.searchWeapi(keyword, limit, offset);
       // 2026-08-29 实测：登录态 jar 请求 cloudsearch 会被风控（code=50000005），
       // 匿名请求正常——与推荐接口同款行为。命中降级码时仅本次移除 MUSIC_U
       // 重试，完了恢复 cookie 种子；仍拿不到歌再走 legacy 兜底。
@@ -166,7 +173,7 @@ export class NeteaseApi {
         Logger.warn(`NeteaseApi weapi search code=${response.code} while logged in, retrying anonymously`);
         HttpClient.removeCookie(`${Constants.NETEASE_BASE}/`, 'MUSIC_U');
         try {
-          response = await NeteaseApi.searchWeapi(keyword, limit);
+          response = await NeteaseApi.searchWeapi(keyword, limit, offset);
         } finally {
           NeteaseCookieRepository.seedHttpClient();
         }
@@ -184,15 +191,15 @@ export class NeteaseApi {
       const e = error as Error;
       Logger.warn(`NeteaseApi weapi search failed, falling back to legacy API: ${e.message}`);
     }
-    return NeteaseApi.searchLegacy(keyword, limit);
+    return NeteaseApi.searchLegacy(keyword, limit, offset);
   }
 
-  private static async searchWeapi(keyword: string, limit: number): Promise<NeteaseSearchResponse> {
+  private static async searchWeapi(keyword: string, limit: number, offset: number): Promise<NeteaseSearchResponse> {
     const payload: Record<string, Object> = {};
     payload['s'] = keyword;
     payload['type'] = '1';
     payload['limit'] = `${limit}`;
-    payload['offset'] = '0';
+    payload['offset'] = `${offset}`;
     payload['total'] = 'true';
     const params = await NeteaseCrypto.weapiParams(payload);
     const url = await NeteaseApi.weapiUrl('/weapi/cloudsearch/get/web');
@@ -207,8 +214,8 @@ export class NeteaseApi {
     return JSON.parse(text) as NeteaseSearchResponse;
   }
 
-  private static async searchLegacy(keyword: string, limit: number): Promise<SongItem[]> {
-    const url = `${Constants.NETEASE_BASE}/api/search/get/web?s=${encodeURIComponent(keyword)}&type=1&offset=0&limit=${limit}`;
+  private static async searchLegacy(keyword: string, limit: number, offset: number = 0): Promise<SongItem[]> {
+    const url = `${Constants.NETEASE_BASE}/api/search/get/web?s=${encodeURIComponent(keyword)}&type=1&offset=${offset}&limit=${limit}`;
     const text = await HttpClient.getText(url, NeteaseApi.headers(), 15000, true);
     Logger.debug(`legacy search resp len=${text.length} head=${text.substring(0, 160)}`);
     const response = JSON.parse(text) as NeteaseSearchResponse;
@@ -450,6 +457,247 @@ export class NeteaseApi {
     const url = await NeteaseApi.weapiUrl('/weapi/user/playlist');
     const text = await HttpClient.postForm(url, params, 15000, NeteaseApi.headers(), true);
     return parseUserPlaylistsResponse(text);
+  }
+
+  // ---- 首页推荐扩展（上游 #319/#338） ----
+
+  /**
+   * 推荐族 weapi 调用：登录态端点在响应 code 301（会话失效）时 resetSession
+   * 重试一次（parse 抛出的 NeteaseApiCodeError 包在 call 闭包内，重试才有
+   * 机会感知）。
+   */
+  private static async weapiHomeCall<T>(path: string, params: Map<string, string>,
+    parse: (raw: string) => T, loginRequired: boolean): Promise<T> {
+    const call = (): Promise<T> =>
+      NeteaseApi.callWeapiText(path, params).then((raw: string): T => parse(raw));
+    if (!loginRequired) {
+      return call();
+    }
+    try {
+      return await call();
+    } catch (error) {
+      if (error instanceof NeteaseApiCodeError && error.code === 301
+        && NeteaseCookieRepository.isLoggedIn()) {
+        Logger.warn(`NeteaseApi ${path} got 301 while logged in, refreshing session`);
+        NeteaseApi.resetSession();
+        return call();
+      }
+      if (error instanceof Error) {
+        throw error;
+      }
+      throw new Error(`NeteaseApi ${path} failed`);
+    }
+  }
+
+  /** 每日推荐歌单（/v1/discovery/recommend/resource，需登录）。 */
+  static async getDailyRecommendedPlaylists(): Promise<NeteasePlaylistSummary[]> {
+    return NeteaseApi.weapiHomeCall('/weapi/v1/discovery/recommend/resource',
+      new Map<string, string>(), parseNeteaseHomePlaylists, true);
+  }
+
+  /** 每日推荐歌曲（/v3/discovery/recommend/songs，需登录；afresh 换一批）。 */
+  static async getDailyRecommendedSongs(afresh: boolean): Promise<SongItem[]> {
+    const params = new Map<string, string>();
+    params.set('afresh', `${afresh}`);
+    return NeteaseApi.weapiHomeCall('/weapi/v3/discovery/recommend/songs',
+      params, parseNeteaseHomeSongs, true);
+  }
+
+  /** 私人 FM（/v1/radio/get，需登录）。 */
+  static async getPersonalFmSongs(): Promise<SongItem[]> {
+    return NeteaseApi.weapiHomeCall('/weapi/v1/radio/get',
+      new Map<string, string>(), parseNeteaseHomeSongs, true);
+  }
+
+  /** 推荐新歌（/personalized/newsong，匿名可用）。 */
+  static async getPersonalizedNewSongs(limit: number = 30): Promise<SongItem[]> {
+    const params = new Map<string, string>();
+    params.set('type', 'recommend');
+    params.set('limit', `${limit}`);
+    params.set('areaId', '0');
+    return NeteaseApi.weapiHomeCall('/weapi/personalized/newsong',
+      params, parseNeteaseHomeSongs, false);
+  }
+
+  /** 分类歌单（/top/playlist，匿名可用）。 */
+  static async getTopPlaylists(cat: string = '全部', order: string = 'hot',
+    limit: number = 30, offset: number = 0): Promise<NeteasePlaylistSummary[]> {
+    const params = new Map<string, string>();
+    params.set('cat', cat);
+    params.set('order', order);
+    params.set('limit', `${limit}`);
+    params.set('offset', `${offset}`);
+    params.set('total', 'true');
+    return NeteaseApi.weapiHomeCall('/weapi/top/playlist',
+      params, parseNeteaseHomePlaylists, false);
+  }
+
+  /**
+   * 轻量歌单摘要（雷达歌单元数据用）：只取 /api/v6/playlist/detail 头部对象，
+   * 不做 trackIds 全量补拉（getPlaylistOverview 会对大歌单分批拉曲，此处不需要）。
+   */
+  static async getPlaylistSummary(id: number): Promise<NeteasePlaylistSummary | null> {
+    const text = await HttpClient.getText(
+      `${Constants.NETEASE_BASE}/api/v6/playlist/detail?id=${id}`,
+      NeteaseApi.headers()
+    );
+    return parseNeteasePlaylistDetailSummaryOrNull(text);
+  }
+
+  private static async callWeapiText(path: string, params: Map<string, string>):
+    Promise<string> {
+    const payload: Record<string, Object> = {};
+    for (const entry of params) {
+      payload[entry[0]] = entry[1];
+    }
+    const encrypted = await NeteaseCrypto.weapiParams(payload);
+    const url = await NeteaseApi.weapiUrl(path);
+    return HttpClient.postForm(url, encrypted, 15000, NeteaseApi.headers(), true);
+  }
+
+  // ---------- 评论端点（UPSTREAM_SYNC_PLAN F-3，上游 #432/#476） ----------
+
+  /**
+   * 评论缓存会话键：登录 cookie（MUSIC_U）存在才非空，账号切换后自动隔离
+   * 缓存（上游 commentCacheSessionKey 的语义；值只作缓存键，不入日志）。
+   */
+  static commentCacheSessionKey(): string | null {
+    const cookies = HttpClient.getCookiesMap(`${Constants.NETEASE_BASE}/`);
+    const musicU = cookies.get('MUSIC_U') ?? '';
+    return musicU.length > 0 ? musicU : null;
+  }
+
+  /**
+   * 歌曲评论列表（/api/v2/resource/comments，API 模式明文 GET，上游
+   * getSongCommentsCancellable）。sortType：2 热门 / 3 最新 / 99 推荐；
+   * 最新排序翻页必须传上一页返回的时间游标，不能用 offset 替代时间边界。
+   */
+  static async getSongComments(songId: number, page: number, pageSize: number,
+    sortType: number, cursor: string | null): Promise<string> {
+    if (!(songId > 0) || page <= 0 || pageSize < 1 || pageSize > 100) {
+      throw new Error('invalid song comments request');
+    }
+    if (sortType !== 2 && sortType !== 3 && sortType !== 99) {
+      throw new Error('invalid song comments sortType');
+    }
+    if (sortType === 3 && page > 1 && (cursor === null || cursor.length === 0)) {
+      throw new Error('newest song comments require the previous cursor');
+    }
+    const offset = (page - 1) * pageSize;
+    let nextCursor: string;
+    if (sortType === 2) {
+      nextCursor = `normalHot#${offset}`;
+    } else if (sortType === 3) {
+      nextCursor = page === 1 ? '0' : cursor as string;
+    } else {
+      nextCursor = `${offset}`;
+    }
+    const url = `${Constants.NETEASE_BASE}/api/v2/resource/comments` +
+      `?threadId=R_SO_4_${songId}&pageNo=${page}&pageSize=${pageSize}` +
+      `&sortType=${sortType}&cursor=${encodeURIComponent(nextCursor)}&showInner=true`;
+    return HttpClient.getText(url, NeteaseApi.headers(), 15000, true);
+  }
+
+  /**
+   * 楼中楼回复列表（/weapi/resource/comment/floor/get）。
+   * cursor 为上一页 data.time 时间戳，首页传 null（接口按 -1 处理）。
+   */
+  static async getSongCommentReplies(songId: number, rootId: string,
+    pageSize: number, cursor: string | null): Promise<string> {
+    if (!(songId > 0) || !(Number(rootId) > 0) || pageSize < 1 || pageSize > 100) {
+      throw new Error('invalid song comment replies request');
+    }
+    const params = new Map<string, string>();
+    params.set('threadId', `R_SO_4_${songId}`);
+    params.set('parentCommentId', rootId);
+    params.set('limit', `${pageSize}`);
+    params.set('time', cursor !== null && cursor.length > 0 ? cursor : '-1');
+    return NeteaseApi.callWeapiText('/weapi/resource/comment/floor/get', params);
+  }
+
+  /**
+   * 往自建歌单批量加歌（/weapi/playlist/manipulate/tracks，上游 #322）。
+   * 返回体 code 200 为成功；登录态下 301 先 resetSession 再重试一次。
+   */
+  static async addSongsToPlaylist(playlistId: number, songIds: number[]): Promise<boolean> {
+    let code = await NeteaseApi.callPlaylistManipulateTracks(playlistId, songIds);
+    if (code === 301 && NeteaseCookieRepository.isLoggedIn()) {
+      Logger.warn('NeteaseApi playlist manipulate got 301 while logged in, refreshing session');
+      NeteaseApi.resetSession();
+      code = await NeteaseApi.callPlaylistManipulateTracks(playlistId, songIds);
+    }
+    return code === 200;
+  }
+
+  private static async callPlaylistManipulateTracks(playlistId: number,
+    songIds: number[]): Promise<number> {
+    const payload: Record<string, Object> = {};
+    const params = buildNeteasePlaylistAddTracksParams(playlistId, songIds);
+    for (const key of Object.keys(params)) {
+      payload[key] = params[key];
+    }
+    const encrypted = await NeteaseCrypto.weapiParams(payload);
+    const url = await NeteaseApi.weapiUrl('/weapi/playlist/manipulate/tracks');
+    const text = await HttpClient.postForm(url, encrypted, 15000, NeteaseApi.headers(), true);
+    let root: Record<string, Object>;
+    try {
+      root = JSON.parse(text) as Record<string, Object>;
+    } catch (error) {
+      return -1;
+    }
+    const code = Number(root['code'] ?? -1);
+    return Number.isFinite(code) ? code : -1;
+  }
+
+  /**
+   * 目标歌单现有曲目 id 快照（写回去重与失败复核用）：null = 获取失败或
+   * 响应可疑（trackCount>0 却解析不出曲目）。复用 getPlaylistOverview 的
+   * 完整解析（含 trackIds 超出首屏的分批补拉）。
+   */
+  static async playlistTrackIdSet(playlistId: number): Promise<Set<number> | null> {
+    try {
+      const overview = await NeteaseApi.getPlaylistOverview(playlistId);
+      const ids = new Set<number>();
+      for (const song of overview.songs) {
+        const id = Number(song.audioId);
+        if (Number.isFinite(id) && id > 0) {
+          ids.add(id);
+        }
+      }
+      if (ids.size === 0 && overview.trackCount > 0) {
+        return null;
+      }
+      return ids;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  /**
+   * 批量解析曲目是否仍可访问（/song/detail）：写回失败归因用，返回仍存在
+   * 的 id 集；null = 查询失败（调用方不应据此猜测）。
+   */
+  static async resolvableNeteaseSongIds(ids: number[]): Promise<Set<number> | null> {
+    try {
+      const songs = await NeteaseApi.fetchSongDetail(ids);
+      const resolved = new Set<number>();
+      for (const song of songs) {
+        resolved.add(song.id);
+      }
+      return resolved;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  /** 歌曲 id → 可播放 SongItem（探索页链接解析开播用）。 */
+  static async getSongsByIds(ids: number[]): Promise<SongItem[]> {
+    const songs = await NeteaseApi.fetchSongDetail(ids);
+    const items: SongItem[] = [];
+    for (const song of songs) {
+      items.push(NeteaseApi.toSongItem(song));
+    }
+    return items;
   }
 
   /** Remote playlist header + fully resolved songs for the detail page. */

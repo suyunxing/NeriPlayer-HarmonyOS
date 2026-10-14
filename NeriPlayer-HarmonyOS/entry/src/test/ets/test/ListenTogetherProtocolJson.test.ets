@@ -22,6 +22,11 @@ import {
   listenTogetherEventToRecord
 } from '../../../main/ets/listentogether/protocol/ListenTogetherEventModels';
 import {
+  ListenTogetherQueueMutation,
+  ListenTogetherQueueOperation,
+  ListenTogetherQueueReference
+} from '../../../main/ets/listentogether/protocol/ListenTogetherQueueMutation';
+import {
   ListenTogetherMember,
   ListenTogetherRoomSettings,
   ListenTogetherRoomStatuses,
@@ -39,7 +44,8 @@ import {
   LISTEN_TOGETHER_LEAVE_ROOM_REQUEST_JSON,
   ListenTogetherRoomResponse,
   listenTogetherResponseErrorOrNull,
-  listenTogetherRoomResponseFromJson
+  listenTogetherRoomResponseFromJson,
+  listenTogetherInitialSnapshotFromRecord
 } from '../../../main/ets/listentogether/protocol/ListenTogetherHttpMessages';
 
 const PRIMARY_STREAM_URL: string = 'https://m701.music.126.net/primary.mp3';
@@ -154,6 +160,39 @@ export default function listenTogetherProtocolJsonTest(): void {
       expect(decoded.eventId).assertEqual('event-play');
       expect(decoded.clientInstanceId).assertEqual('client-instance');
       expect(decoded.clientSequence).assertEqual(42);
+    });
+
+    it('roundTripsAQueueMutationButNeverItsLegacySnapshot', 0, () => {
+      // Upstream #359: a V2 SET_QUEUE carries the diff, and the in-memory
+      // legacy snapshot deliberately stays off the wire.
+      const event = createListenTogetherEvent('SET_QUEUE');
+      event.eventId = 'event-mutation';
+      const mutation = new ListenTogetherQueueMutation();
+      mutation.baseRoomVersion = 4;
+      const remove = new ListenTogetherQueueOperation();
+      remove.type = 'remove';
+      remove.target = new ListenTogetherQueueReference('netease:2', 0);
+      mutation.operations = [remove];
+      mutation.targetCurrent = new ListenTogetherQueueReference('netease:1', 0);
+      event.queueMutation = mutation;
+      event.legacyQueueSnapshot = [createListenTogetherTrack(
+        'netease:1', ListenTogetherChannels.NETEASE, '1', 'Song 1', 'Artist')];
+
+      const record = listenTogetherEventToRecord(event);
+      expect(JSON.stringify(record).includes('legacyQueueSnapshot')).assertFalse();
+      const decoded = listenTogetherEventFromRecord(reparse(record));
+      expect(decoded.queueMutation === null).assertFalse();
+      expect(decoded.queueMutation!.baseRoomVersion).assertEqual(4);
+      expect(decoded.queueMutation!.operations.length).assertEqual(1);
+      expect(decoded.queueMutation!.operations[0].type).assertEqual('remove');
+      expect(decoded.queueMutation!.operations[0].target!.stableKey).assertEqual('netease:2');
+      expect(decoded.queueMutation!.targetCurrent!.stableKey).assertEqual('netease:1');
+      expect(decoded.legacyQueueSnapshot).assertNull();
+      expect(decoded.queue).assertNull();
+      // The in-memory clone keeps the snapshot for the legacy fallback rewrite.
+      const cloned = cloneListenTogetherEvent(event);
+      expect(cloned.legacyQueueSnapshot!.length).assertEqual(1);
+      expect(cloned.queueMutation!.baseRoomVersion).assertEqual(4);
     });
 
     it('roundTripsUpdateSettingsRoomSettings', 0, () => {
@@ -305,6 +344,30 @@ export default function listenTogetherProtocolJsonTest(): void {
       expect(listenTogetherSocketEnvelopeFromJson('{"roomId":"ABC234"}')).assertNull();
       expect(listenTogetherSocketEnvelopeFromJson('{"type":""}')).assertNull();
     });
+
+    it('carriesAQueueMutationThroughTheFrame', 0, () => {
+      const envelope = createListenTogetherSocketEnvelope('STATE');
+      envelope.roomId = 'ABC234';
+      const mutation = new ListenTogetherQueueMutation();
+      mutation.baseRoomVersion = 11;
+      const move = new ListenTogetherQueueOperation();
+      move.type = 'move';
+      move.target = new ListenTogetherQueueReference('netease:2', 0);
+      move.anchor = new ListenTogetherQueueReference('netease:1', 0);
+      move.placement = 'before';
+      mutation.operations = [move];
+      envelope.queueMutation = mutation;
+
+      const frame = JSON.stringify(listenTogetherSocketEnvelopeToRecord(envelope));
+      const decoded = listenTogetherSocketEnvelopeFromJson(frame);
+      expect(decoded !== null).assertTrue();
+      const parsed = decoded as ListenTogetherSocketEnvelope;
+      expect(parsed.queueMutation === null).assertFalse();
+      expect(parsed.queueMutation!.baseRoomVersion).assertEqual(11);
+      expect(parsed.queueMutation!.operations.length).assertEqual(1);
+      expect(parsed.queueMutation!.operations[0].type).assertEqual('move');
+      expect(parsed.queueMutation!.operations[0].placement).assertEqual('before');
+    });
   });
 
   describe('ListenTogetherHttpMessages', () => {
@@ -334,6 +397,26 @@ export default function listenTogetherProtocolJsonTest(): void {
         .assertEqual('一起听服务端返回了未知错误');
       expect(listenTogetherResponseErrorOrNull(false, null))
         .assertEqual('一起听服务端返回了未知错误');
+    });
+
+    it('decodesTheShuffleRestoreQueueFromAnInitialSnapshot', 0, () => {
+      // Upstream #359 (LTW 4adc465): the join snapshot may carry the shuffle
+      // restore queue; this port decodes it (production stays index-based).
+      const trackRecord = listenTogetherTrackToRecord(createListenTogetherTrack(
+        'netease:7', ListenTogetherChannels.NETEASE, '7', 'Song 7', 'Artist'));
+      const raw: JsonRecord = {
+        'queue': [trackRecord],
+        'currentIndex': 0,
+        'isPlaying': true,
+        'shuffleRestoreQueue': [trackRecord, trackRecord]
+      };
+      const snapshot = listenTogetherInitialSnapshotFromRecord(raw);
+      expect(snapshot.shuffleRestoreQueue === null).assertFalse();
+      expect(snapshot.shuffleRestoreQueue!.length).assertEqual(2);
+      expect(snapshot.shuffleRestoreQueue![0].stableKey).assertEqual('netease:7');
+
+      const withoutRestore: JsonRecord = { 'currentIndex': 0 };
+      expect(listenTogetherInitialSnapshotFromRecord(withoutRestore).shuffleRestoreQueue).assertNull();
     });
   });
 }

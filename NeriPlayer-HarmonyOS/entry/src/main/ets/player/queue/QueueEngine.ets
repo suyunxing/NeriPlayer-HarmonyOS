@@ -345,6 +345,80 @@ export class QueueEngine {
   }
 
   // --------------------------------------------------------------------------
+  // Queue edits (insert-next / add-to-end / move / remove)
+  // --------------------------------------------------------------------------
+
+  /**
+   * Applies an externally computed queue edit (the song array lives in
+   * PlayerManager, which knows song identity): resizes, re-points the
+   * current index, and keeps the shuffle index lists aligned with the new
+   * queue structure.
+   *
+   * existingIndex/insertIndex/newSongIndex mirror Android
+   * remapShuffleStateForInsertNext: existingIndex is the removed duplicate's
+   * pre-edit index (-1 when the song is new), insertIndex the post-removal
+   * insertion slot (-1 for pure appends/removals), newSongIndex the inserted
+   * song's final index (-1 for moves/removals, i.e. no future-parking).
+   * rebuildShuffle mirrors Android addToQueueEndImpl, which rebuilds the bag
+   * from scratch instead of shifting indices for end-appends.
+   */
+  applyQueueEdit(
+    existingIndex: number,
+    insertIndex: number,
+    newSongIndex: number,
+    newQueueSize: number,
+    newCurrentIndex: number,
+    rebuildShuffle: boolean
+  ): void {
+    this.queueSize = newQueueSize;
+    this.currentIndex = newCurrentIndex;
+    if (!this.shuffle) {
+      return;
+    }
+    if (rebuildShuffle) {
+      // 整袋重建意味着本周期作废：history/future 里的旧下标未随本次结构
+      // 编辑平移，留着会错播，与 setShuffle 的清栈语义保持一致。
+      this.history = [];
+      this.future = [];
+      this.rebuildShuffleBag(this.currentIndex);
+      return;
+    }
+    const remapped = QueueEngine.remapForInsertNext(this.bag, this.history, this.future,
+      existingIndex, insertIndex, newSongIndex);
+    this.bag = remapped.bag;
+    this.history = remapped.history;
+    this.future = remapped.future;
+  }
+
+  /**
+   * Resolves the current index after the item at removedIndex was spliced
+   * out of a queue of oldSize entries. Mirrors Android
+   * resolveQueueCurrentIndexAfterRemoval: removing an earlier item shifts
+   * the current index down; removing the current item points it at the song
+   * that shifted into its slot (clamped to the new last index, -1 once the
+   * queue empties).
+   */
+  static currentIndexAfterRemoval(oldSize: number, currentIndex: number, removedIndex: number): number {
+    if (oldSize <= 0 || currentIndex < 0 || currentIndex >= oldSize) {
+      return -1;
+    }
+    if (removedIndex < 0 || removedIndex >= oldSize) {
+      return currentIndex;
+    }
+    const newSize = oldSize - 1;
+    if (newSize <= 0) {
+      return -1;
+    }
+    if (currentIndex === removedIndex) {
+      return Math.min(removedIndex, newSize - 1);
+    }
+    if (removedIndex < currentIndex) {
+      return currentIndex - 1;
+    }
+    return currentIndex;
+  }
+
+  // --------------------------------------------------------------------------
   // Track-end policy
   // --------------------------------------------------------------------------
 

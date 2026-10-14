@@ -1,4 +1,5 @@
 import { describe, it, expect } from '@ohos/hypium';
+import { PlaylistDeleteSnapshot } from '../../../main/ets/data/LocalPlaylistRepository';
 import {
   SyncSong,
   SyncCausalToken,
@@ -336,6 +337,26 @@ export default function playlistDeletionPolicyTest(): void {
         [restoredMembership]);
       const deletedResult = applyDeletions(7, restoredResult, [oldDeletion, laterDeletion]);
       expect(deletedResult.length).assertEqual(0);
+    });
+  });
+
+  describe('PlaylistDeleteSnapshotJson', () => {
+    it('roundTripsSnapshotPayload', 0, () => {
+      const snapshot = new PlaylistDeleteSnapshot();
+      snapshot.playlistJson = '{\"id\":\"local_1\"}';
+      snapshot.index = 3;
+      snapshot.deletedAt = 123456;
+      const revived = PlaylistDeleteSnapshot.fromJson(snapshot.toJson());
+      expect(revived !== null).assertTrue();
+      expect(revived!.playlistJson).assertEqual('{\"id\":\"local_1\"}');
+      expect(revived!.index).assertEqual(3);
+      expect(revived!.deletedAt).assertEqual(123456);
+    });
+
+    it('rejectsEmptyAndGarbageJson', 0, () => {
+      expect(PlaylistDeleteSnapshot.fromJson('not json')).assertNull();
+      const empty = PlaylistDeleteSnapshot.fromJson('{"playlistJson":"","index":1,"deletedAt":2}');
+      expect(empty).assertNull();
     });
   });
 }

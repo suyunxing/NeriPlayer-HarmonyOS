@@ -83,6 +83,39 @@ import {
   listenTogetherWsFailureMessage,
   listenTogetherWsOversizeErrorMessage
 } from './ListenTogetherWsFraming';
+import { ListenTogetherConnectionState } from '../protocol/ListenTogetherSessionModels';
+
+/**
+ * Upstream #359 `LISTEN_TOGETHER_SOCKET_RESPONSE_TIMEOUT_MS`: keep-alive pings
+ * that stay unanswered this long mean the socket is dead even though the
+ * platform never reported a failure — force a reconnect.
+ */
+export const LISTEN_TOGETHER_SOCKET_RESPONSE_TIMEOUT_MS: number = 35000;
+
+/**
+ * Upstream #359 `shouldReconnectListenTogetherSocket`: true when a ping was
+ * sent and nothing (not even a frame unrelated to it) arrived since before that
+ * ping went out.
+ */
+export function shouldReconnectListenTogetherSocket(
+  reconnectEnabled: boolean,
+  connectionState: ListenTogetherConnectionState,
+  lastMessageAtMs: number,
+  lastPingSentAtMs: number,
+  nowMs: number,
+  responseTimeoutMs: number = LISTEN_TOGETHER_SOCKET_RESPONSE_TIMEOUT_MS
+): boolean {
+  if (!reconnectEnabled || connectionState !== ListenTogetherConnectionState.CONNECTED) {
+    return false;
+  }
+  if (lastPingSentAtMs <= 0 || nowMs < lastPingSentAtMs) {
+    return false;
+  }
+  if (nowMs - lastPingSentAtMs < Math.max(responseTimeoutMs, 0)) {
+    return false;
+  }
+  return lastMessageAtMs <= lastPingSentAtMs;
+}
 
 /** Upstream: ListenTogetherWebSocketClient.Listener. */
 export interface ListenTogetherWebSocketListener {
