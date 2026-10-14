@@ -185,8 +185,15 @@ export class DownloadStorage {
   }
 
   static fileSize(path: string): number {
+    // Catalog rows may hold file:// URIs (user-picked directory); fs stat
+    // rejects URIs outright, which used to read as size 0 and broke the
+    // already-downloaded short-circuit and the storage stats.
+    const openable = DownloadStorage.resolveFilePath(path);
+    if (openable.length === 0) {
+      return 0;
+    }
     try {
-      const stat = fileIo.statSync(path);
+      const stat = fileIo.statSync(openable);
       return stat.size;
     } catch (error) {
       return 0;
@@ -201,8 +208,12 @@ export class DownloadStorage {
    * commit path against pinning or committing unplayable bytes.
    */
   static hasPlausibleAudioHeader(path: string): boolean {
+    const openable = DownloadStorage.resolveFilePath(path);
+    if (openable.length === 0) {
+      return false;
+    }
     try {
-      const file = fileIo.openSync(path, fileIo.OpenMode.READ_ONLY);
+      const file = fileIo.openSync(openable, fileIo.OpenMode.READ_ONLY);
       try {
         // 192 bytes so the MPEG-TS two-packet sync check (0x47 at 0 and 188)
         // can see both packets.
@@ -228,10 +239,14 @@ export class DownloadStorage {
    * (true) rather than silently passing the integrity gate.
    */
   static async hasExcessiveFillerRuns(path: string): Promise<boolean> {
+    const openable = DownloadStorage.resolveFilePath(path);
+    if (openable.length === 0) {
+      return true;
+    }
     const CHUNK = 1024 * 1024;
     const OVERLAP = 1024;
     try {
-      const file = fileIo.openSync(path, fileIo.OpenMode.READ_ONLY);
+      const file = fileIo.openSync(openable, fileIo.OpenMode.READ_ONLY);
       try {
         // Stat through the opened fd: a path-level statSync failure would
         // otherwise surface as size 0 ("nothing to scan") and pass the gate.

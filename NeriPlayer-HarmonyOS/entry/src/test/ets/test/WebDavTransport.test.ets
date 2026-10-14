@@ -16,7 +16,8 @@ import {
 import {
   WebDavError,
   WebDavErrorKind,
-  classifyWebDavFailure
+  classifyWebDavFailure,
+  describeWebDavErrorForUser
 } from '../../../main/ets/sync/webdav/WebDavErrors';
 
 class QueuedWebDavExecutor implements WebDavExecutor {
@@ -210,9 +211,10 @@ export default function webDavTransportTest(): void {
       expect(snapshot === null).assertTrue();
     });
 
-    it('matchingFingerprintAllowsRevalidatedUnconditionalPut', 0, async () => {
+    it('matchingFingerprintPublishesAtomicallyViaTempAndMove', 0, async () => {
       const executor = new QueuedWebDavExecutor();
-      executor.push(200, 'old-content');
+      executor.push(200, 'old-content', headers([['etag', '"v1"']]));
+      executor.push(201, '');
       executor.push(204, '', headers([['etag', '"v2"']]));
       const transport = new WebDavTransport(executor, 'u', 'p');
       const version = new WebDavRemoteVersion();
@@ -220,11 +222,18 @@ export default function webDavTransportTest(): void {
       const result = await new WebDavSyncClient(transport).uploadBackup(
         'https://dav.example/file', utf8EncodeText('new-content'), 'application/json', version);
       expect(result.version.etag).assertEqual('"v2"');
-      expect(executor.calls.length).assertEqual(2);
+      expect(result.fingerprint)
+        .assertEqual(calculateWebDavFingerprint(utf8EncodeText('new-content')));
+      expect(executor.calls.length).assertEqual(3);
       expect(executor.calls[0].method).assertEqual('GET');
       expect(executor.calls[1].method).assertEqual('PUT');
-      expect(executor.calls[1].headers.has('If-Match')).assertFalse();
-      expect(executor.calls[1].headers.has('If-Unmodified-Since')).assertFalse();
+      expect(executor.calls[1].url.startsWith('https://dav.example/file.tmp-')).assertTrue();
+      expect(executor.calls[1].url !== 'https://dav.example/file').assertTrue();
+      expect(executor.calls[1].headers.get('If-None-Match')).assertEqual('*');
+      expect(executor.calls[2].method).assertEqual('MOVE');
+      expect(executor.calls[2].url).assertEqual(executor.calls[1].url);
+      expect(executor.calls[2].headers.get('Destination')).assertEqual('https://dav.example/file');
+      expect(executor.calls[2].headers.get('Overwrite')).assertEqual('T');
     });
 
     it('changedFingerprintRejectsFallbackAsConflict', 0, async () => {
@@ -241,17 +250,138 @@ export default function webDavTransportTest(): void {
       expect(executor.calls.length).assertEqual(1);
     });
 
+    it('missingTokenAndFingerprintRejectsBeforeAnyRequest', 0, async () => {
+      const executor = new QueuedWebDavExecutor();
+      const version = new WebDavRemoteVersion();
+      const error = await rejection(new WebDavSyncClient(new WebDavTransport(executor, 'u', 'p'))
+        .uploadBackup('https://dav.example/file', utf8EncodeText('new-content'),
+          'application/json', version) as Promise<Object>);
+      expect(error.kind).assertEqual(WebDavErrorKind.CONTENT_CONFLICT);
+      expect(executor.calls.length).assertEqual(0);
+    });
+
+    it('vanishedRemoteFileRejectsAsConflictForMergeRetry', 0, async () => {
+      const executor = new QueuedWebDavExecutor();
+      executor.push(404, 'gone');
+      const version = new WebDavRemoteVersion();
+      version.lastKnownFingerprint = '0'.repeat(64);
+      const error = await rejection(new WebDavSyncClient(new WebDavTransport(executor, 'u', 'p'))
+        .uploadBackup('https://dav.example/file', utf8EncodeText('new-content'),
+          'application/json', version) as Promise<Object>);
+      expect(error.kind).assertEqual(WebDavErrorKind.CONTENT_CONFLICT);
+      expect(executor.calls.length).assertEqual(1);
+    });
+
+    it('createOnlyUploadMovesWithoutOverwrite', 0, async () => {
+      const executor = new QueuedWebDavExecutor();
+      executor.push(404, 'missing');
+      executor.push(201, '');
+      executor.push(201, '');
+      const version = new WebDavRemoteVersion();
+      version.createOnly = true;
+      await new WebDavSyncClient(new WebDavTransport(executor, 'u', 'p'))
+        .uploadBackup('https://dav.example/file', utf8EncodeText('data'),
+          'application/json', version);
+      expect(executor.calls.length).assertEqual(3);
+      expect(executor.calls[2].method).assertEqual('MOVE');
+      expect(executor.calls[2].headers.get('Overwrite')).assertEqual('F');
+    });
+
     it('createOnlyConflictNeverFallsBack', 0, async () => {
       const executor = new QueuedWebDavExecutor();
-      executor.push(412, 'exists');
+      executor.push(200, 'already-created');
       const version = new WebDavRemoteVersion();
       version.createOnly = true;
       const error = await rejection(new WebDavSyncClient(new WebDavTransport(executor, 'u', 'p'))
         .uploadBackup('https://dav.example/file', utf8EncodeText('data'),
           'application/json', version) as Promise<Object>);
       expect(error.kind).assertEqual(WebDavErrorKind.CONTENT_CONFLICT);
+      expect(error.statusCode).assertEqual(412);
       expect(executor.calls.length).assertEqual(1);
-      expect(executor.calls[0].headers.get('If-None-Match')).assertEqual('*');
+    });
+
+    it('moveRejectedCleansTempAndFallsBackToConditionalPut', 0, async () => {
+      const executor = new QueuedWebDavExecutor();
+      executor.push(200, 'old-content', headers([['etag', '"v1"']]));
+      executor.push(201, '');
+      executor.push(405, 'move unsupported');
+      executor.push(204, '');
+      executor.push(204, '', headers([['etag', '"v2"']]));
+      const transport = new WebDavTransport(executor, 'u', 'p');
+      const version = new WebDavRemoteVersion();
+      version.token = new WebDavConcurrencyToken();
+      version.token.etag = '"v1"';
+      version.lastKnownFingerprint = calculateWebDavFingerprint(utf8EncodeText('old-content'));
+      const result = await new WebDavSyncClient(transport).uploadBackup(
+        'https://dav.example/file', utf8EncodeText('new-content'), 'application/json', version);
+      expect(result.version.etag).assertEqual('"v2"');
+      expect(executor.calls.length).assertEqual(5);
+      expect(executor.calls[3].method).assertEqual('DELETE');
+      expect(executor.calls[3].url.startsWith('https://dav.example/file.tmp-')).assertTrue();
+      expect(executor.calls[4].method).assertEqual('PUT');
+      expect(executor.calls[4].url).assertEqual('https://dav.example/file');
+      expect(executor.calls[4].headers.get('If-Match')).assertEqual('"v1"');
+    });
+
+    it('moveConflictCleansTempAndSurfacesConflict', 0, async () => {
+      const executor = new QueuedWebDavExecutor();
+      executor.push(404, 'missing');
+      executor.push(201, '');
+      executor.push(412, 'destination exists');
+      executor.push(204, '');
+      const version = new WebDavRemoteVersion();
+      version.createOnly = true;
+      const error = await rejection(new WebDavSyncClient(new WebDavTransport(executor, 'u', 'p'))
+        .uploadBackup('https://dav.example/file', utf8EncodeText('data'),
+          'application/json', version) as Promise<Object>);
+      expect(error.kind).assertEqual(WebDavErrorKind.CONTENT_CONFLICT);
+      expect(executor.calls.length).assertEqual(4);
+      expect(executor.calls[3].method).assertEqual('DELETE');
+      expect(executor.calls[3].url.startsWith('https://dav.example/file.tmp-')).assertTrue();
+    });
+  });
+
+  describe('WebDavDirectoryErrorClassification', () => {
+    it('dirProbeClassifiesMissingPathAsDirectoryInvalid', 0, () => {
+      for (const status of [404, 409, 410]) {
+        expect(classifyWebDavFailure('validateConnection', status, '', true).kind)
+          .assertEqual(WebDavErrorKind.DIRECTORY_INVALID);
+      }
+      expect(classifyWebDavFailure('read', 404, '').kind)
+        .assertEqual(WebDavErrorKind.FILE_NOT_FOUND);
+      for (const status of [409, 412, 423]) {
+        expect(classifyWebDavFailure('write', status, '', true).kind)
+          .assertEqual(WebDavErrorKind.CONTENT_CONFLICT);
+      }
+    });
+
+    it('validateConnectionNotFoundBecomesDirectoryInvalid', 0, async () => {
+      const executor = new QueuedWebDavExecutor();
+      executor.push(404, 'no such collection');
+      let captured: WebDavError | null = null;
+      try {
+        await new WebDavTransport(executor, 'u', 'p')
+          .validateConnection('https://dav.example/root', 'wrong-dir');
+      } catch (error) {
+        captured = error as WebDavError;
+      }
+      expect(captured !== null).assertTrue();
+      expect((captured as WebDavError).kind).assertEqual(WebDavErrorKind.DIRECTORY_INVALID);
+    });
+
+    it('describesErrorKindsInChineseForUsers', 0, () => {
+      expect(describeWebDavErrorForUser(new WebDavError(WebDavErrorKind.AUTH, 401, 'x') as Error))
+        .assertEqual('WebDAV 用户名或密码错误');
+      expect(describeWebDavErrorForUser(
+        new WebDavError(WebDavErrorKind.DIRECTORY_INVALID, 404, 'x') as Error))
+        .assertEqual('WebDAV 目录不存在或不可访问，请检查目录配置');
+      expect(describeWebDavErrorForUser(
+        new WebDavError(WebDavErrorKind.FILE_NOT_FOUND, 404, 'x') as Error))
+        .assertEqual('远端暂无备份文件（首次同步时将创建）');
+      expect(describeWebDavErrorForUser(
+        new WebDavError(WebDavErrorKind.CONTENT_CONFLICT, 412, 'x') as Error))
+        .assertEqual('远端文件已被其他设备修改，请重新拉取后同步');
+      expect(describeWebDavErrorForUser(new Error('plain'))).assertEqual('plain');
     });
   });
 }

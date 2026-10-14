@@ -1,5 +1,9 @@
 import { describe, it, expect } from '@ohos/hypium';
-import { decideLoadFailureAction, LoadFailureAction } from '../../../main/ets/player/PlaybackFailurePolicy';
+import {
+  decideLoadFailureAction,
+  LoadFailureAction,
+  MAX_CONSECUTIVE_FAILURES
+} from '../../../main/ets/player/PlaybackFailurePolicy';
 
 export default function playbackFailurePolicyTest(): void {
   describe('PlaybackFailurePolicy', () => {
@@ -21,6 +25,28 @@ export default function playbackFailurePolicyTest(): void {
       // same track; replaying it forever was the device retry storm.
       expect(decideLoadFailureAction({
         errorAttempts: 2, autoSkipFailures: 0, queueLength: 1, nextTarget: 0, currentIndex: 0
+      })).assertEqual(LoadFailureAction.STOP);
+    });
+
+    it('longQueueStopsAtConsecutiveLimit', 0, () => {
+      // Upstream #499: a 500-entry queue must not skip through every entry
+      // when all sources fail; the 10th consecutive failure stops.
+      expect(MAX_CONSECUTIVE_FAILURES).assertEqual(10);
+      expect(decideLoadFailureAction({
+        errorAttempts: 2, autoSkipFailures: 8, queueLength: 500, nextTarget: 9, currentIndex: 8
+      })).assertEqual(LoadFailureAction.SKIP_NEXT);
+      expect(decideLoadFailureAction({
+        errorAttempts: 2, autoSkipFailures: 9, queueLength: 500, nextTarget: 10, currentIndex: 9
+      })).assertEqual(LoadFailureAction.STOP);
+    });
+
+    it('shortQueueStillBoundedByCircleWrap', 0, () => {
+      // Queue shorter than the consecutive limit keeps the tighter wrap bound.
+      expect(decideLoadFailureAction({
+        errorAttempts: 2, autoSkipFailures: 1, queueLength: 3, nextTarget: 2, currentIndex: 1
+      })).assertEqual(LoadFailureAction.SKIP_NEXT);
+      expect(decideLoadFailureAction({
+        errorAttempts: 2, autoSkipFailures: 2, queueLength: 3, nextTarget: 0, currentIndex: 2
       })).assertEqual(LoadFailureAction.STOP);
     });
 

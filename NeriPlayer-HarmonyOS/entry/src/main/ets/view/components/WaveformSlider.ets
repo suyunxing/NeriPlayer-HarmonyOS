@@ -12,13 +12,19 @@
  * Scrubbing is absolute (Material Slider contract): the preview jumps to the
  * touch point and follows the finger, and the seek fires on release/tap. The
  * 50ms repaint timer keeps the bar in sync while positionMs advances and
- * drives the buffering pulse while loading.
+ * drives the buffering pulse while loading. Between the throttled position
+ * publishes (~500ms) the bar advances by local-clock extrapolation
+ * (WaveProgressPredictor, upstream #337) instead of stepping once per publish.
  *
  * Units: canvasWidth comes from renderContext.width and GestureEvent.localX /
  * ClickEvent.x are component-local values in vp, so all fraction math stays
  * in vp — never convert either side to px.
  */
 import { Logger } from '../../app/Logger';
+import {
+  WaveProgressPredictor,
+  shouldPredictWaveProgress
+} from './WaveProgressPredictor';
 
 const REPAINT_INTERVAL_MS = 50;
 const TRACK_HEIGHT_PX = 4;
@@ -31,6 +37,8 @@ export struct WaveformSlider {
   @Prop durationMs: number = 0;
   @Prop playing: boolean = false;
   @Prop loading: boolean = false;
+  /** 播放速率（倍速/一起听同步率已合并后的值），预测外推用。 */
+  @Prop playbackSpeed: number = 1;
   /** Unplayed track color: the cover scheme's secondary tone. */
   @Prop unplayedColor: string = '#80FFFFFF';
   /** Played segment color: the scheme accent (same source as the home FAB). */
@@ -46,6 +54,9 @@ export struct WaveformSlider {
   /** Fraction under the finger at touch-down; anchors the absolute pan. */
   private panBaseFraction: number = -1;
   @State previewFraction: number = -1;
+  // 进度预测（上游 #337）：positionMs 每 500ms 才发布一次，两次发布之间
+  // 由本地时钟外推（见 WaveProgressPredictor 头注释）。
+  private predictor: WaveProgressPredictor = new WaveProgressPredictor(0);
 
   private renderContext: CanvasRenderingContext2D =
     new CanvasRenderingContext2D(new RenderingContextSettings(true));
@@ -71,10 +82,24 @@ export struct WaveformSlider {
     }
   }
 
+  /**
+   * 显示进度（0..1）：拖动/点击预览优先；播放中未加载未预览时由预测器按
+   * 本地时钟外推（真实位置每次发布都重锚，预测只在两次发布之间补帧）；
+   * 其余态直接显示观测值。观测值变化或预测开关切换由 updateTarget 内部
+   * 判定重锚，这里每帧调用是无害幂等的（输入不变且持续预测时不重锚）。
+   */
   private fraction(): number {
     const duration = Math.max(1, this.durationMs);
     const raw = this.previewFraction >= 0 ? this.previewFraction : this.positionMs / duration;
-    return Math.max(0, Math.min(1, raw));
+    const clamped = Math.max(0, Math.min(1, raw));
+    const predicting = shouldPredictWaveProgress(this.playing, this.loading,
+      this.previewFraction >= 0);
+    this.predictor.updateTarget(clamped, this.durationMs, this.playbackSpeed, predicting);
+    if (!predicting) {
+      return clamped;
+    }
+    this.predictor.onFrame(Date.now());
+    return this.predictor.currentValue;
   }
 
   /** Maps a component-local touch x to the 0..1 bar fraction (both in vp). */

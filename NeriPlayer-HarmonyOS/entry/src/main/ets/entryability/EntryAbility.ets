@@ -22,6 +22,9 @@ import { AutoSyncScheduler } from '../sync/AutoSyncScheduler';
 import { SyncService } from '../sync/SyncService';
 import { SyncReport } from '../sync/SyncReport';
 import { SourceSyncCoordinator } from '../sourcesync/SourceSyncCoordinator';
+import { installSearchPinyinResolver } from '../util/search/SongPinyinSource';
+import { PlaybackCardBridge } from '../player/PlaybackCardBridge';
+import { rpc } from '@kit.IPCKit';
 
 const TAG: string = 'EntryAbility';
 const DOMAIN: number = 0x4E50;
@@ -30,6 +33,13 @@ export default class EntryAbility extends UIAbility {
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
     hilog.info(DOMAIN, TAG, 'Ability onCreate');
     SettingsRepository.initialize(this.context);
+    // F-9：注入歌单/搜索拼音匹配能力（pinyin-pro，纯离线）。
+    installSearchPinyinResolver();
+    // F-12：播放控制桌面卡片——应用侧推送桥 + call 事件接收（卡片按钮把
+    // UIAbility 拉到后台执行，不弹界面；应用被杀时冷启动后队列已在
+    // PlayerManager.initialize 内恢复）。
+    PlaybackCardBridge.start(this.context);
+    this.registerPlaybackCardCallee();
     // Start the diagnostics loop before Index resolves the startup phase:
     // init() pulls this app's fault history, arms the SafeMode flag when a
     // fault falls inside the window since the previous launch (the crash or
@@ -43,6 +53,9 @@ export default class EntryAbility extends UIAbility {
     // so the wrong value survived the whole session.
     AppStorage.setOrCreate('systemDark',
       this.context.config.colorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK);
+    // 系统字体缩放（MiniPlayer 字号封顶用，上游 #357）：onCreate 播种一次，
+    // 后续变更走 onConfigurationUpdate。默认值 1 兜底旧配置缺字段。
+    AppStorage.setOrCreate('systemFontScale', this.context.config.fontSizeScale ?? 1);
     // 冷启动即把已保存的深色模式选择交给系统，让首帧、系统弹窗与 sys.color.*
     // 资源都落在同一档配色上（'auto' 对应 COLOR_MODE_NOT_SET，即交还系统）。
     AppColorMode.apply(this.context,
@@ -58,6 +71,15 @@ export default class EntryAbility extends UIAbility {
     BiliCookieRepository.init();
     GitHubConfigRepository.init();
     WebDavConfigRepository.init();
+  }
+
+  private registerPlaybackCardCallee(): void {
+    // call 事件（卡片 postCardAction）把本 singleton UIAbility 拉到后台并
+    // 调用该方法；params = {formId, action: toggle|prev|next}。
+    this.callee.on('playbackCardControl', (data: rpc.MessageSequence): rpc.Parcelable => {
+      PlaybackCardBridge.handleControlCall(data.readString());
+      return new PlaybackCardAck();
+    });
   }
 
   onDestroy(): void {
@@ -112,14 +134,22 @@ export default class EntryAbility extends UIAbility {
     PlayerManager.flushPlaybackStatsAsync();
   }
 
+  onForeground(): void {
+    // 上游 #359：回前台恢复一起听会话——断线/卡死 CONNECTING 重连，或在连
+    // 状态经 ping 探测 + 状态刷新复核（5s 无响应强制重建）。
+    ListenTogetherSessionManager.getInstance().onApplicationForegrounded();
+  }
+
   onBackground(): void {
     PlayerManager.flushPlaybackStatsAsync();
     PlayerManager.persistNow();
+    ListenTogetherSessionManager.getInstance().onApplicationBackgrounded();
   }
 
   onConfigurationUpdate(newConfig: Configuration): void {
     const dark = newConfig.colorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK;
     AppStorage.setOrCreate('systemDark', dark);
+    AppStorage.setOrCreate('systemFontScale', newConfig.fontSizeScale ?? 1);
     SystemBars.apply(this.context, dark);
   }
 
@@ -159,5 +189,17 @@ export default class EntryAbility extends UIAbility {
       const e = error as Error;
       hilog.warn(DOMAIN, TAG, 'applyEdgeToEdge failed: %{public}s', e.message);
     }
+  }
+}
+
+
+/** call 事件应答占位（callee 回调必须返回 Parcelable）。 */
+class PlaybackCardAck implements rpc.Parcelable {
+  marshalling(_data: rpc.MessageSequence): boolean {
+    return true;
+  }
+
+  unmarshalling(_data: rpc.MessageSequence): boolean {
+    return true;
   }
 }

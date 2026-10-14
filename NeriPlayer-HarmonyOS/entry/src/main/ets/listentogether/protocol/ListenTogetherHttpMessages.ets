@@ -50,6 +50,13 @@ export class ListenTogetherInitialSnapshot {
   positionMs: number = 0;
   repeatMode: number = 0;
   shuffleEnabled: boolean = false;
+  /**
+   * Upstream #359 (LTW submodule 4adc465): the pre-shuffle queue order, kept by
+   * the server so un-shuffling restores it. This port's shuffle lives in the
+   * index layer and has no separate restore queue, so it is only decoded —
+   * never produced.
+   */
+  shuffleRestoreQueue: ListenTogetherTrack[] | null = null;
 }
 
 export class ListenTogetherCreateRoomRequest {
@@ -118,6 +125,8 @@ export function listenTogetherInitialSnapshotToRecord(
   raw['positionMs'] = snapshot.positionMs;
   raw['repeatMode'] = snapshot.repeatMode;
   raw['shuffleEnabled'] = snapshot.shuffleEnabled;
+  putRecordArray(raw, 'shuffleRestoreQueue',
+    snapshot.shuffleRestoreQueue === null ? null : listenTogetherTracksToRecords(snapshot.shuffleRestoreQueue));
   return raw;
 }
 
@@ -140,6 +149,10 @@ export function listenTogetherInitialSnapshotFromRecord(
   snapshot.positionMs = reqNumber(raw, 'positionMs', 0);
   snapshot.repeatMode = reqNumber(raw, 'repeatMode', 0);
   snapshot.shuffleEnabled = reqBoolean(raw, 'shuffleEnabled', false);
+  const shuffleRestoreRecords = optRecordArray(raw, 'shuffleRestoreQueue');
+  snapshot.shuffleRestoreQueue = shuffleRestoreRecords === null
+    ? null
+    : listenTogetherTracksFromRecords(shuffleRestoreRecords);
   return snapshot;
 }
 

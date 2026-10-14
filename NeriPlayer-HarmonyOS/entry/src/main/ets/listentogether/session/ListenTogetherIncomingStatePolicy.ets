@@ -9,10 +9,49 @@
 import { ListenTogetherRoomState } from '../protocol/ListenTogetherRoomModels';
 import { ListenTogetherCause } from '../protocol/ListenTogetherEventModels';
 import { isListenTogetherPassivePositionUpdateType } from '../control/ListenTogetherControlEventTypes';
-import { listenTogetherCurrentStableKey } from '../playback/ListenTogetherPlaybackTrack';
+import {
+  isListenTogetherQueueUpdateCause,
+  listenTogetherCurrentStableKey
+} from '../playback/ListenTogetherPlaybackTrack';
 
 /** Answers whether an event id is in one of the recent-event rings. */
 export type ListenTogetherRecentEventPredicate = (eventId: string) => boolean;
+
+/**
+ * Upstream #359: a higher-version room queue is authoritative over any local
+ * optimistic reorder — including a local echo that arrives after another
+ * member's update. Used to exempt such states from both the echo drop and the
+ * inbound-ignore rules.
+ */
+export function shouldAcceptListenTogetherAuthoritativeQueueUpdate(
+  cause: ListenTogetherCause | null,
+  candidateState: ListenTogetherRoomState | null,
+  currentState: ListenTogetherRoomState | null
+): boolean {
+  if (!isListenTogetherQueueUpdateCause(cause === null ? null : cause.type)) {
+    return false;
+  }
+  const candidate = candidateState;
+  if (candidate === null || currentState === null) {
+    return false;
+  }
+  if (candidate.roomId !== currentState.roomId) {
+    return false;
+  }
+  if (candidate.version <= currentState.version) {
+    return false;
+  }
+  if (candidate.queue.length !== currentState.queue.length) {
+    return true;
+  }
+  for (let index = 0; index < candidate.queue.length; index++) {
+    if (candidate.queue[index].stableKey !== currentState.queue[index].stableKey) {
+      return true;
+    }
+  }
+  return candidate.currentIndex !== currentState.currentIndex ||
+    listenTogetherCurrentStableKey(candidate) !== listenTogetherCurrentStableKey(currentState);
+}
 
 /**
  * True when an incoming room state is this client's own event coming back and

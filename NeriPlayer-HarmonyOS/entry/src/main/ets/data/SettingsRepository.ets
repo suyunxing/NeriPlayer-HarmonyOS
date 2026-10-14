@@ -38,6 +38,9 @@ export class SettingsRepository {
   // sandbox default <filesDir>/Download/NeriPlayer.
   static readonly KEY_DOWNLOAD_DIRECTORY_URI: string = 'np.download_directory_uri';
   static readonly KEY_DOWNLOAD_DIRECTORY_LABEL: string = 'np.download_directory_label';
+  // \n-joined list of formerly applied custom directories: cold start
+  // re-activates their fileShare grants so committed files stay playable.
+  static readonly KEY_DOWNLOAD_DIRECTORY_HISTORY: string = 'np.download_directory_history';
   // Local music library scan root (backlog §8): a persisted DocumentViewPicker
   // directory that the local library re-scans incrementally.
   static readonly KEY_LOCAL_SCAN_DIRECTORY_URI: string = 'np.local_scan_directory_uri';
@@ -103,6 +106,10 @@ export class SettingsRepository {
   // NowPlaying backdrop style: 'blur' (blurred cover), 'solid', 'gradient'
   // (flowing cover-color gradient).
   static readonly KEY_NOWPLAYING_BG_STYLE: string = 'np.nowplaying_bg_style';
+  // 播放页/歌词页控件大小档位（PlaybackControlSize 序数：0 小 / 1 中 / 2 大，
+  // 上游 2644267f）。
+  static readonly KEY_NOW_PLAYING_CONTROL_SIZE: string = 'np.nowplaying_control_size';
+  static readonly KEY_LYRIC_CONTROL_SIZE: string = 'np.lyric_control_size';
   // Keep the screen on while the full-screen player is open.
   static readonly KEY_KEEP_SCREEN_ON: string = 'np.keep_screen_on';
   // Circular rotating vinyl cover on the full-screen player.
@@ -121,10 +128,20 @@ export class SettingsRepository {
   // Fixed start page: 'last' (follow the tab used last time) or '0'..'3'.
   static readonly KEY_START_PAGE: string = 'np.start_page';
   static readonly KEY_PLAYBACK_CACHE: string = 'np.playback_cache';
+  // Playback cache LRU capacity (upstream #499 honor-the-cache-size-setting):
+  // number of cached songs; 0 means unlimited.
+  static readonly KEY_PLAYBACK_CACHE_MAX_ENTRIES: string = 'np.playback_cache_max_entries';
   static readonly KEY_LYRIC_TRANSLATION: string = 'np.lyric_translation';
   static readonly KEY_LYRIC_PHONETIC: string = 'np.lyric_phonetic';
   static readonly KEY_LYRIC_BLUR: string = 'np.lyric_blur';
   static readonly KEY_LYRIC_OFFSET_MS: string = 'np.lyric_offset_ms';
+  // F-2（上游 #417/#349）：非网易云歌曲在线取词的优先源
+  // （'lrclib_first' 默认 = 现行阶梯；'netease_first' = 有守卫命中时网易
+  // 歌词作主源）；LRCLIB 源基准偏移（按歌词来源叠加，独立于歌曲平台）；
+  // 歌词持久缓存开关（命中后离线可看， replays 不再重复请求）。
+  static readonly KEY_LYRIC_SOURCE_PREFERENCE: string = 'np.lyric_source_preference';
+  static readonly KEY_LRCLIB_LYRIC_OFFSET_MS: string = 'np.lrclib_lyric_offset_ms';
+  static readonly KEY_LYRIC_CACHE_ENABLED: string = 'np.lyric_cache_enabled';
   // In-app floating lyric bar (D4 fallback for the Android system overlay).
   static readonly KEY_FLOATING_LYRIC: string = 'np.floating_lyric';
   // Lyric line in the AVSession title slot (notification / AVRCP lyric line).
@@ -181,6 +198,7 @@ export class SettingsRepository {
     [SettingsRepository.KEY_DOWNLOAD_CONCURRENCY, 6],
     [SettingsRepository.KEY_DOWNLOAD_DIRECTORY_URI, ''],
     [SettingsRepository.KEY_DOWNLOAD_DIRECTORY_LABEL, ''],
+    [SettingsRepository.KEY_DOWNLOAD_DIRECTORY_HISTORY, ''],
     [SettingsRepository.KEY_LOCAL_SCAN_DIRECTORY_URI, ''],
     [SettingsRepository.KEY_LOCAL_SCAN_DIRECTORY_LABEL, ''],
     [SettingsRepository.KEY_LISTEN_TOGETHER_SERVER, ''],
@@ -209,6 +227,8 @@ export class SettingsRepository {
     [SettingsRepository.KEY_AUTOPLAY_ON_LAUNCH, false],
     [SettingsRepository.KEY_KEEP_PLAYBACK_MODE_STATE, true],
     [SettingsRepository.KEY_NOWPLAYING_BG_STYLE, 'blur'],
+    [SettingsRepository.KEY_NOW_PLAYING_CONTROL_SIZE, 1],
+    [SettingsRepository.KEY_LYRIC_CONTROL_SIZE, 1],
     [SettingsRepository.KEY_KEEP_SCREEN_ON, false],
     [SettingsRepository.KEY_CIRCULAR_COVER, false],
     [SettingsRepository.KEY_LYRIC_PAGE_CONTROLS, true],
@@ -222,10 +242,14 @@ export class SettingsRepository {
     // Opt-in: AVDownloaderManager playback cache is Wi-Fi only but still
     // re-downloads a copy of what was just streamed.
     [SettingsRepository.KEY_PLAYBACK_CACHE, false],
+    [SettingsRepository.KEY_PLAYBACK_CACHE_MAX_ENTRIES, 24],
     [SettingsRepository.KEY_LYRIC_TRANSLATION, true],
     [SettingsRepository.KEY_LYRIC_PHONETIC, false],
     [SettingsRepository.KEY_LYRIC_BLUR, true],
     [SettingsRepository.KEY_LYRIC_OFFSET_MS, 0],
+    [SettingsRepository.KEY_LYRIC_SOURCE_PREFERENCE, 'lrclib_first'],
+    [SettingsRepository.KEY_LRCLIB_LYRIC_OFFSET_MS, 0],
+    [SettingsRepository.KEY_LYRIC_CACHE_ENABLED, true],
     [SettingsRepository.KEY_FLOATING_LYRIC, false],
     [SettingsRepository.KEY_BT_LYRIC, false],
     [SettingsRepository.KEY_NOWPLAYING_BLUR_STRENGTH, 300],

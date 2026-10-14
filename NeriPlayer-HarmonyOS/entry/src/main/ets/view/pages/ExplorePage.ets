@@ -1,12 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0
 
-import { LengthMetrics } from '@kit.ArkUI';
+import { LengthMetrics, promptAction } from '@kit.ArkUI';
 import { SongItem } from '../../model/SongItem';
+import { MusicPlatform } from '../../model/MusicPlatform';
 import { NeteaseApi } from '../../network/NeteaseApi';
 import { BiliApi } from '../../network/BiliApi';
-import { YouTubeMusicApi } from '../../network/YouTubeMusicApi';
+import { YouTubeMusicApi, YtmSearchFilter } from '../../network/YouTubeMusicApi';
+import { YtmCreatorSummary } from '../../network/ytm/YtmCreatorParser';
+import { ExploreLinkTarget, ExploreLinkKind, recognizeExploreLink } from '../../network/ExploreLinkRecognizer';
+import { expandExploreShortLink } from '../../network/ShortLinkExpander';
 import { NetworkStatus } from '../../util/NetworkStatus';
 import { SearchHistoryRepository } from '../../data/SearchHistoryRepository';
+import { resolveExploreSearchKeyword } from '../../data/SearchHistoryPolicy';
+import { BiliSearchPage } from '../../network/BiliApi';
+import { mergeSongItemsDeduped, rankExploreSongSearchResults } from '../../util/search/SongSearchValues';
 import { UsageRepository } from '../../data/UsageRepository';
 import { PlayerManager } from '../../player/PlayerManager';
 import { Router } from '../Router';
@@ -37,11 +44,20 @@ export struct ExplorePage {
   @StorageProp('player.coverScheme') coverScheme: AccentScheme = AccentScheme.neutralFallback();
   @State query: string = '';
   @State platform: number = 0;
+  /** YTM 源的搜索类型（上游 YouTubeExploreSearchType）：0 歌曲 / 1 视频 / 2 艺人。 */
+  @State ytmType: number = 0;
   @Watch('onResultsChanged') @State results: SongItem[] = [];
+  /** ytmType === 2 时的创作者结果（与 results 互斥展示）。 */
+  @State creators: YtmCreatorSummary[] = [];
   @State loading: boolean = false;
   @State error: string = '';
   @State history: string[] = [];
   @State searched: boolean = false;
+  /** 搜索分页（上游 c5a95707）：网易 offset、B 站 page，YTM 单页。 */
+  @State hasMore: boolean = false;
+  @State loadingMore: boolean = false;
+  private searchPage: number = 1;
+  private searchedKeyword: string = '';
   /** 由 util/WindowMetrics.ets 发布，这里只用来决定空态是否竖向居中。 */
   @StorageProp('ui.breakpoint') breakpoint: string = 'sm';
   /** 常驻 Tab 页的显式刷新钩子，详见 HomePage 同名成员。 */
@@ -81,6 +97,18 @@ export struct ExplorePage {
     if (keyword.length === 0) {
       return;
     }
+    // 链接优先于关键词（上游 ExploreLinkRecognizer）：粘贴分享链接直接解析
+    // 跳转/开播，不再把 URL 当搜索词。识别为「不支持的链接形态」也拦下并
+    // toast 说明，避免无意义的搜索结果。
+    const link = recognizeExploreLink(keyword);
+    if (link !== null) {
+      await this.openLink(link);
+      return;
+    }
+    // 上游 resolveExploreSearchKeyword：输入 >= 2 字符且历史里有强匹配别名
+    // （整串/前缀级）时用历史全称搜索；输入框显示保持用户原词。
+    const history = await SearchHistoryRepository.load();
+    const effectiveKeyword = resolveExploreSearchKeyword(keyword, history);
     this.history = await SearchHistoryRepository.add(keyword);
     const online = await NetworkStatus.hasNetwork();
     if (!online) {
@@ -92,23 +120,211 @@ export struct ExplorePage {
     this.loading = true;
     this.error = '';
     this.searched = true;
+    this.searchedKeyword = effectiveKeyword;
+    this.searchPage = 1;
     try {
       if (this.platform === 0) {
-        this.results = await NeteaseApi.search(keyword, 30);
+        const songs = await NeteaseApi.search(effectiveKeyword, 30, 0);
+        this.results = rankExploreSongSearchResults(effectiveKeyword, songs);
+        // 上游 hasMoreExploreSearchResults 无 songCount 时的兜底：满页即可能还有。
+        this.hasMore = songs.length >= 30;
       } else if (this.platform === 1) {
-        this.results = await BiliApi.search(keyword, 20);
+        const page: BiliSearchPage = await BiliApi.searchPage(effectiveKeyword, 20, 1);
+        this.results = rankExploreSongSearchResults(effectiveKeyword, page.items);
+        this.hasMore = page.page < page.numPages && page.items.length > 0;
+        this.searchPage = page.page;
+      } else if (this.ytmType === 2) {
+        // 上游 CREATOR 过滤：结果行跳创作者主页，不落歌曲列表。
+        this.creators = await YouTubeMusicApi.searchCreators(effectiveKeyword, 20);
+        this.results = [];
+        this.hasMore = false;
       } else {
-        this.results = await YouTubeMusicApi.search(keyword, 20);
+        this.results = await YouTubeMusicApi.search(effectiveKeyword, 20,
+          this.ytmType === 1 ? YtmSearchFilter.VIDEOS : YtmSearchFilter.SONGS);
+        this.creators = [];
+        // 上游 YTM 歌曲搜索同样不分页。
+        this.hasMore = false;
       }
-      if (this.results.length === 0) {
+      if (this.results.length === 0 && this.creators.length === 0) {
         this.error = '没有找到结果';
       }
     } catch (searchError) {
       const e = searchError as Error;
       this.error = `搜索失败：${e.message}`;
       this.results = [];
+      this.creators = [];
+      this.hasMore = false;
     }
     this.loading = false;
+  }
+
+  /** 上游 loadMoreSearchResults：page+1 追加，去重合并后整体按查询词重排。 */
+  private async loadMore(): Promise<void> {
+    if (!this.hasMore || this.loadingMore || this.loading) {
+      return;
+    }
+    const nextPage = this.searchPage + 1;
+    this.loadingMore = true;
+    try {
+      let incoming: SongItem[] = [];
+      if (this.platform === 0) {
+        // 网易 offset 从 0 起：第 nextPage 页 = (nextPage-1)*30。必须推进
+        // searchPage，否则每次触底都重拉第 2 页，去重合并后原地踏步
+        // （2026-10-13 真机反馈「滚到底无法加载更多」的根因）。
+        incoming = await NeteaseApi.search(this.searchedKeyword, 30, (nextPage - 1) * 30);
+        this.hasMore = incoming.length >= 30;
+        this.searchPage = nextPage;
+      } else if (this.platform === 1) {
+        const page: BiliSearchPage = await BiliApi.searchPage(this.searchedKeyword, 20, nextPage);
+        incoming = page.items;
+        this.hasMore = page.page < page.numPages && page.items.length > 0;
+        this.searchPage = page.page;
+      }
+      this.results = rankExploreSongSearchResults(this.searchedKeyword,
+        mergeSongItemsDeduped(this.results, incoming));
+    } catch (error) {
+      const e = error as Error;
+      promptAction.openToast({ message: `加载更多失败：${e.message}` });
+    }
+    this.loadingMore = false;
+  }
+
+  /**
+   * 链接解析落地（上游 a8440275/1dbb2964 的鸿蒙接线）：
+   * - 网易歌曲 → 拉详情直接开播；歌单/艺人 → 跳对应页
+   * - B 站视频（BV/av 号，支持 ?p/?cid 识别）→ 拉视频摘要开播；多 P 视频
+   *   播第 1P 并提示（鸿蒙播放器暂无分 P 定向播放）
+   * - B 站合集分享（带 season 参数）→ ugc_season 单集列表落到结果区，逐集可播
+   * - 收藏夹（medialist/space favlist）→ 跳 B 站收藏页
+   * - UP 主空间（space/{mid}）→ 跳 UP 主空间页；合集/系列（lists/{id}）→
+   *   跳合集/系列详情页（上游 e95b2ef9）
+   * - 短链（b23.tv / 163cn.tv）→ 跟随重定向展开后重新识别分发，失败退回提示
+   * - YouTube 频道/播放列表 → 拦下并 toast 说明（不再当关键词搜索出垃圾结果）
+   */
+  private async openLink(link: ExploreLinkTarget): Promise<void> {
+    try {
+      const online = await NetworkStatus.hasNetwork();
+      if (!online) {
+        this.error = '离线模式：请联网后再打开链接';
+        this.results = [];
+        this.searched = true;
+        return;
+      }
+      if (link.kind === ExploreLinkKind.NETEASE_SONG) {
+        const songs = await NeteaseApi.getSongsByIds([link.id]);
+        if (songs.length === 0) {
+          promptAction.openToast({ message: '未找到该歌曲（可能已下架）' });
+          return;
+        }
+        this.results = songs;
+        this.searched = true;
+        await this.play(0);
+        return;
+      }
+      if (link.kind === ExploreLinkKind.NETEASE_PLAYLIST) {
+        Router.push(Router.NETEASE_PLAYLIST, `${link.id}`);
+        return;
+      }
+      if (link.kind === ExploreLinkKind.NETEASE_ARTIST) {
+        Router.push(Router.ARTIST, JSON.stringify({ artist: '', artistId: link.id }));
+        return;
+      }
+      if (link.kind === ExploreLinkKind.BILI_VIDEO) {
+        await this.openBiliVideoLink(link);
+        return;
+      }
+      if (link.kind === ExploreLinkKind.BILI_FAV_FOLDER
+        || link.kind === ExploreLinkKind.BILI_FAV_FOLDER_BY_OWNER) {
+        const mediaId = link.kind === ExploreLinkKind.BILI_FAV_FOLDER
+          ? link.id : link.folderId;
+        Router.push(Router.BILI_FAV, `${mediaId}`);
+        return;
+      }
+      if (link.kind === ExploreLinkKind.BILI_ARTIST) {
+        Router.push(Router.BILI_UPLOADER, JSON.stringify({ mid: link.id }));
+        return;
+      }
+      if (link.kind === ExploreLinkKind.BILI_COLLECTION
+        || link.kind === ExploreLinkKind.BILI_SERIES) {
+        Router.push(Router.BILI_COLLECTION, JSON.stringify({
+          kind: link.kind === ExploreLinkKind.BILI_SERIES ? 'series' : 'collection',
+          id: link.seasonId,
+          mid: link.ownerMid
+        }));
+        return;
+      }
+      if (link.kind === ExploreLinkKind.YOUTUBE_VIDEO) {
+        const song = YouTubeMusicApi.songFromVideoId(link.videoId);
+        this.results = [song];
+        this.searched = true;
+        await this.play(0);
+        return;
+      }
+      if (link.kind === ExploreLinkKind.BILI_SHORT_LINK || link.kind === ExploreLinkKind.NETEASE_SHORT_LINK) {
+        // 短链展开（b23.tv / 163cn.tv）：跟随重定向拿最终 URL 后重新识别分发；
+        // 展开失败或展开结果仍是短链时退回原提示。
+        this.loading = true;
+        try {
+          const expanded = await expandExploreShortLink(link.url);
+          const target = recognizeExploreLink(expanded);
+          if (target !== null && target.kind !== ExploreLinkKind.BILI_SHORT_LINK
+            && target.kind !== ExploreLinkKind.NETEASE_SHORT_LINK) {
+            await this.openLink(target);
+            return;
+          }
+        } finally {
+          this.loading = false;
+        }
+        promptAction.openToast({ message: '短链解析失败，请在浏览器打开后复制完整链接', duration: 2500 });
+        return;
+      }
+      const note = link.note.length > 0 ? link.note : '该链接暂不支持';
+      promptAction.openToast({ message: note, duration: 2500 });
+    } catch (error) {
+      promptAction.openToast({ message: `链接打开失败：${(error as Error).message}` });
+    }
+  }
+
+  private async openBiliVideoLink(link: ExploreLinkTarget): Promise<void> {
+    this.loading = true;
+    try {
+      const info = await BiliApi.getVideoInfo(link.bvid, link.avid);
+      // 合集分享：ugc_season 单集全部落到结果区（每集是一个独立 BV，可播）。
+      if (link.isCollectionShare && info.seasonEpisodes.length > 0) {
+        const episodes: SongItem[] = [];
+        for (const episode of info.seasonEpisodes) {
+          const song = new SongItem(0, episode.title, info.ownerName, 'Bilibili', 0,
+            episode.durationMs, episode.coverUrl, '', MusicPlatform.BILIBILI);
+          song.channelId = 'bilibili';
+          song.audioId = episode.bvid;
+          episodes.push(song);
+        }
+        this.results = episodes;
+        this.searched = true;
+        this.error = '';
+        promptAction.openToast({ message: `「${info.seasonTitle}」共 ${episodes.length} 集` });
+        return;
+      }
+      const song = new SongItem(0, info.title, info.ownerName, 'Bilibili', 0,
+        info.durationMs, info.coverUrl, '', MusicPlatform.BILIBILI);
+      song.channelId = 'bilibili';
+      song.audioId = info.bvid;
+      this.results = [song];
+      this.searched = true;
+      this.error = '';
+      if (info.pages.length > 1) {
+        const wanted = link.page > 0 ? link.page : 1;
+        promptAction.openToast({
+          message: wanted > 1
+            ? `该视频共 ${info.pages.length} 个分P，当前播放第 1P（分P定向播放暂未支持）`
+            : `该视频共 ${info.pages.length} 个分P，当前播放第 1P`,
+          duration: 2500
+        });
+      }
+      await this.play(0);
+    } finally {
+      this.loading = false;
+    }
   }
 
   private async play(index: number): Promise<void> {
@@ -134,6 +350,23 @@ export struct ExplorePage {
     await this.search();
   }
 
+  /**
+   * 粘贴即识别：仅当整段粘贴内容（无空白分隔）本身是可识别链接时自动
+   * 展开/跳转；混在长文本里的链接不自动跳（仍走提交搜索时的抽取识别），
+   * 避免粘贴普通段落被误跳转。
+   */
+  private handlePastedText(value: string): void {
+    const trimmed = value.trim();
+    if (trimmed.length === 0 || /\s/.test(trimmed)) {
+      return;
+    }
+    const link = recognizeExploreLink(trimmed);
+    if (link !== null) {
+      this.query = value;
+      void this.openLink(link);
+    }
+  }
+
   @Builder
   platformButton(index: number, label: string, icon: Resource) {
     Row({ space: 6 }) {
@@ -152,9 +385,37 @@ export struct ExplorePage {
     .onClick(() => {
       this.platform = index;
       this.results = [];
+      this.creators = [];
       this.error = '';
       this.searched = false;
+      this.hasMore = false;
     })
+  }
+
+  /** YTM 源的类型 chips（上游 YouTubeExploreSearchType：歌曲/视频/艺人）。 */
+  @Builder
+  ytmTypeButton(index: number, label: string) {
+    Text(label)
+      .fontSize(12)
+      .fontColor(this.ytmType === index
+        ? this.accentOnPrimary(Theme.isDark()) : Theme.textSecondary(Theme.isDark()))
+      .padding({ left: 12, right: 12, top: 6, bottom: 6 })
+      .backgroundColor(this.ytmType === index
+        ? this.accentPrimary(Theme.isDark()) : this.accentSurfaceVariant(Theme.isDark()))
+      .borderRadius(15)
+      .clickEffect({ level: ClickEffectLevel.LIGHT })
+      .onClick(() => {
+        if (this.ytmType === index) {
+          return;
+        }
+        this.ytmType = index;
+        // 上游 setYouTubeMusicSearchType：切类型即清空当前搜索态。
+        this.results = [];
+        this.creators = [];
+        this.error = '';
+        this.searched = false;
+        this.hasMore = false;
+      })
   }
 
 
@@ -212,6 +473,11 @@ export struct ExplorePage {
             .onChange((value: string) => {
               this.query = value;
             })
+            // 粘贴即识别：整段粘贴内容本身是可识别链接时直接展开跳转，
+            // 不必再点搜索键（2026-10-13 真机反馈「粘贴短链无反应」）。
+            .onPaste((value: string) => {
+              this.handlePastedText(value);
+            })
             .onSubmit(() => {
               this.search();
             })
@@ -252,6 +518,16 @@ export struct ExplorePage {
       .zIndex(1)
       .width('100%')
 
+      if (this.platform === 2) {
+        Flex({ wrap: FlexWrap.Wrap, space: { main: LengthMetrics.vp(8) } }) {
+          this.ytmTypeButton(0, '歌曲')
+          this.ytmTypeButton(1, '视频')
+          this.ytmTypeButton(2, '艺人')
+        }
+        .zIndex(1)
+        .width('100%')
+      }
+
       if (!this.searched && this.history.length > 0) {
         Column({ space: 8 }) {
           Row() {
@@ -288,6 +564,67 @@ export struct ExplorePage {
         LoadingState()
       } else if (this.error.length > 0) {
         EmptyState({ icon: '!', title: this.error })
+      } else if (this.searched && this.platform === 2 && this.ytmType === 2) {
+        // 艺人结果行（上游 YouTubeCreatorSearchRow）：头像 + 名字 + 订阅信息。
+        List({ scroller: this.scroller }) {
+          ForEach(this.creators, (creator: YtmCreatorSummary, index: number) => {
+            ListItem() {
+              Row({ space: 12 }) {
+                Image(creator.coverUrl.length > 0 ? creator.coverUrl : $r('app.media.ic_music_note_24'))
+                  .width(52)
+                  .height(52)
+                  .borderRadius(26)
+                  .objectFit(ImageFit.Cover)
+                  .fillColor(creator.coverUrl.length > 0
+                    ? Color.Transparent : this.accentPrimary(Theme.isDark()))
+                  .backgroundColor(this.accentSurfaceVariant(Theme.isDark()))
+                  .alt($r('app.media.ic_music_note_24'))
+                Column({ space: 3 }) {
+                  Text(creator.title)
+                    .fontSize(14)
+                    .fontWeight(FontWeight.Medium)
+                    .fontColor(Theme.textPrimary(Theme.isDark()))
+                    .maxLines(1)
+                    .textOverflow({ overflow: TextOverflow.Ellipsis })
+                  if (creator.subtitle.length > 0) {
+                    Text(creator.subtitle)
+                      .fontSize(12)
+                      .fontColor(Theme.textSecondary(Theme.isDark()))
+                      .maxLines(1)
+                      .textOverflow({ overflow: TextOverflow.Ellipsis })
+                  }
+                }
+                .layoutWeight(1)
+                .alignItems(HorizontalAlign.Start)
+                Image($r('app.media.ic_chevron_right_24'))
+                  .width(16)
+                  .height(16)
+                  .fillColor(Theme.textDisabled(Theme.isDark()))
+              }
+              .width('100%')
+              .padding({ top: 7, bottom: 7 })
+              .clickEffect({ level: ClickEffectLevel.LIGHT })
+              .onClick(() => {
+                Router.push(Router.YTM_CREATOR, JSON.stringify({
+                  browseId: creator.browseId,
+                  title: creator.title,
+                  subtitle: creator.subtitle,
+                  coverUrl: creator.coverUrl
+                }));
+              })
+            }
+          }, (creator: YtmCreatorSummary) => creator.browseId)
+        }
+        .layoutWeight(1)
+        .scrollBar(BarState.Off)
+        .cachedCount(3, true)
+        .onScrollFrameBegin((offset: number) => {
+          this.onBarScroll(offset);
+          return { offsetRemain: offset };
+        })
+        .clip(false)
+        .expandSafeArea([SafeAreaType.SYSTEM, SafeAreaType.CUTOUT], [SafeAreaEdge.TOP])
+        .width('100%')
       } else if (this.searched && this.results.length > 0) {
         List({ scroller: this.scroller }) {
           LazyForEach(this.resultsDs, (item: SongItem, index: number) => {
@@ -301,11 +638,31 @@ export struct ExplorePage {
           // key 含 index：新搜索后行内缓存的 index（onPlay 定位）会过期，
           // 靠 key 变化强制重建受影响行。
           }, (item: SongItem, index: number) => `${index}_${item.platform}_${item.audioId}_${item.id}`)
+          if (this.hasMore) {
+            ListItem() {
+              Column() {
+                if (this.loadingMore) {
+                  LoadingState()
+                } else {
+                  Button('加载更多')
+                    .height(40)
+                    .fontSize(13)
+                    .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+                    .fontColor(Theme.textPrimary(Theme.isDark()))
+                    .onClick(() => this.loadMore())
+                }
+              }
+              .width('100%')
+              .padding(14)
+              .alignItems(HorizontalAlign.Center)
+            }
+          }
         }
         .layoutWeight(1)
         .scrollBar(BarState.Off)
         // LazyForEach 视口外预建行数（与其他歌曲列表页一致）。
         .cachedCount(3, true)
+        .onReachEnd(() => this.loadMore())
         // 滚动自适应悬浮栏：增量交壳层（不消费，见 MainShell.handleTabBarScroll）。
         .onScrollFrameBegin((offset: number) => {
           this.onBarScroll(offset);

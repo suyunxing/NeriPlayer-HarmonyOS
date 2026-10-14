@@ -20,6 +20,18 @@ import {
   biliFavMediaDedupKey
 } from './BiliFavParser';
 import { BiliCookieRepository } from '../data/auth/BiliCookieRepository';
+import {
+  BiliUploaderProfile,
+  BiliUploaderVideoPage,
+  BiliUploaderContentPage,
+  BiliCollectionArchivePage,
+  BiliSeriesArchivePage,
+  parseBiliUploaderProfile,
+  parseBiliUploaderVideoPage,
+  parseBiliUploaderContentPage,
+  parseBiliCollectionArchivePage,
+  parseBiliSeriesArchivePage
+} from './BiliUploaderSpace';
 
 interface BiliSearchItem {
   bvid: string;
@@ -36,6 +48,16 @@ interface BiliSearchResponse {
 
 interface BiliSearchData {
   result?: BiliSearchItem[];
+  /** 服务端分页元数据（numPages 从 1 计）。 */
+  numPages?: number;
+  page?: number;
+}
+
+/** 搜索分页结果（上游 BiliVideoSearchPage 的鸿蒙子集）。 */
+export class BiliSearchPage {
+  items: SongItem[] = [];
+  page: number = 1;
+  numPages: number = 1;
 }
 
 interface BiliDashAudio {
@@ -86,7 +108,74 @@ interface BiliViewResponse {
 }
 
 interface BiliViewData {
+  aid?: number;
   cid?: number;
+  bvid?: string;
+  title?: string;
+  pic?: string;
+  duration?: number;
+  owner?: BiliViewOwner;
+  pages?: BiliViewPageRaw[];
+  ugc_season?: BiliUgcSeasonRaw;
+}
+
+interface BiliViewOwner {
+  mid?: number;
+  name?: string;
+}
+
+interface BiliViewPageRaw {
+  cid?: number;
+  page?: number;
+  part?: string;
+  duration?: number;
+}
+
+interface BiliViewEpisodeRaw {
+  bvid?: string;
+  title?: string;
+  cover?: string;
+  page?: BiliViewPageRaw;
+  duration?: number;
+}
+
+interface BiliUgcSeasonRaw {
+  id?: number;
+  mid?: number;
+  title?: string;
+  episodes?: BiliViewEpisodeRaw[];
+}
+
+/** 分 P 摘要（链接解析用）。 */
+export class BiliVideoPage {
+  page: number = 1;
+  cid: number = 0;
+  title: string = '';
+  durationMs: number = 0;
+}
+
+/** 合集（ugc_season）单集摘要。 */
+export class BiliSeasonEpisode {
+  bvid: string = '';
+  title: string = '';
+  durationMs: number = 0;
+  coverUrl: string = '';
+}
+
+/** wbi/view 的结构化摘要（上游 VideoBasicInfo 的鸿蒙子集）。 */
+export class BiliVideoInfo {
+  bvid: string = '';
+  aid: number = 0;
+  title: string = '';
+  coverUrl: string = '';
+  durationMs: number = 0;
+  ownerMid: number = 0;
+  ownerName: string = '';
+  pages: BiliVideoPage[] = [];
+  seasonId: number = 0;
+  seasonOwnerMid: number = 0;
+  seasonTitle: string = '';
+  seasonEpisodes: BiliSeasonEpisode[] = [];
 }
 
 /**
@@ -244,23 +333,97 @@ export class BiliApi {
     return cid;
   }
 
+  /**
+   * wbi/view 完整摘要（探索页链接解析，上游 a8440275）：标题/UP 主/封面、
+   * 分 P 列表与 ugc_season 合集单集。bvid 缺席时按 aid 查（av 号链接）。
+   */
+  static async getVideoInfo(bvid: string, avid: number = 0): Promise<BiliVideoInfo> {
+    const params = new Map<string, string>();
+    if (bvid.length > 0) {
+      params.set('bvid', bvid);
+    } else if (avid > 0) {
+      params.set('aid', `${avid}`);
+    }
+    const url = await BiliApi.getWbiSignedUrl(`${Constants.BILI_BASE}/x/web-interface/wbi/view`, params);
+    const text = await HttpClient.getText(url, BiliApi.biliHeaders(), 15000, true);
+    const response = JSON.parse(text) as BiliViewResponse;
+    const data = response.data;
+    if (response.code !== 0 || data === undefined) {
+      throw new Error(`bili view failed: code=${response.code} bvid=${bvid} message=${response.message ?? ''}`);
+    }
+    const info = new BiliVideoInfo();
+    info.bvid = data.bvid ?? bvid;
+    info.aid = data.aid ?? 0;
+    info.title = BiliApi.stripHtml(data.title ?? '');
+    info.coverUrl = (data.pic ?? '').replace('http://', 'https://');
+    info.durationMs = (data.duration ?? 0) * 1000;
+    info.ownerMid = data.owner?.mid ?? 0;
+    info.ownerName = BiliApi.stripHtml(data.owner?.name ?? '');
+    const rawPages = data.pages ?? [];
+    for (const raw of rawPages) {
+      const page = new BiliVideoPage();
+      page.page = raw.page ?? 0;
+      page.cid = raw.cid ?? 0;
+      page.title = BiliApi.stripHtml(raw.part ?? '');
+      page.durationMs = (raw.duration ?? 0) * 1000;
+      if (page.cid > 0) {
+        info.pages.push(page);
+      }
+    }
+    const season = data.ugc_season;
+    if (season !== undefined && (season.id ?? 0) > 0) {
+      info.seasonId = season.id ?? 0;
+      info.seasonOwnerMid = season.mid ?? 0;
+      info.seasonTitle = BiliApi.stripHtml(season.title ?? '');
+      for (const episode of season.episodes ?? []) {
+        const entry = new BiliSeasonEpisode();
+        entry.bvid = episode.bvid ?? '';
+        entry.title = BiliApi.stripHtml(episode.title ?? '');
+        entry.durationMs = (episode.page?.duration ?? episode.duration ?? 0) * 1000;
+        entry.coverUrl = (episode.cover ?? '').replace('http://', 'https://');
+        if (entry.bvid.length > 0 && !info.seasonEpisodes.some((seen: BiliSeasonEpisode): boolean => seen.bvid === entry.bvid)) {
+          info.seasonEpisodes.push(entry);
+        }
+      }
+    }
+    const cid = data.cid ?? 0;
+    if (cid > 0) {
+      BiliApi.cidCache.set(info.bvid, cid);
+    }
+    return info;
+  }
+
   static async search(keyword: string, limit: number = 20): Promise<SongItem[]> {
+    const page = await BiliApi.searchPage(keyword, limit, 1);
+    return page.items;
+  }
+
+  /**
+   * 上游 searchVideos(keyword, page)：wbi/search/type 带 page 参数；
+   * 返回本页条目与 numPages（hasMore = page < numPages）。
+   */
+  static async searchPage(keyword: string, limit: number, page: number): Promise<BiliSearchPage> {
     await BiliApi.ensureAnonymousFingerprint();
-    const items = await BiliApi.searchOnce(keyword, limit);
-    if (items.length > 0) {
-      return items;
+    let result = await BiliApi.searchOnce(keyword, limit, page);
+    if (result.items.length > 0 || page > 1) {
+      return result;
     }
     // Anonymous WBI search is intermittently rejected with an empty result
     // on the first request of a session (risk control warms up per buvid);
     // one delayed retry hides this from users.
     await new Promise<void>((resolve) => setTimeout(resolve, 600));
-    return BiliApi.searchOnce(keyword, limit);
+    result = await BiliApi.searchOnce(keyword, limit, page);
+    if (result.items.length === 0) {
+      Logger.warn(`bili search empty after retry: page=${page} keywordLen=${keyword.length}`);
+    }
+    return result;
   }
 
-  private static async searchOnce(keyword: string, limit: number): Promise<SongItem[]> {
+  private static async searchOnce(keyword: string, limit: number, page: number): Promise<BiliSearchPage> {
     const params = new Map<string, string>();
     params.set('search_type', 'video');
     params.set('keyword', keyword);
+    params.set('page', `${page}`);
     const url = await BiliApi.getWbiSignedUrl(
       `${Constants.BILI_BASE}/x/web-interface/wbi/search/type`,
       params
@@ -290,7 +453,12 @@ export class BiliApi {
       song.audioId = item.bvid;
       items.push(song);
     }
-    return items;
+    const out = new BiliSearchPage();
+    out.items = items;
+    const numPages = response.data?.numPages ?? 0;
+    out.page = page;
+    out.numPages = numPages > 0 ? numPages : (items.length > 0 ? page : 0);
+    return out;
   }
 
   /**
@@ -488,5 +656,245 @@ export class BiliApi {
       return 0;
     }
     return (minutes * 60 + seconds) * 1000;
+  }
+
+  // ---------- 评论端点（UPSTREAM_SYNC_PLAN F-3，上游 #432/#476 BiliCommentApi） ----------
+
+  /**
+   * 评论缓存会话键：登录 cookie（SESSDATA）存在才非空，账号切换后自动隔离
+   * 缓存；值只作缓存键，不入日志。
+   */
+  static biliCommentSessionKey(): string | null {
+    const sessdata = HttpClient.getCookiesMap(`${Constants.BILI_BASE}/`).get('SESSDATA') ?? '';
+    return sessdata.length > 0 ? sessdata : null;
+  }
+
+  /**
+   * 视频评论列表（/x/v2/reply，type=1 视频）。sort：0 最新 / 1 热门。
+   * 匿名也可读，但可能被风控截断为全零分页（由 BiliCommentMapper 防御）。
+   */
+  static async getVideoComments(aid: number, page: number, pageSize: number,
+    sort: number): Promise<string> {
+    if (!(aid > 0) || page < 1 || pageSize < 1 || pageSize > 49) {
+      throw new Error('invalid video comments request');
+    }
+    const url = `${Constants.BILI_BASE}/x/v2/reply?type=1&oid=${aid}` +
+      `&pn=${page}&ps=${pageSize}&sort=${sort}`;
+    return HttpClient.getText(url, BiliApi.biliHeaders(), 15000, true);
+  }
+
+  /** 楼中楼回复列表（/x/v2/reply/reply）。 */
+  static async getVideoCommentReplies(aid: number, rootId: string,
+    page: number, pageSize: number): Promise<string> {
+    if (!(aid > 0) || !(Number(rootId) > 0) || page < 1 || pageSize < 1 || pageSize > 20) {
+      throw new Error('invalid video comment replies request');
+    }
+    const url = `${Constants.BILI_BASE}/x/v2/reply/reply?type=1&oid=${aid}` +
+      `&root=${rootId}&pn=${page}&ps=${pageSize}`;
+    return HttpClient.getText(url, BiliApi.biliHeaders(), 15000, true);
+  }
+
+  /**
+   * 点赞 / 取消点赞评论（/x/v2/reply/action）。需要 SESSDATA + bili_jct；
+   * 未登录时返回 code=-101 的 JSON（与上游 loginRequired() 一致，由仓库层
+   * 转 PERMISSION 错误），成功以业务 code 0 判定。
+   */
+  static async setVideoCommentLiked(aid: number, commentId: string,
+    liked: boolean): Promise<string> {
+    if (!(aid > 0) || !(Number(commentId) > 0)) {
+      throw new Error('invalid video comment like request');
+    }
+    const csrf = await BiliApi.requireCommentCsrf();
+    if (csrf === null) {
+      return '{"code":-101}';
+    }
+    const form: Record<string, string> = {
+      'type': '1',
+      'oid': `${aid}`,
+      'rpid': commentId,
+      'action': liked ? '1' : '0',
+      'csrf': csrf
+    };
+    return HttpClient.postForm(`${Constants.BILI_BASE}/x/v2/reply/action`,
+      form, 15000, BiliApi.biliHeaders(), true);
+  }
+
+  /**
+   * 发表评论 / 楼中楼回复（/x/v2/reply/add）。需要 SESSDATA + bili_jct；
+   * 网络结果不确定时不自动重发（发评无幂等键，重复发出由用户自行核对）。
+   */
+  static async sendVideoComment(aid: number, content: string,
+    rootId: string | null, parentId: string | null): Promise<string> {
+    if (!(aid > 0) || content.trim().length === 0) {
+      throw new Error('invalid video comment send request');
+    }
+    if ((rootId === null) !== (parentId === null)) {
+      throw new Error('reply target must be complete');
+    }
+    const csrf = await BiliApi.requireCommentCsrf();
+    if (csrf === null) {
+      return '{"code":-101}';
+    }
+    const form: Record<string, string> = {
+      'type': '1',
+      'oid': `${aid}`,
+      'message': content,
+      'root': rootId ?? '0',
+      'parent': parentId ?? '0',
+      'plat': '1',
+      'statistics': '{"appId":100,"platform":5}',
+      'gaia_source': 'main_web',
+      'csrf': csrf
+    };
+    return HttpClient.postForm(`${Constants.BILI_BASE}/x/v2/reply/add`,
+      form, 15000, BiliApi.biliHeaders(), true);
+  }
+
+  /**
+   * 评论写操作的前置：确保匿名指纹已种下并校验登录 cookie（SESSDATA +
+   * bili_jct 缺一不可，后者即 csrf）。未登录返回 null。
+   */
+  private static async requireCommentCsrf(): Promise<string | null> {
+    await BiliApi.ensureAnonymousFingerprint();
+    const cookies = HttpClient.getCookiesMap(`${Constants.BILI_BASE}/`);
+    const sessdata = cookies.get('SESSDATA') ?? '';
+    const csrf = cookies.get('bili_jct') ?? '';
+    if (sessdata.length === 0 || csrf.length === 0) {
+      return null;
+    }
+    return csrf;
+  }
+
+  // ---- UP 主空间（上游 e95b2ef9）----
+
+  /** Uploader archive page size (Android UPLOADER_VIDEO_PAGE_SIZE). */
+  private static readonly UPLOADER_VIDEO_PAGE_SIZE: number = 30;
+  /** Uploader collection/series page size (Android UPLOADER_CONTENT_PAGE_SIZE). */
+  private static readonly UPLOADER_CONTENT_PAGE_SIZE: number = 20;
+  /** Collection/series content page size (Android COLLECTION_ARCHIVE_PAGE_SIZE). */
+  private static readonly COLLECTION_ARCHIVE_PAGE_SIZE: number = 30;
+
+  /**
+   * Android requireSuccessfulData: HTTP 200 body must carry code=0 with a
+   * data object, otherwise the call throws with the endpoint's business
+   * message (e.g. acc/info answers -404 for a hidden uploader).
+   */
+  private static async requireSuccessfulData(url: string, what: string): Promise<Record<string, Object>> {
+    await BiliApi.ensureAnonymousFingerprint();
+    const text = await HttpClient.getText(url, BiliApi.biliHeaders(), 15000, true);
+    const root = JSON.parse(text) as Record<string, Object>;
+    const code = Number(root['code'] ?? -1);
+    const dataRaw = root['data'];
+    if (code !== 0 || dataRaw === undefined || dataRaw === null) {
+      throw new Error(`bili ${what} failed: code=${code} message=${String(root['message'] ?? '')}`);
+    }
+    return dataRaw as Record<string, Object>;
+  }
+
+  /** x/space/wbi/acc/info: uploader profile (name/avatar/sign/banner). */
+  static async getUploaderProfile(mid: number): Promise<BiliUploaderProfile> {
+    if (mid <= 0) {
+      throw new Error('Uploader mid must be positive');
+    }
+    const params = new Map<string, string>();
+    params.set('mid', `${mid}`);
+    params.set('platform', 'web');
+    params.set('web_location', '1550101');
+    const url = await BiliApi.getWbiSignedUrl(
+      `${Constants.BILI_BASE}/x/space/wbi/acc/info`, params);
+    const data = await BiliApi.requireSuccessfulData(url, 'uploader profile');
+    return parseBiliUploaderProfile(data, mid);
+  }
+
+  /** x/space/wbi/arc/search: uploader archive videos, newest first by default. */
+  static async getUploaderVideos(
+    mid: number,
+    page: number = 1,
+    pageSize: number = BiliApi.UPLOADER_VIDEO_PAGE_SIZE,
+    order: string = 'pubdate'
+  ): Promise<BiliUploaderVideoPage> {
+    if (mid <= 0) {
+      throw new Error('Uploader mid must be positive');
+    }
+    const resolvedPage = Math.max(1, Math.floor(page));
+    const resolvedPageSize = Math.min(Math.max(1, Math.floor(pageSize)), BiliApi.UPLOADER_VIDEO_PAGE_SIZE);
+    const params = new Map<string, string>();
+    params.set('mid', `${mid}`);
+    params.set('pn', `${resolvedPage}`);
+    params.set('ps', `${resolvedPageSize}`);
+    params.set('order', order);
+    const url = await BiliApi.getWbiSignedUrl(
+      `${Constants.BILI_BASE}/x/space/wbi/arc/search`, params);
+    const data = await BiliApi.requireSuccessfulData(url, 'uploader videos');
+    return parseBiliUploaderVideoPage(data, resolvedPage, resolvedPageSize, mid);
+  }
+
+  /** x/polymer/web-space/seasons_series_list: uploader collections + series. */
+  static async getUploaderContents(
+    mid: number,
+    page: number = 1,
+    pageSize: number = BiliApi.UPLOADER_CONTENT_PAGE_SIZE
+  ): Promise<BiliUploaderContentPage> {
+    if (mid <= 0) {
+      throw new Error('Uploader mid must be positive');
+    }
+    const resolvedPage = Math.max(1, Math.floor(page));
+    const resolvedPageSize = Math.min(Math.max(1, Math.floor(pageSize)), BiliApi.UPLOADER_CONTENT_PAGE_SIZE);
+    const params = new Map<string, string>();
+    params.set('mid', `${mid}`);
+    params.set('page_num', `${resolvedPage}`);
+    params.set('page_size', `${resolvedPageSize}`);
+    params.set('web_location', '333.999');
+    const url = await BiliApi.getWbiSignedUrl(
+      `${Constants.BILI_BASE}/x/polymer/web-space/seasons_series_list`, params);
+    const data = await BiliApi.requireSuccessfulData(url, 'uploader collections and series');
+    return parseBiliUploaderContentPage(data, resolvedPage, resolvedPageSize, mid);
+  }
+
+  /**
+   * x/polymer/web-space/seasons_archives_list: one page of a collection's
+   * (合集) videos. The meta block gives the canonical title/total.
+   */
+  static async getCollectionArchives(
+    mid: number,
+    seasonId: number,
+    page: number = 1,
+    pageSize: number = BiliApi.COLLECTION_ARCHIVE_PAGE_SIZE
+  ): Promise<BiliCollectionArchivePage> {
+    if (mid <= 0 || seasonId <= 0) {
+      throw new Error('Collection id must be positive');
+    }
+    const resolvedPage = Math.max(1, Math.floor(page));
+    const resolvedPageSize = Math.min(Math.max(1, Math.floor(pageSize)), BiliApi.COLLECTION_ARCHIVE_PAGE_SIZE);
+    const params = new Map<string, string>();
+    params.set('mid', `${mid}`);
+    params.set('season_id', `${seasonId}`);
+    params.set('sort_reverse', 'false');
+    params.set('page_num', `${resolvedPage}`);
+    params.set('page_size', `${resolvedPageSize}`);
+    params.set('web_location', '333.999');
+    const url = await BiliApi.getWbiSignedUrl(
+      `${Constants.BILI_BASE}/x/polymer/web-space/seasons_archives_list`, params);
+    const data = await BiliApi.requireSuccessfulData(url, 'collection archives');
+    return parseBiliCollectionArchivePage(data, seasonId, mid);
+  }
+
+  /** x/series/archives: one page of a series' (系列) videos, newest first. */
+  static async getSeriesArchives(
+    mid: number,
+    seriesId: number,
+    page: number = 1,
+    pageSize: number = BiliApi.COLLECTION_ARCHIVE_PAGE_SIZE
+  ): Promise<BiliSeriesArchivePage> {
+    if (mid <= 0 || seriesId <= 0) {
+      throw new Error('Series id must be positive');
+    }
+    const resolvedPage = Math.max(1, Math.floor(page));
+    const resolvedPageSize = Math.min(Math.max(1, Math.floor(pageSize)), BiliApi.COLLECTION_ARCHIVE_PAGE_SIZE);
+    const url =
+      `${Constants.BILI_BASE}/x/series/archives?mid=${mid}&series_id=${seriesId}` +
+      `&only_normal=true&sort=desc&pn=${resolvedPage}&ps=${resolvedPageSize}`;
+    const data = await BiliApi.requireSuccessfulData(url, 'series archives');
+    return parseBiliSeriesArchivePage(data, resolvedPage, resolvedPageSize);
   }
 }

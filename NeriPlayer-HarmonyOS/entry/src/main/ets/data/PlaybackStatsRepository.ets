@@ -32,23 +32,32 @@ export class PlaybackStatsRepository {
   static readonly RETENTION_DAYS: number = 400;
   static readonly MAX_DAILY_BUCKETS: number = 8000;
 
-  static async recordPlay(songKey: string, listenMs: number): Promise<void> {
+  /**
+   * Records one listened-time increment. `countPlay` distinguishes a
+   * mid-track checkpoint flush (pause/interrupt: listenMs only, so a crash
+   * cannot lose the window) from the terminal flush of a continuous
+   * listening session (track change/completion), which is the only moment a
+   * play is counted — pause/resume cycles on the same track must not
+   * inflate playCount (upstream #499 semantics).
+   */
+  static async recordPlay(songKey: string, listenMs: number, countPlay: boolean = true): Promise<void> {
     const all = await PlaybackStatsRepository.loadStats();
     const now = Date.now();
     const today = PlaybackStatsRepository.dayKey(now);
     const deviceId = await SyncDeletionStore.getOrCreateDeviceId(
       (): string => util.generateRandomUUID(false));
+    const playDelta = countPlay ? 1 : 0;
     let track = all.tracks[songKey];
     if (track === undefined) {
       track = new TrackStats();
       track.firstPlayedAt = now;
       all.tracks[songKey] = track;
     }
-    track.playCount += 1;
+    track.playCount += playDelta;
     track.listenMs += listenMs;
     track.lastPlayedAt = now;
     track.counterShards = PlaybackStatsRepository.recordCounterDelta(
-      track.counterShards, deviceId, all.clearedAt, listenMs, 1, now);
+      track.counterShards, deviceId, all.clearedAt, listenMs, playDelta, now);
     if (all.daily[today] === undefined) {
       all.daily[today] = {};
     }
@@ -58,11 +67,11 @@ export class PlaybackStatsRepository {
       daily.firstPlayedAt = now;
       all.daily[today][songKey] = daily;
     }
-    daily.playCount += 1;
+    daily.playCount += playDelta;
     daily.listenMs += listenMs;
     daily.lastPlayedAt = now;
     daily.counterShards = PlaybackStatsRepository.recordCounterDelta(
-      daily.counterShards, deviceId, all.clearedAt, listenMs, 1, now);
+      daily.counterShards, deviceId, all.clearedAt, listenMs, playDelta, now);
     all.daily = PlaybackStatsRepository.trimDailyBuckets(all.daily);
     const json = JSON.stringify(all);
     await SchemaStore.save(PlaybackStatsRepository.KEY, json, (value: string) => value);

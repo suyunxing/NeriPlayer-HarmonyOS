@@ -269,6 +269,14 @@ export class DownloadEngine {
       Logger.warn(`download resolve failed: ${e.message}`);
     }
     if (url.length === 0) {
+      // Offline resolve failures must keep waiting for the network instead of
+      // turning terminal: URL resolution needs connectivity just like the
+      // transfer itself (upstream #499 waiting-state semantics).
+      if (!(await DownloadEngine.hasNetwork())) {
+        DownloadEngine.store.applyWaitingNetwork(songKey, task.attemptId);
+        DownloadEngine.notifyChanged();
+        return;
+      }
       await DownloadEngine.failTask(songKey, task.attemptId, task.song, 'no playable source');
       return;
     }
@@ -545,8 +553,9 @@ export class DownloadEngine {
 
     const finalPath = DownloadStorage.commit(song, workingPath, ext);
     if (finalPath.length === 0) {
-      DownloadEngine.store.updateStatus(songKey, attemptId, DownloadStatus.FAILED);
-      DownloadEngine.notifyChanged();
+      // Silent FAILED here left the UI with a bare「失败」and no cause: route
+      // through failTask so the reason reaches the row text and the log.
+      await DownloadEngine.failTask(songKey, attemptId, song, 'save to download directory failed');
       return;
     }
     await DownloadStorage.addCatalogEntry(song, finalPath);
@@ -568,7 +577,7 @@ export class DownloadEngine {
   }
 
   private static async failTask(songKey: string, attemptId: number, song: SongItem, reason: string): Promise<void> {
-    DownloadEngine.store.updateStatus(songKey, attemptId, DownloadStatus.FAILED);
+    DownloadEngine.store.failTask(songKey, attemptId, reason);
     DownloadEngine.persistQueue();
     DownloadEngine.notifyChanged();
     Logger.warn(`DownloadEngine: failed ${song.displayName}: ${reason}`);
@@ -634,6 +643,15 @@ export class DownloadEngine {
           }
         }
         DownloadEngine.notifyChanged();
+        // netAvailable/netUnavailable can arrive out of order across network
+        // stacks: re-check the real state once the burst settles, otherwise
+        // tasks stuck in WAITING_NETWORK never requeue until the next event.
+        DownloadEngine.hasNetwork().then((online: boolean) => {
+          if (online) {
+            Logger.info('DownloadEngine: netUnavailable proved stale, resuming waiting tasks');
+            DownloadEngine.resumeWaitingTasks();
+          }
+        });
       });
       DownloadEngine.netConnection = conn;
     } catch (error) {
@@ -657,15 +675,27 @@ export class DownloadEngine {
     }
   }
 
-  /** Startup recovery: reload the persisted queue and requeue it. */
+  /**
+   * Startup recovery: reload the persisted queue and requeue it. Offline
+   * starts keep tasks in WAITING_NETWORK instead of QUEUED — running them
+   * would only fail URL resolution and (pre-fix) park them as FAILED.
+   */
   private static recoverPendingForStartup(): void {
-    DownloadEngine.loadQueue().then((songs: SongItem[]) => {
+    DownloadEngine.loadQueue().then(async (songs: SongItem[]) => {
       if (songs.length === 0) {
         return;
       }
-      DownloadEngine.store.prepareBatch(songs, true);
+      const online = await DownloadEngine.hasNetwork();
+      const queued = DownloadEngine.store.prepareBatch(songs, true);
+      if (!online) {
+        for (const task of queued) {
+          DownloadEngine.store.applyWaitingNetwork(stableKeyOf(task.song), task.attemptId);
+        }
+      }
       DownloadEngine.notifyChanged();
-      DownloadEngine.pump();
+      if (online) {
+        DownloadEngine.pump();
+      }
     }).catch((error: Error) => {
       Logger.warn(`DownloadEngine recovery failed: ${error.message}`);
     });

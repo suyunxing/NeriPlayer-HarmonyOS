@@ -21,6 +21,7 @@ export class SongItem {
   mediaUri: string;
   matchedLyric: string;
   matchedTranslatedLyric: string;
+  matchedPhoneticLyric: string;
   matchedSongId: string;
   userLyricOffsetMs: number;
   customCoverUrl: string;
@@ -66,6 +67,7 @@ export class SongItem {
     this.mediaUri = mediaUri;
     this.matchedLyric = '';
     this.matchedTranslatedLyric = '';
+    this.matchedPhoneticLyric = '';
     this.matchedSongId = '';
     this.userLyricOffsetMs = 0;
     this.customCoverUrl = '';
@@ -123,6 +125,7 @@ export class SongItem {
     song.mediaUri = String(raw['mediaUri'] ?? '');
     song.matchedLyric = String(raw['matchedLyric'] ?? '');
     song.matchedTranslatedLyric = String(raw['matchedTranslatedLyric'] ?? '');
+    song.matchedPhoneticLyric = String(raw['matchedPhoneticLyric'] ?? '');
     song.matchedSongId = String(raw['matchedSongId'] ?? '');
     song.userLyricOffsetMs = Number(raw['userLyricOffsetMs'] ?? 0);
     song.customCoverUrl = String(raw['customCoverUrl'] ?? '');

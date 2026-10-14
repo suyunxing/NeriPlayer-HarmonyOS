@@ -70,4 +70,26 @@ export class DownloadDirectory {
     const separator = dir.endsWith('/') ? '' : '/';
     return `${dir}${separator}${fileName}`;
   }
+
+  /** Splits the persisted history blob (\n-joined URIs) into a clean list. */
+  static historyUrisOf(stored: string): string[] {
+    return stored.split('\n').map((line: string) => line.trim())
+      .filter((line: string) => DownloadDirectory.isCustomUri(line));
+  }
+
+  /**
+   * Merges a newly applied directory into the history blob: newest first,
+   * de-duplicated, capped (catalog playback only needs the recent few). Old
+   * directories stay listed so cold start can re-activate their grants —
+   * committed files there must remain playable after switching away.
+   */
+  static mergeHistoryUris(stored: string, appliedUri: string, cap: number = 8): string {
+    const merged: string[] = [appliedUri];
+    for (const uri of DownloadDirectory.historyUrisOf(stored)) {
+      if (merged.indexOf(uri) < 0) {
+        merged.push(uri);
+      }
+    }
+    return merged.slice(0, Math.max(1, cap)).join('\n');
+  }
 }
