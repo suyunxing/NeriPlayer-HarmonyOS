@@ -2,7 +2,7 @@
 
 本文是 Android 上游（`github.com/cwuom/NeriPlayer`，master）相对鸿蒙移植基线的**全量增量分析**，产出待办清单与执行波次规划。数据来源：GitHub REST API 匿名拉取（2026-10-10，master 末次推送 2026-10-08 23:38）；鸿蒙侧现状经 5 项只读代码核查（2026-10-10，静态走查，非设备验证）。
 
-**2026-10-15 第二轮维护**：重拉上游确认 §6 三个在途 PR（#506/#507/#508）已全部合并（#506 于 2026-10-10、#508 于 2026-10-12、#507 于 2026-10-13）；随后上游又新合入 #510/#516/#519/#522/#523/#524/#526（master HEAD `5c6aca42d`，2026-10-14）。本轮按 §0 三分工把这批增量归入 §3.3/§4/§5/§6，均只做元数据归类，**未做鸿蒙侧代码核查**（标「待审计」）。**同日完成 §2.1 ZSTD v4 spike + 最小防护**（P0 全清）：上游归档布局源码级确认、鸿蒙 zstd 路径评估、双后端 manifest 探测拒绝同步已落地，详见 §2.1。
+**2026-10-15 第二轮维护**：重拉上游确认 §6 三个在途 PR（#506/#507/#508）已全部合并（#506 于 2026-10-10、#508 于 2026-10-12、#507 于 2026-10-13）；随后上游又新合入 #510/#516/#519/#522/#523/#524/#526（master HEAD `5c6aca42d`，2026-10-14）。本轮按 §0 三分工把这批增量归入 §3.3/§4/§5/§6。**同日完成 §2.1 ZSTD v4 spike + 最小防护**（P0 全清）与 **§3.3 A-1~A-25 全量审计**（五批只读静态走查）：无缺陷 14 项入防重复审计、确认缺陷 8 项 + 低危残留 4 项转为 §3.3.1 立项表（F-A3~F-A25，最高优先 F-A15 时钟基线/F-A25 写竞态两项数据安全），A-24 判 C 类。
 
 ## 0. 基准与方法
 
@@ -18,11 +18,12 @@
 
 | 类别 | 数量 | 说明 |
 | --- | --- | --- |
-| A-已核查·无同类缺陷 | 11 组 | 队列/随机四修、WebDAV 租约、删除墓碑合并、HLS checkpoint 兼容、下载歌曲远端身份、#508 legacy checkpoint、统计 journal 上限（2026-10-15 §2.1⑤）等（§7，防重复审计） |
+| A-已核查·无同类缺陷 | 16 组 | 队列/随机四修、WebDAV 租约、删除墓碑合并、HLS checkpoint 兼容、下载歌曲远端身份、#508 legacy checkpoint、统计 journal 上限（§7）+ 2026-10-15 审计无缺陷项：A-1/A-2/A-4/A-7/A-10/A-11/A-12/A-14/A-17/A-18b/A-19/A-22/A-23/A-24（§3.3，防重复审计） |
 | A-已核查·存在缺口 | 8 项 | WebDAV 非原子发布、404 分类、下载目录切换 4 缺口、离线恢复误判、音译无回退、封面编辑无门禁、统计计数口径、粘贴无尺寸防护（§2/§3，均已修复） |
-| A-待审计 | 25 项 | 伞形 PR 与单点修复的逐项核对（§3.3；2026-10-15 新增 A-15~A-25 元数据归类） |
-| B-功能移植候选 | 14 组 | 评论模块、队列编辑接线、歌词源偏好、网易云写回、一起听增强、DSP 电台站点等（§4） |
-| C-不计划移植 | 9 组 | USB/DSP/Android Auto/OEM 歌词/CI/Room 迁移等（§5） |
+| A-审计完成·确认缺陷 | 8 项 | A-3 停顿 watchdog、A-8 QR 轮询不停、A-9 QR 过期刷新死代码、A-15 本地时钟 checkpoint、A-16b 坏成员整包失败、A-20 静默迁移+陈旧位置、A-21 歌词闪空、A-25 本地读改写竞态（§3.3.1 立项 F-A3~F-A25 待排期） |
+| A-审计完成·低危残留 | 4 项 | A-5 登录旗标初始化竞态、A-6 HLS 断网覆盖 FAILED、A-13 扫描中断丢 catalog+歌词无上限、A-18a 启动同步 I/O（§3.3.1 低优先立项） |
+| B-功能移植候选 | 1 组 | F-14 DSP/电台站点（待上游源确认）；F-1~F-13 全部完成（§4） |
+| C-不计划移植 | 10 组 | USB/DSP/Android Auto/OEM 歌词/CI/Room 迁移等 + A-24 悬浮歌词（§5） |
 | D-在途观察 | 4 PR | #511/#525/#527/#528（§6；#506/#507/#508 已合并并重筛完毕） |
 
 ## 2. P0：数据安全与互操作（建议最先排期）
@@ -111,35 +112,54 @@ HLS checkpoint 恢复（上游 open PR #508 的 operationId 问题）已核查**
 - 搜索无分词/拼音排序（#371 camelCase 边界、bf50094e 拼音排名）；搜索历史已有但无滚动隐藏交互。
 - 歌单删除无撤销（90ee4f46）；歌单导出确认防抖待核对。
 
-### 3.3 待审计清单（未核查，立项前先核对鸿蒙是否有同类问题）
+### 3.3 审计清单（2026-10-15 全量核查完毕，只读静态走查 + 代码证据）
 
-| # | 上游来源 | 审计问题 |
+> 结论分布：**无同类缺陷 14 项**（A-1/A-2/A-4/A-6主/A-7/A-10/A-11/A-12/A-13主/A-14/A-16a/A-17/A-18b/A-19/A-22/A-23）、**有缺陷 8 项**（A-3、A-8、A-9、A-15、A-16b、A-20、A-21、A-25，见下方立项表）、**低危残留 3 项**（A-5、A-6、A-13、A-18a 的窄缺口，一并列入立项表）。
+
+| # | 上游来源 | 核查结论（2026-10-15） |
 | --- | --- | --- |
-| A-1 | #499（100 提交伞形，本表只列已知相关的） | `fix(download): tolerate whole-second source durations in integrity check`——鸿蒙 isPlausibleAudioHead 只查魔数，时长容差是否需要？ |
-| A-2 | #499 | `fix(auth): keep credentials when the Keystore master key is unusable`——鸿蒙 Asset 分块存储解密/恢复失败时是否会丢凭据？ |
-| A-3 | #401 静默流停顿恢复 | 鸿蒙是否检测「播放中进度长期不推进」的静默停顿（PlaybackFailurePolicy 只处理显式失败）？ |
-| A-4 | #408 缓存描述符 null 保留 | 播放缓存账本字段 null/缺省的往返是否保真？ |
-| A-5 | #345 DataStore 陈旧快照优先级 | 设置读取路径是否存在「内存缓存值覆盖已落盘新值」的竞态？ |
-| A-6 | da072b1a/53e44b54/#312 网络状态判定 | hasNetwork 只在传输失败后查询（已见 DownloadEngine）；离线模式误判、直连传输豁免类问题需统一审计 |
-| A-7 | #383 网易云搜索可用性与 cookie 使用 | 搜索接口带不带登录 cookie 的策略与上游对齐度 |
-| A-8 | 37535ea0 QR 轮询后台暂停 | QrLoginPanel 页面隐藏/后台时轮询是否暂停 |
-| A-9 | d5435320 网易云 QR 对齐官方流程 | 鸿蒙 QR 链路已多轮重做（见 FEATURE_MATRIX），仅复核 unikey 端点/轮询节奏与上游当前实现的差异 |
-| A-10 | #389 歌词分享位图复制 | LyricShareSheet 的 PixelMap 生命周期（Canvas 绘制后是否被提前回收） |
-| A-11 | #351 Continue 区封面解析持久化 | 本地歌单封面解析结果是否落盘，重启是否重算 |
-| A-12 | b623f200/e1ea77be 同步封面映射 | 本地文件引用是否会被错误写进同步的 coverUrls/下载候选 |
-| A-13 | #396 本地媒体加固伞 | 目录扫描的恢复/元数据边界（sidecar 已做，其余逐项对） |
-| A-14 | #487 B站评论分页到底误报 | 已随 F-3 评论模块移植处理（BiliCommentRepository 全零分页与空页未读完按 API 错误抛），核对后销项 |
-| A-15 | #506 `fix(sync): checkpoint merges at the remote observation time` | 同步合并 checkpoint 时间取远端观察时刻——鸿蒙合并基线/冲突重试的时间戳语义是否一致 |
-| A-16 | #506 `fix(local): let a downgraded app re-read the remote instead of blocking on newer sync markers` | 遭遇更高版本同步标记时鸿蒙是否死锁拒绝读取；本地媒体目录扫描遇不可解码条目是否整单失败（#506 同伞 `skip undecodable playlist members`） |
-| A-17 | #506 `fix(player): keep media session metadata publish from killing the service` + `refresh notification lyrics on stock system UI` | AVSession 元数据发布异常是否会击穿播放服务；通知栏歌词刷新（鸿蒙走 AVSession 桌面歌词通道，对照语义即可） |
-| A-18 | #506 `fix(local): load usage, history and traffic stores off the constructor thread` + `stop id3 parsing at frame sizes that overflow the tag` | 数据仓库构造期同步 I/O 是否阻塞 UI 线程；本地 ID3 解析对超大帧尺寸的截断防护 |
-| A-19 | #516 `perf(sync): speed up synchronization and restore startup readiness`（2 提交：加速同步+恢复启动就绪、usage 观察者恢复） | 鸿蒙同步协调器启动路径是否有同类慢启动/观察者丢失面；并行读测试稳定性教训对照 |
-| A-20 | #519 `fix(playback): prevent silent transitions and stale recovery` | 播放状态「静默切换」（无声但状态机认为在播）与陈旧恢复——与 A-3 静默停顿同域，可合并审计 |
-| A-21 | #522 `fix(lyrics): keep loaded lyrics when reopening now playing` | 重开播放页时鸿蒙是否重复请求/闪空歌词（F-2 歌词缓存先行应已覆盖，核对后可销项） |
-| A-22 | #523 `fix(playback,sync): keep Bluetooth disconnects silent and sync with Nutstore`（2 提交） | 蓝牙断连是否触发误暂停/误报错（AVSession 输出切换语义）；迟到扬声器重路由后的二次确认 |
-| A-23 | #524 `fix(sync): sync with WebDAV servers that lack strong ETags (Nutstore)`（2 提交：无强 ETag 同步、未加引号 ETag 条件发布） | **高优先**：鸿蒙 WebDAV 原子发布（5379bf5）依赖条件写/MOVE，坚果云类无强 ETag 服务器上条件校验是否退化失效；If-Match/ETag 引号形态处理 |
-| A-24 | #510 `feat: add optional floating lyric previews and wrapping` | 悬浮歌词预览与换行——鸿蒙走 AVSession 桌面歌词系统能力（M10.2），应用内自绘悬浮窗路线与 OEM 限制一并评估，倾向 C 类 |
-| A-25 | #475 内 607af71d5 `preserve concurrent usage changes and lyric match state` | Android usage 持久化进行中的 UI 变更重基（pendingWrite/rebase）；鸿蒙 usage 走 SchemaStore 单写者，是否有同竞态待核对；歌词匹配态部分与 P1-1 matchedLyric 持久化面接近，一并核对 |
+| A-1 | #499 整秒时长容差 | **无同类缺陷**：鸿蒙完整性闸门全为字节级/魔数级（isPlausibleAudioHead 魔数、hasExcessiveFillerRuns 填充扫描、Content-Length 字节比对），无任何时长比对，不存在取整误杀面（download/ 全目录无 duration 引用） |
+| A-2 | #499 凭据保全 | **无同类缺陷**：CredentialStore 读取失败一律返回 null/''（Asset 查询 FALLBACK→switchToMemory 只清内存、磁盘保留），删除仅在用户显式 logout；GitHub 401 只报 TOKEN_EXPIRED 不清令牌（优于上游基线 clearToken）；SchemaStore 损坏恢复走 .bak 且不删配置。残留：putChunked 先删 manifest 再写块，中途失败留旧块孤儿（撕裂写，非 A-2 语义） |
+| A-3 | #401 静默停顿恢复 | **有缺陷**：PlayerManager 无「playing 但 position 不推进」watchdog（waitingTimer 只覆盖 load/prepare 20s，onTimeUpdate 只累加不校验）；ListenTogetherListenerStallRecovery 已移植但零运行时接线且语义不同。→ 立项 F-A3 |
+| A-4 | #408 缓存账本 null 往返 | **无同类缺陷**：PlaybackCacheEntry 5 字段全非空原始类型带初值，读回逐字段 `??` 兜底，JSON 损坏回落新账本，单测锁定往返 |
+| A-5 | #345 陈旧快照优先 | **核心缺陷免疫**：每次 persist 携带当次新值、无全量快照回写，「旧内存覆盖磁盘」不存在。低危残留：SettingsRepository.initialize 窄窗口内 Netease/BiliCookieRepository.init 抢先 setBoolean 登录旗标会被陈旧快照在内存覆盖（磁盘正确、下次冷启动自愈，仅 UI 旗标本会话）→ 立项 F-A5（低） |
+| A-6 | #312 网络判定 | **主路径无缺陷**：下载引擎主动监听+事件乱序复核（2026-10 已修），同步侧 WorkScheduler 系统级门控+运行前主动查询。残留：HLS 分段重试循环不查 hasNetwork，瞬时断网会把 WAITING_NETWORK 覆盖为 FAILED（failTask 只按 attemptId 守卫不校验状态）→ 立项 F-A6（低，与 P0 §2.3 同域补口） |
+| A-7 | #383 搜索 cookie 策略 | **无同类缺陷**：searchWeapi 登录态优先，风控码（301/50000005）→匿名重试（移除 MUSIC_U 后恢复种子）→legacy 兜底三层齐备，与上游对齐 |
+| A-8 | 37535ea0 QR 轮询后台暂停 | **有缺陷**：QrLoginPanel 与 Netease/BiliWebLoginPage 轮询只在 aboutToDisappear 清除，页面被覆盖/退后台不销毁组件则持续轮询（工程内 onPageHide 零命中）。→ 立项 F-A8 |
+| A-9 | d5435320 网易云 QR 对齐 | **有缺陷（发现新 bug）**：端点/轮询/状态码已对齐官方，但二维码过期自动刷新是死代码——pollOnce 持有 busy=true 时调 createQrSession 而后者入口 `if (this.busy) return`，过期后面板永久停在「正在刷新」只能手点。→ 立项 F-A9（一行级修复） |
+| A-10 | #389 分享位图 | **无同类缺陷**：LyricShareSheet 直接在组件 Canvas 上绘制、toDataURL 导出，无 PixelMap 生命周期面 |
+| A-11 | #351 封面解析持久化 | **无同类缺陷（结构不同）**：歌单封面是 O(1) getter（首曲 effectiveCoverUrl），Continue 区 picUrl 是播放时落盘快照——本就「落盘不重算」语义 |
+| A-12 | 同步封面污染 | **无同类缺陷**：LOCAL 歌曲整出同步（isLocalSongItem→null）、手填封面门禁仅 LOCAL（#368 已移植）、一起听下载候选走 http/https 主机白名单拒绝本地路径 |
+| A-13 | #396 本地媒体加固 | **主体免疫**：单文件失败跳过（inspectFile 全 try/catch 返 null）、列举失败保留旧缓存、路径畸形分支有单测。残留：①扫描无中断恢复（覆盖式 saveCatalog，本轮失败文件从 catalog 丢失）②readSiblingLyric 按 stat.size 无上限整读（超大 .lrc 内存风险）→ 立项 F-A13（低） |
+| A-14 | #487 评论分页误报 | **无同类缺陷，销项**：BiliCommentMapper 全零/畸形分页与未读完空页抛 API 错、读到底 hasMore=false 静默终止，单测锁定，与上游最终语义一致 |
+| A-15 | #506 checkpoint 时间 | **有缺陷**：lastSyncTime/墓碑 deletedAt/歌单 modifiedAt 全为本地墙钟（Date.now()），SyncCoordinator 合并也传 Date.now()，从不取远端观察时刻——时钟回拨可破坏 `modifiedAt > lastSyncTime` 三方比较。→ 立项 F-A15 |
+| A-16 | #506 降级重读/坏成员 | **(a) 无缺陷**：鸿蒙无版本门禁（version 字段只带默认值不比较、未知字段双解析器天然忽略），标记版本死锁结构上不存在（NPSYNC 硬拒绝是防分叉刻意设计）。**(b) 有缺陷**：proto 路径单个坏成员 decodeSyncSong→null 连带整包 null→「远端备份解析失败」（无 skip 语义）；JSON 路径坏成员静默变空歌占位。→ 立项 F-A16 |
+| A-17 | #506 会话元数据异常 | **无同类缺陷**：setAVMetadata/setAVPlaybackState 全在 try/catch（pushMetadata/updatePlaybackState 内层吞异常），fire-and-forget 调用方不受影响；全工程无绕过封装直调 |
+| A-18 | #506 构造期 I/O + ID3 | **(a) 有缺陷（轻量）**：仓库层全异步静态干净，但启动 UI 线程仍有 2 处同步磁盘访问（DiagnosticsStore.init/DownloadStorage.init 的 accessSync/mkdirSync）+ 2 处先于首帧 await（Index 等待 SettingsRepository.initialize、StableKeyMigration）。→ 立项 F-A18（低）。**(b) 无缺陷**：无自研 ID3 解析器（元数据走 AVMetadataExtractor） |
+| A-19 | #516 同步启动就绪 | **无同类缺陷**：启动路径全部 fire-and-forget（scheduleStartupSync 不 await、SourceSync 15s 延迟、1h 节流+running 守卫）；sync/ 无观察者结构，「观察者丢失」无对应面 |
+| A-20 | #519 静默迁移/陈旧恢复 | **有缺陷（面窄）**：①completed→playing 多路径（repeat-one/native advance/COMPLETED 恢复）不立即发布 PLAYING，只等异步事件，事件延迟或 play() 失败则 UI 卡在 COMPLETED；②autoplay 恢复的 loadSong(restoredPositionMs) 不过 clampSeekTarget，陈旧位置越过末尾立即触发跳歌（mediaUrl 不持久化，经典陈旧 URL 面不存在）。→ 立项 F-A20 |
+| A-21 | #522 歌词闪空 | **有缺陷**：播放页 bindContentCover 关闭即销毁，重开 aboutToAppear 无条件 reloadSongData 且**先清空** lyrics+tracker 再异步拉取；LyricCacheStore 是磁盘缓存省网络但省不掉至少一帧空（缓存查询本身异步）。→ 立项 F-A21 |
+| A-22 | #523 蓝牙断连 | **无同类缺陷**：仅 OLD_DEVICE_UNAVAILABLE→PAUSE_PERMANENT（静默硬暂停无提示），听友路由丢失静音续播+显式恢复，迟到重路由不自动恢复——三项全落实 |
+| A-23 | #524 弱 ETag 兼容 | **无同类缺陷（销高优先标记）**：强 ETag 连引号原样保留参与 If-Match/比较（从不规范化）、弱 ETag 忽略、Last-Modified 回退、无 token 时 SHA-256 指纹 GET 校验——原子发布不依赖条件头，坚果云类退化=条件头降为 Last-Modified/指纹，原子性不丢。残留：MOVE 被拒回落直连时未加引号 If-Match 若致 412 归类 CONTENT_CONFLICT 不触发指纹重试（概率窄面，观察即可） |
+| A-24 | #510 悬浮歌词 | **判入 C 类**：鸿蒙应用内悬浮条（FloatingLyricBar）+AVSession 系统歌词双路已覆盖，上游 Android 自绘路线无对应需求，不再立项 |
+| A-25 | #475 usage 并发重基 | **有缺陷（窗口真实、暴露面小）**：UsageRepository/PlaybackStatsRepository/LocalPlaylistRepository（含 matchedLyric 写）/HistoryRepository 全是 load→改→全量 save 且无串行化，两个 await 之间可插入后写者持旧基线覆盖前次变更；flushPlaybackStatsAsync 多处并发触发加剧统计面。同步侧 stateFingerprint 重算只挡远端压本地，不串行化本地写者。→ 立项 F-A25 |
+
+#### 3.3.1 审计产出的立项表（2026-10-15，待排期）
+
+| 立项号 | 来源 | 缺陷与修复方向 | 优先级 |
+| --- | --- | --- | --- |
+| F-A15 | A-15 | 同步时间基线改「远端观察时刻」（快照 lastModified/HEAD 时刻），至少墓碑与合并基线不再写本地 Date.now()；时钟回拨防护 | 高（数据安全） |
+| F-A25 | A-25 | 本地读-改-写串行化：给 SchemaStore 键级写队列或按仓库存内存态+单飞落盘（上游 pendingWrite/rebase 等价），覆盖统计 flush 并发 | 高（数据安全） |
+| F-A16 | A-16 | proto 解码坏成员 skip 语义（decodeSyncPlaylist 跳过 null 成员继续）；JSON 坏成员跳过而非空歌占位 | 中 |
+| F-A3 | A-3 | 播放停顿 watchdog：playing 态 position 冻结检测（如 15s）→ 静默重缓/重建 player，复用 PlaybackFailurePolicy 决策 | 中 |
+| F-A20 | A-20 | completed→playing 立即 publishStatus；恢复播放位置 clampSeekTarget 到 [0, duration] | 中 |
+| F-A21 | A-21 | 播放页歌词态上移（PlayerManager/全局单例持有最近歌词+内存缓存先行），aboutToAppear 不清空直接展示缓存态 | 中 |
+| F-A8 | A-8 | QR/网页登录轮询挂 onPageHide/onForeground 生命周期（隐藏停、回前重启） | 中（低危） |
+| F-A9 | A-9 | QrLoginPanel 过期刷新死代码：EXPIRED 分支先置 busy=false 或 createQrSession 去 busy 门禁（一行级） | 中（低成本） |
+| F-A5 | A-5 | Netease/BiliCookieRepository.init 等 SettingsRepository.initialize 完成后再写登录旗标 | 低 |
+| F-A6 | A-6 | HLS 分段循环接入 hasNetwork 停车；failTask 校验当前状态不覆盖 WAITING_NETWORK | 低 |
+| F-A13 | A-13 | 扫描 catalog 改合并式（本轮失败保留旧条目）；readSiblingLyric 尺寸上限（如 2MB） | 低 |
+| F-A18 | A-18 | DiagnosticsStore/DownloadStorage init 的同步 accessSync 挪异步或后台线程 | 低 |
 
 ## 4. P2：功能移植候选（基线后上游新增）
 
