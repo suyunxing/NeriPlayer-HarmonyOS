@@ -205,14 +205,40 @@ export default function webDavTransportTest(): void {
 
     it('missingRemoteFileBecomesFirstSyncNull', 0, async () => {
       const executor = new QueuedWebDavExecutor();
+      executor.push(404, 'no manifest');
       executor.push(404, 'gone');
       const snapshot = await new WebDavSyncClient(new WebDavTransport(executor, 'u', 'p'))
         .fetchRemoteSnapshot('https://dav.example/file');
       expect(snapshot === null).assertTrue();
     });
 
+    it('rejectsWhenUpstreamArchiveManifestPresentOnFetch', 0, async () => {
+      const executor = new QueuedWebDavExecutor();
+      executor.push(200, 'NPSYNC04-payload');
+      const error = await rejection(new WebDavSyncClient(new WebDavTransport(executor, 'u', 'p'))
+        .fetchRemoteSnapshot('https://dav.example/file') as Promise<Object>);
+      expect(error.kind).assertEqual(WebDavErrorKind.UNSUPPORTED_ARCHIVE_PROTOCOL);
+      expect(describeWebDavErrorForUser(error as Error).includes('归档同步格式')).assertTrue();
+      // Never touched the stale legacy backup file.
+      expect(executor.calls.length).assertEqual(1);
+      expect(executor.calls[0].url).assertEqual('https://dav.example/neriplayer-sync-v3.manifest');
+    });
+
+    it('rejectsUpstreamArchiveManifestOnUploadBeforePublish', 0, async () => {
+      const executor = new QueuedWebDavExecutor();
+      executor.push(200, 'NPSYNC03-payload');
+      const version = new WebDavRemoteVersion();
+      version.lastKnownFingerprint = '0'.repeat(64);
+      const error = await rejection(new WebDavSyncClient(new WebDavTransport(executor, 'u', 'p'))
+        .uploadBackup('https://dav.example/file', utf8EncodeText('data'),
+          'application/json', version) as Promise<Object>);
+      expect(error.kind).assertEqual(WebDavErrorKind.UNSUPPORTED_ARCHIVE_PROTOCOL);
+      expect(executor.calls.length).assertEqual(1);
+    });
+
     it('matchingFingerprintPublishesAtomicallyViaTempAndMove', 0, async () => {
       const executor = new QueuedWebDavExecutor();
+      executor.push(404, 'no manifest');
       executor.push(200, 'old-content', headers([['etag', '"v1"']]));
       executor.push(201, '');
       executor.push(204, '', headers([['etag', '"v2"']]));
@@ -224,20 +250,22 @@ export default function webDavTransportTest(): void {
       expect(result.version.etag).assertEqual('"v2"');
       expect(result.fingerprint)
         .assertEqual(calculateWebDavFingerprint(utf8EncodeText('new-content')));
-      expect(executor.calls.length).assertEqual(3);
+      expect(executor.calls.length).assertEqual(4);
       expect(executor.calls[0].method).assertEqual('GET');
-      expect(executor.calls[1].method).assertEqual('PUT');
-      expect(executor.calls[1].url.startsWith('https://dav.example/file.tmp-')).assertTrue();
-      expect(executor.calls[1].url !== 'https://dav.example/file').assertTrue();
-      expect(executor.calls[1].headers.get('If-None-Match')).assertEqual('*');
-      expect(executor.calls[2].method).assertEqual('MOVE');
-      expect(executor.calls[2].url).assertEqual(executor.calls[1].url);
-      expect(executor.calls[2].headers.get('Destination')).assertEqual('https://dav.example/file');
-      expect(executor.calls[2].headers.get('Overwrite')).assertEqual('T');
+      expect(executor.calls[1].method).assertEqual('GET');
+      expect(executor.calls[2].method).assertEqual('PUT');
+      expect(executor.calls[2].url.startsWith('https://dav.example/file.tmp-')).assertTrue();
+      expect(executor.calls[2].url !== 'https://dav.example/file').assertTrue();
+      expect(executor.calls[2].headers.get('If-None-Match')).assertEqual('*');
+      expect(executor.calls[3].method).assertEqual('MOVE');
+      expect(executor.calls[3].url).assertEqual(executor.calls[2].url);
+      expect(executor.calls[3].headers.get('Destination')).assertEqual('https://dav.example/file');
+      expect(executor.calls[3].headers.get('Overwrite')).assertEqual('T');
     });
 
     it('changedFingerprintRejectsFallbackAsConflict', 0, async () => {
       const executor = new QueuedWebDavExecutor();
+      executor.push(404, 'no manifest');
       executor.push(200, 'changed-remotely');
       const version = new WebDavRemoteVersion();
       version.token = new WebDavConcurrencyToken();
@@ -247,7 +275,7 @@ export default function webDavTransportTest(): void {
           'application/json', version) as Promise<Object>);
       expect(error.kind).assertEqual(WebDavErrorKind.CONTENT_CONFLICT);
       expect(error.statusCode).assertEqual(412);
-      expect(executor.calls.length).assertEqual(1);
+      expect(executor.calls.length).assertEqual(2);
     });
 
     it('missingTokenAndFingerprintRejectsBeforeAnyRequest', 0, async () => {
@@ -262,6 +290,7 @@ export default function webDavTransportTest(): void {
 
     it('vanishedRemoteFileRejectsAsConflictForMergeRetry', 0, async () => {
       const executor = new QueuedWebDavExecutor();
+      executor.push(404, 'no manifest');
       executor.push(404, 'gone');
       const version = new WebDavRemoteVersion();
       version.lastKnownFingerprint = '0'.repeat(64);
@@ -269,11 +298,12 @@ export default function webDavTransportTest(): void {
         .uploadBackup('https://dav.example/file', utf8EncodeText('new-content'),
           'application/json', version) as Promise<Object>);
       expect(error.kind).assertEqual(WebDavErrorKind.CONTENT_CONFLICT);
-      expect(executor.calls.length).assertEqual(1);
+      expect(executor.calls.length).assertEqual(2);
     });
 
     it('createOnlyUploadMovesWithoutOverwrite', 0, async () => {
       const executor = new QueuedWebDavExecutor();
+      executor.push(404, 'no manifest');
       executor.push(404, 'missing');
       executor.push(201, '');
       executor.push(201, '');
@@ -282,13 +312,14 @@ export default function webDavTransportTest(): void {
       await new WebDavSyncClient(new WebDavTransport(executor, 'u', 'p'))
         .uploadBackup('https://dav.example/file', utf8EncodeText('data'),
           'application/json', version);
-      expect(executor.calls.length).assertEqual(3);
-      expect(executor.calls[2].method).assertEqual('MOVE');
-      expect(executor.calls[2].headers.get('Overwrite')).assertEqual('F');
+      expect(executor.calls.length).assertEqual(4);
+      expect(executor.calls[3].method).assertEqual('MOVE');
+      expect(executor.calls[3].headers.get('Overwrite')).assertEqual('F');
     });
 
     it('createOnlyConflictNeverFallsBack', 0, async () => {
       const executor = new QueuedWebDavExecutor();
+      executor.push(404, 'no manifest');
       executor.push(200, 'already-created');
       const version = new WebDavRemoteVersion();
       version.createOnly = true;
@@ -297,11 +328,12 @@ export default function webDavTransportTest(): void {
           'application/json', version) as Promise<Object>);
       expect(error.kind).assertEqual(WebDavErrorKind.CONTENT_CONFLICT);
       expect(error.statusCode).assertEqual(412);
-      expect(executor.calls.length).assertEqual(1);
+      expect(executor.calls.length).assertEqual(2);
     });
 
     it('moveRejectedCleansTempAndFallsBackToConditionalPut', 0, async () => {
       const executor = new QueuedWebDavExecutor();
+      executor.push(404, 'no manifest');
       executor.push(200, 'old-content', headers([['etag', '"v1"']]));
       executor.push(201, '');
       executor.push(405, 'move unsupported');
@@ -315,16 +347,17 @@ export default function webDavTransportTest(): void {
       const result = await new WebDavSyncClient(transport).uploadBackup(
         'https://dav.example/file', utf8EncodeText('new-content'), 'application/json', version);
       expect(result.version.etag).assertEqual('"v2"');
-      expect(executor.calls.length).assertEqual(5);
-      expect(executor.calls[3].method).assertEqual('DELETE');
-      expect(executor.calls[3].url.startsWith('https://dav.example/file.tmp-')).assertTrue();
-      expect(executor.calls[4].method).assertEqual('PUT');
-      expect(executor.calls[4].url).assertEqual('https://dav.example/file');
-      expect(executor.calls[4].headers.get('If-Match')).assertEqual('"v1"');
+      expect(executor.calls.length).assertEqual(6);
+      expect(executor.calls[4].method).assertEqual('DELETE');
+      expect(executor.calls[4].url.startsWith('https://dav.example/file.tmp-')).assertTrue();
+      expect(executor.calls[5].method).assertEqual('PUT');
+      expect(executor.calls[5].url).assertEqual('https://dav.example/file');
+      expect(executor.calls[5].headers.get('If-Match')).assertEqual('"v1"');
     });
 
     it('moveConflictCleansTempAndSurfacesConflict', 0, async () => {
       const executor = new QueuedWebDavExecutor();
+      executor.push(404, 'no manifest');
       executor.push(404, 'missing');
       executor.push(201, '');
       executor.push(412, 'destination exists');
@@ -335,9 +368,9 @@ export default function webDavTransportTest(): void {
         .uploadBackup('https://dav.example/file', utf8EncodeText('data'),
           'application/json', version) as Promise<Object>);
       expect(error.kind).assertEqual(WebDavErrorKind.CONTENT_CONFLICT);
-      expect(executor.calls.length).assertEqual(4);
-      expect(executor.calls[3].method).assertEqual('DELETE');
-      expect(executor.calls[3].url.startsWith('https://dav.example/file.tmp-')).assertTrue();
+      expect(executor.calls.length).assertEqual(5);
+      expect(executor.calls[4].method).assertEqual('DELETE');
+      expect(executor.calls[4].url.startsWith('https://dav.example/file.tmp-')).assertTrue();
     });
   });
 

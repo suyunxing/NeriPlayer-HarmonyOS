@@ -9,6 +9,7 @@ export enum WebDavErrorKind {
   FILE_NOT_FOUND = 'file_not_found',
   CONTENT_CONFLICT = 'content_conflict',
   MISSING_CONCURRENCY_TOKEN = 'missing_concurrency_token',
+  UNSUPPORTED_ARCHIVE_PROTOCOL = 'unsupported_archive_protocol',
   NETWORK = 'network',
   API = 'api'
 }
@@ -83,6 +84,9 @@ export function describeWebDavErrorForUser(error: Error): string {
     }
     if (error.kind === WebDavErrorKind.CONTENT_CONFLICT) {
       return '远端文件已被其他设备修改，请重新拉取后同步';
+    }
+    if (error.kind === WebDavErrorKind.UNSUPPORTED_ARCHIVE_PROTOCOL) {
+      return error.message;
     }
     if (error.kind === WebDavErrorKind.NETWORK) {
       return `网络错误：${error.message}`;

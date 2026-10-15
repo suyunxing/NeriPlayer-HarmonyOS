@@ -18,6 +18,7 @@ export enum GitHubErrorKind {
   REPO_NOT_FOUND = 'repo_not_found',
   CONTENT_CONFLICT = 'content_conflict',
   RATE_LIMITED = 'rate_limited',
+  UNSUPPORTED_ARCHIVE_PROTOCOL = 'unsupported_archive_protocol',
   NETWORK = 'network',
   API = 'api'
 }
