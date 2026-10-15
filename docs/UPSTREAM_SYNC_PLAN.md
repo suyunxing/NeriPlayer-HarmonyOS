@@ -1,6 +1,8 @@
-# 上游增量分析与移植规划（2026-10-10）
+# 上游增量分析与移植规划（2026-10-10 初版；2026-10-15 第二轮维护）
 
 本文是 Android 上游（`github.com/cwuom/NeriPlayer`，master）相对鸿蒙移植基线的**全量增量分析**，产出待办清单与执行波次规划。数据来源：GitHub REST API 匿名拉取（2026-10-10，master 末次推送 2026-10-08 23:38）；鸿蒙侧现状经 5 项只读代码核查（2026-10-10，静态走查，非设备验证）。
+
+**2026-10-15 第二轮维护**：重拉上游确认 §6 三个在途 PR（#506/#507/#508）已全部合并（#506 于 2026-10-10、#508 于 2026-10-12、#507 于 2026-10-13）；随后上游又新合入 #510/#516/#519/#522/#523/#524/#526（master HEAD `5c6aca42d`，2026-10-14）。本轮按 §0 三分工把这批增量归入 §3.3/§4/§5/§6，均只做元数据归类，**未做鸿蒙侧代码核查**（标「待审计」）。
 
 ## 0. 基准与方法
 
@@ -16,12 +18,12 @@
 
 | 类别 | 数量 | 说明 |
 | --- | --- | --- |
-| A-已核查·无同类缺陷 | 9 组 | 队列/随机四修、WebDAV 租约、删除墓碑合并、HLS checkpoint 兼容、下载歌曲远端身份等（§7，防重复审计） |
-| A-已核查·存在缺口 | 8 项 | WebDAV 非原子发布、404 分类、下载目录切换 4 缺口、离线恢复误判、音译无回退、封面编辑无门禁、统计计数口径、粘贴无尺寸防护（§2/§3） |
-| A-待审计 | 14 项 | 伞形 PR 与单点修复的逐项核对（§3.3） |
-| B-功能移植候选 | 13 组 | 评论模块、队列编辑接线、歌词源偏好、网易云写回、一起听增强等（§4） |
+| A-已核查·无同类缺陷 | 10 组 | 队列/随机四修、WebDAV 租约、删除墓碑合并、HLS checkpoint 兼容、下载歌曲远端身份、#508 legacy checkpoint（2026-10-15 复核）等（§7，防重复审计） |
+| A-已核查·存在缺口 | 8 项 | WebDAV 非原子发布、404 分类、下载目录切换 4 缺口、离线恢复误判、音译无回退、封面编辑无门禁、统计计数口径、粘贴无尺寸防护（§2/§3，均已修复） |
+| A-待审计 | 23 项 | 伞形 PR 与单点修复的逐项核对（§3.3；2026-10-15 新增 A-15~A-24 元数据归类） |
+| B-功能移植候选 | 14 组 | 评论模块、队列编辑接线、歌词源偏好、网易云写回、一起听增强、DSP 电台站点等（§4） |
 | C-不计划移植 | 9 组 | USB/DSP/Android Auto/OEM 歌词/CI/Room 迁移等（§5） |
-| D-在途观察 | 3 PR | #506/#507/#508（§6） |
+| D-在途观察 | 4 PR | #511/#525/#527/#528（§6；#506/#507/#508 已合并并重筛完毕） |
 
 ## 2. P0：数据安全与互操作（建议最先排期）
 
@@ -111,7 +113,17 @@ HLS checkpoint 恢复（上游 open PR #508 的 operationId 问题）已核查**
 | A-11 | #351 Continue 区封面解析持久化 | 本地歌单封面解析结果是否落盘，重启是否重算 |
 | A-12 | b623f200/e1ea77be 同步封面映射 | 本地文件引用是否会被错误写进同步的 coverUrls/下载候选 |
 | A-13 | #396 本地媒体加固伞 | 目录扫描的恢复/元数据边界（sidecar 已做，其余逐项对） |
-| A-14 | #487 B站评论分页到底误报 | 随评论模块移植时一并处理（模块未移植，暂无对应面） |
+| A-14 | #487 B站评论分页到底误报 | 已随 F-3 评论模块移植处理（BiliCommentRepository 全零分页与空页未读完按 API 错误抛），核对后销项 |
+| A-15 | #506 `fix(sync): checkpoint merges at the remote observation time` | 同步合并 checkpoint 时间取远端观察时刻——鸿蒙合并基线/冲突重试的时间戳语义是否一致 |
+| A-16 | #506 `fix(local): let a downgraded app re-read the remote instead of blocking on newer sync markers` | 遭遇更高版本同步标记时鸿蒙是否死锁拒绝读取；本地媒体目录扫描遇不可解码条目是否整单失败（#506 同伞 `skip undecodable playlist members`） |
+| A-17 | #506 `fix(player): keep media session metadata publish from killing the service` + `refresh notification lyrics on stock system UI` | AVSession 元数据发布异常是否会击穿播放服务；通知栏歌词刷新（鸿蒙走 AVSession 桌面歌词通道，对照语义即可） |
+| A-18 | #506 `fix(local): load usage, history and traffic stores off the constructor thread` + `stop id3 parsing at frame sizes that overflow the tag` | 数据仓库构造期同步 I/O 是否阻塞 UI 线程；本地 ID3 解析对超大帧尺寸的截断防护 |
+| A-19 | #516 `perf(sync): speed up synchronization and restore startup readiness`（2 提交：加速同步+恢复启动就绪、usage 观察者恢复） | 鸿蒙同步协调器启动路径是否有同类慢启动/观察者丢失面；并行读测试稳定性教训对照 |
+| A-20 | #519 `fix(playback): prevent silent transitions and stale recovery` | 播放状态「静默切换」（无声但状态机认为在播）与陈旧恢复——与 A-3 静默停顿同域，可合并审计 |
+| A-21 | #522 `fix(lyrics): keep loaded lyrics when reopening now playing` | 重开播放页时鸿蒙是否重复请求/闪空歌词（F-2 歌词缓存先行应已覆盖，核对后可销项） |
+| A-22 | #523 `fix(playback,sync): keep Bluetooth disconnects silent and sync with Nutstore`（2 提交） | 蓝牙断连是否触发误暂停/误报错（AVSession 输出切换语义）；迟到扬声器重路由后的二次确认 |
+| A-23 | #524 `fix(sync): sync with WebDAV servers that lack strong ETags (Nutstore)`（2 提交：无强 ETag 同步、未加引号 ETag 条件发布） | **高优先**：鸿蒙 WebDAV 原子发布（5379bf5）依赖条件写/MOVE，坚果云类无强 ETag 服务器上条件校验是否退化失效；If-Match/ETag 引号形态处理 |
+| A-24 | #510 `feat: add optional floating lyric previews and wrapping` | 悬浮歌词预览与换行——鸿蒙走 AVSession 桌面歌词系统能力（M10.2），应用内自绘悬浮窗路线与 OEM 限制一并评估，倾向 C 类 |
 
 ## 4. P2：功能移植候选（基线后上游新增）
 
@@ -132,6 +144,7 @@ HLS checkpoint 恢复（上游 open PR #508 的 operationId 问题）已核查**
 | F-11 | 多步引导/免责流程重做 | 01c57a11 等 | **已完成（2026-10-12，引导部分；免责/阶段机鸿蒙此前已完整）**：上游 9 步（Language/Platforms/PlaybackSources/Permissions/PlaybackControls/Lyrics/Personalize/BackupRestore/LearningGuide）按鸿蒙面裁剪为 **7 步实用向导**——欢迎（应用简介三要点）/外观（深色模式三选+动态取色）/播放源（YouTube 启用+Wi-Fi/蜂窝音质档）/歌词（字号滑杆+翻译/音译开关）/播放器（播放页+歌词页控件大小档）/账号与备份（说明卡+无平台提醒）/开始使用；步进制（按钮主导，弃 Swiper——设置项交互与横滑手势冲突），进度条=上游 calculateStartupOnboardingProgress 直译（(step+1)/7 夹 0..1），全部开关直写既有设置键（与设置页同存储立即生效，深色模式经 AppColorMode.apply 重建主题），账号/备份步只做说明引导（启动门阶段无 Navigation 不能跳设置，上游语义保留入口位置）。纯逻辑 `view/onboarding/StartupOnboardingPolicy.ets`（progress+shouldWarnNoPlatformConnected 两平台版）+3 单测；重写 `OnboardingPage.ets`（复用 Ui.ets ToggleRow/OptionRow/SliderRow，音质空串回退 legacy 键与设置页同规则）。**不移植**：语言步（鸿蒙仅 zh 占位）、权限步（鸿蒙无运行时权限——通知由 AVSession 托管、文件走 picker）、通知权限两次确认警告、docking 搜索条/歌词预览几何/播放器实时预览/主题 reveal 动画/StartupStageTransition 过渡门（上游 1500 行 Extras 特效主体，鸿蒙引导轻量直达）、播放源回退确认。免责页与 StartupPhase 阶段机（Loading→Disclaimer→Onboarding→SafeMode→Main+协议版本门控）此前已完整，本轮不动。codelinter 0/0/0 + assembleHap SUCCESSFUL + 单测编译级 0 error；真机引导流程未验证 | 晚 |
 | F-12 | 桌面卡片（HarmonyOS FormKit，非直接移植 Android widget） | #472 | **已完成（2026-10-12，鸿蒙 Form Kit 独立设计，上游 #472/86ad5f82 仅功能参照）**：① 播放控制卡片 `widget/pages/PlaybackCard.ets`——ArkTS 卡片（@Entry(storage)+@LocalStorageProp，运行于 FRS 进程无 AppStorage/Theme，固定深色样式），2*2+2*4 双规格共用一页自适应布局：封面（formImages fd + memory://key）+歌名/艺人+上一首/播放暂停/下一首；② 控制路径 **call 事件**（官方文档音乐卡片推荐形态）：卡片按钮 postCardAction({action:'call', abilityName:'EntryAbility', method:'playbackCardControl', params:{formId,action}}) 把 singleton UIAbility 拉到后台执行（不弹界面；应用被杀时冷启动 onCreate 内 PlayerManager.initialize 已恢复队列再执行），EntryAbility.onCreate 注册 callee（rpc.Parcelable 应答）→ PlaybackCardBridge.handleControlCall（toggle/prev/next 纯参数解析）→ 播放状态机变化经 listener 再推卡片；③ 数据流 **updateForm 主动推送**（官方 FAQ：主动刷新无次数限制，三方应用禁止秒级刷新）：PlaybackCardBridge 监听 PlayerListener.onSnapshotChanged（切歌/暂停级频率，重入合并）→ formProvider.getPublishedRunningFormInfos() 拉活表 formId（16500100 无卡片静默）逐个推送 + 快照 JSON 落 cacheDir 纯文件（form 进程 preferences 单进程不可共享）供 EntryFormAbility.onAddForm 回放最新态；封面 URL 变化时 http 整包下载 cacheDir 覆盖写、formImages key 按代数换代（同 key 不刷新）、fd 用后关闭防累积；④ 配置——module.json5 新 EntryFormAbility（type form+metadata ohos.extension.form）、form_config.json（2*2/2*4、updateEnabled:false 纯主动推送、isDefault 必填）、4 新字符串；点击卡片主体 router 事件打开应用。⑤ 纯逻辑 `widget/PlaybackCardState.ets`（快照 fromSong/JSON 往返/payload 构造含无歌回退/coverKey 换代/call 参数解析）+5 单测。**不移植**（上游 Android widget 特性）：4*1 规格（鸿蒙无此尺寸）、进度文本/进度条（三方应用秒级刷新被官方明令禁止）、收藏与悬浮歌词开关按钮（鸿蒙无悬浮歌词；收藏态需跨进程查询成本高，列为后续候选）、升级后自动刷新（MY_PACKAGE_REPLACED 语义，鸿蒙无对应）、响应式尺寸计算族。codelinter 6 文件 0/0/0 + assembleHap SUCCESSFUL + 单测编译级 0 error；**桌面加卡/控制/推送全链路真机未验证**（本机无设备，卡片行为须真机：加卡显示、后台控制不弹界面、冷启动 call 路径、封面刷新） | 晚 |
 | F-13 | 杂项 polish：MiniPlayer 字号自适应(#357)、波形进度预测(#337)、播放控制布局定制(2644267f)、歌词翻译行距 kana 检测(15f07073)、翻译折叠(#392) | **已完成（2026-10-11）**：①kana 检测行距 + 同时间戳翻译折叠（2026-10-10，commit 50ec7a1，6 单测）；②MiniPlayer 字号封顶（#357/b6911607）——`MiniPlayerTextSizing.resolveTextAutoSizeRange` 直译 + EntryAbility 播种 `systemFontScale`（Configuration.fontSizeScale，onCreate/onConfigurationUpdate），标题按 24vp 视觉行高封顶（跑马灯承接超宽）、副行 min/maxFontSize 向下自适应（下限 9 视觉字号），6 单测；③波形进度预测（#337/bc4142bc）——`WaveProgressPredictor` 直译（ms 时钟），positionMs 500ms 发布间隙由本地时钟外推，真实发布重锚、加载/拖动预览停预测、速率含一起听同步率，6 单测；④播放控件大小档位（2644267f 的 size 部分）——`PlaybackControlSizing`（小 0.9/中 1.0/大 1.2，按钮 40vp 触控下限/图标 18vp 下限 + resolveMainControlsLayout 窄宽同比压缩），`np.nowplaying_control_size`（顶栏/传输行/底部工具行）与 `np.lyric_control_size`（歌词页胶囊）两键 + 设置页播放分区两行，7 单测。**位置三档（中下/贴底/贴底含进度）不移植**：鸿蒙播放页控制区自始贴底（Swiper 吃掉弹性空间），无「中下」形态可切换。codelinter 0 缺陷 + assembleHap 成功 + 单测编译级 0 error（2026-10-11）；UI 交互待真机 | — | 完结 |
+| F-14 | DSP/桌面电台站点（音乐电台聚合站接入） | #526（feat(site): add DSP and desktop stations） | **待立项（2026-10-15 元数据归类，未核查）**：上游新增 DSP 电台与桌面电台站点支持。需先拉上游源码确认为哪个站点、协议形态（是否自有 API/网页抓取），再对照鸿蒙适配器层评估；依赖网络适配器扩展，与 #511 Subsonic 同属「新增音源」波次 | 晚（新增音源波次） | 低 |
 
 已在鸿蒙独立完成、上游同类改动仅作对照（不立项）：音量淡入(#313，鸿蒙默认开属有意偏离)、跑马灯(91e674c0/466b6dff)、动态取色(2dc63b97/f0c0b64c)、.lrc 伴生歌词(#343/#323 已覆盖主路径，翻译伴生文件可并入 F-2)、平板适配(#493，鸿蒙方案独立)、桌面歌词（走 AVSession 系统能力，M10.2）。
 
@@ -150,11 +163,20 @@ HLS checkpoint 恢复（上游 open PR #508 的 operationId 问题）已核查**
 | OnePlus 缩放/高刷新率等设备特调 | b3e03fd1/d5959892 等 | Android 设备碎片化适配 |
 | Android 玻璃/overscroll/主题动效细节 | #306/#308/#311/overscroll 系列 | 鸿蒙有 HDS 光感体系，自成一派 |
 
-## 6. 在途 PR 观察（合并后再筛）
+## 6. 在途 PR 观察（2026-10-15 复核）
 
-- **#506**（open，258 提交/580 文件）：稳定性大杂烩——下载看门狗（f16c8ac39）、SAF 双后缀修复（f6e246a52）、同步/一起听修复、通知栏歌词（3a3f97c7c）、预测返回、平板 polish。合并后按 §0 规则重筛一遍，下载看门狗/双后缀与鸿蒙下载引擎可对照。
-- **#507**（open）：歌词翻译匹配容差——并入 F-2 歌词波次跟踪。
-- **#508**（open）：legacy HLS checkpoint 续传——已核查鸿蒙无此问题，关闭观察。
+**原观察项已全部合并并重筛完毕**（2026-10-15 第二轮维护）：
+
+- ~~**#506**~~（已合并 2026-10-10，258 提交）：重筛结论——大部分为 Android 侧重构/test/USB/平板/预测返回（C 类不适用）；修复类已拆入 §3.3 审计项 A-15/A-16/A-17/A-18；`fix(sync): checkpoint merges at the remote observation time` 与统计 journal 归属 §2.1 顺带核对范围。
+- ~~**#507**~~（已合并 2026-10-13，2 提交：翻译匹配容差 + 翻译槽位保留与匹配扫描上限）：拆入 §3.3 新增审计项（与 F-2 歌词域合并核对——鸿蒙 SongMatchScorer 已有 ±8s 容差，核对翻译行匹配路径是否有同等守卫与扫描上限）。
+- ~~**#508**~~（已合并 2026-10-12）：§7.5 已核查鸿蒙无此缺陷，关闭观察。
+
+**当前在途（open，合并后再筛）**：
+
+- **#511**（feat(subsonic): 接入 Navidrome 账号、媒体库与基础播放）：全新音源（Subsonic API），合并后与 F-14 同属「新增音源」波次评估。
+- **#525**（feat(home): 新增 Bilibili 音乐榜与音乐热门首页模块）：B 站首页推荐区扩展，合并后对照鸿蒙首页推荐/雷达歌单区块（F-5）评估。
+- **#527**（feat(local): match and embed lyrics and artwork for local songs in batch）：本地歌批量匹配并内嵌歌词/封面——鸿蒙本地媒体无 ID3 写回设施，倾向 C 类，待合并后确认。
+- **#528**（fix(audio): keep speaker optimization behind the effects master switch）：扬声器优化门控，属 Android 音频特调，倾向 C 类。
 
 ## 7. 已核查确认无需行动的记录（2026-10-10，防重复审计）
 
@@ -162,7 +184,7 @@ HLS checkpoint 恢复（上游 open PR #508 的 operationId 问题）已核查**
 2. **WebDAV LOCK 租约**（#491/#495 锁清理部分）：鸿蒙不用 LOCK，乐观条件写+指纹复核+冲突重试已完备。
 3. **歌单/usage 删除墓碑与合并稳定性**（#350/37fbf74b）：墓碑+causal token+确定性比较器已实现，测试充分（undo 未移植属 F-10 候选）。
 4. **「最后同步时间」播放期间刷新**（#480）：自动同步成功即刷新；鸿蒙侧该时间甚至无 UI 展示位（可作 F-8 顺带小改进）。
-5. **HLS checkpoint 向前兼容**（#508）：纯内容派生键（playlistFingerprint+字节数），与 Android 基线同构，无 id 门禁。
+5. **HLS checkpoint 向前兼容**（#508）：纯内容派生键（playlistFingerprint+字节数），与 Android 基线同构，无 id 门禁。**2026-10-15 复核**：#508（legacy checkpoint 无 operationId 续传）合并后确认鸿蒙 checkpoint 键不含 operationId，无此缺陷，关闭观察。
 6. **已下载歌曲保留远端身份**（fc013a94）：sourceStableKey 回链已实现且有跨端单测。
 7. **载荷校验入库口**（#499 相关）：isPlausibleAudioHead + filler 扫描挂满三个入库口。
 8. **本地 AAC/MP3 播放**（#469）：鸿蒙 5400106 系列（fdSrc 直赋）已修，标记待真机复核即可。
@@ -173,7 +195,7 @@ HLS checkpoint 恢复（上游 open PR #508 的 operationId 问题）已核查**
 `NeriPlayer-master/` 停在基线 `d66d465f`。移植 §4 任一功能前需上游源码作行为参照，二选一：
 
 - **方案 a（推荐）**：单项移植时临时 `git fetch upstream` 到工作区外目录读取对应模块，任务记录中注明 commit SHA（不动 `NeriPlayer-master/` 快照）；
-- **方案 b**：一次性把快照升到指定 commit（建议等 #506 合并后选稳定点），按 AGENTS.md 记录 SHA/日期/许可证，并重跑快照只读性检查。
+- **方案 b**：一次性把快照升到指定 commit，按 AGENTS.md 记录 SHA/日期/许可证，并重跑快照只读性检查。**2026-10-15 更新**：原建议的「等 #506 合并」条件已满足（#506 已于 2026-10-10 合并），可随时选稳定点（建议 `5c6aca42d`，2026-10-14）执行升级，作为独立任务立项。
 
 快照升级本身是独立任务，不与功能移植混做。
 
