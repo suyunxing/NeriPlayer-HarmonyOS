@@ -66,6 +66,7 @@ import syncDeletionStoreTest from './ets/test/SyncDeletionStore.test';
 import githubErrorsTest from './ets/test/GitHubErrors.test';
 import githubTransportTest from './ets/test/GitHubTransport.test';
 import webDavTransportTest from './ets/test/WebDavTransport.test';
+import upstreamArchiveGuardTest from './ets/test/UpstreamArchiveGuard.test';
 import syncCoordinatorTest from './ets/test/SyncCoordinator.test';
 import syncLocalMetadataTest from './ets/test/SyncLocalMetadata.test';
 import syncTombstonePropagationTest from './ets/test/SyncTombstonePropagation.test';
@@ -164,6 +165,7 @@ export default function testsuite(): void {
   githubErrorsTest();
   githubTransportTest();
   webDavTransportTest();
+  upstreamArchiveGuardTest();
   syncCoordinatorTest();
   syncLocalMetadataTest();
   syncTombstonePropagationTest();

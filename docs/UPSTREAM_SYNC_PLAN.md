@@ -2,7 +2,7 @@
 
 本文是 Android 上游（`github.com/cwuom/NeriPlayer`，master）相对鸿蒙移植基线的**全量增量分析**，产出待办清单与执行波次规划。数据来源：GitHub REST API 匿名拉取（2026-10-10，master 末次推送 2026-10-08 23:38）；鸿蒙侧现状经 5 项只读代码核查（2026-10-10，静态走查，非设备验证）。
 
-**2026-10-15 第二轮维护**：重拉上游确认 §6 三个在途 PR（#506/#507/#508）已全部合并（#506 于 2026-10-10、#508 于 2026-10-12、#507 于 2026-10-13）；随后上游又新合入 #510/#516/#519/#522/#523/#524/#526（master HEAD `5c6aca42d`，2026-10-14）。本轮按 §0 三分工把这批增量归入 §3.3/§4/§5/§6，均只做元数据归类，**未做鸿蒙侧代码核查**（标「待审计」）。
+**2026-10-15 第二轮维护**：重拉上游确认 §6 三个在途 PR（#506/#507/#508）已全部合并（#506 于 2026-10-10、#508 于 2026-10-12、#507 于 2026-10-13）；随后上游又新合入 #510/#516/#519/#522/#523/#524/#526（master HEAD `5c6aca42d`，2026-10-14）。本轮按 §0 三分工把这批增量归入 §3.3/§4/§5/§6，均只做元数据归类，**未做鸿蒙侧代码核查**（标「待审计」）。**同日完成 §2.1 ZSTD v4 spike + 最小防护**（P0 全清）：上游归档布局源码级确认、鸿蒙 zstd 路径评估、双后端 manifest 探测拒绝同步已落地，详见 §2.1。
 
 ## 0. 基准与方法
 
@@ -18,14 +18,16 @@
 
 | 类别 | 数量 | 说明 |
 | --- | --- | --- |
-| A-已核查·无同类缺陷 | 10 组 | 队列/随机四修、WebDAV 租约、删除墓碑合并、HLS checkpoint 兼容、下载歌曲远端身份、#508 legacy checkpoint（2026-10-15 复核）等（§7，防重复审计） |
+| A-已核查·无同类缺陷 | 11 组 | 队列/随机四修、WebDAV 租约、删除墓碑合并、HLS checkpoint 兼容、下载歌曲远端身份、#508 legacy checkpoint、统计 journal 上限（2026-10-15 §2.1⑤）等（§7，防重复审计） |
 | A-已核查·存在缺口 | 8 项 | WebDAV 非原子发布、404 分类、下载目录切换 4 缺口、离线恢复误判、音译无回退、封面编辑无门禁、统计计数口径、粘贴无尺寸防护（§2/§3，均已修复） |
-| A-待审计 | 23 项 | 伞形 PR 与单点修复的逐项核对（§3.3；2026-10-15 新增 A-15~A-24 元数据归类） |
+| A-待审计 | 25 项 | 伞形 PR 与单点修复的逐项核对（§3.3；2026-10-15 新增 A-15~A-25 元数据归类） |
 | B-功能移植候选 | 14 组 | 评论模块、队列编辑接线、歌词源偏好、网易云写回、一起听增强、DSP 电台站点等（§4） |
 | C-不计划移植 | 9 组 | USB/DSP/Android Auto/OEM 歌词/CI/Room 迁移等（§5） |
 | D-在途观察 | 4 PR | #511/#525/#527/#528（§6；#506/#507/#508 已合并并重筛完毕） |
 
 ## 2. P0：数据安全与互操作（建议最先排期）
+
+> **2026-10-15：本节全部完成**——§2.2 WebDAV 原子发布与错误分类（5379bf5）、§2.3 下载目录切换六缺口（2a072b0）、§2.1 ZSTD v4 spike + 最小防护（本轮）；余下仅真机验证积压。
 
 ### 2.0 人话速览（非技术向）
 
@@ -46,14 +48,27 @@ NeriPlayer 有个备份同步功能：把你的歌单、播放历史打包存到
 
 ### 2.1 同步格式 ZSTD v4 互操作 spike（上游 #475，`feat!` 破坏性）
 
-上游把同步格式升级为 **ZSTD 归档（v4）**，含协议升级审批绑定同步目标与内容指纹、遗留数据保全（歌词/统计/无损 v4）、归档工作区回收、WebDAV 发布对账。鸿蒙侧现状（已核查）：只写 JSON / GZIP(Protobuf)，读 JSON / gzip-proto / legacy Base64(proto)，**全仓无任何 ZSTD 代码**；WebDAV 固定文件名 `neriplayer-sync.json`，GitHub 侧按 `backup.json`/`backup-raw.bin`/`backup.bin` 候选回退读取（`sync/SyncDataJsonCodec.ets:1665-1763`、`sync/github/GitHubSyncClient.ets:27-72`）。
+**状态：spike 已完成（2026-10-15，含最小防护落地）**。调研基于上游 master `5c6aca42d`（#475 squash `ce75d95c`，v3/v4 归档栈同 PR 引入；鸿蒙基线无任何归档代码）。
 
-- 风险：Android 新版与鸿蒙共用同一 WebDAV/GitHub 备份仓库时可能互不可读（具体取决于上游 v4 的文件名与容器细节，未核实）。
-- 行动（调研 spike，不动代码）：
-  1. 拉上游 #475 合并后源码，确认 v4 归档的文件名、容器结构、嗅探策略、旧格式读取回退顺序；
-  2. 评估鸿蒙侧 ZSTD 解压路径：SDK 无 zstd API，选项为纯 ArkTS 解码器（zstd 解压复杂度高）或 native 模块（工程当前无 native 依赖）或「只保证写旧格式 + 读 v4 元数据识别并提示」的降级方案；
-  3. 结论回填本文档并单独立项。
-- 顺带核对 #475 内 `fix(player): bound the durable playback statistics journal`（统计 journal 上限）与 `fix(sync): preserve concurrent usage changes and lyric match state`（并发 usage 变更与歌词匹配态保全）在鸿蒙的对应面。
+**① v4 归档格式（源码级确认）**：
+
+- 远端布局：入口固定名 **`neriplayer-sync-v3.manifest`**（v4 内容也写这个文件名，靠魔数区分版本）；数据为内容寻址对象 `neriplayer-sync-v3-<sha256>.zst` / `neriplayer-sync-v4-<sha256>.zst`，经 chunk 树（index 叶节点）组织。
+- 容器：manifest 信封 = 8B 魔数（`NPSYNC03`/`NPSYNC04`）+ 4B rawSize + 32B SHA-256(压缩体) + zstd 压缩的 protobuf manifest（level 6、windowLog 20、帧校验和开）。v4 manifest 内嵌 original(v3 manifest) + main/legacy/pool 三条 compact 流（windowLog 22），带压缩前后双层哈希与 8× 原始体积 budget 校验。
+- 嗅探：`isManifest` = 前 6 字节 `NPSYNC`；`protocolVersion` 按魔数第 8 字节分流 3/4。
+- 读回退顺序（WebDAV/GitHub 两后端一致）：读 manifest → 仅 404 才读 legacy 文件（WebDAV=配置 URL 默认 `neriplayer-sync.json`；GitHub=`backup.json`/`backup-raw.bin`/`backup.bin` 候选）→ legacy 内容再判魔数，否则走旧解码器（JSON/gzip-proto/Base64-proto）；protocol<4 或 legacy 触发**迁移审批**（绑定同步目标+内容指纹，批准后 `requiresMigrationUpload`）。
+- 写路径：只写 manifest+对象；WebDAV 发布带 lease/指纹复核，GC 只删 `neriplayer-sync-v[34]-*.zst`（ownedPath 正则校验），**legacy 文件永不删除也永不更新**；GitHub 走树提交。
+
+**② 互操作后果（关键风险，已实证）**：Android 一旦把远端升级到归档布局——鸿蒙读旧 `neriplayer-sync.json`/`backup.json` 会拿到**最后一次 legacy 备份的陈旧快照**，合并后写回的文件 Android 不再读取 → 双向静默分叉、鸿蒙侧修改全部丢失。反方向鸿蒙→Android 单向可行（Android 迁移路径可读 legacy JSON），但 Android 升级后回到前述分叉。
+
+**③ 鸿蒙 ZSTD 路径评估**：API 26 SDK **无 zstd 压缩/解压 API**（本地文档实证：zstd 仅作 rcp ContentCoding 字符串常量，压缩 API 只有 zlib=Deflate）；ohpm registry 无 zstd 包（常见名 404）；纯 JS 解码器路线存在（npm `fzstd` 0.1.1，MIT、无 WASM/native，有 pinyin-pro 纯 JS 先例）——但**完整 v4 读支持不止 zstd**：还需 protobuf 解码（manifest/records 流）、chunk 树遍历、compact records pack/unpack、全套 budget/哈希校验、对象缓存与 GC 语义，写侧另需 zstd 压缩 + 内容寻址发布，属独立大项目（暂不排期，待真实跨端同步需求出现）。
+
+**④ 已落地最小防护（2026-10-15，同分支）**：双后端同步前置探测 `neriplayer-sync-v3.manifest`（WebDAV=同目录 GET 探针，挂 `fetchRemoteSnapshot` 与 `verifyRemoteStateForUpload` 两口；GitHub=读 head 上该路径，挂 `fetchRemoteSnapshot`）→ 存在且 `NPSYNC0N` 魔数命中 → 抛新错误类 `UNSUPPORTED_ARCHIVE_PROTOCOL`（两后端错误枚举 + 中文文案「远端是 Android 新版归档同步格式（协议 vN），鸿蒙版暂不支持读写；已阻止同步以避免数据分叉，请使用 Android 端同步该目录/仓库」），杜绝读陈旧快照与写黑洞；纯逻辑 `sync/UpstreamArchiveGuard.ets` + 3 新测试文件场景（fetch/upload 拒绝、魔数嗅探、sibling URL），既有用例按新增探针请求偏移更新。验证：assembleHap 成功 + 单测编译级 0 error + codelinter 改动文件 0 缺陷；**真机对坚果云/GitHub 实际弹提示未验证**。
+
+**⑤ 顺带核对结果**：
+- `fix(player): bound the durable playback statistics journal`（e8953c9e8）：鸿蒙无 durable pending journal 对应面（recordPlay 全量 JSON 落 SchemaStore，400 天/8000 bucket 已封顶），无同类无限增长面，无需行动；listenedMs 崩溃丢失窗口维持 P1-3 已知行为。
+- `fix(sync): preserve concurrent usage changes and lyric match state`（607af71d5）：Android 是持久化进行中 UI 变更重基（pendingWrite/rebase）机制；鸿蒙 usage 走 SchemaStore 单写者，架构不同，是否有同竞态待专项核对 → §3.3 A-25。
+
+原核查记录（2026-10-10）：鸿蒙只写 JSON / GZIP(Protobuf)，读 JSON / gzip-proto / legacy Base64(proto)，全仓无 ZSTD 代码；WebDAV 固定 `neriplayer-sync.json`，GitHub 按 `backup.json`/`backup-raw.bin`/`backup.bin` 回退（`sync/SyncDataJsonCodec.ets`、`sync/github/GitHubSyncClient.ets`）。
 
 ### 2.2 WebDAV 发布原子性与错误分类（上游 #495/#491/#468/#499）
 
@@ -124,6 +139,7 @@ HLS checkpoint 恢复（上游 open PR #508 的 operationId 问题）已核查**
 | A-22 | #523 `fix(playback,sync): keep Bluetooth disconnects silent and sync with Nutstore`（2 提交） | 蓝牙断连是否触发误暂停/误报错（AVSession 输出切换语义）；迟到扬声器重路由后的二次确认 |
 | A-23 | #524 `fix(sync): sync with WebDAV servers that lack strong ETags (Nutstore)`（2 提交：无强 ETag 同步、未加引号 ETag 条件发布） | **高优先**：鸿蒙 WebDAV 原子发布（5379bf5）依赖条件写/MOVE，坚果云类无强 ETag 服务器上条件校验是否退化失效；If-Match/ETag 引号形态处理 |
 | A-24 | #510 `feat: add optional floating lyric previews and wrapping` | 悬浮歌词预览与换行——鸿蒙走 AVSession 桌面歌词系统能力（M10.2），应用内自绘悬浮窗路线与 OEM 限制一并评估，倾向 C 类 |
+| A-25 | #475 内 607af71d5 `preserve concurrent usage changes and lyric match state` | Android usage 持久化进行中的 UI 变更重基（pendingWrite/rebase）；鸿蒙 usage 走 SchemaStore 单写者，是否有同竞态待核对；歌词匹配态部分与 P1-1 matchedLyric 持久化面接近，一并核对 |
 
 ## 4. P2：功能移植候选（基线后上游新增）
 
