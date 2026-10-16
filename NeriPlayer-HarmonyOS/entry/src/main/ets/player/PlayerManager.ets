@@ -40,6 +40,7 @@ import { VolumeFader, FADE_IN_DURATION_MS, FADE_OUT_DURATION_MS } from './Volume
 import { AvPlaylistBridge } from './AvPlaylistBridge';
 import { advanceForceFor, peekNextIndex, shouldPrimeNext } from './AvPlaylistPolicy';
 import { decideLoadFailureAction, LoadFailureAction } from './PlaybackFailurePolicy';
+import { PlaybackStallDetector } from './PlaybackStallPolicy';
 import { PlaybackCacheManager } from './PlaybackCacheManager';
 import {
   resolveSongUrlOrWaitForAuthoritativeStream,
@@ -1614,8 +1615,10 @@ export class PlayerManager {
       if (startPositionMs > 0) {
         try {
           // AVPlayer.seek has no promise overload on API 24; AVPlayer applies
-          // the pending seek before playback starts.
-          player.seek(startPositionMs, media.SeekMode.SEEK_PREV_SYNC);
+          // the pending seek before playback starts. The clamp matters for
+          // restored positions: a stale persisted value past the real stream
+          // end would complete the track the moment playback starts.
+          player.seek(PlayerManager.clampSeekTarget(startPositionMs), media.SeekMode.SEEK_PREV_SYNC);
         } catch (error) {
           const e = error as Error;
           Logger.warn(`seek to restored position failed: ${e.message}`);
@@ -1801,7 +1804,7 @@ export class PlayerManager {
     }
   }
 
-  private static async handleLoadFailure(): Promise<void> {
+  private static async handleLoadFailure(resumeMs: number = 0): Promise<void> {
     if (PlayerManager.failureGeneration === PlayerManager.loadGeneration) {
       return;
     }
@@ -1848,7 +1851,7 @@ export class PlayerManager {
       StreamResolver.invalidateResolvedUrl(song);
       Logger.warn(`Retrying playback with a fresh stream for ${song.displayName} `
         + `(attempt ${PlayerManager.errorAttempts})`);
-      await PlayerManager.loadSong(0, true);
+      await PlayerManager.loadSong(resumeMs, true);
       return;
     }
     if (action === LoadFailureAction.SKIP_NEXT) {
@@ -1965,6 +1968,7 @@ export class PlayerManager {
           // before the play() below starts (same contract as in loadSong).
           player.seek(0, media.SeekMode.SEEK_PREV_SYNC);
           await player.play();
+          PlayerManager.publishStatus(PlaybackStatus.PLAYING);
           return;
         } catch (error) {
           const e = error as Error;
@@ -2055,6 +2059,7 @@ export class PlayerManager {
       }
       try {
         await player.play();
+        PlayerManager.publishStatus(PlaybackStatus.PLAYING);
       } catch (error) {
         const e = error as Error;
         Logger.warn(`native advance play failed: ${e.message}`);
@@ -2122,6 +2127,7 @@ export class PlayerManager {
     PlayerManager.lastTimeMs = timeMs;
     PlayerManager.positionMs = timeMs;
     const now = Date.now();
+    PlayerManager.stallDetector.observe(now, timeMs);
     if (now - PlayerManager.lastPublishMs > 500) {
       PlayerManager.lastPublishMs = now;
       PlayerManager.publishPosition();
@@ -2363,6 +2369,10 @@ export class PlayerManager {
   private static waitingResolve: (() => void) | null = null;
   private static waitingReject: ((reason: Error) => void) | null = null;
   private static waitingTimer: number = -1;
+  // Silent-stall watchdog (audit A-3): detects PLAYING with a frozen
+  // timeUpdate and routes it through the bounded load-failure recovery.
+  private static readonly stallDetector: PlaybackStallDetector = new PlaybackStallDetector();
+  private static stallCheckTimer: number = -1;
 
   private static waitForState(targets: string[], timeoutMs: number = 20000): Promise<void> {
     const player = PlayerManager.player;
@@ -2427,6 +2437,10 @@ export class PlayerManager {
     }
     try {
       await player.play();
+      // Publish immediately: the async stateChange event can lag behind the
+      // resolved play() and the UI would keep showing the old status
+      // (audit A-20, completed->playing silent transition).
+      PlayerManager.publishStatus(PlaybackStatus.PLAYING);
     } catch (error) {
       const e = error as Error;
       Logger.warn(`resumeIfPrepared failed: ${e.message}`);
@@ -2441,8 +2455,38 @@ export class PlayerManager {
     PlayerManager.notify();
   }
 
+  private static updateStallWatchdog(status: PlaybackStatus): void {
+    if (status === PlaybackStatus.PLAYING) {
+      PlayerManager.stallDetector.reset();
+      if (PlayerManager.stallCheckTimer < 0) {
+        PlayerManager.stallCheckTimer = setInterval((): void => {
+          PlayerManager.checkPlaybackStall();
+        }, 5000);
+      }
+      return;
+    }
+    if (PlayerManager.stallCheckTimer >= 0) {
+      clearInterval(PlayerManager.stallCheckTimer);
+      PlayerManager.stallCheckTimer = -1;
+    }
+  }
+
+  private static checkPlaybackStall(): void {
+    if (PlayerManager.status !== PlaybackStatus.PLAYING || PlayerManager.player === null) {
+      return;
+    }
+    if (!PlayerManager.stallDetector.isStalled(Date.now())) {
+      return;
+    }
+    const stallAtMs = Math.max(0, PlayerManager.positionMs);
+    Logger.warn(`PlayerManager: playback stalled (position frozen), recovering from ${stallAtMs}ms`);
+    PlayerManager.stallDetector.reset();
+    void PlayerManager.handleLoadFailure(stallAtMs);
+  }
+
   private static publishStatus(status: PlaybackStatus): void {
     PlayerManager.status = status;
+    PlayerManager.updateStallWatchdog(status);
     AppStorage.setOrCreate(PlaybackConstants.KEY_STATUS, status);
     PlayerManager.publishSessionPlaybackState();
     if (status !== PlaybackStatus.PLAYING && status !== PlaybackStatus.LOADING) {

@@ -1295,10 +1295,12 @@ function readCounterShards(node: JsonValue | undefined): SyncPlaybackCounterShar
   return shards;
 }
 
-function readSyncSong(node: JsonValue | undefined): SyncSong {
+function readSyncSong(node: JsonValue | undefined): SyncSong | null {
   const obj = asObject(node);
   if (obj === null) {
-    return new SyncSong();
+    // Undecodable member (upstream #506 `skip undecodable playlist members`):
+    // drop the entry instead of turning it into an empty ghost song.
+    return null;
   }
   return new SyncSong(
     readIdNumberField(obj, 'id', 0),
@@ -1345,7 +1347,10 @@ function readSyncPlaylist(node: JsonValue | undefined): SyncPlaylist | null {
   }
   const songs: SyncSong[] = [];
   for (const item of songNodes) {
-    songs.push(readSyncSong(item));
+    const song = readSyncSong(item);
+    if (song !== null) {
+      songs.push(song);
+    }
   }
   return new SyncPlaylist(
     readNumberField(obj, 'id', 0),
@@ -1391,7 +1396,10 @@ function readSyncData(root: JsonValue | null): SyncData | null {
     }
     const songs: SyncSong[] = [];
     for (const songItem of songNodes) {
-      songs.push(readSyncSong(songItem));
+      const song = readSyncSong(songItem);
+      if (song !== null) {
+        songs.push(song);
+      }
     }
     favorites.push(new SyncFavoritePlaylist(
       readNumberField(favObj, 'id', 0),
@@ -1419,9 +1427,13 @@ function readSyncData(root: JsonValue | null): SyncData | null {
     if (entryObj === null) {
       continue;
     }
+    const song = readSyncSong(entryObj.get('song'));
+    if (song === null) {
+      continue;
+    }
     recentPlays.push(new SyncRecentPlay(
       readNumberField(entryObj, 'songId', 0),
-      readSyncSong(entryObj.get('song')),
+      song,
       readNumberField(entryObj, 'playedAt', 0),
       readStringField(entryObj, 'deviceId', ''),
       readNumberField(entryObj, 'resumePositionMs', 0)

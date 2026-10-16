@@ -262,7 +262,10 @@ function decodeSyncPlaylist(r: ProtoReader): SyncPlaylist | null {
   for (const nested of f.readers(3)) {
     const song = decodeSyncSong(nested);
     if (song === null) {
-      return null;
+      // Skip undecodable members instead of failing every playlist
+      // (upstream #506 `skip undecodable playlist members`): one corrupt
+      // song entry costs that entry, not the whole snapshot.
+      continue;
     }
     songs.push(song);
   }

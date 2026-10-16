@@ -135,12 +135,14 @@ export default class EntryAbility extends UIAbility {
   }
 
   onForeground(): void {
+    AppStorage.setOrCreate('app_foreground', true);
     // 上游 #359：回前台恢复一起听会话——断线/卡死 CONNECTING 重连，或在连
     // 状态经 ping 探测 + 状态刷新复核（5s 无响应强制重建）。
     ListenTogetherSessionManager.getInstance().onApplicationForegrounded();
   }
 
   onBackground(): void {
+    AppStorage.setOrCreate('app_foreground', false);
     PlayerManager.flushPlaybackStatsAsync();
     PlayerManager.persistNow();
     ListenTogetherSessionManager.getInstance().onApplicationBackgrounded();

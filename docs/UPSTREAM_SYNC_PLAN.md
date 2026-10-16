@@ -20,7 +20,7 @@
 | --- | --- | --- |
 | A-已核查·无同类缺陷 | 16 组 | 队列/随机四修、WebDAV 租约、删除墓碑合并、HLS checkpoint 兼容、下载歌曲远端身份、#508 legacy checkpoint、统计 journal 上限（§7）+ 2026-10-15 审计无缺陷项：A-1/A-2/A-4/A-7/A-10/A-11/A-12/A-14/A-17/A-18b/A-19/A-22/A-23/A-24（§3.3，防重复审计） |
 | A-已核查·存在缺口 | 8 项 | WebDAV 非原子发布、404 分类、下载目录切换 4 缺口、离线恢复误判、音译无回退、封面编辑无门禁、统计计数口径、粘贴无尺寸防护（§2/§3，均已修复） |
-| A-审计完成·确认缺陷 | 8 项 | A-3 停顿 watchdog、A-8 QR 轮询不停、A-9 QR 过期刷新死代码、A-15 本地时钟 checkpoint、A-16b 坏成员整包失败、A-20 静默迁移+陈旧位置、A-21 歌词闪空、A-25 本地读改写竞态（§3.3.1 立项 F-A3~F-A25 待排期） |
+| A-审计完成·确认缺陷 | 8 项 | A-3/A-8/A-15/A-16b/A-20/A-21/A-25 已修复（2026-10-16，§3.3.1 F-A 系标「已完成」）；A-9 复核修正为「双 interval 泄漏」并已修 |
 | A-审计完成·低危残留 | 4 项 | A-5 登录旗标初始化竞态、A-6 HLS 断网覆盖 FAILED、A-13 扫描中断丢 catalog+歌词无上限、A-18a 启动同步 I/O（§3.3.1 低优先立项） |
 | B-功能移植候选 | 1 组 | F-14 DSP/电台站点（待上游源确认）；F-1~F-13 全部完成（§4） |
 | C-不计划移植 | 10 组 | USB/DSP/Android Auto/OEM 歌词/CI/Room 迁移等 + A-24 悬浮歌词（§5） |
@@ -126,7 +126,7 @@ HLS checkpoint 恢复（上游 open PR #508 的 operationId 问题）已核查**
 | A-6 | #312 网络判定 | **主路径无缺陷**：下载引擎主动监听+事件乱序复核（2026-10 已修），同步侧 WorkScheduler 系统级门控+运行前主动查询。残留：HLS 分段重试循环不查 hasNetwork，瞬时断网会把 WAITING_NETWORK 覆盖为 FAILED（failTask 只按 attemptId 守卫不校验状态）→ 立项 F-A6（低，与 P0 §2.3 同域补口） |
 | A-7 | #383 搜索 cookie 策略 | **无同类缺陷**：searchWeapi 登录态优先，风控码（301/50000005）→匿名重试（移除 MUSIC_U 后恢复种子）→legacy 兜底三层齐备，与上游对齐 |
 | A-8 | 37535ea0 QR 轮询后台暂停 | **有缺陷**：QrLoginPanel 与 Netease/BiliWebLoginPage 轮询只在 aboutToDisappear 清除，页面被覆盖/退后台不销毁组件则持续轮询（工程内 onPageHide 零命中）。→ 立项 F-A8 |
-| A-9 | d5435320 网易云 QR 对齐 | **有缺陷（发现新 bug）**：端点/轮询/状态码已对齐官方，但二维码过期自动刷新是死代码——pollOnce 持有 busy=true 时调 createQrSession 而后者入口 `if (this.busy) return`，过期后面板永久停在「正在刷新」只能手点。→ 立项 F-A9（一行级修复） |
+| A-9 | d5435320 网易云 QR 对齐 | **复核修正（2026-10-16 实施时）**：端点/轮询/状态码已对齐官方；原审计所称「过期自动刷新死代码」不成立（createQrSession 实无 busy 门禁，EXPIRED 刷新可用）。真实缺陷是相邻的：`刷新`按钮在创建期间可重入，两个并发 createQrSession 各自 set timerId、后写覆盖前写导致**双轮询 interval 泄漏**。→ 已修（F-A9：入口加 busy 门禁 + EXPIRED 分支先清 busy 再刷新） |
 | A-10 | #389 分享位图 | **无同类缺陷**：LyricShareSheet 直接在组件 Canvas 上绘制、toDataURL 导出，无 PixelMap 生命周期面 |
 | A-11 | #351 封面解析持久化 | **无同类缺陷（结构不同）**：歌单封面是 O(1) getter（首曲 effectiveCoverUrl），Continue 区 picUrl 是播放时落盘快照——本就「落盘不重算」语义 |
 | A-12 | 同步封面污染 | **无同类缺陷**：LOCAL 歌曲整出同步（isLocalSongItem→null）、手填封面门禁仅 LOCAL（#368 已移植）、一起听下载候选走 http/https 主机白名单拒绝本地路径 |
@@ -148,14 +148,14 @@ HLS checkpoint 恢复（上游 open PR #508 的 operationId 问题）已核查**
 
 | 立项号 | 来源 | 缺陷与修复方向 | 优先级 |
 | --- | --- | --- | --- |
-| F-A15 | A-15 | 同步时间基线改「远端观察时刻」（快照 lastModified/HEAD 时刻），至少墓碑与合并基线不再写本地 Date.now()；时钟回拨防护 | 高（数据安全） |
-| F-A25 | A-25 | 本地读-改-写串行化：给 SchemaStore 键级写队列或按仓库存内存态+单飞落盘（上游 pendingWrite/rebase 等价），覆盖统计 flush 并发 | 高（数据安全） |
-| F-A16 | A-16 | proto 解码坏成员 skip 语义（decodeSyncPlaylist 跳过 null 成员继续）；JSON 坏成员跳过而非空歌占位 | 中 |
-| F-A3 | A-3 | 播放停顿 watchdog：playing 态 position 冻结检测（如 15s）→ 静默重缓/重建 player，复用 PlaybackFailurePolicy 决策 | 中 |
-| F-A20 | A-20 | completed→playing 立即 publishStatus；恢复播放位置 clampSeekTarget 到 [0, duration] | 中 |
-| F-A21 | A-21 | 播放页歌词态上移（PlayerManager/全局单例持有最近歌词+内存缓存先行），aboutToAppear 不清空直接展示缓存态 | 中 |
-| F-A8 | A-8 | QR/网页登录轮询挂 onPageHide/onForeground 生命周期（隐藏停、回前重启） | 中（低危） |
-| F-A9 | A-9 | QrLoginPanel 过期刷新死代码：EXPIRED 分支先置 busy=false 或 createQrSession 去 busy 门禁（一行级） | 中（低成本） |
+| F-A15 | A-15 | **已完成（2026-10-16）**：syncGitHub/syncWebDav 的合并 checkpoint 改为「远端观察时刻」（fetch 前 Date.now()），成功即存——同步进行中产生的本地变更 modifiedAt > checkpoint，下次同步必然重新检出，不再被完成时刻的 checkpoint 吞掉；原 `!localChangedDuringSync` 跳存条件随之移除（观察时刻语义下无丢失风险）。**时钟回拨对墓碑比较的深层加固未做**（需远端单调时钟源，观察真机案例再立项） | 高（数据安全） |
+| F-A25 | A-25 | **已完成（2026-10-16）**：新增 `util/KeyedMutex.ets`（键级 promise FIFO 链，拒绝不破链）；PlaybackStatsRepository.recordPlay、UsageRepository.record/remove、HistoryRepository.addSong/replaceFromSync、LocalPlaylistRepository 十个并发暴露面方法（updateSongMetadata/addSong/removeSong/addFavorite/removeFavorite/importSongs/applyMirrorSync/replaceAllFromSync/replaceDeletedTombstones/createOrGetMirrorPlaylist）全部「签名不动、body 移 *Locked + 同键互斥」。**残留**：纯 UI 节奏的改名/删除/撤销等方法未包（同会话双击级竞态，影响极窄） | 高（数据安全） |
+| F-A16 | A-16 | **已完成（2026-10-16）**：proto decodeSyncPlaylist 坏成员 continue（歌单结构损坏仍整包失败，防「歌单消失」被当远端删除传播）；JSON readSyncSong 改返 null，歌单/收藏成员跳过、recentPlays 坏 song 条目跳过（原为空歌占位）；2 新单测（手工 wire 字节注入坏成员 + JSON 注入） | 中 |
+| F-A3 | A-3 | **已完成（2026-10-16）**：纯策略 `PlaybackStallDetector`（15s 阈值、任意位置变化即算活跃、时钟注入，6 单测）+ PlayerManager 接线——PLAYING 态 5s 巡检 interval（publishStatus 起停）、onTimeUpdate 喂样、冻结达阈值经 handleLoadFailure(停顿位置) 复用既有 RETRY_SAME/SKIP_NEXT/STOP 有界恢复并从停顿点续播 | 中 |
+| F-A20 | A-20 | **已完成（2026-10-16）**：resumeIfPrepared/repeat-one REPLAY/native advance 三处 play() 成功后立即 publishStatus(PLAYING)（不等可能滞后的异步 stateChange）；loadSong 恢复位置 seek 过 clampSeekTarget（陈旧持久化位置越过真实流末尾不再瞬时 completed 跳歌） | 中 |
+| F-A21 | A-21 | **已完成（2026-10-16）**：LyricDispatcher 增同步内存 LRU（4 条，peekResolvedLyrics，loadLyricsResolved 全路径记录）；NowPlayingPage.reloadSongData 先 peek 命中直接整行歌词+tracker 占屏（不清空），未命中才走原清空拉取；重开播放页零闪空帧 | 中 |
+| F-A8 | A-8 | **已完成（2026-10-16）**：QrLoginPanel 双通道暂停——app 级 `app_foreground` 旗标（EntryAbility onForeground/onBackground 维护 + @StorageLink@Watch）+ 页面级 SettingsDetailPage HdsNavDestination onHidden/onShown 经 controller.pause/resumePolling；网易云/B 站网页登录页同样挂 onHidden 停轮询/onShown 未返回则重启 | 中（低危） |
+| F-A9 | A-9 | **已完成（2026-10-16，按复核修正后的缺陷）**：createQrSession 入口加 busy 门禁（防「刷新」创建期重入的双 interval 泄漏）+ EXPIRED 分支先清 busy 再刷新（保自动刷新可用）+ 创建中途被暂停则不复活 timer（pollingAllowed 门） | 中（低成本） |
 | F-A5 | A-5 | Netease/BiliCookieRepository.init 等 SettingsRepository.initialize 完成后再写登录旗标 | 低 |
 | F-A6 | A-6 | HLS 分段循环接入 hasNetwork 停车；failTask 校验当前状态不覆盖 WAITING_NETWORK | 低 |
 | F-A13 | A-13 | 扫描 catalog 改合并式（本轮失败保留旧条目）；readSiblingLyric 尺寸上限（如 2MB） | 低 |
