@@ -20,7 +20,7 @@
     <img alt="CI Build" src="https://img.shields.io/badge/CI-Passing-brightgreen?logo=github-actions&logoColor=white" />
   </a>
   <a href="NeriPlayer-HarmonyOS/entry/src/test/">
-    <img alt="Unit Tests" src="https://img.shields.io/badge/Unit%20Tests-1035-success?logo=checkmarx&logoColor=white" />
+    <img alt="Unit Tests" src="https://img.shields.io/badge/Unit%20Tests-1332-success?logo=checkmarx&logoColor=white" />
   </a>
   <img alt="ArkTS" src="https://img.shields.io/badge/Language-ArkTS%20%7C%20ArkUI-orange" />
 </p>
@@ -82,7 +82,7 @@ NeriPlayer for HarmonyOS
 - **尊重隐私与账号安全**：坚决不向第三方平台上传本地播放历史和听歌统计，避免触发流媒体平台的异常登录与行为采样风控。
 - **Stage 纯血单 Ability 架构**：`EntryAbility` 作为统一入口，全界面基于 ArkUI `Navigation` + `NavPathStack` 路由栈组织，实现全屏内容穿透状态栏的顶部与底部沉浸式体验。
 - **启动与恢复链路**：标准启动流程为 `Loading -> Disclaimer -> Onboarding -> Main`；若上次启动异常崩溃，自动进入 `SafeMode` 安全模式防止崩溃循环。
-- **确定性工程测试护栏**：内建 1035 个确定性单元测试（@ohos/hypium；最近一次全量执行 874/874 全绿），严密覆盖下载存储、同步合并、一起听、歌词解析、 播放策略、配置备份与安全模式等关键链路都有对应单元测试或设备测试。
+- **确定性工程测试护栏**：内建 1332 个确定性单元测试（@ohos/hypium；2026-10-16 静态清点，最近一次全量执行为 2026-08-29 的 874/874 全绿），严密覆盖下载存储、同步合并、一起听、歌词解析、 播放策略、配置备份与安全模式等关键链路都有对应单元测试或设备测试。
 
 ---
 
@@ -99,7 +99,7 @@ NeriPlayer for HarmonyOS
 - **断点续传下载**：
   多任务受控并发调度，支持 DIRECT / RANGE（`.part` 偏移与 ETag 校验）与 HLS 分片多级恢复；采用**两阶段事务提交机制**（Staging 临时落盘校验 $\to$ 原子重命名归档 $\to$ 编目更新），彻底杜绝异常中断产生的损坏脏文件；支持脱机环境直读 fd 极速离线音频解码。
 - **双端互通的因果一致性云同步**：
-  与 Android 上游数据协议保持二进制级完全兼容，支持 Protobuf Wire 紧凑流、GZIP 压缩与 JSON 的双向编解码（省流模式上传写 Gzip Protobuf，约 JSON 的 15% 体积）；内置基于逻辑时钟的三路因果合并（Three-way Merge）与删除墓碑（Tombstone）机制，彻底消除“一端删除、另一端同步后又复活”的顽疾；支持 GitHub Git Data API（树/提交/分支原子更新防冲突）与 WebDAV。
+  与 Android 上游数据协议保持二进制级完全兼容，支持 Protobuf Wire 紧凑流、GZIP 压缩与 JSON 的双向编解码（省流模式上传写 Gzip Protobuf，约 JSON 的 15% 体积）；内置基于逻辑时钟的三路因果合并（Three-way Merge）与删除墓碑（Tombstone）机制，彻底消除“一端删除、另一端同步后又复活”的顽疾；支持 GitHub Git Data API（树/提交/分支原子更新防冲突）与 WebDAV。WebDAV 发布走「临时文件 $\to$ 校验 $\to$ MOVE 原子顶替」两阶段流程，传输中断不会留下半个坏备份；同步基线时间取远端观察时刻，同步进行中产生的本地改动必然在下次同步重新检出，不会被完成时刻的检查点吞掉。
 - **「一起听」**：
   自研纯 ArkTS WebSocket 长连接客户端，实时估算网络 RTT 与服务端时钟漂移，动态平滑将端到端时钟对齐压制在 300ms 黄金同步窗口；支持房间主持权流转与受信任直链共享，房主音源直链经权威端点分发，避免听众端触发二次解析风控。
 - **全形态响应式与无障碍关怀**：
@@ -196,7 +196,7 @@ NeriPlayer-HarmonyOS/
 │       │   ├── sync/             # 双向因果云同步、Protobuf/JSON 编解码管线
 │       │   ├── util/             # ColorScience 色彩科学、二维码引擎、断点度量
 │       │   └── view/             # ArkUI 声明式页面、HDS 组件与一镜到底动画
-│       ├── src/test/             # 本地确定性单元测试 (1035 Cases；最近全量执行 874/874)
+│       ├── src/test/             # 本地确定性单元测试 (1332 Cases；最近全量执行 874/874)
 │       └── src/ohosTest/         # 设备端侧集成测试集 (Acts* 真实环境用例)
 ├── docs/                         # 架构规范、协议分析、安全审计与移植进展看板
 ├── build-signed.sh               # Linux 服务端一键构建与 hap-sign-tool 签名脚本
@@ -226,7 +226,7 @@ ohpm install --all
 # 2. 执行 Release 构建 (生成 unsigned HAP)
 hvigorw assembleHap --mode module -p module=entry@default -p product=default -p buildMode=release --no-daemon
 
-# 3. 运行本地单元测试 (1035 测试用例)
+# 3. 运行本地单元测试 (1332 测试用例)
 hvigorw test --mode module -p module=entry@default -p product=default -p buildMode=debug --no-daemon
 ```
 
@@ -289,7 +289,7 @@ cd NeriPlayer-HarmonyOS
 
 | 校验层级 | 工具与框架 | 当前状态 | 覆盖与保障范围 |
 | :--- | :--- | :---: | :--- |
-| **本地单测** | `@ohos/hypium` 1.0.28 | **1035 用例（静态清点；最近一次全量执行 全绿）** | 覆盖同步三路合并、Protobuf/JSON 双向编解码、ColorScience 色彩矩阵、二维码生成器、下载状态机等 |
+| **本地单测** | `@ohos/hypium` 1.0.28 | **1332 用例（2026-10-16 静态清点；最近一次全量执行 全绿）** | 覆盖同步三路合并、Protobuf/JSON 双向编解码、ColorScience 色彩矩阵、二维码生成器、下载状态机等 |
 | **代码规范** | `CodeLinter` | **0 Error 基线** | 严格保障 ArkTS 规范、异步 Promise 处理机制与资源引用安全 |
 | **设备端测** | `ohosTest` + `aa test` | **50+ 项设备用例** | AVPlayer 真实网络取流、Asset 凭据安全存取、长时任务后台保活、断网自愈与异常自愈 |
 | **持续集成** | GitHub Actions | **自动化守护** | push / PR 自动拉起 HarmonyOS API 26 环境执行编译与自动化检查 |
@@ -331,6 +331,7 @@ cd NeriPlayer-HarmonyOS
 
 - 一起听（Listen Together）需自建或已知服务器，客户端直连，不经任何中间服务；
 - 自动同步的后台延迟任务为系统机会主义调度（≥2 小时、受应用活跃分组影响），前台另有变更防抖与启动补偿同步兜底（默认关闭，设置→云端与备份开启）；
+- **同步格式兼容边界**：鸿蒙版与 Android 上游的 JSON / GZIP(Protobuf) 备份双向互通；Android 新版（上游 #475 起）已把备份升级为 ZSTD 归档格式，鸿蒙侧暂无 zstd 解压能力，检测到远端为归档格式时会**拒绝同步并提示**（避免读陈旧备份导致两端数据分叉），请改用 Android 端同步该目录/仓库；
 - 切歌交叉渐变与歌词连续扫光为平台/架构限制未实现（已有淡入淡出与字级高亮替代）；本地音乐库目录扫描对用户授权目录的遍历能力待真机复核。
 - B 站收藏页需登录态，未登录时不可用。
 
