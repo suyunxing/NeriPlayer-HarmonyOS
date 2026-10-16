@@ -67,6 +67,8 @@ import githubErrorsTest from './ets/test/GitHubErrors.test';
 import githubTransportTest from './ets/test/GitHubTransport.test';
 import webDavTransportTest from './ets/test/WebDavTransport.test';
 import upstreamArchiveGuardTest from './ets/test/UpstreamArchiveGuard.test';
+import syncAuditFixesTest from './ets/test/SyncAuditFixes.test';
+import playbackStallPolicyTest from './ets/test/PlaybackStallPolicy.test';
 import syncCoordinatorTest from './ets/test/SyncCoordinator.test';
 import syncLocalMetadataTest from './ets/test/SyncLocalMetadata.test';
 import syncTombstonePropagationTest from './ets/test/SyncTombstonePropagation.test';
@@ -166,6 +168,8 @@ export default function testsuite(): void {
   githubTransportTest();
   webDavTransportTest();
   upstreamArchiveGuardTest();
+  syncAuditFixesTest();
+  playbackStallPolicyTest();
   syncCoordinatorTest();
   syncLocalMetadataTest();
   syncTombstonePropagationTest();

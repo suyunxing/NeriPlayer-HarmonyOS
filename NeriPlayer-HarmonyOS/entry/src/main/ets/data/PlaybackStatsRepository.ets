@@ -2,6 +2,7 @@
 
 import { SchemaStore } from './schema/SchemaStore';
 import { util } from '@kit.ArkTS';
+import { KeyedMutex } from '../util/KeyedMutex';
 import { SyncDeletionStore } from '../sync/SyncDeletionStore';
 import { AutoSyncScheduler } from '../sync/AutoSyncScheduler';
 import {
@@ -26,6 +27,11 @@ export class DailyTrackStats extends TrackStats {
 
 export class PlaybackStatsRepository {
   private static readonly KEY: string = 'playback_stats';
+  // recordPlay is fired from many machine-paced flush points (pause, track
+  // change, foreground/background, teardown); two interleaved
+  // load-stats-modify-save runs lose one increment (audit A-25), so the whole
+  // read-modify-write runs under a per-key FIFO chain.
+  private static readonly WRITE_LOCK: KeyedMutex = new KeyedMutex();
   // Android PlaybackStatsDailyBuckets: a 400-day sliding window plus a hard
   // cap of 8000 (day, song) buckets, so multi-year listening reports survive
   // while the preferences payload stays bounded.
@@ -41,6 +47,11 @@ export class PlaybackStatsRepository {
    * inflate playCount (upstream #499 semantics).
    */
   static async recordPlay(songKey: string, listenMs: number, countPlay: boolean = true): Promise<void> {
+    return PlaybackStatsRepository.WRITE_LOCK.run(PlaybackStatsRepository.KEY,
+      (): Promise<void> => PlaybackStatsRepository.recordPlayLocked(songKey, listenMs, countPlay));
+  }
+
+  private static async recordPlayLocked(songKey: string, listenMs: number, countPlay: boolean): Promise<void> {
     const all = await PlaybackStatsRepository.loadStats();
     const now = Date.now();
     const today = PlaybackStatsRepository.dayKey(now);

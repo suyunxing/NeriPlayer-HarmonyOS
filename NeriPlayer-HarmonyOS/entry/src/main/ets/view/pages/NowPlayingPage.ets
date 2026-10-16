@@ -368,9 +368,19 @@ export struct NowPlayingPage {
     const generation = ++this.lyricsGeneration;
     const song = this.song();
     this.lyricsSongKey = stableKeyOf(song);
-    this.lyrics = [];
-    this.lyricSource = '';
-    LyricLineTracker.getInstance().setLines([]);
+    const remembered = LyricDispatcher.peekResolvedLyrics(song);
+    if (remembered !== null) {
+      // Seed the remembered lyric synchronously so a page reopen never
+      // flashes an empty view; the async resolve below lands on the same
+      // content (audit A-21).
+      this.lyrics = remembered.lines;
+      this.lyricSource = remembered.source;
+      LyricLineTracker.getInstance().setLines(remembered.lines);
+    } else {
+      this.lyrics = [];
+      this.lyricSource = '';
+      LyricLineTracker.getInstance().setLines([]);
+    }
     // matched* lyrics from「匹配歌曲信息」(manual sheet or the automatic
     // matcher) need no audioId — the dispatcher resolves them before any
     // platform branch, which is how local songs get lyrics at all.

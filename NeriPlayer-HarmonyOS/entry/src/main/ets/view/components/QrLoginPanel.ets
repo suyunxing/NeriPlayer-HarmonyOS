@@ -34,6 +34,10 @@ export class QrLoginPanelController {
   };
   close: () => void = () => {
   };
+  pausePolling: () => void = () => {
+  };
+  resumePolling: () => void = () => {
+  };
 }
 
 /**
@@ -63,9 +67,14 @@ export struct QrLoginPanel {
   @State status: string = '';
   @State busy: boolean = false;
   @State matrix: QrMatrix | null = null;
+  // App-background pause (audit A-8): polling only makes sense while the
+  // user can actually look at the QR code.
+  @StorageLink('app_foreground') @Watch('onAppForegroundChanged')
+  appForeground: boolean = true;
 
   private session: QrLoginSessionRef | null = null;
   private timerId: number = -1;
+  private pollingAllowed: boolean = true;
   private canvasCtx: CanvasRenderingContext2D =
     new CanvasRenderingContext2D(new RenderingContextSettings(true));
 
@@ -76,6 +85,12 @@ export struct QrLoginPanel {
       };
       this.controller.close = (): void => {
         this.cancel();
+      };
+      this.controller.pausePolling = (): void => {
+        this.pausePolling();
+      };
+      this.controller.resumePolling = (): void => {
+        this.resumePolling();
       };
     }
   }
@@ -94,6 +109,9 @@ export struct QrLoginPanel {
   }
 
   private async createQrSession(): Promise<void> {
+    if (this.busy) {
+      return;
+    }
     this.busy = true;
     this.stopPolling();
     try {
@@ -102,6 +120,10 @@ export struct QrLoginPanel {
       this.matrix = encodeQr(session.qrContent).matrix;
       this.status = this.scanHint;
       this.drawQr();
+      if (!this.pollingAllowed) {
+        this.busy = false;
+        return;
+      }
       this.timerId = setInterval(() => {
         this.pollOnce();
       }, this.pollIntervalMs);
@@ -137,6 +159,9 @@ export struct QrLoginPanel {
       } else if (outcome.code === QrPollOutcomeCode.EXPIRED) {
         this.status = this.expiredText;
         this.stopPolling();
+        // Release the poll's busy flag first: the refresh below re-enters
+        // createQrSession, whose busy gate would otherwise no-op it.
+        this.busy = false;
         this.createQrSession();
       }
     } catch (error) {
@@ -144,6 +169,28 @@ export struct QrLoginPanel {
       this.status = `轮询失败：${e.message}`;
     }
     this.busy = false;
+  }
+
+  onAppForegroundChanged(): void {
+    if (this.appForeground) {
+      this.resumePolling();
+    } else {
+      this.pausePolling();
+    }
+  }
+
+  pausePolling(): void {
+    this.pollingAllowed = false;
+    this.stopPolling();
+  }
+
+  resumePolling(): void {
+    this.pollingAllowed = true;
+    if (this.panelOpen && this.session !== null && this.timerId < 0) {
+      this.timerId = setInterval(() => {
+        this.pollOnce();
+      }, this.pollIntervalMs);
+    }
   }
 
   private stopPolling(): void {
