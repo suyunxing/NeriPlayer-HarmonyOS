@@ -16,6 +16,11 @@ import { encodeBase64 } from '../../util/Base64';
 import { utf8Decode, utf8EncodeText } from '../SyncDataJsonCodec';
 import { sha256ByteArray } from '../SyncModels';
 import {
+  UPSTREAM_ARCHIVE_MANIFEST_FILE_NAME,
+  describeUpstreamArchiveProtocolForUser,
+  upstreamArchiveProtocolVersion
+} from '../UpstreamArchiveGuard';
+import {
   WebDavError,
   WebDavErrorKind,
   classifyWebDavFailure,
@@ -139,6 +144,15 @@ export function buildWebDavRemoteFileUrl(serverUrl: string, basePath: string): s
   return `${buildWebDavCollectionUrl(serverUrl, basePath)}${WEBDAV_REMOTE_FILE_NAME}`;
 }
 
+/** Replaces the last path segment of a file URL (temp names, sibling probes). */
+export function webDavSiblingFileUrl(remoteUrl: string, fileName: string): string {
+  const index = remoteUrl.lastIndexOf('/');
+  if (index < 0) {
+    return `${remoteUrl}/${fileName}`;
+  }
+  return `${remoteUrl.substring(0, index + 1)}${fileName}`;
+}
+
 export class WebDavTransport {
   private readonly executor: WebDavExecutor;
   private readonly authorization: string;
@@ -254,6 +268,7 @@ export class WebDavSyncClient {
   }
 
   async fetchRemoteSnapshot(remoteUrl: string): Promise<WebDavSyncSnapshot | null> {
+    await this.rejectUpstreamArchiveManifest(remoteUrl);
     let remote: WebDavRemoteFileSnapshot;
     try {
       remote = await this.transport.getFileContentStrict(remoteUrl);
@@ -280,6 +295,31 @@ export class WebDavSyncClient {
   }
 
   /**
+   * Upstream #475 archive guard: once Android migrates the collection to the
+   * ZSTD archive layout, the legacy file at `remoteUrl` is never read or
+   * written again by new Android builds — syncing through it would fork the
+   * dataset. Refuse instead of touching the stale legacy file.
+   */
+  private async rejectUpstreamArchiveManifest(remoteUrl: string): Promise<void> {
+    let manifest: WebDavRemoteFileSnapshot;
+    try {
+      manifest = await this.transport.getFileContentStrict(
+        webDavSiblingFileUrl(remoteUrl, UPSTREAM_ARCHIVE_MANIFEST_FILE_NAME));
+    } catch (error) {
+      const e = error as WebDavError;
+      if (e instanceof WebDavError && e.kind === WebDavErrorKind.FILE_NOT_FOUND) {
+        return;
+      }
+      throw e;
+    }
+    const protocol = upstreamArchiveProtocolVersion(manifest.content);
+    if (protocol > 0) {
+      throw new WebDavError(WebDavErrorKind.UNSUPPORTED_ARCHIVE_PROTOCOL, 0,
+        describeUpstreamArchiveProtocolForUser(protocol));
+    }
+  }
+
+  /**
    * Atomic publish (Android upstream #495 semantics): upload to a per-call temp
    * name inside the target collection, verify the remote still matches the
    * version we merged from, then MOVE over the final name so an interrupted
@@ -290,6 +330,22 @@ export class WebDavSyncClient {
     version: WebDavRemoteVersion): Promise<WebDavWriteResult> {
     await this.verifyRemoteStateForUpload(remoteUrl, version);
     const tempUrl = await this.uploadToTempFile(remoteUrl, content, mediaType);
+    // Re-check the archive guard immediately before publishing. WebDAV has no
+    // transaction that could span verify→MOVE, so this cannot be made
+    // strictly atomic; it does shrink the exposure from "the whole payload
+    // transfer" to "the MOVE round-trip". A migration that lands in between
+    // is caught here and the temp file is discarded instead of being
+    // published into a collection the upstream no longer reads.
+    try {
+      await this.rejectUpstreamArchiveManifest(remoteUrl);
+    } catch (error) {
+      await this.transport.tryDeleteFile(tempUrl);
+      const e = error as Error;
+      if (e instanceof Error) {
+        throw e;
+      }
+      throw new WebDavError(WebDavErrorKind.API, 0, 'Unknown WebDAV publish failure');
+    }
     let moveResponse: WebDavResponse;
     try {
       moveResponse = await this.transport.moveFile(tempUrl, remoteUrl, !version.createOnly);
@@ -326,6 +382,7 @@ export class WebDavSyncClient {
       throw new WebDavError(WebDavErrorKind.CONTENT_CONFLICT, 412,
         'WebDAV upload rejected: no fingerprint or concurrency token to verify against');
     }
+    await this.rejectUpstreamArchiveManifest(remoteUrl);
     let remote: WebDavRemoteFileSnapshot;
     try {
       remote = await this.transport.getFileContentStrict(remoteUrl);

@@ -368,13 +368,27 @@ export struct NowPlayingPage {
     const generation = ++this.lyricsGeneration;
     const song = this.song();
     this.lyricsSongKey = stableKeyOf(song);
-    this.lyrics = [];
-    this.lyricSource = '';
-    LyricLineTracker.getInstance().setLines([]);
     // matched* lyrics from「匹配歌曲信息」(manual sheet or the automatic
     // matcher) need no audioId — the dispatcher resolves them before any
     // platform branch, which is how local songs get lyrics at all.
-    if (song.audioId.length > 0 || song.matchedLyric.trim().length > 0) {
+    const canLoadLyrics = song.audioId.length > 0 || song.matchedLyric.trim().length > 0;
+    // The remembered entry is keyed by stable key, not by lyric identity: a
+    // song whose matched lyric was just cleared keeps its old cache hit, and
+    // the resolve below is skipped, so the stale lines would stay forever.
+    const remembered = canLoadLyrics ? LyricDispatcher.peekResolvedLyrics(song) : null;
+    if (remembered !== null) {
+      // Seed the remembered lyric synchronously so a page reopen never
+      // flashes an empty view; the async resolve below lands on the same
+      // content (audit A-21).
+      this.lyrics = remembered.lines;
+      this.lyricSource = remembered.source;
+      LyricLineTracker.getInstance().setLines(remembered.lines);
+    } else {
+      this.lyrics = [];
+      this.lyricSource = '';
+      LyricLineTracker.getInstance().setLines([]);
+    }
+    if (canLoadLyrics) {
       try {
         const result = await LyricDispatcher.loadLyricsResolved(song);
         if (generation !== this.lyricsGeneration) {

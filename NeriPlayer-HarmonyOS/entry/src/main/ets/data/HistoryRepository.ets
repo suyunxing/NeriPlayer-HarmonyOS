@@ -9,6 +9,7 @@ import { SyncDeletionStore } from '../sync/SyncDeletionStore';
 import { AutoSyncScheduler } from '../sync/AutoSyncScheduler';
 import { SyncRecentPlayDeletion, songIdKeyText, syncSongIdentity } from '../sync/SyncModels';
 import { syncSongFromSongItem } from '../sync/SyncSongConvert';
+import { KeyedMutex } from '../util/KeyedMutex';
 
 /** 导出文件的 JSON 载荷（version/app 固定，songs 为 SongItem 数组）。 */
 class HistoryExportPayload {
@@ -23,6 +24,8 @@ class HistoryExportPayload {
  * Recent-play history, mirroring PlayHistoryRepository.
  */
 export class HistoryRepository {
+  // addSong/replaceFromSync are load-modify-save over one store key; serialize (A-25).
+  private static readonly WRITE_LOCK: KeyedMutex = new KeyedMutex();
   private static readonly KEY: string = 'history';
   // 播放历史容量（参考应用 1000 条，FIFO：新纪录插入队头并挤掉最旧的一条）。
   static readonly LIMIT: number = 1000;
@@ -44,6 +47,11 @@ export class HistoryRepository {
   }
 
   static async addSong(song: SongItem): Promise<void> {
+    return HistoryRepository.WRITE_LOCK.run(HistoryRepository.KEY,
+      (): Promise<void> => HistoryRepository.addSongLocked(song));
+  }
+
+  private static async addSongLocked(song: SongItem): Promise<void> {
     const recent = await HistoryRepository.getRecent();
     const key = stableKeyOf(song);
     const filtered = recent.filter((item: SongItem) => stableKeyOf(item) !== key);
@@ -78,6 +86,11 @@ export class HistoryRepository {
   }
 
   static async replaceFromSync(songs: SongItem[]): Promise<void> {
+    return HistoryRepository.WRITE_LOCK.run(HistoryRepository.KEY,
+      (): Promise<void> => HistoryRepository.replaceFromSyncLocked(songs));
+  }
+
+  private static async replaceFromSyncLocked(songs: SongItem[]): Promise<void> {
     const limited = songs.slice(0, HistoryRepository.LIMIT);
     const json = JSON.stringify(limited.map((item: SongItem) => SongItem.fromJson(item.toJson())));
     await SchemaStore.save(HistoryRepository.KEY, json, (value: string) => value);
@@ -159,9 +172,16 @@ export class HistoryRepository {
 
   /** Merges an imported list into local history; returns the merged total. */
   static async importSongs(imported: SongItem[]): Promise<number> {
-    const existing = await HistoryRepository.getRecent();
-    const merged = HistoryRepository.mergeForImport(existing, imported);
-    await HistoryRepository.replaceFromSync(merged);
+    // Read and write must share one lock: a play recorded between the
+    // getRecent() and the save would otherwise be overwritten by the merge
+    // computed from the pre-play snapshot (audit A-25 window).
+    const mergedCount = await HistoryRepository.WRITE_LOCK.run(HistoryRepository.KEY,
+      async (): Promise<number> => {
+        const existing = await HistoryRepository.getRecent();
+        const merged = HistoryRepository.mergeForImport(existing, imported);
+        await HistoryRepository.replaceFromSyncLocked(merged);
+        return merged.length;
+      });
     // 复活的曲目要撤掉它之前「清除记录」留下的同步删除墓碑，否则下一次云同步
     // 会把导入的记录再次删掉（与 addSong 的墓碑清理同一规则）。
     for (const song of imported) {
@@ -170,6 +190,6 @@ export class HistoryRepository {
         await SyncDeletionStore.clearRecentPlayDeletion(syncSongIdentity(syncSong).stableKey());
       }
     }
-    return merged.length;
+    return mergedCount;
   }
 }
