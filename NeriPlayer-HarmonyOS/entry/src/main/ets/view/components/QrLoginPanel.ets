@@ -132,6 +132,11 @@ export struct QrLoginPanel {
       const e = error as Error;
       this.status = `二维码创建失败：${e.message}`;
       promptAction.openToast({ message: '二维码创建失败' });
+      // Never keep polling a session the refresh was meant to replace: the
+      // old handle may still be non-null (e.g. an expired one), and
+      // updatePolling() below would happily restart its interval. Clearing it
+      // leaves the manual 「刷新」 button as the retry entry.
+      this.session = null;
     }
     // The new session is in place (or the creation failed); either way the
     // interval decision now belongs to updatePolling(), which sees the real

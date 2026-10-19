@@ -254,13 +254,22 @@ function decodeSyncSong(r: ProtoReader): SyncSong | null {
 }
 
 /**
- * True when a song payload uses the legacy (pre-mediaUri) schema: tag 8 is a
- * varint `addedAt`, where the current schema has a length-delimited
- * `mediaUri`. A current-schema member that merely fails to decode is not
- * legacy. This probe keeps the skip-undecodable policy from turning a legacy
- * playlist into a "successfully decoded" song-less one, which would suppress
- * the legacy fallback in decodeProtoSyncDataWithLegacyFallback().
+ * True when a song payload uses the legacy (pre-mediaUri) schema. The two
+ * schemas disagree on several fields' wire types, not just tag 8:
+ *
+ *   current varint / legacy length: 9, 14
+ *   current length / legacy varint: 8, 13
+ *
+ * A legacy song may omit tag 8 entirely (no addedAt) while still carrying
+ * tag 9 or 13, so the probe must check every disagreeing field, not just 8.
+ * A current-schema member that merely fails to decode is not legacy. This
+ * probe keeps the skip-undecodable policy from turning a legacy playlist
+ * into a "successfully decoded" song-less one, which would suppress the
+ * legacy fallback in decodeProtoSyncDataWithLegacyFallback().
  */
+const CURRENT_VARINT_SONG_FIELDS: Set<number> = SONG_VARINT;
+const CURRENT_LEN_SONG_FIELDS: Set<number> = SONG_LEN;
+
 function looksLikeLegacySong(reader: ProtoReader): boolean {
   const probe = reader.duplicate();
   while (!probe.atEnd()) {
@@ -270,8 +279,13 @@ function looksLikeLegacySong(reader: ProtoReader): boolean {
     }
     const field = tag >>> 3;
     const wireType = tag & 0x07;
-    if (field === 8) {
-      return wireType === WIRE_VARINT;
+    const currentWantsVarint = CURRENT_VARINT_SONG_FIELDS.has(field);
+    const currentWantsLen = CURRENT_LEN_SONG_FIELDS.has(field);
+    if (currentWantsVarint && wireType !== WIRE_VARINT) {
+      return true;
+    }
+    if (currentWantsLen && wireType !== WIRE_LEN) {
+      return true;
     }
     if (!probe.skip(wireType)) {
       return false;
