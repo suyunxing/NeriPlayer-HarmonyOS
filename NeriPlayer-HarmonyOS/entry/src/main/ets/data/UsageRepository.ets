@@ -2,6 +2,7 @@
 // Ported from the Android upstream project NeriPlayer (github.com/cwuom/NeriPlayer).
 
 import { AppPreferences } from './AppPreferences';
+import { KeyedMutex } from '../util/KeyedMutex';
 import { Logger } from '../app/Logger';
 
 export interface UsageEntry {
@@ -21,6 +22,9 @@ export interface UsageEntry {
 export class UsageRepository {
   private static readonly KEY: string = 'usage_entries';
   private static readonly LIMIT: number = 30;
+  // record/remove are load-modify-save over the same preferences key; run
+  // them under a FIFO chain so concurrent callers cannot lose updates (A-25).
+  private static readonly WRITE_LOCK: KeyedMutex = new KeyedMutex();
 
   static async load(): Promise<UsageEntry[]> {
     const json = await AppPreferences.getString(UsageRepository.KEY, '[]');
@@ -48,6 +52,11 @@ export class UsageRepository {
   }
 
   static async record(entry: UsageEntry): Promise<void> {
+    return UsageRepository.WRITE_LOCK.run(UsageRepository.KEY,
+      (): Promise<void> => UsageRepository.recordLocked(entry));
+  }
+
+  private static async recordLocked(entry: UsageEntry): Promise<void> {
     const entries = await UsageRepository.load();
     const filtered = entries.filter((item: UsageEntry) =>
       !(item.id === entry.id && item.source === entry.source && item.subtype === entry.subtype));
@@ -59,6 +68,11 @@ export class UsageRepository {
   }
 
   static async remove(id: string, source: string, subtype: string): Promise<void> {
+    return UsageRepository.WRITE_LOCK.run(UsageRepository.KEY,
+      (): Promise<void> => UsageRepository.removeLocked(id, source, subtype));
+  }
+
+  private static async removeLocked(id: string, source: string, subtype: string): Promise<void> {
     const entries = await UsageRepository.load();
     const filtered = entries.filter((item: UsageEntry) =>
       !(item.id === id && item.source === source && item.subtype === subtype));
@@ -66,6 +80,11 @@ export class UsageRepository {
   }
 
   static async clear(): Promise<void> {
-    await AppPreferences.putString(UsageRepository.KEY, '[]');
+    // Serialize with record/remove: a clear landing between a record's load
+    // and save would otherwise be undone by that stale list.
+    return UsageRepository.WRITE_LOCK.run(UsageRepository.KEY,
+      async (): Promise<void> => {
+        await AppPreferences.putString(UsageRepository.KEY, '[]');
+      });
   }
 }

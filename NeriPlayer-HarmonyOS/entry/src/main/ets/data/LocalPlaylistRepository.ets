@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0
 
 import { AppPreferences } from './AppPreferences';
+import { KeyedMutex } from '../util/KeyedMutex';
 import { SchemaStore } from './schema/SchemaStore';
 import { SyncPendingState } from './AndroidDataParser';
 import { Playlist, mergePlaylistSongs } from '../model/Playlist';
@@ -120,6 +121,11 @@ export class LocalPlaylistRepository {
   static readonly LOCAL_MUSIC_ID: string = 'local_music';
   private static readonly KEY: string = 'playlists';
   private static readonly DELETED_KEY: string = 'playlists.deleted';
+  // Load-modify-save over the whole playlist store runs under one FIFO chain:
+  // machine-paced writers (AVSession favorite toggle, async lyric-match
+  // write-back, sync-coordinator applies) can otherwise interleave with UI
+  // edits and one side's change is silently lost (audit A-25).
+  private static readonly WRITE_LOCK: KeyedMutex = new KeyedMutex();
 
   static parseJson(json: string): Playlist[] | null {
     const rawList = JSON.parse(json) as Object[];
@@ -169,6 +175,11 @@ export class LocalPlaylistRepository {
   }
 
   static async replaceDeletedTombstones(tombstones: LocalPlaylistTombstone[]): Promise<void> {
+    return LocalPlaylistRepository.WRITE_LOCK.run(LocalPlaylistRepository.KEY,
+      (): Promise<void> => LocalPlaylistRepository.replaceDeletedTombstonesLocked(tombstones));
+  }
+
+  private static async replaceDeletedTombstonesLocked(tombstones: LocalPlaylistTombstone[]): Promise<void> {
     await AppPreferences.putString(LocalPlaylistRepository.DELETED_KEY, JSON.stringify(tombstones));
   }
 
@@ -197,12 +208,22 @@ export class LocalPlaylistRepository {
 
   /** Applies a merged remote snapshot without creating another pending marker. */
   static async replaceAllFromSync(playlists: Playlist[]): Promise<void> {
+    return LocalPlaylistRepository.WRITE_LOCK.run(LocalPlaylistRepository.KEY,
+      (): Promise<void> => LocalPlaylistRepository.replaceAllFromSyncLocked(playlists));
+  }
+
+  private static async replaceAllFromSyncLocked(playlists: Playlist[]): Promise<void> {
     const json = JSON.stringify(playlists.map((item: Playlist) => Playlist.fromJson(item.toJson())));
     await SchemaStore.save(LocalPlaylistRepository.KEY, json, (value: string) => value);
     LocalPlaylistRepository.invalidateFavoriteKeys();
   }
 
   static async ensureFavorites(): Promise<Playlist> {
+    return LocalPlaylistRepository.WRITE_LOCK.run(LocalPlaylistRepository.KEY,
+      (): Promise<Playlist> => LocalPlaylistRepository.ensureFavoritesLocked());
+  }
+
+  private static async ensureFavoritesLocked(): Promise<Playlist> {
     const playlists = await LocalPlaylistRepository.loadAll();
     const existing = playlists.find((item: Playlist) => item.id === LocalPlaylistRepository.FAVORITES_ID);
     if (existing !== undefined) {
@@ -231,6 +252,11 @@ export class LocalPlaylistRepository {
   }
 
   static async createPlaylist(name: string): Promise<Playlist> {
+    return LocalPlaylistRepository.WRITE_LOCK.run(LocalPlaylistRepository.KEY,
+      (): Promise<Playlist> => LocalPlaylistRepository.createPlaylistLocked(name));
+  }
+
+  private static async createPlaylistLocked(name: string): Promise<Playlist> {
     const playlists = await LocalPlaylistRepository.loadAll();
     const playlist = new Playlist(`local_${Date.now()}`, name, MusicPlatform.LOCAL);
     playlists.unshift(playlist);
@@ -246,6 +272,15 @@ export class LocalPlaylistRepository {
     name: string,
     songs: SongItem[],
     source: MusicPlatform = MusicPlatform.LOCAL
+  ): Promise<Playlist> {
+    return LocalPlaylistRepository.WRITE_LOCK.run(LocalPlaylistRepository.KEY,
+      (): Promise<Playlist> => LocalPlaylistRepository.createPlaylistWithSongsLocked(name, songs, source));
+  }
+
+  private static async createPlaylistWithSongsLocked(
+    name: string,
+    songs: SongItem[],
+    source: MusicPlatform
   ): Promise<Playlist> {
     const playlists = await LocalPlaylistRepository.loadAll();
     const playlist = new Playlist(`local_${Date.now()}`, name, source);
@@ -265,6 +300,11 @@ export class LocalPlaylistRepository {
    * metadata — membership stays under applyMirrorSync's control.
    */
   static async createOrGetMirrorPlaylist(source: PlaylistSyncSource, songs: SongItem[] = []): Promise<Playlist> {
+    return LocalPlaylistRepository.WRITE_LOCK.run(LocalPlaylistRepository.KEY,
+      (): Promise<Playlist> => LocalPlaylistRepository.createOrGetMirrorPlaylistLocked(source, songs));
+  }
+
+  private static async createOrGetMirrorPlaylistLocked(source: PlaylistSyncSource, songs: SongItem[]): Promise<Playlist> {
     const id = mirrorPlaylistId(source.platform, source.remoteId);
     const playlists = await LocalPlaylistRepository.loadAll();
     const existing = playlists.find((item: Playlist): boolean => item.id === id);
@@ -295,6 +335,11 @@ export class LocalPlaylistRepository {
 
   /** Attaches a sync source to an existing local playlist (绑定已有歌单). */
   static async bindMirrorSource(playlistId: string, source: PlaylistSyncSource): Promise<boolean> {
+    return LocalPlaylistRepository.WRITE_LOCK.run(LocalPlaylistRepository.KEY,
+      (): Promise<boolean> => LocalPlaylistRepository.bindMirrorSourceLocked(playlistId, source));
+  }
+
+  private static async bindMirrorSourceLocked(playlistId: string, source: PlaylistSyncSource): Promise<boolean> {
     const playlists = await LocalPlaylistRepository.loadAll();
     const playlist = playlists.find((item: Playlist): boolean => item.id === playlistId);
     if (playlist === undefined) {
@@ -308,6 +353,11 @@ export class LocalPlaylistRepository {
 
   /** Detaches the sync source; the playlist itself and its songs stay untouched. */
   static async unbindMirrorSource(playlistId: string): Promise<boolean> {
+    return LocalPlaylistRepository.WRITE_LOCK.run(LocalPlaylistRepository.KEY,
+      (): Promise<boolean> => LocalPlaylistRepository.unbindMirrorSourceLocked(playlistId));
+  }
+
+  private static async unbindMirrorSourceLocked(playlistId: string): Promise<boolean> {
     const playlists = await LocalPlaylistRepository.loadAll();
     const playlist = playlists.find((item: Playlist): boolean => item.id === playlistId);
     if (playlist === undefined || playlist.syncSource === null) {
@@ -321,6 +371,11 @@ export class LocalPlaylistRepository {
 
   /** Clears the remembered user deletions of a mirror playlist (device-local status). */
   static async resetMirrorSkips(playlistId: string): Promise<boolean> {
+    return LocalPlaylistRepository.WRITE_LOCK.run(LocalPlaylistRepository.KEY,
+      (): Promise<boolean> => LocalPlaylistRepository.resetMirrorSkipsLocked(playlistId));
+  }
+
+  private static async resetMirrorSkipsLocked(playlistId: string): Promise<boolean> {
     const playlists = await LocalPlaylistRepository.loadAll();
     const playlist = playlists.find((item: Playlist): boolean => item.id === playlistId);
     if (playlist === undefined || playlist.syncSource === null) {
@@ -333,6 +388,11 @@ export class LocalPlaylistRepository {
 
   /** Enables/disables a mirror source for automatic sync (device-local status). */
   static async setMirrorEnabled(playlistId: string, enabled: boolean): Promise<boolean> {
+    return LocalPlaylistRepository.WRITE_LOCK.run(LocalPlaylistRepository.KEY,
+      (): Promise<boolean> => LocalPlaylistRepository.setMirrorEnabledLocked(playlistId, enabled));
+  }
+
+  private static async setMirrorEnabledLocked(playlistId: string, enabled: boolean): Promise<boolean> {
     const playlists = await LocalPlaylistRepository.loadAll();
     const playlist = playlists.find((item: Playlist): boolean => item.id === playlistId);
     if (playlist === undefined || playlist.syncSource === null) {
@@ -345,6 +405,11 @@ export class LocalPlaylistRepository {
 
   /** Batch import into an existing playlist; returns how many songs were added. */
   static async importSongs(playlistId: string, songs: SongItem[]): Promise<number> {
+    return LocalPlaylistRepository.WRITE_LOCK.run(LocalPlaylistRepository.KEY,
+      (): Promise<number> => LocalPlaylistRepository.importSongsLocked(playlistId, songs));
+  }
+
+  private static async importSongsLocked(playlistId: string, songs: SongItem[]): Promise<number> {
     const playlists = await LocalPlaylistRepository.loadAll();
     const playlist = playlists.find((item: Playlist) => item.id === playlistId);
     if (playlist === undefined) {
@@ -367,6 +432,11 @@ export class LocalPlaylistRepository {
    * missing songs at the tail. Returns true when local content changed.
    */
   static async applyMirrorSync(playlistId: string, remoteSongs: SongItem[], fingerprint: string): Promise<boolean> {
+    return LocalPlaylistRepository.WRITE_LOCK.run(LocalPlaylistRepository.KEY,
+      (): Promise<boolean> => LocalPlaylistRepository.applyMirrorSyncLocked(playlistId, remoteSongs, fingerprint));
+  }
+
+  private static async applyMirrorSyncLocked(playlistId: string, remoteSongs: SongItem[], fingerprint: string): Promise<boolean> {
     const playlists = await LocalPlaylistRepository.loadAll();
     const playlist = playlists.find((item: Playlist): boolean => item.id === playlistId);
     if (playlist === undefined || playlist.syncSource === null) {
@@ -468,6 +538,11 @@ export class LocalPlaylistRepository {
   }
 
   static async addSong(playlistId: string, song: SongItem): Promise<boolean> {
+    return LocalPlaylistRepository.WRITE_LOCK.run(LocalPlaylistRepository.KEY,
+      (): Promise<boolean> => LocalPlaylistRepository.addSongLocked(playlistId, song));
+  }
+
+  private static async addSongLocked(playlistId: string, song: SongItem): Promise<boolean> {
     const playlists = await LocalPlaylistRepository.loadAll();
     const playlist = playlists.find((item: Playlist) => item.id === playlistId);
     if (playlist === undefined) {
@@ -492,6 +567,11 @@ export class LocalPlaylistRepository {
   }
 
   static async removeSong(playlistId: string, songKey: string): Promise<boolean> {
+    return LocalPlaylistRepository.WRITE_LOCK.run(LocalPlaylistRepository.KEY,
+      (): Promise<boolean> => LocalPlaylistRepository.removeSongLocked(playlistId, songKey));
+  }
+
+  private static async removeSongLocked(playlistId: string, songKey: string): Promise<boolean> {
     const playlists = await LocalPlaylistRepository.loadAll();
     const playlist = playlists.find((item: Playlist) => item.id === playlistId);
     if (playlist === undefined) {
@@ -530,12 +610,22 @@ export class LocalPlaylistRepository {
   }
 
   static async addFavorite(song: SongItem): Promise<boolean> {
-    await LocalPlaylistRepository.ensureFavorites();
-    return LocalPlaylistRepository.addSong(LocalPlaylistRepository.FAVORITES_ID, song);
+    return LocalPlaylistRepository.WRITE_LOCK.run(LocalPlaylistRepository.KEY,
+      (): Promise<boolean> => LocalPlaylistRepository.addFavoriteLocked(song));
+  }
+
+  private static async addFavoriteLocked(song: SongItem): Promise<boolean> {
+    await LocalPlaylistRepository.ensureFavoritesLocked();
+    return LocalPlaylistRepository.addSongLocked(LocalPlaylistRepository.FAVORITES_ID, song);
   }
 
   static async removeFavorite(song: SongItem): Promise<boolean> {
-    return LocalPlaylistRepository.removeSong(LocalPlaylistRepository.FAVORITES_ID, stableKeyOf(song));
+    return LocalPlaylistRepository.WRITE_LOCK.run(LocalPlaylistRepository.KEY,
+      (): Promise<boolean> => LocalPlaylistRepository.removeFavoriteLocked(song));
+  }
+
+  private static async removeFavoriteLocked(song: SongItem): Promise<boolean> {
+    return LocalPlaylistRepository.removeSongLocked(LocalPlaylistRepository.FAVORITES_ID, stableKeyOf(song));
   }
 
   /**
@@ -567,8 +657,13 @@ export class LocalPlaylistRepository {
   }
 
   static async renamePlaylist(playlistId: string, name: string): Promise<void> {
+    return LocalPlaylistRepository.WRITE_LOCK.run(LocalPlaylistRepository.KEY,
+      (): Promise<void> => LocalPlaylistRepository.renamePlaylistLocked(playlistId, name));
+  }
+
+  private static async renamePlaylistLocked(playlistId: string, name: string): Promise<void> {
     const playlists = await LocalPlaylistRepository.loadAll();
-    const playlist = playlists.find((item: Playlist) => item.id === playlistId);
+    const playlist = playlists.find((item: Playlist): boolean => item.id === playlistId);
     if (playlist === undefined) {
       return;
     }
@@ -578,6 +673,11 @@ export class LocalPlaylistRepository {
   }
 
   static async removePlaylist(playlistId: string): Promise<void> {
+    return LocalPlaylistRepository.WRITE_LOCK.run(LocalPlaylistRepository.KEY,
+      (): Promise<void> => LocalPlaylistRepository.removePlaylistLocked(playlistId));
+  }
+
+  private static async removePlaylistLocked(playlistId: string): Promise<void> {
     // Compare through the numeric sync id: local ids may appear as
     // "local_<ts>" or plain numeric text (Android import / legacy apply), and
     // an exact string match would silently keep the other shape alive.
@@ -590,12 +690,19 @@ export class LocalPlaylistRepository {
     const next = tombstones.filter((item: LocalPlaylistTombstone): boolean =>
       playlistIdToSync(item.id) !== targetKey);
     next.push(new LocalPlaylistTombstone(playlistId, Date.now()));
-    await LocalPlaylistRepository.replaceDeletedTombstones(next);
+    await LocalPlaylistRepository.replaceDeletedTombstonesLocked(next);
   }
 
   // ---- F-10 删除撤销（上游 90ee4f46 PlaylistDeleteFeedback 的仓库侧原语）----
 
   static async removeSongForUndo(playlistId: string, songKey: string): Promise<PlaylistSongDeleteSnapshot | null> {
+    return LocalPlaylistRepository.WRITE_LOCK.run(LocalPlaylistRepository.KEY,
+      (): Promise<PlaylistSongDeleteSnapshot | null> =>
+        LocalPlaylistRepository.removeSongForUndoLocked(playlistId, songKey));
+  }
+
+  private static async removeSongForUndoLocked(playlistId: string,
+    songKey: string): Promise<PlaylistSongDeleteSnapshot | null> {
     const playlists = await LocalPlaylistRepository.loadAll();
     const playlist = LocalPlaylistRepository.findBySyncId(playlists, playlistId);
     if (playlist === undefined) {
@@ -610,7 +717,10 @@ export class LocalPlaylistRepository {
     snapshot.songKey = songKey;
     snapshot.index = index;
     snapshot.songJson = playlist.songs[index].toJson();
-    const removed = await LocalPlaylistRepository.removeSong(playlist.id, songKey);
+    // The snapshot index is only valid against this same read; take the
+    // removal under the same lock so the undo banner cannot restore into a
+    // table that shifted in between.
+    const removed = await LocalPlaylistRepository.removeSongLocked(playlist.id, songKey);
     return removed ? snapshot : null;
   }
 
@@ -622,6 +732,11 @@ export class LocalPlaylistRepository {
     if (snapshot.playlistId.length === 0 || snapshot.songKey.length === 0 || snapshot.songJson.length === 0) {
       return false;
     }
+    return LocalPlaylistRepository.WRITE_LOCK.run(LocalPlaylistRepository.KEY,
+      (): Promise<boolean> => LocalPlaylistRepository.restoreRemovedSongLocked(snapshot));
+  }
+
+  private static async restoreRemovedSongLocked(snapshot: PlaylistSongDeleteSnapshot): Promise<boolean> {
     let song: SongItem;
     try {
       song = SongItem.fromJson(snapshot.songJson);
@@ -677,6 +792,11 @@ export class LocalPlaylistRepository {
     if (snapshot.playlistJson.length === 0) {
       return false;
     }
+    return LocalPlaylistRepository.WRITE_LOCK.run(LocalPlaylistRepository.KEY,
+      (): Promise<boolean> => LocalPlaylistRepository.restorePlaylistFromUndoLocked(snapshot));
+  }
+
+  private static async restorePlaylistFromUndoLocked(snapshot: PlaylistDeleteSnapshot): Promise<boolean> {
     let restored: Playlist;
     try {
       restored = Playlist.fromJson(snapshot.playlistJson);
@@ -696,7 +816,7 @@ export class LocalPlaylistRepository {
     playlists.splice(insertAt, 0, restored);
     await LocalPlaylistRepository.saveAll(playlists, [restored.id]);
     const tombstones = await LocalPlaylistRepository.getDeletedTombstones();
-    await LocalPlaylistRepository.replaceDeletedTombstones(
+    await LocalPlaylistRepository.replaceDeletedTombstonesLocked(
       tombstones.filter((item: LocalPlaylistTombstone): boolean => playlistIdToSync(item.id) !== targetKey));
     return true;
   }
@@ -716,6 +836,11 @@ export class LocalPlaylistRepository {
    * touched.
    */
   static async updateSongMetadata(song: SongItem): Promise<number> {
+    return LocalPlaylistRepository.WRITE_LOCK.run(LocalPlaylistRepository.KEY,
+      (): Promise<number> => LocalPlaylistRepository.updateSongMetadataLocked(song));
+  }
+
+  private static async updateSongMetadataLocked(song: SongItem): Promise<number> {
     const key = stableKeyOf(song);
     const playlists = await LocalPlaylistRepository.loadAll();
     const changedIds: string[] = [];

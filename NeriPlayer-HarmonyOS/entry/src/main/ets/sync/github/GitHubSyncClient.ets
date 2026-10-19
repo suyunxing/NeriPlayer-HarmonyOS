@@ -11,6 +11,11 @@
 import {
   getReadFallbackFileNames
 } from '../SyncDataJsonCodec';
+import {
+  UPSTREAM_ARCHIVE_MANIFEST_FILE_NAME,
+  describeUpstreamArchiveProtocolForUser,
+  upstreamArchiveProtocolVersion
+} from '../UpstreamArchiveGuard';
 import { DEFAULT_COMMIT_MESSAGE, GitHubTransport } from './GitHubTransport';
 import { GitHubApiError, GitHubErrorKind } from './GitHubErrors';
 
@@ -53,6 +58,18 @@ export class GitHubSyncClient {
     useDataSaver: boolean): Promise<GitHubRemoteSnapshot | null> {
     const branch = await this.transport.getDefaultBranch(owner, repo);
     const head = await this.transport.getBranchHead(owner, repo, branch);
+    // Upstream #475 archive guard: a repo migrated to the ZSTD archive layout
+    // keeps stale legacy backup.json files that new Android builds never
+    // touch — refuse instead of merging against (and repushing) the stale file.
+    const manifest = await this.transport.getFileContent(owner, repo,
+      UPSTREAM_ARCHIVE_MANIFEST_FILE_NAME, head);
+    if (manifest !== null) {
+      const protocol = upstreamArchiveProtocolVersion(manifest.content);
+      if (protocol > 0) {
+        throw new GitHubApiError(GitHubErrorKind.UNSUPPORTED_ARCHIVE_PROTOCOL, 0,
+          describeUpstreamArchiveProtocolForUser(protocol));
+      }
+    }
     for (const fileName of remoteFileCandidates(preferredFileName, useDataSaver)) {
       const file = await this.transport.getFileContent(owner, repo, fileName, head);
       if (file === null) {

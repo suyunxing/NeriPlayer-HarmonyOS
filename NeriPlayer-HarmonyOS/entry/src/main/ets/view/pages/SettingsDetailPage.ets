@@ -2353,6 +2353,16 @@ export struct SettingsDetailPage {
     .bindToScrollable([this.scroller])
     .backgroundColor(Color.Transparent)
     .ignoreLayoutSafeArea([LayoutSafeAreaType.SYSTEM], [LayoutSafeAreaEdge.TOP, LayoutSafeAreaEdge.BOTTOM])
+    .onHidden(() => {
+      // Covered by another destination: QR login polling must stop until the
+      // page is visible again (audit A-8).
+      this.neteaseQrController.pausePolling();
+      this.biliQrController.pausePolling();
+    })
+    .onShown(() => {
+      this.neteaseQrController.resumePolling();
+      this.biliQrController.resumePolling();
+    })
     .onWillDisappear(() => {
       Router.notifyReturned();
     })

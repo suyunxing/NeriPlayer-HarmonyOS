@@ -97,6 +97,12 @@ export class LyricDispatcher {
   private static cache: LyricCacheStore | null = null;
   private static cacheReady: Promise<void> | null = null;
   private static readonly CACHE_SCHEMA_KEY: string = 'lyric_cache';
+  // Synchronous last-result memory (audit A-21): reopening the now-playing
+  // page rebuilds the component, and seeding the remembered result first
+  // avoids the empty-lyrics flash while the async resolve re-runs (the disk
+  // cache saves the network, not the flash — its lookup is async too).
+  private static readonly MEMORY_CAP: number = 4;
+  private static recent: Map<string, LyricLoadResult> = new Map<string, LyricLoadResult>();
 
   /** Compatibility wrapper (download sidecar etc.): lines only. */
   static async loadLyrics(song: SongItem): Promise<LyricLine[]> {
@@ -104,7 +110,38 @@ export class LyricDispatcher {
     return result.lines;
   }
 
+  /** Synchronous peek at the last resolved lyric for this song, if any. */
+  static peekResolvedLyrics(song: SongItem): LyricLoadResult | null {
+    const hit = LyricDispatcher.recent.get(stableKeyOf(song));
+    if (hit !== undefined) {
+      // LRU refresh
+      LyricDispatcher.recent.delete(stableKeyOf(song));
+      LyricDispatcher.recent.set(stableKeyOf(song), hit);
+      return hit;
+    }
+    return null;
+  }
+
   static async loadLyricsResolved(song: SongItem): Promise<LyricLoadResult> {
+    const result = await LyricDispatcher.resolveLyric(song);
+    if (result.lines.length > 0) {
+      const key = stableKeyOf(song);
+      if (LyricDispatcher.recent.has(key)) {
+        LyricDispatcher.recent.delete(key);
+      }
+      LyricDispatcher.recent.set(key, result);
+      while (LyricDispatcher.recent.size > LyricDispatcher.MEMORY_CAP) {
+        const oldest = LyricDispatcher.recent.keys().next();
+        if (oldest.done) {
+          break;
+        }
+        LyricDispatcher.recent.delete(oldest.value);
+      }
+    }
+    return result;
+  }
+
+  private static async resolveLyric(song: SongItem): Promise<LyricLoadResult> {
     // An explicit「匹配歌曲信息」result wins over every automatic source:
     // it is the user's chosen lyric (and possibly translation) for this song.
     if (song.matchedLyric.trim().length > 0) {
@@ -253,6 +290,10 @@ export class LyricDispatcher {
 
   /** Settings「清除歌词缓存」入口（F-8 存储分区接线）。 */
   static async clearPersistentCache(): Promise<void> {
+    // Drop the synchronous LRU too: it is seeded ahead of the async resolve,
+    // so leaving it behind would re-show the "cleared" lyric on the next
+    // page open before the disk lookup could come back empty.
+    LyricDispatcher.recent.clear();
     await LyricDispatcher.ensureCache();
     const cache = LyricDispatcher.cache;
     if (cache !== null) {

@@ -91,6 +91,7 @@ function fetchExecutor(preferredStatus: number, preferredBody: string,
   const executor = new FakeGhExecutor();
   executor.addRoute(new GhRoute('GET', '/repos/o/r', 200, '{"default_branch":"main"}'));
   executor.addRoute(new GhRoute('GET', '/git/ref/heads/main', 200, '{"object":{"sha":"head9"}}'));
+  executor.addRoute(new GhRoute('GET', '/contents/neriplayer-sync-v3.manifest', 404, 'gone'));
   executor.addRoute(new GhRoute('GET', '/contents/backup-raw.bin', 404, 'gone'));
   executor.addRoute(new GhRoute('GET', '/contents/backup.bin', fallbackStatus, fallbackBody));
   executor.addRoute(new GhRoute('GET', '/contents/backup.json', preferredStatus, preferredBody));
@@ -349,6 +350,7 @@ export default function githubTransportTest(): void {
     it('abortsOnNon404FailureWithoutFallback', 0, async () => {
       const executor = new FakeGhExecutor();
       executor.addRoute(new GhRoute('GET', '/repos/o/r', 200, '{"default_branch":"main"}'));
+      executor.addRoute(new GhRoute('GET', '/contents/neriplayer-sync-v3.manifest', 404, 'gone'));
       executor.addRoute(new GhRoute('GET', '/contents/backup.json', 500, 'server error'));
       executor.addRoute(new GhRoute('GET', '/contents/backup.bin', 200, 'should-not-be-read'));
       executor.addRoute(new GhRoute('GET', '/git/ref/heads/main', 200, '{"object":{"sha":"head9"}}'));
@@ -357,8 +359,23 @@ export default function githubTransportTest(): void {
         client.fetchRemoteSnapshot('o', 'r', 'backup.json', false) as Promise<Object>);
       expect(error.statusCode).assertEqual(500);
       const readFiles = executor.calls.filter((call: GhRequest): boolean =>
-        call.url.includes('/contents/'));
+        call.url.includes('/contents/backup'));
       expect(readFiles.length).assertEqual(1);
+    });
+
+    it('rejectsWhenUpstreamArchiveManifestPresent', 0, async () => {
+      const executor = fetchExecutor(200, 'stale-legacy', 200, 'stale-legacy');
+      executor.addRoute(new GhRoute('GET', '/contents/neriplayer-sync-v3.manifest', 200,
+        'NPSYNC04-archive-manifest'));
+      const client = new GitHubSyncClient(new GitHubTransport(executor, 'tok'));
+      const error = await expectRejection(
+        client.fetchRemoteSnapshot('o', 'r', 'backup.json', false) as Promise<Object>);
+      expect(error.kind).assertEqual(GitHubErrorKind.UNSUPPORTED_ARCHIVE_PROTOCOL);
+      expect(error.message.includes('v4')).assertTrue();
+      // The stale legacy backup files are never read once the archive exists.
+      const readFiles = executor.calls.filter((call: GhRequest): boolean =>
+        call.url.includes('/contents/backup'));
+      expect(readFiles.length).assertEqual(0);
     });
 
     it('uploadBackupUsesDefaultMessageAndFileName', 0, async () => {
