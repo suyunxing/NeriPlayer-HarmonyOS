@@ -290,6 +290,10 @@ export class LyricDispatcher {
 
   /** Settings「清除歌词缓存」入口（F-8 存储分区接线）。 */
   static async clearPersistentCache(): Promise<void> {
+    // Drop the synchronous LRU too: it is seeded ahead of the async resolve,
+    // so leaving it behind would re-show the "cleared" lyric on the next
+    // page open before the disk lookup could come back empty.
+    LyricDispatcher.recent.clear();
     await LyricDispatcher.ensureCache();
     const cache = LyricDispatcher.cache;
     if (cache !== null) {

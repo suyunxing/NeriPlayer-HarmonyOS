@@ -172,9 +172,16 @@ export class HistoryRepository {
 
   /** Merges an imported list into local history; returns the merged total. */
   static async importSongs(imported: SongItem[]): Promise<number> {
-    const existing = await HistoryRepository.getRecent();
-    const merged = HistoryRepository.mergeForImport(existing, imported);
-    await HistoryRepository.replaceFromSync(merged);
+    // Read and write must share one lock: a play recorded between the
+    // getRecent() and the save would otherwise be overwritten by the merge
+    // computed from the pre-play snapshot (audit A-25 window).
+    const mergedCount = await HistoryRepository.WRITE_LOCK.run(HistoryRepository.KEY,
+      async (): Promise<number> => {
+        const existing = await HistoryRepository.getRecent();
+        const merged = HistoryRepository.mergeForImport(existing, imported);
+        await HistoryRepository.replaceFromSyncLocked(merged);
+        return merged.length;
+      });
     // 复活的曲目要撤掉它之前「清除记录」留下的同步删除墓碑，否则下一次云同步
     // 会把导入的记录再次删掉（与 addSong 的墓碑清理同一规则）。
     for (const song of imported) {
@@ -183,6 +190,6 @@ export class HistoryRepository {
         await SyncDeletionStore.clearRecentPlayDeletion(syncSongIdentity(syncSong).stableKey());
       }
     }
-    return merged.length;
+    return mergedCount;
   }
 }

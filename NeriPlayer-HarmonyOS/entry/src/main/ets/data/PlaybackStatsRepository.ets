@@ -192,8 +192,14 @@ export class PlaybackStatsRepository {
   }
 
   static async replaceFromSync(root: StatsRoot): Promise<void> {
-    await SchemaStore.save(PlaybackStatsRepository.KEY, JSON.stringify(root),
-      (value: string) => value);
+    // Same lock as recordPlay: a stats snapshot merged from the remote must
+    // not overwrite (or be overwritten by) an in-flight increment, and
+    // clear() goes through here so it inherits the serialization too.
+    return PlaybackStatsRepository.WRITE_LOCK.run(PlaybackStatsRepository.KEY,
+      async (): Promise<void> => {
+        await SchemaStore.save(PlaybackStatsRepository.KEY, JSON.stringify(root),
+          (value: string) => value);
+      });
   }
 
   static parseJson(json: string): StatsRoot | null {
