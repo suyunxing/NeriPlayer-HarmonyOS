@@ -111,5 +111,21 @@ export default function syncAuditFixesTest(): void {
         expect(decoded.playlists[0].songs[0].name).assertEqual('good');
       }
     });
+
+    it('legacySongMemberFailsCurrentSchemaInsteadOfEmptyingPlaylist', 0, () => {
+      // Legacy SyncSong tag 8 is a varint addedAt; current tag 8 is a string
+      // mediaUri. The skip-undecodable rule must not swallow that: a decoded
+      // but song-less playlist would suppress the legacy fallback and lose
+      // every song in the backup.
+      const legacySong = new ProtoWriter();
+      legacySong.writeStringField(2, 'legacy-name');
+      legacySong.writeNumberField(8, 1755000000000);
+      const playlist = new ProtoWriter();
+      playlist.writeNumberField(1, 7);
+      playlist.writeMessageField(3, legacySong);
+      const data = new ProtoWriter();
+      data.writeMessageField(5, playlist);
+      expect(decodeSyncDataProto(data.toBytes(), 0)).assertNull();
+    });
   });
 }

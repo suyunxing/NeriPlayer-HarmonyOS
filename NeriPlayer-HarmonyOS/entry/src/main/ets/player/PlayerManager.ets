@@ -1804,7 +1804,8 @@ export class PlayerManager {
     }
   }
 
-  private static async handleLoadFailure(resumeMs: number = 0): Promise<void> {
+  private static async handleLoadFailure(resumeMs: number = 0,
+    dropCorruptDownload: boolean = true): Promise<void> {
     if (PlayerManager.failureGeneration === PlayerManager.loadGeneration) {
       return;
     }
@@ -1818,7 +1819,13 @@ export class PlayerManager {
     // the current media still is the exact fd:// URL the key was committed
     // with — a late error from a superseded load must not delete the newer
     // song's catalog row.
-    if (PlayerManager.catalogSourceKey.length > 0
+    //
+    // A silent stall is NOT evidence of corruption: the transport froze, the
+    // file was never read to an error. Deleting a good offline copy because
+    // of one transient stall is strictly worse than retrying, so the stall
+    // recovery path passes dropCorruptDownload=false.
+    if (dropCorruptDownload
+      && PlayerManager.catalogSourceKey.length > 0
       && PlayerManager.catalogSourceUrl.length > 0
       && PlayerManager.catalogSourceUrl === PlayerManager.currentMediaUrl) {
       const staleKey = PlayerManager.catalogSourceKey;
@@ -2459,6 +2466,10 @@ export class PlayerManager {
     if (status === PlaybackStatus.PLAYING) {
       PlayerManager.stallDetector.reset();
       if (PlayerManager.stallCheckTimer < 0) {
+        // Seed a baseline from the moment the watchdog starts: without it
+        // isStalled() stays false until the first timeUpdate arrives, so a
+        // transport that never emits one would never be recovered.
+        PlayerManager.stallDetector.observe(Date.now(), PlayerManager.positionMs);
         PlayerManager.stallCheckTimer = setInterval((): void => {
           PlayerManager.checkPlaybackStall();
         }, 5000);
@@ -2481,7 +2492,7 @@ export class PlayerManager {
     const stallAtMs = Math.max(0, PlayerManager.positionMs);
     Logger.warn(`PlayerManager: playback stalled (position frozen), recovering from ${stallAtMs}ms`);
     PlayerManager.stallDetector.reset();
-    void PlayerManager.handleLoadFailure(stallAtMs);
+    void PlayerManager.handleLoadFailure(stallAtMs, false);
   }
 
   private static publishStatus(status: PlaybackStatus): void {

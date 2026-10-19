@@ -14,7 +14,8 @@ export default function playbackStallPolicyTest(): void {
       const detector = new PlaybackStallDetector(1000);
       detector.observe(0, 100);
       detector.observe(500, 100);
-      expect(detector.isStalled(1200)).assertFalse();
+      // The last advance was at 0, so the threshold is reached at 1000.
+      expect(detector.isStalled(999)).assertFalse();
       expect(detector.isStalled(1000)).assertTrue();
     });
 

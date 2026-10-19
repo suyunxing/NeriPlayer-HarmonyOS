@@ -253,6 +253,33 @@ function decodeSyncSong(r: ProtoReader): SyncSong | null {
   );
 }
 
+/**
+ * True when a song payload uses the legacy (pre-mediaUri) schema: tag 8 is a
+ * varint `addedAt`, where the current schema has a length-delimited
+ * `mediaUri`. A current-schema member that merely fails to decode is not
+ * legacy. This probe keeps the skip-undecodable policy from turning a legacy
+ * playlist into a "successfully decoded" song-less one, which would suppress
+ * the legacy fallback in decodeProtoSyncDataWithLegacyFallback().
+ */
+function looksLikeLegacySong(reader: ProtoReader): boolean {
+  const probe = reader.duplicate();
+  while (!probe.atEnd()) {
+    const tag = probe.readTag();
+    if (tag === -1) {
+      return false;
+    }
+    const field = tag >>> 3;
+    const wireType = tag & 0x07;
+    if (field === 8) {
+      return wireType === WIRE_VARINT;
+    }
+    if (!probe.skip(wireType)) {
+      return false;
+    }
+  }
+  return false;
+}
+
 function decodeSyncPlaylist(r: ProtoReader): SyncPlaylist | null {
   const f = RawFields.parse(r, PLAYLIST_VARINT, PLAYLIST_LEN);
   if (f === null) {
@@ -260,8 +287,15 @@ function decodeSyncPlaylist(r: ProtoReader): SyncPlaylist | null {
   }
   const songs: SyncSong[] = [];
   for (const nested of f.readers(3)) {
+    // Probe before decoding: RawFields.parse consumes the reader.
+    const legacyEncoded = looksLikeLegacySong(nested);
     const song = decodeSyncSong(nested);
     if (song === null) {
+      if (legacyEncoded) {
+        // Legacy bytes must fail this decode so the caller falls back to
+        // decodeLegacySyncData and reads the songs properly.
+        return null;
+      }
       // Skip undecodable members instead of failing every playlist
       // (upstream #506 `skip undecodable playlist members`): one corrupt
       // song entry costs that entry, not the whole snapshot.

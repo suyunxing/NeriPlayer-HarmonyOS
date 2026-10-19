@@ -80,6 +80,11 @@ export class UsageRepository {
   }
 
   static async clear(): Promise<void> {
-    await AppPreferences.putString(UsageRepository.KEY, '[]');
+    // Serialize with record/remove: a clear landing between a record's load
+    // and save would otherwise be undone by that stale list.
+    return UsageRepository.WRITE_LOCK.run(UsageRepository.KEY,
+      async (): Promise<void> => {
+        await AppPreferences.putString(UsageRepository.KEY, '[]');
+      });
   }
 }

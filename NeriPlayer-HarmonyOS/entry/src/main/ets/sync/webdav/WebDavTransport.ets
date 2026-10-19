@@ -330,6 +330,22 @@ export class WebDavSyncClient {
     version: WebDavRemoteVersion): Promise<WebDavWriteResult> {
     await this.verifyRemoteStateForUpload(remoteUrl, version);
     const tempUrl = await this.uploadToTempFile(remoteUrl, content, mediaType);
+    // Re-check the archive guard immediately before publishing. WebDAV has no
+    // transaction that could span verify→MOVE, so this cannot be made
+    // strictly atomic; it does shrink the exposure from "the whole payload
+    // transfer" to "the MOVE round-trip". A migration that lands in between
+    // is caught here and the temp file is discarded instead of being
+    // published into a collection the upstream no longer reads.
+    try {
+      await this.rejectUpstreamArchiveManifest(remoteUrl);
+    } catch (error) {
+      await this.transport.tryDeleteFile(tempUrl);
+      const e = error as Error;
+      if (e instanceof Error) {
+        throw e;
+      }
+      throw new WebDavError(WebDavErrorKind.API, 0, 'Unknown WebDAV publish failure');
+    }
     let moveResponse: WebDavResponse;
     try {
       moveResponse = await this.transport.moveFile(tempUrl, remoteUrl, !version.createOnly);
