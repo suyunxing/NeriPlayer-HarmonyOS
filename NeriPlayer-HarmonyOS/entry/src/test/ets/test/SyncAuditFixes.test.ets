@@ -127,5 +127,20 @@ export default function syncAuditFixesTest(): void {
       data.writeMessageField(5, playlist);
       expect(decodeSyncDataProto(data.toBytes(), 0)).assertNull();
     });
+
+    it('legacySongWithoutTagEightStillTriggersFallback', 0, () => {
+      // A legacy song need not carry tag 8 at all, but tag 9 disagrees too
+      // (legacy length-delimited vs current varint). Probing only tag 8 would
+      // let this member be skipped and yield an empty playlist.
+      const legacySong = new ProtoWriter();
+      legacySong.writeStringField(2, 'legacy-name');
+      legacySong.writeStringField(9, 'legacy-cover');
+      const playlist = new ProtoWriter();
+      playlist.writeNumberField(1, 7);
+      playlist.writeMessageField(3, legacySong);
+      const data = new ProtoWriter();
+      data.writeMessageField(5, playlist);
+      expect(decodeSyncDataProto(data.toBytes(), 0)).assertNull();
+    });
   });
 }
