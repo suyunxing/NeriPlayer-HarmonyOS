@@ -10,7 +10,9 @@
 >
 > **2026-08-27 修订（phone 复测轮）**：phone（唯一 API 24 形态）改后复测完成，`Tabs` 底部栏分支首次上设备即发现并修复两处底部导航条区渲染缺陷（指示器条带接缝与 NavDestination 深色白边，均为 `MainShell.ets` 行级改动），其余验收项全过；静态与单测基线复跑持平（codelinter 26 warn / 2 suggestion / 0 error，本地单测 819/819）。受影响章节：§1（phone 行改后复测通过）、§7.3（补 phone 轮数字）。**仍待 2in1 一档**（S2 动态避让核心验收 + 跨断点换栏）。记录见 `UX_COMPLIANCE_AUDIT.md` §11.6。
 >
-> **2026-08-27 第二次修订（2in1 复测轮，ArkUI 改造收官）**：2in1 改后复测完成——S2 核心验收点「自由窗口避让区 0 → 抬升 0、死区消失」通过（TabBar 底边距窗口底 0.0vp）；侧边栏 96.3vp 固定；**跨断点 809↔1101vp 双向换栏**及数据保留实测通过；四类缺陷全 0。**三形态复测证据齐备，大屏三档响应式布局这条强制项正式收口**。本轮另发现环境问题：bundleName 已改（`moe.ouom.neriplayer` → `moe.ouom.neriplayer.hmos`，08-27 上午的未提交变更），模拟器上旧名残留包与新版并存曾导致误测旧应用（排查记录见 `UX_COMPLIANCE_AUDIT.md` §11.7），**所有含 `-b moe.ouom.neriplayer` 的命令（含本文档与 hm.md 中的 `aa test`）需随 bundleName 定稿一并更新**。记录见 §11.7。
+> **2026-10-22 复核（dev HEAD `72059b1`）**：本文档多节事实已随代码演进，本轮对齐——① bundleName 定稿 `com.sc.neriplayer`（2026-10-05 `5c75691`，此前 `.hmos` 与无后缀名均已作废），所有 `aa start`/`aa test` 的 `-b` 参数改用它；② 权限 4 项（补 `FILE_ACCESS_PERSIST`）；③ **法务已定稿**（2026-09-20 v1.0.0 / 09-22 删草案横幅 / 09-23 版本门控），§5.5 两条待办已办结；④ 设置页占位由三处减为两处（下载目录选择已实现）；⑤ 本地单测最近一次全量执行仍为 2026-08-29 的 874/874，当前静态清点 1334 例（128 文件 / 248 describe），此后新增用例尚未全量执行；⑥ 仓库已 public，Release 流水线已实跑 4 轮（rc.1~rc.4）。
+
+> **2026-08-27 第二次修订（2in1 复测轮，ArkUI 改造收官）**：2in1 改后复测完成——S2 核心验收点「自由窗口避让区 0 → 抬升 0、死区消失」通过（TabBar 底边距窗口底 0.0vp）；侧边栏 96.3vp 固定；**跨断点 809↔1101vp 双向换栏**及数据保留实测通过；四类缺陷全 0。**三形态复测证据齐备，大屏三档响应式布局这条强制项正式收口**。本轮另发现环境问题：bundleName 已改（`moe.ouom.neriplayer` → `moe.ouom.neriplayer.hmos`，08-27 上午的未提交变更），模拟器上旧名残留包与新版并存曾导致误测旧应用（排查记录见 `UX_COMPLIANCE_AUDIT.md` §11.7），**所有含 `-b moe.ouom.neriplayer` 的命令需随 bundleName 定稿一并更新**——该定稿已于 2026-10-05 完成（`com.sc.neriplayer`，见文档头部 2026-10-22 复核）。记录见 §11.7。
 
 ## 1. 设备矩阵与布局回归
 
@@ -23,11 +25,13 @@
 | foldable（折叠外屏） | 同实例第二显示（1080×2444） | 346 vp | **未验证** | 折叠态由 Posture/Hall 传感器驱动（DMS 已订阅），仅模拟器 GUI 可切换；`hidumper -s DisplayManagerService` 无折叠开关参数，hdc 无法注入 → 无法在本自动化链路内走查 |
 | tablet | MatePad Pro 13 模拟器（2880×1920，density 320 → 2.0 px/vp，**API 26 / OpenHarmony-7.0.0.32 Beta**） | 1440 vp | 已回归（2026-08-26）；**ArkUI 改造后已复测** | 6 页 `dumpLayout` 度量，非滚动区溢出 0 / 裁剪 0 / 文本重叠 0；深色模式通过；**挖孔避让实测通过**（本机唯一带挖孔形态）。改造后 7 页复测四类缺陷仍全 0，侧边导航栏固定 96 vp、列表栏宽 840 vp、正文栏宽 600 vp、底部抬升 28 vp。逐项见 `UX_COMPLIANCE_AUDIT.md` §8.2、§11.2、§11.5 |
 | 2in1（PC 平板形态） | MateBook Pro 模拟器（3120×2080，1.9 px/vp，**API 26 / HarmonyOS 7.0.0-B1 Beta**） | 自由窗口 1100 vp，最大化 1642 vp，可拖至 840 vp 以下 | 已回归（2026-08-25）；**ArkUI 改造后已复测（2026-08-27）** | 5 组 `dumpLayout` 度量（含最大化态），四类缺陷全 0；深色模式通过（系统 `DecorBar` 跟随）。改后复测：**S2 核心验收点通过**——自由窗口避让区 0 → 抬升 0，TabBar 底边距窗口底 0.0vp（整改前 27.9vp 纯死区）；侧边导航栏 96.3vp 固定（整改前底部栏 275vp/格）；**跨断点 809↔1101vp 双向换栏**、两次重建后页面状态与数据保留；设置行文本 716.8vp、法务 568.4vp、每日推荐 6 卡/行。逐项见 `UX_COMPLIANCE_AUDIT.md` §8.2、§11.7 |
-| 真机（物理手机/平板） | 无设备 | — | 未验证 | 全部设备证据来自 x86 模拟器；上架前必须真机回归（尤其签名/性能/蓝牙 AVRCP） |
+| 真机（物理手机/平板） | 用户真机（自 2026-09 起持续反馈） | — | 部分 | 2026-09~10 用户基于签名包做过多轮真机反馈（09-16 三轮截图、10-01/10-02 六轮滚动与迷你条、10-13 五问题），均修复入 dev；但**系统性真机回归（签名/性能/蓝牙 AVRCP/熄屏长播）仍未执行** |
 
 **断点切换（2026-08-26 ArkUI 改造引入的新回归项）**——**已于 2026-08-27 在 2in1 上实测通过**：自由窗口拖缘从 1101vp 缩到 809vp（<840）时 `Tabs` 自动由侧边栏切底部栏（栏高 62+0），拖回 1101vp 切回侧边栏；两次跨档重建后当前页内容与滚动位置保留（`ui.refreshTick` 重载生效），未出现白屏或状态错乱。静态档位证据：tablet 恒 `lg`（侧边栏）、phone 恒 `sm`（底部栏）、2in1 覆盖 lg↔md 两档与两分支。仍属未验证的只剩：拖动过程中的**连续中间态**（逐像素跟随窗口宽度渐变）未逐帧检查，实测为松手后的稳定态断言。
 
-> **2026-08-26 更正**：上面 tablet / 2in1 两行原记为「阻塞：镜像不在盘」，该说法**已被证伪**——镜像现已在盘并通过签名校验（`Tools/Sdk/system-image/HarmonyOS-7.0.0-B1/pc_all_x86`、`HarmonyOS-7.0.0-B2/tablet_x86`）。同时须明确一个口径差异：**这两个形态跑的是 API 26 / HarmonyOS 7.0.0 Beta（`os.isPublic=false`），不是项目目标的 6.1.1(24)**。本机**没有任何 6.1.1 的 tablet / pc 镜像**，`AppData/Local/Huawei/Emulator/deployed/` 下那两个 6.1.1 实例指向的镜像路径不存在。因此只有 phone 一档是在目标 API 上验证的，tablet/2in1 的结论属**向上兼容运行**，不能替代目标 API 回归——该缺口已登记在 `UX_COMPLIANCE_AUDIT.md` §11.4。
+> **2026-10-22 口径更新**：工程已于 2026-09-07 全量迁移 `compatibleSdkVersion`/`targetSdkVersion = 26.0.0`，`6.1.1(24)` **不再是项目目标**；下文 tablet/2in1 的「API 26 Beta」记录现即落在目标档位（仍为 Beta 非 Public），phone 的「API 24」记录转为低于当前最低要求的历史证据。
+
+**2026-08-26 更正**：上面 tablet / 2in1 两行原记为「阻塞：镜像不在盘」，该说法**已被证伪**——镜像现已在盘并通过签名校验（`Tools/Sdk/system-image/HarmonyOS-7.0.0-B1/pc_all_x86`、`HarmonyOS-7.0.0-B2/tablet_x86`）。同时须明确一个口径差异：**这两个形态跑的是 API 26 / HarmonyOS 7.0.0 Beta（`os.isPublic=false`），不是项目目标的 6.1.1(24)**。本机**没有任何 6.1.1 的 tablet / pc 镜像**，`AppData/Local/Huawei/Emulator/deployed/` 下那两个 6.1.1 实例指向的镜像路径不存在。因此只有 phone 一档是在目标 API 上验证的，tablet/2in1 的结论属**向上兼容运行**，不能替代目标 API 回归——该缺口已登记在 `UX_COMPLIANCE_AUDIT.md` §11.4。
 >
 > tablet 实例的启动另有一道门禁：命令行 `Emulator.bat -start` 能把 guest 跑起来但检测不到启动完成（不发 `EmitGuestOSBootComplete`，因此不建 hdc 端口转发）；DevEco 内置的那份 `Emulator.exe` 则要求**华为账号处于登录态**（日志缺 `SnUtil.cpp(CheckLogin) The user has logged in.` 即落到 `can not read uuid file` 并弹「请在 DevEco Studio 中登录华为账号」）。可行路径只有：在 DevEco Studio 登录账号 → 从设备管理器启动实例。排查全过程见 `UX_COMPLIANCE_AUDIT.md` §11.3。
 
@@ -121,11 +125,12 @@ AppScope/resources/base/profile/configuration.json
 | --- | --- | --- | --- |
 | ohos.permission.INTERNET | normal | 网络音乐源、歌词、同步 | 系统安装时授予，无拒绝分支 |
 | ohos.permission.GET_NETWORK_INFO | normal | 下载引擎断网感知（M3.5） | 无 UI 分支（功能性降级：任务挂起等网） |
+| ohos.permission.FILE_ACCESS_PERSIST | normal | 下载目录与本地音乐目录的持久访问授权（2026-09-07 引入） | 系统安装时授予；用户未授权时目录选择器不可用，回退默认沙箱目录 |
 | ohos.permission.KEEP_BACKGROUND_RUNNING | normal | 后台连续播放（M1.5 长时任务） | 后台播放被系统冻结，前台播放不受影响 |
 
 **已删除（2026-08-25）**：`ohos.permission.READ_AUDIO`（user_grant）。删除依据——全项目 `grep requestPermissionsFromUser` 零命中，即该权限声明了但从未申请过；`LocalMediaScanner.ets` 注释已说明 API 24 上 mediaLibrary 旧接口不可用，本地音频改由 `AudioViewPicker` 由用户选择（scoped access，免权限），功能不依赖它。同时删除了其孤立的 `read_audio_reason` 字符串。**未做设备冒烟**（本轮无设备），残余风险见 `UX_COMPLIANCE_AUDIT.md` §11。
 
-现状：**三个权限全部 normal 级，不存在任何 user_grant 权限**，因此不存在权限申请时机问题，也不存在拒绝分支。`KEEP_BACKGROUND_RUNNING` 的 `reason` 已按「场景+动作+目的」重写，并新增 `resources/zh_CN/element/string.json` 提供中文版（`reason` 由系统原样展示给用户与审核）。
+现状：**四个权限全部 normal 级（INTERNET / GET_NETWORK_INFO / FILE_ACCESS_PERSIST / KEEP_BACKGROUND_RUNNING，2026-10-22 复核 `module.json5`），不存在任何 user_grant 权限**，因此不存在权限申请时机问题，也不存在拒绝分支。`KEEP_BACKGROUND_RUNNING` 的 `reason` 已按「场景+动作+目的」重写，并新增 `resources/zh_CN/element/string.json` 提供中文版（`reason` 由系统原样展示给用户与审核）。
 
 无位置/相机/麦克风/通讯录等敏感权限；无 READ_IMAGEVIDEO（保存歌词卡片走 SaveButton 安全控件免权限，M8.5）。
 
@@ -157,14 +162,14 @@ AppScope/resources/base/profile/configuration.json
 ### 5.5 其他市场门槛项
 
 - 内容分级/版权声明页：应用内免责声明已有（首启 Disclaimer，`KEY_DISCLAIMER_ACCEPTED`）。**2026-08-25 补齐**：该弹窗此前只有「我已阅读并同意」、无任何拒绝路径，且隐私政策与用户协议在应用内不存在——两项都是上架红线，已整改（新增「不同意」+ 二次确认 + `terminateSelf()` 礼貌退出；新增 `LegalDocPage` 应用内离线可读，首启弹窗与「设置→隐私与协议」两处可达）。详见 `UX_COMPLIANCE_AUDIT.md` §9.1。
-- **法务文案仍是草案**：隐私政策与用户协议为 agent 起草的 `v1.0.0-draft`，带「草案 · 待作者复核」横幅，生效日期待定。上架前须作者定稿并在 AGC 上传同一版本（应用内与 AGC 不一致是驳回项）。
-- **重大政策变更未实现重新征同意**：文案里已承诺，代码仍是布尔标记 `KEY_DISCLAIMER_ACCEPTED`，改版本号不会重新弹窗——待办项。
+- **✅ 法务文案已定稿（2026-09-20）**：隐私政策与用户协议定稿为 **v1.0.0，生效日期 2026-09-20**（`d3eadb3`），正文位于 `entry/src/main/resources/rawfile/privacy_policy.md` 与 `user_agreement.md`。「草案 · 待作者复核」横幅与 `legal_draft_notice` 键已于 2026-09-22 删除（`ee8bbfb`）。若将来上架 AGC，上传同一版本即可（应用内与 AGC 不一致是驳回项）。
+- **✅ 重大政策变更重新征同意已实现（2026-09-23，`9d56a07`）**：新增 `util/DisclaimerConsentPolicy.ets`（`CURRENT_DISCLAIMER_VERSION = '2'`），启动状态机比对偏好键 `np.disclaimer_accepted_version`，已同意旧版文本的安装升级后首次启动重新进入合规页；此前只记录布尔同意的老安装同样被要求确认一次。**真机升级重弹路径未验证**。
 - 账号注销：无自建账号体系（无注册、无服务端、无云端用户数据），第三方平台账号须前往对应平台办理，应用内提供「设置→账号与登录」退出登录（即时删除本机凭据）。已在用户协议第五节写明。
 - 华为账号登录：不触发强制接入条件（无登录页、不以第三方账号登录本应用；平台 Cookie/Token 属「平台内容授权」而非「第三方账号登录」）。判定依据见 `UX_COMPLIANCE_AUDIT.md` §9.4。
 - IAP Kit：无付费点、无数字商品、无购买页，不适用。
 - 年龄分级：音乐播放类，无用户生成内容上传（分享卡片仅本地生成图片）。
 - 一起听默认服务器：外部依赖（D7），客户端直连；发布文案需说明「需要自建或已知服务器」。
-- **设计与交互规范自查**：少数派《鸿蒙上架指南》第一章 22 条逐条自查与整改记录见 `UX_COMPLIANCE_AUDIT.md`（分层图标、启动页背板、沉浸式三项、触控目标、深色模式、转场动效、折叠屏/大屏、隐私与权限）。其中**大屏三档响应式布局已于 2026-08-26/27 完成，三形态复测证据齐备**（`Tabs` 侧边栏 + `GridRow` 分列 + `ContentBand` 栏宽 + 动态避让，§8.2 的 11 条密度问题全部整改；tablet/phone/2in1 逐项数字见 audit §11.5–§11.7），因此 `deviceTypes` 可保留 `tablet`/`2in1`，无需收窄为 `["phone"]`。残留缺口仅两条：目标 API 24 上无 tablet/2in1 镜像（现有两档为 API 26 Beta 向上兼容），以及 2in1 空态竖向空白未专项度量（§11.7）。
+- **设计与交互规范自查**：少数派《鸿蒙上架指南》第一章 22 条逐条自查与整改记录见 `UX_COMPLIANCE_AUDIT.md`（分层图标、启动页背板、沉浸式三项、触控目标、深色模式、转场动效、折叠屏/大屏、隐私与权限）。其中**大屏三档响应式布局已于 2026-08-26/27 完成，三形态复测证据齐备**（`Tabs` 侧边栏 + `GridRow` 分列 + `ContentBand` 栏宽 + 动态避让，§8.2 的 11 条密度问题全部整改；tablet/phone/2in1 逐项数字见 audit §11.5–§11.7），因此 `deviceTypes` 可保留 `tablet`/`2in1`，无需收窄为 `["phone"]`。残留缺口仅两条：本机无 API 26 Public 的 tablet/2in1 镜像（现有两档为 API 26 **Beta**，工程 2026-09-07 起目标即 26.0.0，故属同档位 Beta 验证），以及 2in1 空态竖向空白未专项度量（§11.7）。
 
 ## 6. 已知能力限制（发布文案应如实描述）
 
@@ -173,7 +178,7 @@ AppScope/resources/base/profile/configuration.json
 - 悬浮歌词/状态栏歌词为应用内降级实现（D4）；AVRCP 远端刷新时机无官方承诺。
 - 元数据 tag 写入无公开 API，下载曲目以 sidecar 编目承载。
 - 省流同步写出降级为 JSON（读三格式全兼容）。
-- **设置页三处功能占位**（点击只弹 toast，不是可用功能，发布说明必须列出）：下载目录选择 `SettingsDetailPage.ets:805`「目录选择待移植」、语言切换 `:897`/`:899`「简体中文（更多语言待移植）」、YouTube 登录 `:1022`/`:1024`「Cookie 会话待移植」。
+- **设置页功能占位（2026-10-22 复核：现为两处，点击只弹 toast，不是可用功能，发布说明必须列出）**：语言切换 `SettingsDetailPage.ets:1858`「更多语言待移植」、YouTube 登录 `:2076`/`:2078`「Cookie 会话待移植」。**下载目录选择已实现**（`np.download_directory_uri` + Picker + `FILE_ACCESS_PERSIST` 持久授权，`:1727` 设置行），不再是占位。
 - B 站收藏页（`BiliFavPage`）本轮**未走查**：进入需 Bilibili 登录态，无可用账号 → 其布局在任何字号/形态下都未验证。
 
 ## 7. 验证证据
@@ -185,7 +190,7 @@ AppScope/resources/base/profile/configuration.json
 | 项 | 命令 | 结果 |
 | --- | --- | --- |
 | 构建 | `hvigorw.bat assembleHap`（命令行工具链，非 DevEco 26 Beta2） | BUILD SUCCESSFUL |
-| 单测 | `aa test`（ohosTest 模块 `entry_test`） | **798 [pass]**，fail/error/ignore 各 0，`OHOS_REPORT_CODE: 0` |
+| 单测 | `aa test`（ohosTest 模块 `entry_test`） | **798 [pass]**（历史声称值，本文档 §7.2 已自证该数字从未在本机测量过），fail/error/ignore 各 0，`OHOS_REPORT_CODE: 0` |
 | 静态检查 | `codelinter` | `warn 24 / suggestion 2 / error 0`，与基线一致 |
 
 设备证据：§2（两形态布局度量）、§3.1（字号三档 + 3 处缺陷修复前后实测坐标）、§3.2（触控目标度量）、§4（内存/CPU 采样）。
@@ -222,8 +227,8 @@ AppScope/resources/base/profile/configuration.json
 | --- | --- | --- |
 | 构建 | **BUILD SUCCESSFUL in 17 s 235 ms** | `hvigorw.bat assembleHap --mode module -p module=entry@default -p product=default`（命令行工具链；DevEco 26 Beta2 构建不了 6.1.1(24) 工程） |
 | 静态检查 | **Defects 28 / error 0 / warn 26 / suggestion 2** | 基线 25 warn → 26。新增的那一条是 `Ui.ets` 的 `ContentBand` 命中 `@performance/avoid-overusing-custom-component-check`（该规则现共 17 处命中，均为「每个页面都是 `@Component`」的既有已接受模式）。`ContentBand` **必须**是自定义组件——它要靠 `@BuilderParam` 接收内容，`@Builder` 全局函数拿不到调用方的尾随闭包。error 仍 0 |
-| 本地单测（`entry/src/test/`） | **Tests run: 819, Failure: 0, Error: 0, Pass: 819, Ignore: 0** | `hvigorw.bat test --mode module -p module=entry@default -p product=default`；162 个 `describe`。结果落在 `entry/.test/default/intermediates/test/coverage_data/test_result.txt`（**不在** `outputs/test/reports/`，后者只有覆盖率产物），默认与 `--debug` 输出都不打印计数。覆盖率：行 60.24%（11135/18485）/ 函数 53.92% / 分支 56.51% |
-| 设备侧单测（`entry/src/ohosTest/`，module `entry_test`） | **Tests run: 49, Failure: 10, Error: 10, Pass: 29**（`ResultCode 0`） | tablet 上 `assembleHap --mode module -p module=entry@ohosTest` → 手动签名 → 安装 → `aa test`。20 个失败**全部**是实网请求超时（网易云/B 站/YTM 的搜索、歌单、音频直链等），与本轮改动无关；但也因此**不能用它证明「无回归」** |
+| 本地单测（`entry/src/test/`） | 本轮 **Tests run: 819, Pass: 819**（2026-08-26 时点）；**最近一次全量执行 874/874（2026-08-29）**；当前静态清点 **1334 例 / 128 文件 / 248 describe（2026-10-22）**，此后新增用例尚未全量执行 | `hvigorw.bat test --mode module -p module=entry@default -p product=default`。结果落在 `entry/.test/default/intermediates/test/coverage_data/test_result.txt`（**不在** `outputs/test/reports/`，后者只有覆盖率产物），默认与 `--debug` 输出都不打印计数。覆盖率（819 时点）：行 60.24%（11135/18485）/ 函数 53.92% / 分支 56.51% |
+| 设备侧单测（`entry/src/ohosTest/`，module `entry_test`） | **Tests run: 49, Failure: 10, Error: 10, Pass: 29**（`ResultCode 0`；当前设备侧共 21 个 `*.test.ets` 文件，2026-10-22 清点） | tablet 上 `assembleHap --mode module -p module=entry@ohosTest` → 手动签名 → 安装 → `aa test`。20 个失败**全部**是实网请求超时（网易云/B 站/YTM 的搜索、歌单、音频直链等），与本轮改动无关；但也因此**不能用它证明「无回归」** |
 | **819 与 798 的关系** | **不是增量** | 两套 suite 完全不同：`entry/src/test/`（本地，819 例）与 `entry/src/ohosTest/`（设备侧，49 例）。§7.1/§7.2 引用的 798 是历史文档中的说法，**本机从未测量过该数字**，因此 819 不可读作「798 + 21」。本轮对 suite 的实际改动是：`RouteStack.test.ets` **删 2 条**（`serialize/parse` 往返与依赖数组语义的部分——被测行为随 `route.stack` AppStorage 镜像一起删除，不是为了让测试通过而删）、新增 `Breakpoint.test.ets` **5 条** |
 | UI 表现（tablet 复测） | **已实测，四类缺陷全 0** | 7 页 `dumpLayout`：首页 / 探索 / 资料库 / 设置 / 隐私政策 / 免责声明 / 引导页。侧边导航栏固定 **96 vp**（192 px，四个标签中心 cx 均为 96 px）、列表与设置栏宽 **840.0 vp**（行内文本块 716~740 vp）、法务正文 **568.0 vp**（原 1408 vp）、按钮 **360.0×48.0 vp**、竖向空白探索页 280.5 vp（原 555.5）/ 首页 142 vp（原 405.5）、`GridRow` lg 12 列 span 2 → 每行 6 张卡（单卡 208.5 vp，原 700 vp）。逐条数字见 `UX_COMPLIANCE_AUDIT.md` §8.2 |
 | 动态抬升量（S2 核心） | **三形态全部实测通过（08-27 收口）** | tablet：`SCBGestureNavBar18 [0,1864,2880,56]` → 避让区 28 vp，滚动区底边与避让区上沿重合。phone（API 24）：`SCBGestureNavBar16 [0,2754,1320,94]` → 避让区 27.85 vp，TabBar 底边与指示器上沿精确重合。**2in1：自由窗口避让区 0 → 抬升 0，TabBar 底边距窗口内容底边 0.0vp（整改前 27.9vp 死区）；缩窗切底部栏后栏高 62+0**（audit §11.7） |
@@ -248,6 +253,8 @@ AppScope/resources/base/profile/configuration.json
 
 ## 8. GitHub Release 分发流程（CD 流水线，2026-09-08 起）
 
+> **2026-10-22 复核**：该流程已实际运行 4 轮——`v1.4.0-rc.1`（10-12）、`rc.2`（10-13）、`rc.3`（10-13）、`rc.4`（10-19，= dev HEAD `72059b1`），均为 prerelease，附件为 unsigned HAP + `SHA256SUMS.txt` + `INSTALL.md`。
+
 面向「他人可直接下载」的开发者间分发通道。**产物永远是未签名 HAP**——HarmonyOS 不接受未签名应用也不存在关闭校验的开关，接收人按 Release 附件 `INSTALL.md` 安装（推荐小白调试助手（auto-installer）图形化签名安装，或用自己的调试证书手动签名后 `hdc install`）。签名材料/口令/UDID 不进 GitHub（含 Secrets），AGC 正式发布证书属用户个人资产，未经用户操作不引入流水线。
 
 ### 8.1 流程
@@ -263,5 +270,5 @@ AppScope/resources/base/profile/configuration.json
 - 最低系统要求 API 26（工程 2026-09-07 迁移），INSTALL.md 与 Release 正文均已注明。
 - tag 必须匹配 `v\d+\.\d+\.\d+`（允许预发布后缀），否则流水线直接 fail。
 - 工具链与 CI 同源：`ErBWs/setup-ohos@v2` version `26.0.0.821`（API 26），升级工具链时两个 workflow 同步改。
-- 私有仓库的 Release 仅对 collaborator 可见；若需公开分发需先转公开仓库（另涉 §5 合规评估，未决策前维持私有）。
+- **仓库已转为 public（2026-10）**：Release 附件公开可下载，无需 collaborator 身份。原「未决策前维持私有」已作废；公开分发同时意味着 §5.3 的第三方音源条款风险由接收人自担，Release 正文已注明。
 - 该通道与上架 AppGallery 正式发布（§5 合规清单）互不影响：前者面向开发者侧载，后者仍走 AGC 审核流程。
