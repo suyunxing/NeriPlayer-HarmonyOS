@@ -7,6 +7,27 @@
 > **2026年09月17日修订**：工程基线已于 2026-09-07 自 `6.1.1(24)` 全量迁移为 `26.0.0`（API 26，纯 SemVer；`build-profile.json5` 的 `compatibleSdkVersion`/`targetSdkVersion` 均为 `26.0.0`），上文「6.1.1(24)」为成文时点基线，迁移记录见 `hm.md` §7.12。
 > **2026年10月22日修订（dev HEAD `72059b1`）**：按当前代码复核，本文多处「未实现/零命中/基线不可用」的结论已失效，逐节回填——① §5/§12 桌面服务卡片**已由 F-12 落地**（`widget/pages/PlaybackCard.ets`、`widget/PlaybackCardState.ets`、`player/PlaybackCardBridge.ets`、`entryformability/EntryFormAbility.ets`、`form_config.json`）；② 权限清单 `READ_AUDIO` 已于 2026-08-25 删除，现为 4 项 normal 权限；③ `setVolume` 已存在于 `PlayerManager.ets`（`:1232`）并有设置页音量滑条，§4.2「音量完全交给系统」的论据失效；④ `FormExtensionAbility`/`postCardAction` 不再「零命中」；⑤ 行数规模、`accessibilityText` 处数、`string.json` 条数按当前源码更新；⑥ 基线已为 API 26，原文「API 26 不可用 / M9.4 阻塞」类判断作废。
 
+## 阅读索引（先看这里，避免通读）
+
+> 本文 81 KB / ~41k token，是一份**能力调研清单**（P0~P3 逐项论证）。多数条目已随 2026-08~10 的开发落地或作废，只在需要复查某项能力时按节读。
+
+| 我想知道 | 读这里 |
+| --- | --- |
+| **结论摘要表：P0~P3 各项当前是否已做** | **§1** |
+| 播控（AVSession）：歌词字段、跳转、收藏、置灰 | §2 |
+| 系统级桌面歌词 | §3 |
+| 音频低功耗与音质（含 `setVolume` 现状） | §4 |
+| **服务卡片（已由 F-12 实现）** | **§5** |
+| Navigation 迁移（已落地）、一多与设计规范 | §6~§7 |
+| 投播、实况窗、意图框架、基线不可用项 | §9~§10 |
+| 明确不建议做的项 | §11 |
+| **里程碑编排 M10.1~M10.6 的完成状态** | **§12** |
+| 官方文档依据、未核实项 | §13~§14 |
+
+**当前状态速览（2026-10-22）**：§1 表中多数 P0 项已于 2026-08-24/25 完成（M10.1/M10.3）；服务卡片已由 F-12（2026-10-12）实现，**原文「无 extensionAbilities / 零命中」的判断已作废**；桌面歌词主代码仍未接入，但已有 `ohosTest` 探针。§10.4 类「基线 24 不可用」的判断随 API 26 迁移全部作废，需重新评估。
+
+---
+
 ## 0. 本文定位
 
 此前 `docs/` 下的全部文档（`FEATURE_MATRIX.md`、`PORTING_EXECUTION_PLAN.md`、`RELEASE_CHECKLIST.md`、`hm.md`）都是**「Android 上游 → HarmonyOS 等价性」**导向：衡量标准是「Android 有的，鸿蒙侧做到了没有」。
