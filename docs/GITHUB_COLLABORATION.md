@@ -10,9 +10,8 @@
 | `dev` | 双方日常开发的集成主线 | 只接受个人/功能/integration 分支 PR |
 | `feature/*`、`fix/*`、`test/*` | 一个功能或问题的短期工作分支 | 完成 review 和验证后合入 `dev` |
 | `integration/*` | 两个已有实现的差异分析与逐项吸收 | 只在分析完成后发 PR 到 `dev` |
-| `su` | 当前迁移期已有开发线 | 暂时保留 CI；不要把它当长期协作主线 |
 
-当前远端默认分支为 `dev`（2026-08-31 经 `git ls-remote --symref origin HEAD` 复核）。在 `main` 建立并完成保护前，`dev` 承担集成主线职责；建立 `main` 后按下文「GitHub 网页端设置」把默认分支切到 `main`。不要为了改变分支名称而强行重写历史。
+**当前远端默认分支为 `main`**（2026-10-22 经 `git ls-remote --symref origin HEAD` 复核：`ref: refs/heads/main`）；`dev` 为日常集成分支，特性经短分支 PR 汇入 `dev`，`dev` 集成完成、CI 绿后再由 `dev` 发起晋级 PR 合入 `main`。原「默认分支为 `dev`」为 2026-08-31 的过渡状态，切换已完成。`su` 分支已不存在，相关约定作废。不要为了改变分支名称而强行重写历史。
 
 ## 两个已有实现的整合
 
@@ -26,7 +25,7 @@ git log --oneline --decorate --all -20
 git status --short
 ```
 
-在双方分支上分别创建快照 tag。tag 名称应包含来源和日期，例如 `snapshot/su-2026-08-18`、`snapshot/friend-2026-08-18`。不要在没有记录 SHA 的情况下开始大规模整合。
+在双方分支上分别创建快照 tag。tag 名称应包含来源和日期，例如 `snapshot/friend-2026-08-18`、`snapshot/integration-2026-08-18`。不要在没有记录 SHA 的情况下开始大规模整合。
 
 ### 2. 先做只读差异分析
 
@@ -43,7 +42,7 @@ git diff --name-only dev...friend-port
 
 - 双方都修改的构建、权限、生命周期、播放器、数据格式和网络鉴权文件属于高风险区。
 - 只有一方新增且边界清楚的模型、适配器或测试通常可以单独吸收。
-- Android 参照代码不能覆盖 `NeriPlayer-HarmonyOS/` 的 ArkTS/ArkUI 架构；冲突解决要以当前 HarmonyOS 行为、API 24 基线和可重复测试为准。
+- Android 参照代码不能覆盖 `NeriPlayer-HarmonyOS/` 的 ArkTS/ArkUI 架构；冲突解决要以当前 HarmonyOS 行为、**API 26（`26.0.0`）基线**和可重复测试为准。
 
 ### 3. 在第三个分支整合
 
@@ -91,14 +90,14 @@ PR 必须说明：变更范围、关联 Issue、实际执行的命令、未执�
 
 以下是仓库管理员需要在 GitHub 上完成的远端设置，本地文件无法替代这些设置：
 
-1. 邀请朋友进入仓库，权限至少为 Write；不要共享个人 Token。
-2. 建立 `main` 后，将默认分支切换到 `main`；保留 `dev` 作为开发分支。
-3. 为 `main` 创建 ruleset：禁止直接 push、禁止 force push 和删除；必须通过 PR、至少 1 位另一位开发者批准，并要求 `HarmonyOS CI / build & test (API 24)` 成功。
+1. ~~邀请朋友进入仓库，权限至少为 Write~~ → **仓库已于 2026-10 转为 public**，读访问无需邀请；若仍需协作者写权限，按需邀请并**禁止共享个人 Token**。
+2. ~~建立 `main` 后，将默认分支切换到 `main`~~ → **已完成**（默认分支现为 `main`，`dev` 保留为开发分支）。
+3. 为 `main` 创建 ruleset：禁止直接 push、禁止 force push 和删除；必须通过 PR、至少 1 位另一位开发者批准，并要求 `HarmonyOS CI / build & test (API 26)` 成功（工具链 CLT 26.0.0.821 / SDK 26.0.0.105）。
 4. 为 `dev` 创建较轻的 ruleset：必须通过 PR 和 CI；整合 PR 至少 1 位开发者 review。两人协作时不要允许作者自己批准自己的 PR。
 5. 创建 GitHub Project，至少包含 `Todo`、`Doing`、`Review`、`Done`；Issue 用于任务，PR 用于代码变更。
 6. 建议统一标签：`type: bug`、`type: feature`、`type: integration`、`area: ui`、`area: player`、`area: network`、`area: data`、`area: ci`、`status: needs-review`。
 
-当前环境没有可用的 GitHub CLI 或连接器，因此本轮只修改了仓库内可版本化的配置和文档，没有替你创建远端分支、ruleset、Project、标签或推送提交。
+~~当前环境没有可用的 GitHub CLI 或连接器~~ → **2026-10-22 复核**：`gh` CLI 已可用（账号 `suyunxing`，scope 含 `repo`/`gist`/`read:org`），远端分支、tag、Release 均可经它操作；ruleset 与 Project 的实际状态需用 `gh api` 单独核对（本轮未复查）。
 
 ## 完成整合的判定
 

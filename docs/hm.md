@@ -1,6 +1,6 @@
 # NeriPlayer HarmonyOS 开发与迁移指南
 
-> 核验日期：2026-08-14；2026-08-31 复核了 §3.1/§3.2/§8.1 的源码规模、能力域状态与用例计数；2026-09-08 复核了 §1/§2.2/§3.1/§8.1/§8.3/§9 的基线、包名、规模与用例计数（API 26 迁移与 bundleName 改名后的文档对齐）；2026-09-14 复核了 §3.1/§8.1 的规模与用例计数并补记 §7.14（2026-09-08～09-14 真机反馈修复与播放页转场波次）；2026-09-17 复核了 §3.1/§3.2/§8.1 的源码规模与用例计数。本文依据华为开发者联盟文档中心、版本说明和当前工作区源码重写并复核：版本映射与官方文档核对一致；本机工具链路径按 2026-08-14 迁移后的 `D:\HarmonyOS\Tools\` 布局更新（2026-08-13 的验证记录当时基于旧布局 `D:\HarmonyOS\` 根目录）。本文面向 NeriPlayer 的 HarmonyOS 原生迁移，不是 HarmonyOS API 的完整百科。
+> 核验日期：2026-08-14；2026-08-31 复核了 §3.1/§3.2/§8.1 的源码规模、能力域状态与用例计数；2026-09-08 复核了 §1/§2.2/§3.1/§8.1/§8.3/§9 的基线、包名、规模与用例计数（API 26 迁移与 bundleName 改名后的文档对齐）；2026-09-14 复核了 §3.1/§8.1 的规模与用例计数并补记 §7.14（2026-09-08～09-14 真机反馈修复与播放页转场波次）；2026-09-17 复核了 §3.1/§3.2/§8.1 的源码规模与用例计数；**2026-10-22 复核了 §3.1/§3.2/§8.1/§9 的包名、权限清单、源码规模、用例计数与法务状态**（bundleName 定稿 `com.sc.neriplayer`、权限 4 项、335 文件 / 81,505 行 / 1334 用例、协议已定稿）。本文依据华为开发者联盟文档中心、版本说明和当前工作区源码重写并复核：版本映射与官方文档核对一致；本机工具链路径按 2026-08-14 迁移后的 `D:\HarmonyOS\Tools\` 布局更新（2026-08-13 的验证记录当时基于旧布局 `D:\HarmonyOS\` 根目录）。本文面向 NeriPlayer 的 HarmonyOS 原生迁移，不是 HarmonyOS API 的完整百科。
 
 ## 1. 先看结论
 
@@ -104,16 +104,16 @@ compatibleSdkVersion ≤ targetSdkVersion ≤ compileSdkVersion
 | `docs/` | 审计、矩阵、路线图 | 迁移决策记录 |
 
 HarmonyOS 工程当前是单 `entry` HAP、Stage 模型、ArkTS 严格模式。
-工程声明支持 phone、tablet、2in1，包名为 `moe.ouom.neriplayer.hmos`（2026-09-01 由 `moe.ouom.neriplayer` 改名），许可证沿用 GPL-3.0。
+工程声明支持 phone、tablet、2in1，包名为 `com.sc.neriplayer`（2026-10-05 由 `moe.ouom.neriplayer.hmos` 改名，commit `5c75691`；更早名为 `moe.ouom.neriplayer`，两者均已作废），版本 1.3.0 / versionCode 1003000，许可证沿用 GPL-3.0。
 
-源码 `entry/src/main/ets` 下 269 个 `.ets` 文件、约 6.08 万行（2026-09-17 实测 60,800 行）。`entry/src/test/` 本地单元测试已随里程碑累积到 1332 用例（2026-10-16 静态清点；最近一次全量执行为 2026-08-29 的 874/874 全绿），`entry/src/ohosTest/` 建有设备测试族（24 个测试文件）；测试范围与计数沿革见 §8.1。
+源码 `entry/src/main/ets` 下 335 个 `.ets` 文件、约 8.15 万行（2026-10-22 实测 81,505 行）。`entry/src/test/` 本地单元测试已随里程碑累积到 **1334 用例 / 128 个测试文件 / 248 个 describe**（2026-10-22 静态清点；最近一次全量执行为 2026-08-29 的 874/874 全绿，此后新增用例尚未全量执行——Linux `hvigorw test` 执行阶段挂死，需 Windows 工作站复跑），`entry/src/ohosTest/` 建有设备测试族（21 个 `*.test.ets` 文件）；测试范围与计数沿革见 §8.1。
 2026-08-13 已使用 `D:\HarmonyOS` 中的 6.1.1 Release 工具链从 `ohpm install --all`、`clean` 开始完成 Debug HAP 构建，随后执行 ArkTS 单元测试、调试签名、模拟器安装、冷启动和设置页 smoke test。构建与测试结果可从当前源码重复获得，不再依赖 2026-08-02 的历史日志。
 
 ### 3.2 已有代码与可信度
 
 | 能力域 | 当前情况 | 可信度/下一步 |
 | --- | --- | --- |
-| 启动、免责声明、引导、安全模式 | `Index.ets` 和对应页面已有路径；2026-09-22 免责声明加版本门控（`util/DisclaimerConsentPolicy.ets` + 偏好键 `np.disclaimer_accepted_version`：协议正文修订时递增 `CURRENT_DISCLAIMER_VERSION`，已同意旧版的安装升级后首启重新进合规页，`DisclaimerPage` 显示更新提示行） | 静态存在；需冷启动、升级和异常恢复测试（版本门控的真机升级重弹路径未验证） |
+| 启动、免责声明、引导、安全模式 | `Index.ets` 和对应页面已有路径；2026-09-23 免责声明加版本门控（`util/DisclaimerConsentPolicy.ets` + 偏好键 `np.disclaimer_accepted_version`：协议正文修订时递增 `CURRENT_DISCLAIMER_VERSION`，已同意旧版的安装升级后首启重新进合规页，`DisclaimerPage` 显示更新提示行） | 静态存在；需冷启动、升级和异常恢复测试（版本门控的真机升级重弹路径未验证） |
 | 主导航和页面 | 首页、探索、资料库、设置、播放页等已存在 | `Navigation`/`NavDestination` + `NavPathStack` 已落地（2026-08-26，`Router` 保留门面）；多形态布局回归记录见 §9 |
 | 基础播放 | `PlayerManager.ets` 使用 AVPlayer，支持 URL/fd、队列、seek、倍速和错误重试骨架 | 原型/待复核；需真实设备闭环 |
 | 系统媒体控制 | `AVSessionManager.ets` 可创建并更新 AVSession | 播控中心元数据/歌词字段/seek 回灌已设备实测（2026-08-24/25 M10.1/M10.3）；锁屏、耳机与进程回收真机测试待复核 |
@@ -127,15 +127,14 @@ HarmonyOS 工程当前是单 `entry` HAP、Stage 模型、ArkTS 严格模式。
 | 一起听 | `listentogether/` 全链 + 房间页（M7，2026-08-21/22） | 建房/加入/同步播放/重连/邀请分享双端设备闭环；房间设置开关等增强项未做 |
 | USB 独占 | M9.1 spike 定案**不移植**（2026-08-24，`docs/USB_M91_SPIKE.md`） | API 面可行，但 ArkTS 单 JS 线程守不住等时节拍、SDK 无公开 USB DDK；系统路径 AVPlayer→USB Audio HAL 可用 |
 | 动态取色/高级模糊 | `view/theme/`（Palette/DynamicTheme 等）+ 背景模糊/玻璃子集（M8.1/M8.4，2026-08-23） | 设备实证随封面变色；AGSL 区域掩码玻璃无平台对应（D 级降级）；壁纸取色待复核 |
-| 测试 | ArkTS 本地单元测试 874/874 通过（2026-08-29 S 阶段记录，为最近一次全量执行；2026-10-16 静态清点 1332 例；最初仅 3 个 LRC 用例，随各里程碑累积）+ `ohosTest` 设备测试族 | 已建立并持续扩充；UI/Instrument 自动化仍薄 |
+| 测试 | ArkTS 本地单元测试 874/874 通过（2026-08-29 S 阶段记录，为最近一次全量执行；2026-10-22 静态清点 1334 例 / 128 文件 / 248 describe；最初仅 3 个 LRC 用例，随各里程碑累积）+ `ohosTest` 设备测试族 | 已建立并持续扩充；UI/Instrument 自动化仍薄 |
 
 ### 3.3 当前配置审查
 
-`AppScope/app.json5` 的 `bundleName`、版本号和图标配置完整。
-`entry/src/main/module.json5` 声明 `audioPlayback`、`INTERNET`、`GET_NETWORK_INFO`、`KEEP_BACKGROUND_RUNNING` 和 `READ_AUDIO`。
+`AppScope/app.json5` 的 `bundleName`（`com.sc.neriplayer`）、版本号（1.3.0 / 1003000）和图标配置完整。
+`entry/src/main/module.json5` 的 `requestPermissions` 恰为 4 项且**全部 normal 级**：`ohos.permission.INTERNET`、`GET_NETWORK_INFO`、`FILE_ACCESS_PERSIST`、`KEEP_BACKGROUND_RUNNING`；`audioPlayback` 长时任务在 ability 层声明。
 
-其中 `READ_AUDIO` 是用户授权权限；如果采用系统 `AudioViewPicker` 让用户主动选择文件，应优先走选择器的受控 URI 访问，不要把“选择器可用”和“全库扫描授权”混为一谈。
-若产品要扫描公共媒体库，必须重新核对权限等级、运行时申请、隐私说明和应用市场要求。
+原 `READ_AUDIO`（user_grant）已于 2026-08-25 删除——全项目 `grep requestPermissionsFromUser` 零命中，即声明了但从未申请过；本地音频入口收敛为 `AudioViewPicker` 受控 URI + `FILE_ACCESS_PERSIST` 持久授权（下载目录与本地音乐目录同样走该权限）。不要把「选择器可用」和「全库扫描授权」混为一谈：若未来要扫描公共媒体库，必须重新核对权限等级、运行时申请、隐私说明和应用市场要求。
 
 ## 4. Android 到 HarmonyOS 的架构映射
 
@@ -409,7 +408,7 @@ cd NeriPlayer-HarmonyOS
 $hdc = 'D:\HarmonyOS\Tools\command-line-tools\sdk\default\openharmony\toolchains\hdc.exe'
 & $hdc list targets
 & $hdc install -r '.\entry\build\default\outputs\default\entry-default-signed.hap'
-& $hdc shell aa start -a EntryAbility -b moe.ouom.neriplayer.hmos -m entry
+& $hdc shell aa start -a EntryAbility -b com.sc.neriplayer -m entry
 ```
 
 **双实例（2026-08-22 M7.5 验证）**：`Emulator.exe -start 'Mate X7'` 可再起第二个实例（foldable 与 phone 共享 phone_all_x86 镜像），hdc 端口自动分配（实测 5561，需 `hdc tconn 127.0.0.1:5561` 探测）；一份 HAP 用双 UDID profile 签名即可双端安装：`sign-local.ps1 -Device <A> -DeviceIds <udidA>,<udidB> -HvigorwPath ...`（`-DeviceIds` 必传，`-Device` 只是安装目标）。devecocli 的 ui 子命令在多设备下用 `--device 127.0.0.1:<port>` 区分。guest 无 root/su：`ifconfig eth0 down`、`kill -19` 均 Permission denied，无法在 guest 内断网/冻结进程。
@@ -477,7 +476,7 @@ $hdc = 'D:\HarmonyOS\Tools\command-line-tools\sdk\default\openharmony\toolchains
 
 ### 8.1 纯逻辑测试
 
-当前基线位于 `entry/src/test/`，通过 `@ohos/hypium` 和 Hvigor 本地单元测试任务执行 **1332 个用例**（2026-10-16 静态清点 `it(` 声明；最近一次全量执行记录为 2026-08-29 的 874/874 全绿，`docs/FEATURE_MATRIX.md`；此前各里程碑计数 3→42→…→848→874→935→980→1035→1332 递增，`hvigorw test` 默认不打印计数，结果读 `entry/.test/default/intermediates/test/coverage_data/test_result.txt`）。测试不访问设备和第三方网络。该结果不替代需要安装测试包并通过 `aa test` 执行的设备侧 JsUnit/Instrument 测试。
+当前基线位于 `entry/src/test/`，通过 `@ohos/hypium` 和 Hvigor 本地单元测试任务执行 **1334 个用例**（2026-10-22 静态清点 `it(` 声明，128 个测试文件 / 248 个 describe；最近一次全量执行记录为 2026-08-29 的 874/874 全绿，此后新增用例尚未全量执行，`docs/FEATURE_MATRIX.md`；此前各里程碑计数 3→42→…→848→874→935→980→1035→1332 递增，`hvigorw test` 默认不打印计数，结果读 `entry/.test/default/intermediates/test/coverage_data/test_result.txt`）。测试不访问设备和第三方网络。该结果不替代需要安装测试包并通过 `aa test` 执行的设备侧 JsUnit/Instrument 测试。
 
 优先为以下模块补 JsUnit：
 
@@ -511,7 +510,7 @@ $hdc = 'D:\HarmonyOS\Tools\command-line-tools\sdk\default\openharmony\toolchains
 - [x] 2026-08-13 已在当前 6.1.1 Release 环境完成依赖同步、干净编译、3 个单元测试、调试签名、模拟器安装和冷启动。
 - [x] 2026-08-14 迁移后全链复验通过：PATH/环境变量修复、显式三版本配置、ohosTest 骨架（设备实测 1/1）、codelinter 基线、签名口令重置（见 7.5）。
 - [x] SDK 版本显式配置且满足大小关系（targetSdkVersion/compatibleSdkVersion = `26.0.0`；compileSdkVersion 未显式配置、随工具链 SDK——2026-09-07 迁移，见 §7.12）。
-- [ ] 目标 API（26.0.0）完整功能回归通过；2026-09-07 迁移后设备侧回归未执行（见 §7.12），此前 API 24 阶段的设备实测记录见 §7.6～§7.10。Beta API 未混入生产路径。
+- [ ] 目标 API（26.0.0）完整功能回归通过；2026-09-07 迁移后设备侧回归未执行（见 §7.12），此前 API 24 阶段的设备实测记录见 §7.6～§7.10。**2026-10-22 补记**：迁移后已有多轮用户真机反馈（09-16 三轮截图、10-01/10-02 六轮滚动与迷你条、10-13 五问题、10-13 二轮本地歌单三修），均修复入 dev；但**系统性真机回归（播放/下载/同步/一起听/卡片主路径）仍未执行**。Beta API 未混入生产路径。
 - [ ] Stage、UIAbility、AbilityStage 的职责和生命周期清晰。
 - [x] 新页面使用 Navigation/NavPathStack，或记录 Router 过渡原因。2026-08-26：全部 11 个全屏路由已迁到 `Navigation`/`NavDestination` + `NavPathStack`，`Router` 保留为门面（见 6.2）。
 - [ ] AVPlayer 状态监听、错误恢复、资源释放和本地 fd 生命周期经过测试。
@@ -522,11 +521,11 @@ $hdc = 'D:\HarmonyOS\Tools\command-line-tools\sdk\default\openharmony\toolchains
 - [x] 账号登录以及下载、同步、一起听、USB、YouTube 取流等未完成项已显式标注，不得伪装为已支持。
 - [ ] 正式证书、Profile、私钥和密码不在仓库或日志中。
 - [ ] 完成无障碍、平板/2in1、性能、功耗、隐私和上架预检。
-  - 2026-08-24 M9.3 部分闭合，逐项实况见 `docs/RELEASE_CHECKLIST.md`：**已完成**——字号缩放（开启 followSystem 并在 1.45×/1.75× 两档度量，修掉 3 处真实缺陷）、触控目标（度量确认 40vp 下限，**并修正旧结论：实际未达 ≥48vp 推荐值，约 30 控件落在 40–48vp**）、内存冒烟（127–151 MB 无单调增长）、隐私与市场合规清单（权限清单、无第三方统计/崩溃 SDK、诊断仅本地+导出前脱敏、凭据走 asset）、phone 377vp 与 foldable 展开内屏 707vp 两形态布局回归。**仍未完成**——tablet 2880×1920 与 2in1 3120×2080（镜像未下载，执行计划 M9.3a）、折叠外屏 346vp（传感器 hdc 无法注入）、横屏、真机全部指标、屏幕朗读实际听读效果（已补 21 处 `.accessibilityText`/13 文件，但 `uitest dumpLayout -e accessibilityText` 被工具拒绝、本链路无法导出无障碍属性验证）、熄屏 30 分钟功耗（CPU 0.017%/0.74% 只是代理指标，模拟器无电量计）。故本项**不得整体勾选**。
-  - 2026-08-25 按少数派《鸿蒙上架指南》第一章补做设计/交互/生态规范自查，逐条记录见 `docs/UX_COMPLIANCE_AUDIT.md`。**已整改**——分层图标（原 216×216 单层且 22.3% 透明 → 前后景各 1024×1024，背景层写成无 alpha 通道的纯色 PNG）、启动页背板与图标背板统一为 `#1E293A`、全量沉浸式（系统栏透明 + 背景层 `expandSafeArea`，底部固定控件上抬 28vp 并修掉 Tab 栏 56→50vp 挤压）、深色模式冷启动（`systemDark` 原硬编码 false 导致系统深色下整会话渲染浅色）、状态栏首帧对比度、路由转场动效（10 个全屏路由原为单帧硬切）、权限最小化（删除从未申请的 user_grant `READ_AUDIO`，`reason` 按场景+动作+目的重写并补 zh_CN）、**上架红线：首启弹窗补「不同意」+ 二次确认后礼貌退出，新增应用内可离线打开的隐私政策与用户协议**。**仍未完成**——大屏三档响应式布局（`GridRow`/断点系统零命中，本轮按决定仅登记不改码；只要 `deviceTypes` 保留 tablet/2in1 即为强制项）、法务文案定稿并同步 AGC（当前为 `v1.0.0-draft` 草案）、重大政策变更重新征同意（文案已承诺、代码未实现）、键鼠支持。**验证边界**：本轮无可用设备（`hdc list targets` 恒 `[Empty]`），仅 `assembleHap` BUILD SUCCESSFUL 与 codelinter `25 warn / 2 suggestion / 0 error` 为实测；单测未运行，M9.3 的 798 pass 对**当前源码**降级为「有历史证据 / 待复核」；全部 UI 表现与权限删除的设备冒烟均**未验证**。
+  - 2026-08-24 M9.3 部分闭合（下表数字为当时快照；无障碍标注后已增至 31 处/12 文件，见 `HARMONYOS_NATIVE_FEATURES.md`），逐项实况见 `docs/RELEASE_CHECKLIST.md`：**已完成**——字号缩放（开启 followSystem 并在 1.45×/1.75× 两档度量，修掉 3 处真实缺陷）、触控目标（度量确认 40vp 下限，**并修正旧结论：实际未达 ≥48vp 推荐值，约 30 控件落在 40–48vp**）、内存冒烟（127–151 MB 无单调增长）、隐私与市场合规清单（权限清单、无第三方统计/崩溃 SDK、诊断仅本地+导出前脱敏、凭据走 asset）、phone 377vp 与 foldable 展开内屏 707vp 两形态布局回归。**仍未完成**——tablet 2880×1920 与 2in1 3120×2080（镜像未下载，执行计划 M9.3a）、折叠外屏 346vp（传感器 hdc 无法注入）、横屏、真机全部指标、屏幕朗读实际听读效果（已补 21 处 `.accessibilityText`/13 文件，但 `uitest dumpLayout -e accessibilityText` 被工具拒绝、本链路无法导出无障碍属性验证）、熄屏 30 分钟功耗（CPU 0.017%/0.74% 只是代理指标，模拟器无电量计）。故本项**不得整体勾选**。
+  - 2026-08-25 按少数派《鸿蒙上架指南》第一章补做设计/交互/生态规范自查，逐条记录见 `docs/UX_COMPLIANCE_AUDIT.md`。**已整改**——分层图标（原 216×216 单层且 22.3% 透明 → 前后景各 1024×1024，背景层写成无 alpha 通道的纯色 PNG）、启动页背板与图标背板统一为 `#1E293A`、全量沉浸式（系统栏透明 + 背景层 `expandSafeArea`，底部固定控件上抬 28vp 并修掉 Tab 栏 56→50vp 挤压）、深色模式冷启动（`systemDark` 原硬编码 false 导致系统深色下整会话渲染浅色）、状态栏首帧对比度、路由转场动效（10 个全屏路由原为单帧硬切）、权限最小化（删除从未申请的 user_grant `READ_AUDIO`，`reason` 按场景+动作+目的重写并补 zh_CN）、**上架红线：首启弹窗补「不同意」+ 二次确认后礼貌退出，新增应用内可离线打开的隐私政策与用户协议**。**仍未完成**——键鼠支持；以及 AGC 同步上传定稿文案（商业上架动作，本开源项目不做）。~~大屏三档响应式布局~~ **已于 2026-08-26 整改并三形态复测收口**（见下两轮记录与 §6.2）；~~法务文案定稿~~ **已于 2026-09-20 定稿 v1.0.0**（`d3eadb3`，草案横幅 09-22 删除）；~~重大政策变更重新征同意~~ **已于 2026-09-23 实现**（`9d56a07`，`util/DisclaimerConsentPolicy.ets`，`CURRENT_DISCLAIMER_VERSION='2'`）。**验证边界**：本轮无可用设备（`hdc list targets` 恒 `[Empty]`），仅 `assembleHap` BUILD SUCCESSFUL 与 codelinter `25 warn / 2 suggestion / 0 error` 为实测；单测未运行，M9.3 的 798 pass 对**当前源码**降级为「有历史证据 / 待复核」；全部 UI 表现与权限删除的设备冒烟均**未验证**。
   - 2026-08-26 tablet / 2in1 镜像阻塞解除后完成两形态回归（**跑的是 API 26 Beta 而非目标 6.1.1(24)**），四类布局缺陷全 0，但暴露 11 条大屏信息密度问题；根因是全项目未使用 ArkUI 标准响应式组件（`GridRow`/`Navigation`/`Tabs`/断点 grep 零命中），已同日整改：`Tabs`/`TabContent`（大屏 `.vertical(true).barWidth(96)` 侧边栏）、`Navigation`/`NavDestination` + `NavPathStack`、`GridRow`/`GridCol` 按断点分列、`ContentBand` 栏宽（正文 600vp / 列表 840vp / 按钮 360vp）、硬编码 28vp → `TYPE_NAVIGATION_INDICATOR` 动态避让，共 24 文件（新增 3）。**已完成**——tablet 一档 7 页改后复测四类缺陷全 0、11 条密度问题逐条填回实测数字、返回栈未双弹、本地单测 819/819、codelinter 0 error。**仍未完成**——phone 与 2in1 的改后复测、2in1 上「自由窗口避让区 0 → 抬升量 0」这一动态避让核心验收点、动态跨断点切换、字号三档改后复测、目标 API 24 上的 tablet/2in1、折叠屏悬停态、触控目标 48vp、横屏、真机、朗读听读、熄屏功耗。逐项见 `docs/UX_COMPLIANCE_AUDIT.md` §8.2/§10.2/§11.5 与 `docs/RELEASE_CHECKLIST.md` §1/§7.3。
   - 2026-08-27 phone（Pura 90，**唯一 API 24 形态**）改后复测完成，`Tabs` 底部栏分支首次上设备：Tab 单格 97.8vp 与改造前逐像素一致、避让区 27.85vp 且 Tab 底边与指示器上沿重合（S2 判定规则在目标 API 上成立）、首启与全页四类缺陷 0、深/浅/auto 三档无缝、字号 1.45×/1.8125× 三处旧缺陷无回归、返回栈无一次双弹、内存 6 轮平台期 257–264MB 无泄漏；静态与单测复跑持平（codelinter 26/2/0、819/819）。**复测发现并修复两处真实缺陷**（tablet 轮漏检，因 tablet 色带与页面同色不可见）：① 指示器条带与 Tab 栏 28vp 色差接缝——NavBar 内容区内层 `expandSafeArea` 不延伸，改由 `Tabs` 容器自身背景铺底（`Tabs` bounds 天然到窗口物理底边）；② `NavDestination` 默认白背景在深色模式内容区以下露白边，显式置透明回落 Index 沉浸层。均改在 `MainShell.ets`。一个未复现的观察项（后台改显示密度后恢复时一次 Back 直接退出）已登记 audit §11.6。证据前缀 `tools/.m9/pa*`。
-  - 2026-08-27 深夜 2in1（MateBook Pro，API 26 Beta）改后复测完成，**ArkUI 改造轮三形态证据收齐**：自由窗口 1100vp 侧边栏 96.3vp 固定、**S2 核心验收点通过**（避让区 0 → 抬升 0，TabBar 底边距窗口底 0.0vp，整改前 27.9vp 纯死区）、**跨断点 809↔1101vp 双向换栏**且两次重建后页面状态保留、最大化 1642vp 侧边栏保持、四类缺陷全 0、设置行 716.8vp/法务 568.4vp/每日推荐 6 卡每行、深色含 DecorBar 跟随。**环境事故记录**：bundleName 已在工作树改为 `moe.ouom.neriplayer.hmos`（08-27 上午的未提交变更，晚于当日提交），2in1 模拟器上旧名残留包与新包同图标并存，`aa start -b moe.ouom.neriplayer` 误启动旧应用产生一串假阳性；**旧包需卸载、所有 `-b` 参数需随改名更新**（排查记录 audit §11.7）。另记该 Beta 镜像 a11y dumpLayout 树不稳定（需截图像素交叉验证）、DecorBar 按钮顺序实测为最大化/最小化/关闭。证据前缀 `tools/.m9/wb*`。
+  - 2026-08-27 深夜 2in1（MateBook Pro，API 26 Beta）改后复测完成，**ArkUI 改造轮三形态证据收齐**：自由窗口 1100vp 侧边栏 96.3vp 固定、**S2 核心验收点通过**（避让区 0 → 抬升 0，TabBar 底边距窗口底 0.0vp，整改前 27.9vp 纯死区）、**跨断点 809↔1101vp 双向换栏**且两次重建后页面状态保留、最大化 1642vp 侧边栏保持、四类缺陷全 0、设置行 716.8vp/法务 568.4vp/每日推荐 6 卡每行、深色含 DecorBar 跟随。**环境事故记录（历史）**：bundleName 当时在工作树改为 `moe.ouom.neriplayer.hmos`（08-27 上午的未提交变更，晚于当日提交；**该名与更早的 `moe.ouom.neriplayer` 均已作废，2026-10-05 起现名为 `com.sc.neriplayer`**），2in1 模拟器上旧名残留包与新包同图标并存，`aa start -b moe.ouom.neriplayer` 误启动旧应用产生一串假阳性；**旧包需卸载、所有 `-b` 参数需随改名更新**（排查记录 audit §11.7）。另记该 Beta 镜像 a11y dumpLayout 树不稳定（需截图像素交叉验证）、DecorBar 按钮顺序实测为最大化/最小化/关闭。证据前缀 `tools/.m9/wb*`。
 
 ## 10. 官方资料索引
 
@@ -668,7 +667,7 @@ $hdc = 'D:\HarmonyOS\Tools\command-line-tools\sdk\default\openharmony\toolchains
   - `player/BackgroundTaskRunner.ets`：`continuousTaskCancel` 日志接入 `detailedReason`（@since 26，`ContinuousTaskDetailedCancelReason`，可区分用户划除通知(3)与播放合规审计(6)等精确触发；字段缺省时留空兼容）。
 - 评估后不接入（结论备查）：
   - `window.setImageForRecent`（多任务卡片自定义封面，@since 20 在 26 权限列表中开放权限名）：需 `ohos.permission.MANAGE_RECENT_SNAPSHOT`（system_basic 级，三方应用不可申请），跳过。
-  - AVPlayer 原生播放列表（`addPlaybackMediaSource`/`playlistLoopMode`/`onPlaybackContentChanged`，@since 26）与 `createAVDownloaderManager` 流式下载（@since 26）：与既有 `QueueEngine` 状态机/自研下载引擎（Range+If-Range 指纹、HLS checkpoint）是整体替换关系而非增量升级，牵动播放恢复、一起听同步与 900+ 单测，本轮不做，留待独立专项。
+  - AVPlayer 原生播放列表（`addPlaybackMediaSource`/`playlistLoopMode`/`onPlaybackContentChanged`，@since 26）与 `createAVDownloaderManager` 流式下载（@since 26）：与既有 `QueueEngine` 状态机/自研下载引擎（Range+If-Range 指纹、HLS checkpoint）是整体替换关系而非增量升级，牵动播放恢复、一起听同步与 1300+ 单测，本轮不做，留待独立专项。
   - AVPlayer `seek` 在 26 仍为 `void`（无 Promise 重载），原样保留。
 - targetSdk 26 行为变更核对（逐项走查，均不受影响）：后台「真播放」审计收紧——本工程暂停即 `stopBackgroundRunning`，已合规；沙箱 stat/access 收紧——无硬编码沙箱路径；剪贴板读取需 PasteButton/权限——工程只写不读；Dialog/Toast 默认沉浸材质——工程弹窗均走系统默认样式，与 glass UI 方向一致，**视觉实际效果待设备复核**；`WindowProperties.type` 更名 `windowType`、avSession `playFromAssetId`（since 20 废弃）——工程均未使用。
 - 验证（服务器）：`hvigorw --no-daemon assembleHap` BUILD SUCCESSFUL 且无新增弃用告警；`hvigorw test` 编译级 0 error（执行阶段挂死为 Linux 已知限制，真实通过计数待 Windows 工作站）；codelinter 全仓 5 error + 23 warn + 3 suggestion，与迁移前 stash 基线**逐字节一致**（5 个 `await-thenable` error 为 CLT 26.0.0.105 codelinter 对 8 月存量文件的误报，见 §7.11），本次 8 个改动文件 0 error 0 warn。

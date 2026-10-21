@@ -108,7 +108,7 @@
 正文与此前勘误节均为当时点事实；以下按当前源码（HEAD `41e5a89`）与提交记录复核更新，冲突时以本节与 `FEATURE_MATRIX.md` 为准：
 
 - **工程基线**：根 `build-profile.json5` 的 `compatibleSdkVersion`/`targetSdkVersion` 已于 2026-09-07 迁移为 `26.0.0`（API 26，纯 SemVer；commit `59b65d6`，记录见 `hm.md` §7.12），26 以下设备不再可安装；2026-08-14 勘误节「6.1.1(24) 即本项目基线」已过时。
-- **包名**：`AppScope/app.json5` 的 `bundleName` 已于 2026-09-01 改为 `moe.ouom.neriplayer.hmos`（commit `cfe3e8e`）。
+- **包名**：`AppScope/app.json5` 的 `bundleName` 已于 2026-09-01 改为 `moe.ouom.neriplayer.hmos`（commit `cfe3e8e`）。**该值已于 2026-10-05 再改为 `com.sc.neriplayer`（`5c75691`），见本文 2026-10-22 复核节。**
 - **源码规模**：`NeriPlayer-HarmonyOS/entry/src/main/ets` 下 251 个 `.ets` 文件、53,753 行（2026-09-08 实测）；2026-08-31 复核节的 239 文件 / 49,834 行为当时数字。
 - **测试**：`entry/src/test/` 静态清点 935 个 `it(` 用例（2026-09-08）；最近一次全量执行仍为 2026-08-29 的 874/874 全绿，此后新增用例的真实通过计数待 Windows 工作站执行 `hvigorw test` 后回填。
 
@@ -128,3 +128,15 @@
 - **源码规模**：`NeriPlayer-HarmonyOS/entry/src/main/ets` 下 269 个 `.ets` 文件、60,800 行（2026-09-17 实测）；2026-09-14 复核节的 257 文件 / 55,727 行为当时数字。
 - **测试**：`entry/src/test/` 静态清点 1035 个 `it(` 用例、97 个测试文件（2026-09-17）；`entry/src/ohosTest/` 24 个测试文件。最近一次全量执行仍为 2026-08-29 的 874/874 全绿，新增用例的真实通过计数待 Windows 工作站回填。
 - **2026-09-14～09-17 波次**（提交记录复核）：Android 对齐第二波经 PR #32 合入（网易云 YRC 逐字歌词、手机号登录、专辑远端曲库与艺人页、统计页深度、一起听房间设置、蜂窝分平台音质、目录授权扫描等，回填见 `ANDROID_PARITY_BACKLOG.md`）、探索页全元素封面取色经 PR #33 合入、开源准备经 PR #34 合入；gitleaks 密钥扫描 CI 上线（Copilot 审查配置移除，CodeRabbit 待接入）；歌词逐字高亮改三选一（逐行/逐字跳变/逐字渐变，`da9485e`）；毛玻璃面板开关删除、玻璃效果常开（`c9526c6`）；二三级页统一沉浸渐变模糊标题栏与底部渐变遮罩（`19502ec`）。
+
+## 勘误与进展（2026-10-22 复核）
+
+正文与此前各勘误节均为当时点事实；以下按当前源码（dev HEAD `72059b1`，已打 tag `v1.4.0-rc.4`）与提交记录复核更新，冲突时以本节与 `FEATURE_MATRIX.md` 为准：
+
+- **包名（再次变更）**：`AppScope/app.json5` 的 `bundleName` 已于 2026-10-05 改为 **`com.sc.neriplayer`**（commit `5c75691`，同提交 versionName 升至 1.3.0、versionCode 1003000）；2026-09-08 勘误节的 `moe.ouom.neriplayer.hmos`（及更早的 `moe.ouom.neriplayer`）均已作废。vendor 仍为 `moe.ouom`。
+- **源码规模**：`NeriPlayer-HarmonyOS/entry/src/main/ets` 下 **335 个 `.ets` 文件、81,505 行**（2026-10-22 实测）；2026-09-17 复核节的 269 文件 / 60,800 行为当时数字。
+- **测试**：`entry/src/test/` 静态清点 **1334 个 `it(` 用例、128 个测试文件、248 个 `describe`**（2026-10-22）；`entry/src/ohosTest/` **21 个** `*.test.ets` 文件（2026-09-17 节记 24 个，随用例重组调整）。**最近一次真实全量执行仍为 2026-08-29 的 874/874 全绿**——此后新增的约 460 例从未执行过（Linux `hvigorw test` 执行阶段挂死属环境限制，须 Windows 工作站复跑后回填 `entry/.test/default/intermediates/test/coverage_data/test_result.txt`）。这是当前最主要的验证缺口。
+- **权限**：正文「已声明权限：Internet、网络状态、后台持续运行、本地音频读取」已过时。现 `module.json5` 恰 **4 项且全部 normal 级**：`INTERNET` / `GET_NETWORK_INFO` / `FILE_ACCESS_PERSIST` / `KEEP_BACKGROUND_RUNNING`；`READ_AUDIO`（user_grant）已于 2026-08-25 删除（全项目从未申请过它，本地音频改走 `AudioViewPicker` 免权限 + `FILE_ACCESS_PERSIST` 持久授权）。
+- **法务（已定稿，非待办）**：隐私政策与用户协议 **2026-09-20 定稿 v1.0.0**（生效日期 2026-09-20，`d3eadb3`）；「草案 · 待作者复核」横幅与 `legal_draft_notice` 键 **2026-09-22 删除**（`ee8bbfb`）；「重大政策变更重新征同意」**2026-09-23 实现**（`9d56a07`，`util/DisclaimerConsentPolicy.ets`，`CURRENT_DISCLAIMER_VERSION='2'`）。
+- **2026-09-18～10-19 波次概要**：壳层与迷你条多轮真机迭代（§`hm.md` §7.15～§7.23）；API 26 工具链落地与 CI 迁移；上游同步首轮大规模移植——P0 数据安全三项全清、A-1~A-25 审计收口（8 项确认缺陷已修 + 4 项低危残留登记）、F-1~F-13 功能移植全部完成（队列编辑/评论/网易歌单写回/雷达歌单/一起听增强/B站UP空间·YTM创作者·短链/存储分析/搜索UX/删除撤销/多步引导/桌面卡片/polish），余 F-14（DSP/电台站点）待评估；WebDAV 两阶段原子发布、下载目录切换六缺口、ZSTD v4 归档探测防护。详见 `UPSTREAM_SYNC_PLAN.md`。
+- **分发状态**：仓库已转为 **public**；`v1.4.0-rc.1`~`rc.4` 经 `harmonyos-release.yml` 发布（unsigned HAP + `SHA256SUMS.txt` + `INSTALL.md`，rc.4 = 2026-10-19 = dev HEAD）。CI 四条流水线（HarmonyOS CI / gitleaks / CodeQL / Release）最近均全绿。

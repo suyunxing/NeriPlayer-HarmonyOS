@@ -69,7 +69,7 @@ DesktopLyricProbe negative setDesktopLyricVisible/noEnable=err(6600110:
 
 ### 3.3 系统服务侧取证（决定性）
 
-`com.huawei.hmos.mediacontroller`（v6.1.0.512）在探针调用后被真实拉起并接管：
+`com.huawei.hmos.mediacontroller`（v6.1.0.512）在探针调用后被真实拉起并接管（以下日志为 2026-08-25 原始取证，其中 `controlPkgName: moe.ouom.neriplayer` 是当时的包名；**现包名为 `com.sc.neriplayer`**，2026-10-05 定稿）：
 
 ```
 MDL_DesktopLyricAbility, onCreate
