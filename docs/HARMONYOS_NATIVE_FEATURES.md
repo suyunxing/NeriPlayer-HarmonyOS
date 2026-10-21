@@ -1,10 +1,10 @@
 # HarmonyOS 原生特性与设计规范落地需求（NeriPlayer）
 
 > 成文日期：2026年08月24日
-> 工程基线：**HarmonyOS 26.0.0 / API 26**（`build-profile.json5` 的 `compatibleSdkVersion` 与 `targetSdkVersion` 均为 `26.0.0`）。**成文时为 `6.1.1(24)`，2026-09-07 已全量迁移**（见下方 2026-09-17 修订说明与 `hm.md` §7.12）；正文中凡以「API 24 基线」为前提的判断，均已按 API 26 重新核对（见 2026-10-22 修订）。
+> 工程基线：**HarmonyOS 26.0.0 / API 26**（`build-profile.json5` 的 `compatibleSdkVersion` 与 `targetSdkVersion` 均为 `26.0.0`）。**成文时为 `6.1.1(24)`，2026-09-07 已全量迁移**（见下方 2026-09-17 修订说明与 `docs/archive/HM_HISTORY.md` §7.12）；正文中凡以「API 24 基线」为前提的判断，均已按 API 26 重新核对（见 2026-10-22 修订）。
 >
 > **2026年08月26日修订**：本文最初编制时的四项 P1 现状描述已过时，按实际落地情况回填。受影响章节：§1 摘要表（`Navigation` 迁移、分层图标、多语言资源三行）、§6（`Navigation` 迁移已落地，并记录「`NavigationMode.Auto` 分栏被主动放弃」与「M9.3 回归作废」两条与原预期不符的实际结果）、§7.2（tablet/2in1 已回归 + 11 条大屏密度问题已整改）、§8.1（分层图标已落地）、§8.2（多语言部分落地）、§11 决策表、§12 M10.4/M10.5 里程碑。原文内容以「迁移前的现状（保留以备复查）」形式保留，不删除。改造与验证的一手数字见 `UX_COMPLIANCE_AUDIT.md` §10.2/§11.5 与 `RELEASE_CHECKLIST.md` §7.3。
-> **2026年09月17日修订**：工程基线已于 2026-09-07 自 `6.1.1(24)` 全量迁移为 `26.0.0`（API 26，纯 SemVer；`build-profile.json5` 的 `compatibleSdkVersion`/`targetSdkVersion` 均为 `26.0.0`），上文「6.1.1(24)」为成文时点基线，迁移记录见 `hm.md` §7.12。
+> **2026年09月17日修订**：工程基线已于 2026-09-07 自 `6.1.1(24)` 全量迁移为 `26.0.0`（API 26，纯 SemVer；`build-profile.json5` 的 `compatibleSdkVersion`/`targetSdkVersion` 均为 `26.0.0`），上文「6.1.1(24)」为成文时点基线，迁移记录见 `docs/archive/HM_HISTORY.md` §7.12。
 > **2026年10月22日修订（dev HEAD `72059b1`）**：按当前代码复核，本文多处「未实现/零命中/基线不可用」的结论已失效，逐节回填——① §5/§12 桌面服务卡片**已由 F-12 落地**（`widget/pages/PlaybackCard.ets`、`widget/PlaybackCardState.ets`、`player/PlaybackCardBridge.ets`、`entryformability/EntryFormAbility.ets`、`form_config.json`）；② 权限清单 `READ_AUDIO` 已于 2026-08-25 删除，现为 4 项 normal 权限；③ `setVolume` 已存在于 `PlayerManager.ets`（`:1232`）并有设置页音量滑条，§4.2「音量完全交给系统」的论据失效；④ `FormExtensionAbility`/`postCardAction` 不再「零命中」；⑤ 行数规模、`accessibilityText` 处数、`string.json` 条数按当前源码更新；⑥ 基线已为 API 26，原文「API 26 不可用 / M9.4 阻塞」类判断作废。
 
 ## 阅读索引（先看这里，避免通读）

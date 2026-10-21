@@ -13,8 +13,8 @@
 
 ## 0. 阅读索引（先看这里，避免通读）
 
-> 本文 200 KB / ~104k token，**不要整篇加载**。按下表定位后只读目标节。
-> 体积分布：§6 里程碑看板占 73%（逐轮取证记录，多为一次性细节），其余 27% 为规则与现状。
+> 本文 **193 KB / ~96k token**（2026-10-22 起，S 阶段与缺陷修复五连等历史轮次已外移至 [`docs/archive/PORTING_HISTORY.md`](archive/PORTING_HISTORY.md)）。**不要整篇加载**，按下表定位后只读目标节。
+> 体积分布：§6 里程碑看板的证据行占绝大多数（52 KB，一次性取证细节），其余为规则与现状。
 
 | 我想知道 | 读这里 |
 | --- | --- |
@@ -26,8 +26,8 @@
 | 某里程碑做了什么、验证到什么程度 | §6（L228，M1~M9 逐项） |
 | 安全/数据互通/上游同步/成本控制 | §7（L435） |
 | 写进度记录与证据行的格式约定 | §8（L456） |
-| **2026-10 上游同步波次（F-1~F-13 完成状态）** | **F 阶段节（L683）** |
-| 历史轮次取证（UI 重构、缺陷修复五连） | S 阶段节起（L475 起，历史，按需读） |
+| **2026-10 上游同步波次（F-1~F-13 完成状态）** | **F 阶段节（L475）** |
+| 历史轮次取证（S 阶段 / 缺陷修复五连） | 外移至 [`docs/archive/PORTING_HISTORY.md`](archive/PORTING_HISTORY.md) |
 
 **当前状态速览（2026-10-22，dev HEAD `72059b1` / tag `v1.4.0-rc.4`）**：M1~M9 全部闭合；S 阶段 UI 重构与转场完成；2026-10 上游同步波次 P0 三项全清、F-1~F-13 完成、F-14 待评估。剩余主要是**真机验证积压**（见 `FEATURE_MATRIX.md` 各行「下一验证点」）与本地单测全量复跑（874/874 为最近一次真实执行，静态已增至 1334 例）。
 
@@ -62,11 +62,11 @@
 
 ---
 
-## 2. 环境与命令速查（2026-08-14 已全链验证，详见 hm.md §7.5）
+## 2. 环境与命令速查（2026-08-14 已全链验证，详见 docs/archive/HM_HISTORY.md §7.5）
 
 | 项 | 值 |
 | --- | --- |
-| 主力工程 | `D:\HarmonyOS\Project\Neriplayer\NeriPlayer-HarmonyOS`（基线 2026-09-07 已迁移为 26.0.0 / API 26，见 hm.md §7.12；本行 API 24 描述为 2026-08-14 验证时点） |
+| 主力工程 | `D:\HarmonyOS\Project\Neriplayer\NeriPlayer-HarmonyOS`（基线 2026-09-07 已迁移为 26.0.0 / API 26，见 docs/archive/HM_HISTORY.md §7.12；本行 API 24 描述为 2026-08-14 验证时点） |
 | CLI 工具 | `D:\HarmonyOS\Tools\command-line-tools\bin\`（ohpm.bat / hvigorw.bat / codelinter.bat / Emulator.bat） |
 | 完整 API 24 SDK | `D:\HarmonyOS\Tools\command-line-tools\sdk\default`（hdc 在 `openharmony\toolchains\`） |
 | 26 Studio | `D:\HarmonyOS\Tools\devecostudio-windows-26.0.0.621\DevEco Studio`（仅贡献 jbr java 给 hap-sign-tool） |
@@ -78,7 +78,7 @@ $cli = 'D:\HarmonyOS\Tools\command-line-tools\bin'
 & "$cli\hvigorw.bat" assembleHap --mode module -p module=entry@default -p product=default -p buildMode=debug --no-daemon   # 构建
 & "$cli\hvigorw.bat" test --mode module -p product=default -p buildMode=debug --no-daemon                                   # 本地单测
 & "$cli\hvigorw.bat" assembleHap --mode module -p module=entry@ohosTest -p product=default -p buildMode=debug --no-daemon   # 设备测试 HAP
-& "$cli\codelinter.bat" .                                                                                                   # 静态检查（6.1.1 CLT 基线 24 warn + 2 suggestion 无 error；2026-09-07 起 CLT 26.0.0.105 下漂移为 5 error + 23 warn + 3 suggestion，error 为存量误报，见 hm.md §7.11/§7.12）
+& "$cli\codelinter.bat" .                                                                                                   # 静态检查（6.1.1 CLT 基线 24 warn + 2 suggestion 无 error；2026-09-07 起 CLT 26.0.0.105 下漂移为 5 error + 23 warn + 3 suggestion，error 为存量误报，见 docs/archive/HM_HISTORY.md §7.11/§7.12）
 
 # 签名 + 安装模拟器（需用户级 NERIPLAYER_SIGNING_PASSWORD、DEVECO_SDK_HOME、DEVECO_STUDIO_HOME 已持久化）
 .\sign-local.ps1 -HvigorwPath 'D:\HarmonyOS\Tools\command-line-tools\bin\hvigorw.bat'
@@ -94,7 +94,7 @@ hdc -t 127.0.0.1:5555 shell "aa test -b com.sc.neriplayer -m entry_test -s unitt
 - **ArkUI 渲染依赖追踪盲区（2026-08-22 设备实证，M7.4 排查三轮+双探针定位）**：`@StorageLink/@StorageProp` 字符串本身更新正常（同页探针 Text 直读属性能实时显示新 JSON），但**组件方法内部的状态读取不被依赖追踪**——`this.session()` 这类「读状态→解析→返回对象」的私有方法在 @Builder 参数或属性表达式里求值一次后固化，节点永远显示首帧值（房间页「连接」永远显示「连接中」，而 AppStorage 里早已是 connected，管理器日志/心跳均证明状态机正常）。嵌套 @Builder 的按值参数同样固化为调用时快照。**守则：动态值必须在 build()/@Builder 表达式里直读状态变量；解析逻辑走 `@StorageLink(...) @Watch('onXxx')` 回调镜像进 `@State` 对象（整组件重渲染），不要在渲染表达式里调 this.xxx() 方法链**。另：devecocli emulator start 报 `system image cannot be found` 是其包装的 Studio 26 Emulator.exe 镜像根为空所致，本机正确启动方式是 CLT 的 `Emulator.exe -start "Pura 90"`（实例端口 5559）。
 - `aa test` 的 MSYS 改写还有第二种解法，本轮实证有效：**把整条远端命令包成单个引号参数**——`hdc.exe -t 127.0.0.1:5559 shell "aa test -b <bundle> -m entry_test -s unittest /ets/testrunner/OpenHarmonyTestRunner -s class <DescribeName> -s timeout 120000"`。MSYS 只改写「看起来像独立路径」的 argv 元素，整条以 `aa` 开头的字符串不符合该形状。注意 `//ets/...` 这种写法**不管用**（双斜杠不会被折叠成一条，改走 cppcrash：`SIGSEGV@0xa2` in `panda::JSNApi::GetExportObject`）。ohosTest 的模块名取自 `entry/src/ohosTest/module.json5`，本工程为 `entry_test`。
 - `hdc.exe` 不在 CLT 的 `bin/` 里，在 `Tools/command-line-tools/sdk/default/openharmony/toolchains/hdc.exe`。
-- `codelinter.bat` **只要有发现就 exit 1**，退出码不能当成败判据；须数输出 JSON 里的 `"severity"` 出现次数（本工程基线：**24 warn + 2 suggestion + 0 error**。原基线为 1 suggestion，M8 背景模糊引入的 effectkit 性能建议使其变为 2，属有意取舍；此行曾滞留旧值，2026-08-24 M9.3 复测 `{'warn': 24, 'suggestion': 2}` 后校正）。**2026-09-07 补记**：CLT 26.0.0.105 下全仓漂移为 **5 error + 23 warn + 3 suggestion**（5 个 `await-thenable` error 均在 8 月存量文件，属工具版本漂移非回归，见 hm.md §7.11/§7.12；2026-09-08 commit `f4a6c9c` 已消除该批误报，main ets 错误清零），判据以「改动文件 0 error、不新增缺陷」为准。
+- `codelinter.bat` **只要有发现就 exit 1**，退出码不能当成败判据；须数输出 JSON 里的 `"severity"` 出现次数（本工程基线：**24 warn + 2 suggestion + 0 error**。原基线为 1 suggestion，M8 背景模糊引入的 effectkit 性能建议使其变为 2，属有意取舍；此行曾滞留旧值，2026-08-24 M9.3 复测 `{'warn': 24, 'suggestion': 2}` 后校正）。**2026-09-07 补记**：CLT 26.0.0.105 下全仓漂移为 **5 error + 23 warn + 3 suggestion**（5 个 `await-thenable` error 均在 8 月存量文件，属工具版本漂移非回归，见 docs/archive/HM_HISTORY.md §7.11/§7.12；2026-09-08 commit `f4a6c9c` 已消除该批误报，main ets 错误清零），判据以「改动文件 0 error、不新增缺陷」为准。
 - `deveco-mcp` 的 `check` 在 **worktree 里不可用**（它的 PROJECT_PATH 固定指向主 checkout，检的不是你改的文件）；worktree 内的编译保障只能来自 hvigor 构建。
 - hypium 1.0.28 **没有 `assertThrowError`**；可用的是 `assertEqual/assertTrue/assertFalse/assertNull/assertUndefined/assertLargerOrEqual`，测「应当抛出」得自己写 `throwsFor()` 辅助函数。
 - **真机行为探针技巧**：hypium 断言失败信息会原样打印 actualValue（`expect <实际> equals <期望>`），所以想知道平台真实行为时，可临时把观测结果拼成字符串再 `expect(observed).assertEqual('PROBE')`，一次运行就能把真机序列/时延打出来，比翻 hilog 快。M7.2 的 divergence 3 就是这样被推翻的。
@@ -423,7 +423,7 @@ eport-m61-recheck.json）：IOS 直出窗口仍开——fbvvS8e1KgI playability 
 - [x] M9.3a tablet / 2in1 形态布局回归（从 M9.3 拆出，因环境阻塞独立登记）。**2026-08-25/26 阻塞解除并完成，但发现的问题另开了一轮整改（见下方证据行）。**
   - 阻塞：2026-08-24 所需系统镜像未下载。本机 `Sdk/system-image/HarmonyOS-6.1.1/` 下**只有 `phone_all_x86`**，而 MatePad Pro 13（tablet，2880×1920）需 `tablet_x86/`、MateBook Pro（2in1，3120×2080）需 `pc_all_x86/`。**须纠正 RELEASE_CHECKLIST 旧表述"DevEco API 24 镜像库无 2in1 设备"——该说法经实测证伪**：`Emulator.bat -help` 明列支持 `Phone | Foldable | WideFold | TripleFold | Tablet | 2in1 | 2in1 Foldable | Wearable | WearableKid | TV`，且四个 API 24 实例（Mate X7 / MateBook Pro / MatePad Pro 13 / Pura 90）都已创建；Mate X7 能跑正是因为 foldable 复用 `phone_all_x86`。真正的障碍是**命令行镜像管理器在无 GUI 会话下静默失效**：`Emulator.bat -imageList [-deviceType Phone] [-downloaded true]` 退出码 0 且**零输出**（连已在盘的 phone 镜像都不列），`Emulator.bat -install -deviceType 2in1 -osVersion "HarmonyOS 6.1.1(24)" -force`（`-license accept` 已先成功执行）同样退出码 0、零输出、镜像目录无变化。强启 MateBook Pro 的现象可与之互证：`isRunning=true` 且有 2 个 `Emulator.exe`，但 hdc 端口始终不出现（`list targets` 恒 `[Empty]`、`tconn 127.0.0.1:5555..5560` 全 `Connect failed`、netstat 无 555x 监听），即启动进入无镜像死态；对照组 Mate X7 启动后日志出 `Windows Hypervisor Platform accelerator is operational`、5555 端口 LISTENING、`hdc tconn 127.0.0.1:5555` 成功。**解除条件**：在 DevEco GUI 的 SDK/模拟器管理器里下载 `tablet_x86` 与 `pc_all_x86` 两份 API 24 镜像，之后可直接复用本轮的度量脚本（判据已按根节点屏宽自适应，无需改动）。
   - 证据（2026-08-25/26）：镜像阻塞经**在 DevEco GUI 内下载**解除——`Tools/Sdk/system-image/HarmonyOS-7.0.0-B1/pc_all_x86` 与 `HarmonyOS-7.0.0-B2/tablet_x86` 已在盘并通过签名校验。**须明确口径差异：下到的是 API 26 / HarmonyOS 7.0.0 Beta（`os.isPublic=false`），不是目标 6.1.1(24)；本机没有任何 6.1.1 的 tablet/pc 镜像**，所以这两档结论属**向上兼容运行**，不能替代目标 API 回归。另有一道启动门禁：CLT 的 `Emulator.bat -start` 能把 guest 跑起来但检测不到 `EmitGuestOSBootComplete`（因此不建 hdc 端口转发），DevEco 自带的 `Emulator.exe` 则要求华为账号处于登录态（日志缺 `SnUtil.cpp(CheckLogin)` 即落到 `can not read uuid file` 并弹「请在 DevEco Studio 中登录华为账号」）→ 可行路径只有「在 DevEco 登录账号 → 从设备管理器启动实例」。**回归结果**：tablet 1440vp 6 页 + 2in1（自由窗口 1100vp / 最大化 1642vp）5 组 `dumpLayout`，四类布局缺陷全 0，深色模式通过，tablet 上另取得挖孔避让实测（本机唯一带挖孔形态）。**但暴露 11 条大屏信息密度问题**（顶层 Tab 单格随窗口膨胀到 360vp、设置行文本 1412~1519vp、正文行宽 1408vp≈66 汉字、全宽按钮 1296vp、竖向空白 555vp），根因不是「某个控件写错」而是**全项目没有使用 ArkUI 标准响应式组件**（`GridRow`/`GridCol`/`Navigation`/`Tabs`/断点 grep 全部零命中）→ 已于 2026-08-26 另开一轮整改：`Tabs`/`TabContent`（大屏 `.vertical(true).barWidth(96)` 侧边栏）、`Navigation`/`NavDestination` + `NavPathStack`（`Router` 保留门面，38 个调用点零改动）、`GridRow`/`GridCol` 按断点分列、`ContentBand` 栏宽约束、硬编码 28vp → `TYPE_NAVIGATION_INDICATOR` 动态避让，共 24 文件（新增 3）。整改后门禁：`assembleHap` BUILD SUCCESSFUL 17 s 235 ms、codelinter `0 error / 26 warn / 2 suggestion`、**本地单测 819/819**（首次在本机实测到该 suite 的计数，落在 `entry/.test/default/intermediates/test/coverage_data/test_result.txt`；此前文档流传的 798 从未在本机测量过，两者不可作差）、设备侧 ohosTest 49 中 29 pass（20 个失败全是实网请求超时，因此**不能用它证明无回归**）。**未验证（如实记录）**：phone 与 2in1 的**改后**复测、2in1「自由窗口避让区 0 → 抬升量 0」这一动态避让核心验收点、动态跨断点切换、字号三档改后复测、目标 API 24 上的 tablet/2in1、真机、横屏、折叠外屏、侧滑返回手势（被系统 Dock 占用）、`mcp__deveco-mcp__check`（对本工程不可用）。详见 `docs/UX_COMPLIANCE_AUDIT.md` §8.2/§10.2/§11.5 与 `docs/RELEASE_CHECKLIST.md` §1/§7.3。
-- [x] M9.4 API 26 前瞻（可选）：SDK Manager 下载 API 26 镜像后在 7.0 跑回归；7.0-only 能力走 capability adapter，不污染 24 基线。**2026-09-14 更新：本项前提已被取代**——2026-09-07 工程全量迁移 API 26（`compatibleSdkVersion` 26.0.0，见 `hm.md` §7.12），24 基线不复存在，7.0-only 能力可直接接入（仍受 canIUse 检测与降级守则约束）；原生播放列表桥与播放缓存已按此落地（§7.13）。剩余为 26 镜像/真机全功能回归，并入发布门槛待办。
+- [x] M9.4 API 26 前瞻（可选）：SDK Manager 下载 API 26 镜像后在 7.0 跑回归；7.0-only 能力走 capability adapter，不污染 24 基线。**2026-09-14 更新：本项前提已被取代**——2026-09-07 工程全量迁移 API 26（`compatibleSdkVersion` 26.0.0，见 `docs/archive/HM_HISTORY.md` §7.12），24 基线不复存在，7.0-only 能力可直接接入（仍受 canIUse 检测与降级守则约束）；原生播放列表桥与播放缓存已按此落地（§7.13）。剩余为 26 镜像/真机全功能回归，并入发布门槛待办。
   - 阻塞：2026-08-24 本机无 API 26 SDK 与镜像，且无法从命令行获取。实测：`Sdk/` 下只有一套 `system-image/HarmonyOS-6.1.1/`（且其中只有 `phone_all_x86`），CLT `sdk/` 下只有 `default`（= 6.1.1/API 24）；四个模拟器实例 `os.osVersion` 全部为 `HarmonyOS 6.1.1(24)`。获取通道与 M9.3a 同一个坏点——`Emulator.bat -imageList`/`-install` 在无 GUI 会话下退出码 0、零输出、无副作用（详见 M9.3a）。另据华为开发者联盟公开信息，HarmonyOS 7(API 26) 当前以 **Developer Beta 公开招募**形式分发，取用需相应 DevEco 版本 + Beta 资格，非直接可下载——因此本项不是"顺手跑一下"能闭合的，属需要外部输入（账号资格 + GUI 下载）的任务。**解除条件**：具备 API 26 Beta 资格并在 GUI 中装好 API 26 SDK + 对应模拟器镜像；届时先只做**只读回归**（同一份 API 24 HAP 在 7.0 上跑本轮的 `dumpLayout` 度量与 ohosTest），确认无回归后再考虑 capability adapter，`compileSdkVersion` 保持 24 不动以免污染基线。**注意本机的一个已知反直觉点**：已安装的 DevEco 是 26.0.0.621 Beta2（版本号已属 API 26 世代），但它自带的 hvigor **构不出 API 24**，本工程构建一直走 CLT 的 `hvigorw.bat`；升级 API 26 相关工具链时勿把这条踩坑记录一起改掉。
 
 ### 收尾常设任务（不编号，每里程碑末执行）
@@ -460,9 +460,9 @@ eport-m61-recheck.json）：IOS 直出窗口仍开——fbvvS8e1KgI playability 
 - 计划本身修订：直接编辑并在文首更新日期；重大变更（里程碑增删、决策点变更）需在 §5 表格记录决策依据。
 - 阻塞：任务保持 `[ ]`，追加 `- 阻塞：YYYY-MM-DD <原因/所需输入>`。
 
-- M1 完成：2026-08-16 单测 42 用例全绿；ohosTest 4/4（含网络播放 smoke、队列冷启动恢复）；codelinter 基线持平（详见 §6 M1.7 与 hm.md §7.6）。
+- M1 完成：2026-08-16 单测 42 用例全绿；ohosTest 4/4（含网络播放 smoke、队列冷启动恢复）；codelinter 基线持平（详见 §6 M1.7 与 docs/archive/HM_HISTORY.md §7.6）。
 - M2 完成：2026-08-16 SchemaStore 版本化/.bak/损坏恢复设备实证（ohosTest 7/7 累计）；Android fixture 跨端解析与 stableKey 格式单测通过（详见 §6 M2.5）。
-- M3 完成：2026-08-16 下载全链模拟器实测通过（ActsDownloadSmokeTest：搜索→DIRECT 传输 5.6MB→commit→编目→防重复，两次独立运行）；全套 ohosTest 8/8；修复 3 个真 bug（dataEnd 响应码屏蔽、COMPLETED/catalog 竞态、编目双重序列化）；未自动化项见 M3.7（详见 hm.md §7.7）。
+- M3 完成：2026-08-16 下载全链模拟器实测通过（ActsDownloadSmokeTest：搜索→DIRECT 传输 5.6MB→commit→编目→防重复，两次独立运行）；全套 ohosTest 8/8；修复 3 个真 bug（dataEnd 响应码屏蔽、COMPLETED/catalog 竞态、编目双重序列化）；未自动化项见 M3.7（详见 docs/archive/HM_HISTORY.md §7.7）。
 - M4 完成：2026-08-17 凭据基建（asset 后端实证+降级策略）、网易云 QR 登录+登录态歌单（用户歌单/每日推荐/批量导入）、B 站 QR 登录+收藏夹浏览（共享 QrLoginPanel、匿名 buvid 种子）；本地单测 127/127、设备 ohosTest 20/20（含网易/B 站真网 QR smoke 与推荐歌单真网链路）；真机扫码确认（网易云 803、B 站 0→收藏夹数据、登录态高音质）待用户带对应 App 复核（详见 §6 M4.2/M4.3/M4.4 证据）。
 - M7.3 完成：2026-08-22 设备门禁（双模块构建/签名安装/冷启动进程存活/ActsListenTogetherNetworkTest 6/6）+ 真网房间会话 smoke（ActsListenTogetherRoomSmokeTest 1/1：默认 worker 建房→WS onOpen+welcome→ping→离开；真网发现 worker 校验 userUuid 必须 v4 UUID）；双端同步/断线重连/成员恢复验收归 M7.5。
 - M7.4 完成：2026-08-22 房间页最小可用（昵称/建房/贴链接加入/状态卡/成员列表/邀请复制/离开；NowPlaying 入口），设备 UI 自动化 E2E 全通过（含「连接」实时已连接）；期间定位并修复 ArkUI 依赖追踪盲区（方法内状态读/嵌套 @Builder 参数固化首帧值，§2 平台坑），修复模式=@Watch 镜像 @State+平铺直读。三项房间设置开关未做（需 manager 新增 API）。
@@ -471,214 +471,6 @@ eport-m61-recheck.json）：IOS 直出窗口仍开——fbvvS8e1KgI playability 
 - M5.7 完成：2026-08-23 根因定位与修复（`syncPlaylistIdToLocal` 剥 `local_` 前缀致 apply 后本地歌单 id 变形 → 精确匹配删除失配 → builder live-again 保护吞墓碑 → 远端复活；修复=id 前缀恢复+apply 沿用既有形态+删除归一比较）；本地 742/742、双实例真网 4/4×2、远端 JSON 墓碑行直接证据（A 积压历史墓碑首次真正上传、B 转发不复活）。**M5 至此全部完成**。
 - M8 完成：2026-08-23 M8.1/3/4/5/6 全部落地（M8.2 此前已完成）——动态取色（纯 ArkTS Palette+Theme 覆盖层+播放页 accent，设备实证 MiniPlayer 随封面变色）、AMLL TTML 词库（自写解析器+打分/时长容差+分发升级源，设备实证「晴天」逐字 karaoke+翻译渲染=真网命中）、背景模糊/玻璃子集（强度可调+换歌 crossfade+backgroundBlurStyle 降级，AGSL 无对应已记录）、UI 打磨（WaveformSlider 波形进度+逐字 karaoke 渲染+MiniPlayer 滑切+歌词分享卡片 SaveButton 保存）、悬浮/蓝牙歌词 D4 降级（应用内悬浮条+AVSession title 蹭位，设备判定差异已记录）；本地单测 778/778、双模块构建过、codelinter 24 warn+2 suggestion+0 error（+1 为背景模糊 effectkit 性能建议，有意取舍）、ohosTest 回归 3 套全过。待复核项：悬浮条动态行为、分享卡片保存图库、真蓝牙设备 AVRCP。设备验证另登记两条 M8 范围外观察（网络全坏期重试链 UI 争用、恢复态返回栈单层），留后续里程碑。**M6 剩余（M6.3/M6.4/M6.5）按用户指示暂时搁置**。
 - M9 完成：2026-08-24 必做范围（M9.1/M9.2/M9.3）全部闭合，两项因外部输入阻塞的另行登记（M9.3a tablet/2in1 镜像未下载、M9.4 API 26 需 Beta 资格 + GUI 下载）。M9.1 USB 独占**与 D5 预期相反**——API 面上可行（`claimInterface(force)` @8、等时传输 `usbSubmitTransfer`+`UsbIsoPacketDescriptor` @18 均为公开无 systemapi 的 ArkTS API），但**决策维持不移植**（ArkTS 单 JS 线程 + GC 抖动守不住 1ms 等时节拍、与系统 USB Audio HAL 竞争无官方承诺、收益窄；native DDK 头在本 SDK 分发中不存在）。M9.2 崩溃诊断闭环双通道落地并抓出 4 个真缺陷，其中最关键的是**两通道读改写竞态**导致精确类别与栈双双丢失（修法=串到 promise 链），设备端到端三启动实证误报→真崩溃 arming→自愈。M9.3 把回归方法从"截图目视"换成**布局树度量**（`dumpLayout` 的 `bounds` vs `origBounds` 四类判据、屏宽取自根节点故跨形态通用），据此发现并修复 3 个真实布局缺陷：**根因是 HarmonyOS 应用默认 `nonFollowSystem` 即不跟随系统字号**（"全仓用 fp 所以自动跟随"是错的），补 `configuration.json` 开启后才暴露出 ExplorePage chip 排到屏外（1444 > 1320）、网易云歌单页 `导入` 只剩 83/234px 可见、SongRow 序号角标与时长真重叠 36×57px；第三个的根因是**百分比 `.position()` 按父容器实测宽度解析、字号放大即失稳**，已入库为守则。覆盖 phone 377vp × 字号 1.0/1.45/1.75 三档（溢出 0、重叠 0）+ foldable 展开内屏 707vp（LG 断点，17 页全清、宽屏自动双列），触控目标改为度量并**修正旧结论**（实际执行 40vp 下限而非 ≥48vp，约 30 控件落在 40–48vp），无障碍标注 21 处/13 文件但**朗读效果无法验证**（`dumpLayout -e accessibilityText` 被工具拒绝），内存 127–151 MB 无单调增长、CPU 0.017%/0.74% 且明确标注为代理指标。门禁：`assembleHap` BUILD SUCCESSFUL、本地单测 **798/798**（failure 0/error 0）、codelinter `24 warn + 2 suggestion + 0 error` 与基线持平；顺手校正文档中滞留的旧 lint 基线（"1 suggestion"/"17 warn"）与 RELEASE_CHECKLIST 中经实测**证伪**的"API 24 镜像库无 2in1 设备"一说。真机、横屏、折叠外屏、熄屏功耗、BiliFavPage、设置页三处占位均如实标为未验证。详见 §6 M9.1/M9.2/M9.3/M9.3a/M9.4 与 `docs/RELEASE_CHECKLIST.md`。**2026-08-26 两处更正**：① M9.3a 的镜像阻塞已解除并完成回归（下到的是 API 26 Beta 而非 6.1.1，属向上兼容运行），回归暴露的 11 条大屏密度问题已另开一轮 ArkUI 标准组件整改（见 M9.3a 证据行）；② 上面「本地单测 798/798」这个数字**在本机从未被测量过**——2026-08-26 首次实测 `entry/src/test/` 的真实计数是 **819 pass / 0 failure / 0 error**（162 个 `describe`，结果在 `entry/.test/default/intermediates/test/coverage_data/test_result.txt`，`hvigorw test` 默认与 `--debug` 都不打印计数），819 与 798 之间**不可作差**，本轮对 suite 的实际改动是删 2 条 `RouteStack` 用例（被测行为随 `route.stack` AppStorage 镜像一起删除）+ 新增 5 条 `Breakpoint` 用例。
-
-## S 阶段：UI 重构 + 沉浸光感 + 动效（2026-08-29 会话，分支 glass_ui_opus）
-
-- S0 HDS 摸底：✅ 编译全绿+运行时验证（docs/HDS_IMMERSIVE_SPIKE.md）。关键结论：
-  HDS Attribute 类型须显式导入；HdsNavigation/HdsNavDestination 内容子树在模拟器
-  不挂载（已回退标准 Navigation/NavDestination）；模拟器 getSystemMaterialTypes()=[]
-  材质降级必须保留；HdsTabs barFloatingStyle/miniBar 运行时可用。
-- S1 动态配色引擎：✅ ColorScience（Lab/LCh/ΔE00/色域映射，Sharma 参考值锁定）+
-  SwatchCard（907 条 MIT 色卡，仅色号+hex）+ AccentScheme（打分→吸附→护栏→双模式
-  ramp）+ effectKit 取色 + WithTheme/51 槽 CustomColors。单测 26 例。
-- S2 官方光感：✅ ImmersiveLightScene（HdsVisualComponent 流光场景）接入播放页，
-  15 处硬编码白字全部令牌化。
-- S3 悬浮壳：✅ HdsTabs 双断点 + barFloatingStyle（lightColor/gradientMask/
-  miniBar/systemMaterialEffect 降级）+ MiniPlayer 迁入官方 MiniBar 槽位 +
-  FLOAT_TAB_CLEARANCE 四页避让。
-- S4 播放列表：✅ 手工覆盖层（含被禁的百分比 position）删除，原生 bindSheet
-  （detents 双档+dragBar+下滑关闭）。
-- S6-core 动效：✅ 迷你条→播放页封面一镜到底（geometryTransition+animateTo+
-  systemTransition NONE）+ clickEffect + 废弃 animateTo 清理。
-- S5（第二次会话续）：✅ 每日推荐 Hero 卡（标签 pill+21fp 标题+播放 FAB）、
-  探索页参考图搜索胶囊（symbol 放大镜+44vp 圆键）、三页歌单头抽取共用
-  PlaylistHeader（120vp 封面/24fp 标题/透明底，B 站页顺带修 Flex wrap 溢出隐患）、
-  SectionHeader 22fp、页标题 32fp。commit c0e384e/0c245fbf。
-- S6 余项：✅ SongRow/PlaylistCard/SettingRow/平台 chips/搜索键全量 clickEffect、
-  MiniPlayer 播放键 ReplaceSymbolEffect 交叉淡入（sys.symbol.play_fill/pause_fill，
-  模拟器验证切换正常）。列表行封面共享元素（需逐行 id 联动）留作可选。
-  commit bab2f0fa。
-- 待续：字号 1.75x 布局复测（新字阶更大，上架硬性项）、真机 HDS 复核
-  （材质能力/IMMERSIVE 档位/流光调参/WithTheme 整树重绘确认）、探针面板移除
-  （真机复核后再删）。
-
-## S 阶段续：壳层沉浸与播放页转场波次（2026-09-08～09-14，分支 `dev`，PR #20–#30）
-
-S0–S6 结论的部分修正与延续（逐项证据见 `hm.md` §7.14 与 `FEATURE_MATRIX.md` 对应行）：
-
-- S0 结论修正：`HdsNavigation` 内容子树不挂载是当时模拟器/版本的观察，非平台定论——
-  8958d16 起外壳稳定换用 `HdsNavigation`（`hideBackButton(true)`、标题随 Tab、
-  `scrollEffectType: GRADIENT_BLUR` 渐变模糊标题栏、根节点 `expandSafeArea(SYSTEM/CUTOUT,
-  TOP|BOTTOM)` 延伸状态栏），自建 `TitleBarBlurBackdrop` 等价实现随之删除；真机录屏
-  （转场标定）证实外壳可用。`getSystemMaterialTypes()=[]` 材质降级结论维持。
-- 沉浸扩展：4edac60 探索/资料库/设置与首页统一内容穿透状态栏（外层与页内列表
-  `.clip(false)` + 列表顶部 `expandSafeArea`）；b9589db 移除标题栏系统返回与
-  「刷新推荐」按钮。
-- S6-core 整层替换：迷你条→播放页一镜到底废弃 `geometryTransition` 共享元素方案，
-  改 `bindContentCover` 全屏模态 + 单一进度 `panelAmount` 分阶段原生属性动画
-  （`NowPlayingCurves.ets` 先慢后快/回弹曲线，展开 300ms/收起 400ms，起止矩形按
-  真机录屏逐帧标定）。九轮迭代与审查跟进（26b49aa/552df87）记录见
-  `docs/NOW_PLAYING_TRANSITION_20260910.md`；折返/歌词页返回/宽屏真机回归待办。
-- 波次内其余：音量淡入淡出及设置化（54fb31f/c3acdbd，矩阵行详载）、资料库取色
-  重染收尾（d9b209c）、登录四连修复与下载完整性系列（见下方缺陷修复节）、
-  Copilot 代码审查 CI 配置（d68f4f3）、README 重写与 `NeriPlayer-master/` 解除
-  Git 追踪（8de4ca1）。
-
-## 缺陷修复：网易云/B站杀进程重启后掉登录（2026-09-08，二次修复）
-
-- 背景：`3f4dea0f`（fix(登录): 修复冷启动凭据恢复竞态）未生效——用户实测删除后台
-  重启后登录态仍丢失。本轮重新取证定位出**四层叠加缺陷**，其中第一层是根因：
-  1. **凭据从未落盘（根因）**：`NeteaseCookieRepository/BiliCookieRepository.saveInternal`
-     把 `CredentialStore.putString`（跨进程 IPC 写 AssetStore）fire-and-forget 挂在
-     后台、同步返回成功——UI 弹「登录成功」时写入尚未完成；且 Asset 真实写失败时
-     仅 warn 日志、`np.*_logged` 仍被置 true。模拟器实测（NeriP26R）证伪了
-     「Asset 服务降级」假设：冷启动无任何 FALLBACK 日志、Asset 查询无报错，但
-     `netease_auth_bundle` 在存储中**根本不存在**——历次登录从未成功落盘。
-  2. **冷启动首屏请求先于凭据恢复**：`EntryAbility.onCreate` 的 `init()` 未被等待，
-     `onWindowStageCreate` 立即 `loadContent`，首页 `aboutToAppear` 即发 weapi 请求，
-     `doEnsureSession` 以空 jar 访问网易云首页 → 服务端发匿名 `__csrf` →
-     `sessionReady=true` 把匿名会话钉死整个进程，MUSIC_U 恢复后也不再进会话。
-  3. **首次修复引入的倒洗**：`doInit` 无条件 `setBoolean(KEY_*_LOGGED,
-     bundle.hasLoginCookies())`，恢复竞态期间把 preferences 里已存的 true 洗成 false。
-  4. **调用点全是同步签名**：QrLoginPanel `onConfirmed: () => boolean`、粘贴导入
-     回调、退出登录 `clear()` 均不等持久化结果。
-- 修复（7 文件）：
-  - `saveFromQrLogin/saveFromPastedText/saveInternal` 改 `async`，**await 落盘**；
-    写失败时回滚内存 bundle 并返回 false（toast「登录校验失败」而非假成功）。
-  - `NeteaseApi.doEnsureSession` 开头 `await NeteaseCookieRepository.init()`；
-    `doInit` 恢复成功时 `resetSession()` 丢弃可能已飞的匿名会话。
-  - `EntryAbility.onWindowStageCreate` 改为 `NeteaseCookieRepository.init() →
-    BiliCookieRepository.init() → loadContent` 链——凭据先于一切页面 aboutToAppear
-    就位（实测 restored 12:52:32.894 < Content loaded 12:52:33.032）；onCreate 的
-    init() 保留让恢复与窗口创建并行，该链通常只等余下尾延。
-  - QrLoginPanel `onConfirmed` 异步化（await 后才关面板/报失败）；SettingsDetailPage
-    网易云确认/粘贴导入后补 `NeteaseApi.resetSession()`；退出登录 `.then()` 等
-    clear 完成再 toast。
-- 验证（NeriP26R，API 26 Release 镜像）：粘贴导入测试凭据 → 日志
-  `netease login saved: keys=MUSIC_U,__csrf,os,appver` + UI「已登录 · 凭据存储：
-  asset」→ **两次 force-stop 杀进程冷启动**，均恢复 `netease auth restored` +
-  UI 已登录；首页推荐接口正常返回。ohosTest：ActsCredentialStoreTest 3/3、
-  ActsNeteaseCookieRepositoryTest 2/2、ActsBiliCookieRepositoryTest 2/2。
-  过程坑：模拟器重启后停在**锁屏**会让 aa test 的 TestAbility 窗口被切后台、
-  Delegator 以 -2「TestAbility onDestroy unexpectedly」终止——解锁（uinput 上滑）
-  后同一套件全过，勿把锁屏假失败当成代码回归。codelinter 0 error。
-- 遗留（如实记录）：`doInit` 无条件覆盖 logged 标志的语义保留（内存降级后端重启
-  本就该显示未登录），依赖第 1 层修复保证「落盘成功才有 true」。
-
-## 缺陷修复：网易云真机扫码 803 后仍提示「登录校验失败，请重试」（2026-09-08，三次修复）
-
-- 背景：用户真机实测扫码确认（803）后仍提示「登录校验失败，请重试」。前两轮修复
-  （08f9f18 Set-Cookie 解析归一化、bd4d9c0 凭据落盘等待）后，真机扫码路径始终未复测
-  通过（矩阵行长期标注「真机扫码确认仍待复核」）。
-- 协议事实（2026-09-08 外部调研，来源 NeteaseCloudMusicApiEnhanced issue #6 /
-  PR #201、NeteaseCloudMusicApi login_qr_check 源码、知乎 HarmonyOS netstack
-  set-cookie 形态实证）：
-  1. 803 的 `MUSIC_U` **只通过 HTTP Set-Cookie 响应头**下发；body 无 `cookie` 字段
-     （NeteaseCloudMusicApi 的 body.cookie 是其中间件人为拼接的，非官方原生）。
-  2. `x-refresh-token` 响应头 ≠ MUSIC_U（SSO 刷新凭据，注入后 account/get 校验几乎
-     必然失败）——现有兜底实际救不了场，仅保留与 Android 基线对称。
-  3. 2025+ 风控要求（scanlogin 新二维码 URL、chainId、x-login-chain-id/x-loginmethod
-     请求头、weapi 加密）本实现均已满足。
-- 服务器直连取证（2026-09-08，Node weapi 等价实现实测 music.163.com）：unikey 创建
-  返回 200+key、fresh key 轮询返回 801「等待扫码」（`ydDeviceToken:""` + unknown 随机
-  chainId 可用）；匿名 account/get 返回 `{"code":200,"account":null}`——证实加密移植、
-  端点行为与 `hasAccount` 判定语义均正确，服务端在 803 时确实会下发 Set-Cookie。
-- 推定根因（真机无日志，未直接取证）：MUSIC_U 捕获仅依赖单一来源（`HttpResponse.header`
-  的 set-cookie 归一化），真机 netstack 的 803 响应头上报形态与解析假设不符时无任何
-  冗余路径。HarmonyOS SDK 自 API 8 起提供独立的 `HttpResponse.cookies` 字段（服务器
-  原样 Cookie 字符串），本实现此前完全未消费。
-- 修复（3 文件 + 测试）：
-  - `HttpHeaderParser` 新增 `parseLooseCookiePairs`：`;`/`,` 混合分隔、属性碎片
-    （Expires 日期/Path/Domain 等）过滤的宽松 Cookie 文本解析，与 `extractCookiePairs`
-    共享碎片归一逻辑。
-  - `HttpClient.captureCookies` 合并**双来源**：response.header 的 set-cookie 行
-    （原路径）+ `response.cookies` 字段（新增；运行时 `String()` 归一防个别栈违反
-    d.ts 返回数组）；`getText/postForm/postFormDetailed` 三个捕获点全部接入。
-  - `NeteaseQrLogin.checkLogin` 在 803 后：输出诊断日志（响应头**名**清单、jar Cookie
-    **键名**清单、refreshToken 有无，不落任何值）；若 jar 仍无 MUSIC_U，**同 key 单次
-    补轮询**（803 幂等重读，Set-Cookie 有机会重发）再捕获一次。postCheck 抽取复用。
-  - 新增 4 个 HttpHeaderParser 单测（分号/逗号拼接、属性与 Expires 碎片、空与垃圾输入）。
-- 验证（2026-09-08 服务器）：codelinter 4 文件 0 error；entry@default debug 构建
-  BUILD SUCCESSFUL；hvigorw test 编译（Unit 类型检查）0 error（执行阶段挂死属本机
-  平台限制，用例计数待 Windows 工作站）。
-- 遗留：真机 803 复测待用户执行；若仍失败，hilog 过滤 `netease qr` 三条日志即可定位
-  断点（confirm 响应头名是否含 set-cookie → re-poll 后 jarKeys 是否出现 MUSIC_U →
-  save rejected/backend rejected 哪个分支）。
-
-## 缺陷修复：网易云真机扫码 803 凭据落盘被 Asset 401 拒绝（2026-09-09，四次修复）
-
-- 背景：v1.0.2 真机复测。用户诊断日志证实三次修复的扫码链路已全部生效：803 响应
-  头含 27 个 set-cookie，jar 捕获到 `os,appver,NMTID,MUSIC_R_T,MUSIC_A_T,__csrf,
-  MUSIC_R_U,MUSIC_U`，refreshToken present——**网络侧闭环成功**。失败点后移到落盘：
-  `CredentialStore.putString(netease_auth_bundle) failed: AssetError(401)` →
-  `netease login not saved: credential backend rejected the write` → 仍提示
-  「登录校验失败，请重试」。
-- 根因（官方文档实证，Asset Store Kit「新增关键资产」属性约束表）：
-  **`ASSET_TAG_SECRET` 单条上限 1024 字节**（ALIAS 上限 256 字节），超长即抛 401
-  参数校验失败。现代网易 803 下发的完整 cookie 集（`MUSIC_U` ~176B + `MUSIC_R_U` +
-  新式长 token `MUSIC_A_T`/`MUSIC_R_T` 各数百字节 + `__csrf`/`NMTID`/`os`/`appver`）
-  序列化后 ~1.5-2.5KB，超限被拒。bd4d9c0 模拟器验证用的是精简测试凭据
-  （`MUSIC_U,__csrf,os,appver`，<1KB）所以能过——凭据大小差异掩盖了该缺陷。
-- 修复（2 文件 + 测试）：
-  - 新增纯逻辑 `data/auth/AssetChunking.ets`：UTF-8 字节按 1000B 切片（≤64 块）、
-    `#CHUNKED#{"count":N,"bytes":T}` 文本清单（前缀与旧 JSON 值无歧义）、块别名
-    `alias#i`；分块在**字节边界**切、拼装后再 UTF-8 解码，多字节字符跨块安全。
-  - `CredentialStore` 重构：>1024B 自动分块——先写块（alias#1..#N，OVERWRITE）、
-    后写清单（撕裂写只会留下「旧状态或无清单」，绝不会出现清单指向半新半旧数据；
-    覆盖旧分块数据前先删旧清单；块数减少时清理多余旧块；任一失败回滚已写块）。
-    读侧：基础别名内容可解析为清单 → 按序拼块并校验总字节数；否则视为旧单条值
-    原样返回（前分块数据完全兼容）。remove 清单化清理所有块。FALLBACK 降级语义
-    不变（切内存后本条仍报成功入内存）；因 ArkTS 控制流收窄（早返回守卫把静态
-    backend 收窄为 ASSET，异步写中再比较 MEMORY 报 no-overlap 编译错），降级判定
-    改走 `backendName()` 不透明调用。
-  - 测试：本地新增 `AssetChunking.test.ets` 6 用例（别名/清单往返与校验、1024
-    边界、切片拼装、多字节跨块、空与小值）；ohosTest `ActsCredentialStoreTest`
-    新增 `putGetOversizeStringRoundtrip`（~2.1KB 模拟现代 bundle 往返+清除，待
-    设备执行）。
-- 验证（2026-09-09 服务器）：codelinter 改动文件 0 error；entry@default 与
-  entry@ohosTest debug 构建 BUILD SUCCESSFUL；hvigorw test 编译
-  （Unit 类型检查）0 error。真机复测待用户执行（预期扫码确认后 toast 登录成功，
-  杀进程冷启动恢复）。
-- 连带效应：B 站 bundle（SESSDATA 等 ~500B）当前未超限，行为不变；未来超限同样
-  自动分块，无需改动。
-
-## 缺陷修复：下载坏文件与本地播放 5400106 系列（2026-09-12～14，五连修复）
-
-- 背景：用户真机反馈「下载显示完成但文件无法播放（AVPlayer `5400106 Unsupported
-  Format`）+ 迷你条重新加载闪烁风暴 + 清空记录后资料库计数不清零」。真机日志驱动
-  五轮修复（77a6745→3d655fc→c60dfb1→b8ff989→b5c136d），细节同步登记
-  `FEATURE_MATRIX.md` 下载行。
-- **①分块写入错位与重试风暴（77a6745）**：`appendChunk` 给 `writeSync` 传
-  `offset: chunk.byteLength`——官方 FAQ 明确 `WriteOptions.offset` 是**文件绝对位置**，
-  追加必须 `OpenMode.APPEND`；每个分块都写到同一绝对位置，提交的是带零洞的坏容器。
-  无 Content-Length 响应（`expected<=0`）时 `transferSizeComplete` 恒真，坏文件照常
-  提交编目。修复为 APPEND + 无 offset 追加、416 视为完成时新增本地非空校验；播放
-  失败恢复收敛为纯策略 `PlaybackFailurePolicy.ets`（重试 1 次→跳下一首；下一目标即
-  当前曲或全队列已试完则停止并发布 ERROR；失败代守卫防 AVPlayer 错误回调与被拒
-  加载链双计），catalog fd 源失败自愈（删行+删文件，计数回归真实、允许重下）；
-  下载管理页改任务+catalog 合并行 `DownloadRow`（清空记录后已下载条目仍可见、
-  可删、单条删除）。
-- **②真机反馈三连（3d655fc）**：断网播已下载失败——重下曾被「catalog 有记录且
-  size>0 即短路 COMPLETED」钉死在旧坏文件上；现短路与 commit 前均做载荷头校验
-  `isPlausibleAudioHead`（NUL 空洞/HTML/JSON 错误页拒绝，m4a 允许 ≤3 个前导 NUL，
-  7 单测），自愈改走 `deleteDownload` 连任务记录一起清；资料库页删重复「下载管理」
-  入口；下载管理页删与删除键重叠的绿勾角标。
-- **③本地播放 5400106 双根因（c60dfb1）**：其一，网易云 weapi 取流的 AAC CDN 存在
-  周期性垃圾填充段，内容校验无法拦截——下载改走匿名 legacy 接口（`NeteaseApi.
-  getSongUrlLegacy`）拿干净 320k MP3；其二，本地文件经 `createMediaSourceWithUrl
-  ('fd://...')` 撞 AVPlayer 嗅探缺陷——改为打开文件后直赋
-  `player.fdSrc={fd,offset:0,length}`（精确 length）。
-- **④Copilot 一轮审查加固（b8ff989，7 条）**：下载日志脱敏、完整性门禁 fail-closed、
-  下载 key 竞态、播放缓存填充段扫描、416 严格重验、请求签名头精准匹配、环回桥
-  改走 fd 描述符。
-- **⑤二轮复审边界加固（b5c136d，8 条）**：凭据域截断防泄漏、self-heal 与
-  `currentMediaUrl` 配对防误删在线源、aborted 与失败清理区分、`file://` 路径
-  归一化、分享直链离线短路防坏副本、快速路径取消检查、经已打开 fd 取 size、
-  补充测试用例。
-- 验证：各轮服务器侧构建 + codelinter 改动文件 0 error + `hvigorw test` 编译级
-  0 error；新增 `PlaybackFailurePolicy`（6）/`DownloadRow`（4）等单测。坏文件
-  5400106 与修复效果由用户真机日志实证（legacy 源 + fdSrc 后本地下载可播）；
-  断网/杀进程恢复、自定义目录下载等设备侧自动化回归仍待真机。
 
 ## F 阶段：上游同步波次（2026-10-10～10-19，分支 `fix/upstream-sync-p0-p1`，PR #50/#51）
 
@@ -710,3 +502,15 @@ S0–S6 结论的部分修正与延续（逐项证据见 `hm.md` §7.14 与 `FEA
 
 - `v1.4.0-rc.1`（10-12）→ `rc.2`（10-13）→ `rc.3`（10-13）→ `rc.4`（10-19，= dev HEAD `72059b1`），均经 `harmonyos-release.yml` 产出 unsigned HAP。
 - **验证边界**：本波次全部改动只有 `assembleHap` 成功 + 单测编译级 0 error + codelinter 改动文件 0 缺陷；**F-1~F-13 的真机行为普遍未验证**，具体待验项见 `FEATURE_MATRIX.md` 各行「下一验证点」与 `UPSTREAM_SYNC_PLAN.md` §4 各 F 项末尾。
+
+## S 阶段与缺陷修复轮次（已外移）
+
+> **2026-10-22 起，以下 6 节历史轮次记录移至 [`docs/archive/PORTING_HISTORY.md`](archive/PORTING_HISTORY.md)**（约 17 KB），以控制主线文档体积：
+>
+> - S 阶段：UI 重构 + 沉浸光感 + 动效（2026-08-29）
+> - S 阶段续：壳层沉浸与播放页转场波次（2026-09-08~09-14，PR #20~#30）
+> - 缺陷修复 ×5：网易云/B站掉登录（二次）、扫码 803 校验失败（三次）、Asset 401 拒写（四次）、下载坏文件与本地播放 5400106（五连）
+>
+> 需要复查某轮取证细节时读归档文件；当前待办见本文件 §6 与下文「F 阶段」。
+
+---

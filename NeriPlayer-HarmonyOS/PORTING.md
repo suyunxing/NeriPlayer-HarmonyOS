@@ -6,7 +6,7 @@
 
 ## 基线 (Baseline)
 
-- **HarmonyOS 26.0.0 Release / API 26**（2026-09-07 从 6.1.1 Release / API 24 全量迁移，见 `../docs/hm.md` §7.12；迁移前本机 DevEco Studio 6.1.1.300，SDK 6.1.1.125）
+- **HarmonyOS 26.0.0 Release / API 26**（2026-09-07 从 6.1.1 Release / API 24 全量迁移，见 `../docs/archive/HM_HISTORY.md` §7.12；迁移前本机 DevEco Studio 6.1.1.300，SDK 6.1.1.125）
 - **Stage 模式**（UIAbility + 单入口），主语言 **ArkTS**（严格模式），UI 框架 **ArkUI**
 - 包名：`moe.ouom.neriplayer.hmos`（2026-09-01 由原项目包名 `moe.ouom.neriplayer` 改名）
 - 许可证沿用 **GPL-3.0**
@@ -30,7 +30,7 @@
 
 ## 当前状态（2026-08-31 复核）
 
-2026-08-13 在本机 6.1.1 Release 工具链完成可重复验证：`ohpm install --all`、`hvigorw clean`、Debug `assembleHap` 构建成功（存在 6 条"Function may throw exceptions"非阻塞警告，分布在 `LibraryPage.ets`、`PlaylistDetailPage.ets`、`DebugPage.ets`）；ArkTS 单元测试 3/3 通过（`entry/src/test/`，LRC 解析/翻译合并/时间格式化）；调试签名、模拟器安装、冷启动与设置页 smoke test 通过。完整记录见 `../docs/hm.md` §7.4。
+2026-08-13 在本机 6.1.1 Release 工具链完成可重复验证：`ohpm install --all`、`hvigorw clean`、Debug `assembleHap` 构建成功（存在 6 条"Function may throw exceptions"非阻塞警告，分布在 `LibraryPage.ets`、`PlaylistDetailPage.ets`、`DebugPage.ets`）；ArkTS 单元测试 3/3 通过（`entry/src/test/`，LRC 解析/翻译合并/时间格式化）；调试签名、模拟器安装、冷启动与设置页 smoke test 通过。完整记录见 `../docs/archive/HM_HISTORY.md` §7.4。
 
 该验证只覆盖构建、启动、安全区和设置页入口，不代表下述能力已完成。2026-08-19 又完成同步核心的本地验证：WebDAV PROPFIND/GET/PUT 与 ETag/Last-Modified/SHA-256 回退、SyncCoordinator 三路合并与冲突重试、真实仓库快照接线、apply journal 和设置页同步报告；本地单测 378/378、`entry@default`/`entry@ohosTest` 构建成功、CodeLinter 0 error。真实 PAT/WebDAV 写入和双设备冲突仍未验证。当前待办（2026-08-31 复核更新；代码中均有 porting seam 标注，不得在文档中标为已完成）：
 
