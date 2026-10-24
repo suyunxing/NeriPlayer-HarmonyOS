@@ -18,6 +18,8 @@ import { Logger } from '../../app/Logger';
 import { SongItem } from '../../model/SongItem';
 import { ListenTogetherRoomState } from '../protocol/ListenTogetherRoomModels';
 import {
+  hasListenTogetherAuthoritativeStreamUrl,
+  shouldReloadForListenTogetherLinkUnavailable,
   shouldReloadListenTogetherAuthoritativeStream,
   shouldWaitForListenTogetherAuthoritativeStreamPlayback
 } from './ListenTogetherStreamPolicy';
@@ -33,7 +35,11 @@ import {
 import {
   hasSameListenTogetherTrackSequence,
   indexOfListenTogetherTrack,
-  sameListenTogetherTrack
+  isListenTogetherQueueUpdateCause,
+  listenTogetherAuthoritativeStreamUrlsForCurrentTrack,
+  listenTogetherCurrentStableKey,
+  sameListenTogetherTrack,
+  shouldApplyListenTogetherQueueUpdateWithoutReload
 } from './ListenTogetherPlaybackTrack';
 import { mergeListenTogetherCurrentTrack } from './ListenTogetherShareableQueueSnapshot';
 import {
@@ -41,7 +47,6 @@ import {
   cloneListenTogetherTrack
 } from '../protocol/ListenTogetherTrack';
 import { listenTogetherTrackToSongItem } from '../mapping/ListenTogetherTrackMapping';
-import { trustedListenTogetherStreamUrls } from '../mapping/ListenTogetherStreamUrlPolicy';
 import { LISTEN_TOGETHER_LISTENER_SAFETY_RESUME_CAUSE } from './ListenTogetherListenerSafetyPausePolicy';
 import {
   ListenTogetherPlayerSurface,
@@ -62,6 +67,12 @@ export class ListenTogetherPlayerStateApplier {
   private readonly isControllerProvider: () => boolean;
   private readonly serverClockOffsetProvider: () => number;
   private lastTrackSwitchAtElapsedMs: number = 0;
+  // Upstream #359: the authoritative url a reload was just triggered for, so a
+  // second room state before the load lands does not reload again; and the
+  // track the LINK_UNAVAILABLE fallback already reloaded, so it happens once.
+  private pendingAuthoritativeStreamStableKey: string | null = null;
+  private pendingAuthoritativeStreamUrl: string | null = null;
+  private lastUnavailableAuthoritativeStreamReloadStableKey: string | null = null;
 
   constructor(
     config: ListenTogetherPlayerStateApplierConfig,
@@ -97,6 +108,13 @@ export class ListenTogetherPlayerStateApplier {
     }
     const queue = this.roomQueue(state);
     if (queue.length === 0) {
+      // Upstream 89a8694c: a SET_QUEUE family update that empties the room
+      // clears the local queue too (the controller already stopped); anything
+      // else with an empty queue stays a skip.
+      if (isListenTogetherQueueUpdateCause(causeType)) {
+        this.surface.applyRemoteQueueUpdate([], -1);
+        return true;
+      }
       Logger.warn(`${TAG}: skip empty queue, roomId=${state.roomId}, version=${state.version}, causeType=${causeType}`);
       return false;
     }
@@ -105,22 +123,89 @@ export class ListenTogetherPlayerStateApplier {
     const targetSong = queue[targetIndex];
     const currentQueue = this.surface.currentQueue();
     const currentSong = this.surface.currentSong();
-    const localCurrentIndex = indexOfListenTogetherTrack(currentQueue, currentSong);
+    // Upstream 89a8694c: a queue-only update whose current track is already
+    // playing lands without a reload — the listener's player keeps streaming
+    // while the surrounding queue slots swap in place.
+    const queueUpdatedWithoutReload = shouldApplyListenTogetherQueueUpdateWithoutReload(
+      causeType, queue, targetIndex, currentQueue, currentSong);
+    if (queueUpdatedWithoutReload) {
+      this.surface.applyRemoteQueueUpdate(queue, targetIndex);
+    }
+    const synchronizedQueue = queueUpdatedWithoutReload ? this.surface.currentQueue() : currentQueue;
+    const localCurrentIndex = queueUpdatedWithoutReload
+      ? targetIndex
+      : indexOfListenTogetherTrack(synchronizedQueue, currentSong);
+    const targetStableKey = listenTogetherCurrentStableKey(state);
+    const authoritativeStreamUrls = listenTogetherAuthoritativeStreamUrlsForCurrentTrack(state);
+    const authoritativeStreamUrl = authoritativeStreamUrls.length > 0 ? authoritativeStreamUrls[0] : null;
+    const localResolvedStreamUrl = this.surface.currentMediaUrl();
+    const localPlaybackResolutionPending = this.surface.isLocalResolutionPendingFor(targetSong);
+    if (this.pendingAuthoritativeStreamStableKey !== targetStableKey) {
+      this.pendingAuthoritativeStreamStableKey = null;
+      this.pendingAuthoritativeStreamUrl = null;
+    }
+    if (this.lastUnavailableAuthoritativeStreamReloadStableKey !== targetStableKey) {
+      this.lastUnavailableAuthoritativeStreamReloadStableKey = null;
+    }
+    const localUsesAuthoritativeStream = hasListenTogetherAuthoritativeStreamUrl(
+      authoritativeStreamUrls,
+      localResolvedStreamUrl
+    );
+    if (localUsesAuthoritativeStream) {
+      this.pendingAuthoritativeStreamStableKey = null;
+      this.pendingAuthoritativeStreamUrl = null;
+    }
     const needsAuthoritativeStreamReload =
-      this.shouldReloadForAuthoritativeStream(targetSong, currentSong);
+      this.shouldReloadForAuthoritativeStream(
+        targetSong,
+        currentSong,
+        authoritativeStreamUrl,
+        localResolvedStreamUrl,
+        localUsesAuthoritativeStream,
+        localPlaybackResolutionPending,
+        this.pendingAuthoritativeStreamUrl
+      );
+    const controllerLinkConfirmedUnavailable =
+      causeType === 'LINK_UNAVAILABLE' &&
+      this.surface.isAuthoritativeStreamConfirmedUnavailable(targetSong);
+    const shouldClearUnavailableAuthoritativeStream =
+      controllerLinkConfirmedUnavailable && !this.isControllerProvider();
+    if (shouldClearUnavailableAuthoritativeStream) {
+      this.pendingAuthoritativeStreamStableKey = null;
+      this.pendingAuthoritativeStreamUrl = null;
+    }
     const forcePlaybackStallReload =
       causeType === 'WATCHDOG_STALL' &&
       state.playback.state === 'playing' &&
       currentSong !== null &&
       sameListenTogetherTrack(currentSong, targetSong);
+    const shouldReloadForUnavailableAuthoritativeStream =
+      shouldClearUnavailableAuthoritativeStream &&
+      shouldReloadForListenTogetherLinkUnavailable(
+        this.isControllerProvider(),
+        this.surface.currentPlaybackRequiresAuthoritativeStream(),
+        controllerLinkConfirmedUnavailable,
+        this.lastUnavailableAuthoritativeStreamReloadStableKey === targetStableKey
+      );
+    if (shouldReloadForUnavailableAuthoritativeStream) {
+      this.lastUnavailableAuthoritativeStreamReloadStableKey = targetStableKey;
+    }
+    if (!this.surface.currentPlaybackRequiresAuthoritativeStream()) {
+      this.lastUnavailableAuthoritativeStreamReloadStableKey = null;
+    }
     const playbackContextChanged =
-      !hasSameListenTogetherTrackSequence(currentQueue, queue) ||
+      !hasSameListenTogetherTrackSequence(synchronizedQueue, queue) ||
       needsAuthoritativeStreamReload ||
+      shouldReloadForUnavailableAuthoritativeStream ||
       forcePlaybackStallReload;
     const targetIndexChanged = localCurrentIndex !== targetIndex;
     const trackSwitchGracePeriodActive = this.isTrackSwitchGracePeriodActive();
 
     if (playbackContextChanged || targetIndexChanged) {
+      if (needsAuthoritativeStreamReload) {
+        this.pendingAuthoritativeStreamStableKey = targetStableKey;
+        this.pendingAuthoritativeStreamUrl = authoritativeStreamUrl;
+      }
       this.lastTrackSwitchAtElapsedMs = this.surface.elapsedRealtimeMs();
       this.surface.resetSyncPlaybackRate();
       this.surface.playPlaylistForRemoteSync(queue, targetIndex);
@@ -153,7 +238,11 @@ export class ListenTogetherPlayerStateApplier {
     const localPlaying = this.surface.isPlaying();
     const localPlaybackAlreadyStarting = this.surface.isPlayWhenReady();
     const awaitingAuthoritativeStream = shouldWaitForListenTogetherAuthoritativeStreamPlayback(
-      this.surface.shouldWaitForAuthoritativeStream(targetSong),
+      // A local resolution still in flight may be the one that lands on the
+      // authoritative url — holding playback under it would stall a listener
+      // that is about to become playable (upstream #359).
+      !localPlaybackResolutionPending &&
+        this.surface.shouldWaitForAuthoritativeStream(targetSong),
       currentSong !== null && sameListenTogetherTrack(currentSong, targetSong),
       currentSong === null ? null : currentSong.streamUrl,
       this.surface.currentMediaUrl()
@@ -307,7 +396,15 @@ export class ListenTogetherPlayerStateApplier {
     this.surface.setSyncPlaybackRate(rate);
   }
 
-  private shouldReloadForAuthoritativeStream(targetSong: SongItem, currentSong: SongItem | null): boolean {
+  private shouldReloadForAuthoritativeStream(
+    targetSong: SongItem,
+    currentSong: SongItem | null,
+    remoteStreamUrl: string | null,
+    localResolvedStreamUrl: string | null,
+    localUsesAuthoritativeStream: boolean,
+    localPlaybackResolutionPending: boolean,
+    pendingAuthoritativeStreamUrl: string | null
+  ): boolean {
     if (this.isControllerProvider()) {
       return false;
     }
@@ -318,19 +415,15 @@ export class ListenTogetherPlayerStateApplier {
     if (currentSong === null || !sameListenTogetherTrack(currentSong, targetSong)) {
       return false;
     }
-    const targetTrack = room.track ??
-      (room.currentIndex >= 0 && room.currentIndex < room.queue.length ? room.queue[room.currentIndex] : null);
-    if (targetTrack === null) {
+    if (localUsesAuthoritativeStream) {
       return false;
     }
-    const trustedUrls = trustedListenTogetherStreamUrls(
-      targetTrack.channelId,
-      targetTrack.streamUrls,
-      targetTrack.streamUrl
-    );
     return shouldReloadListenTogetherAuthoritativeStream(
-      trustedUrls.length > 0 ? trustedUrls[0] : null,
-      this.surface.currentMediaUrl()
+      remoteStreamUrl,
+      localResolvedStreamUrl,
+      this.surface.currentPlaybackRequiresAuthoritativeStream(),
+      localPlaybackResolutionPending,
+      pendingAuthoritativeStreamUrl
     );
   }
 }

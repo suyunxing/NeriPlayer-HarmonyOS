@@ -7,6 +7,10 @@ import { HistoryRepository } from '../../data/HistoryRepository';
 import { LocalPlaylistRepository } from '../../data/LocalPlaylistRepository';
 import { NeteaseApi } from '../../network/NeteaseApi';
 import { NeteasePlaylistSummary } from '../../network/NeteasePlaylistParser';
+import {
+  NETEASE_RADAR_PLAYLIST_DEFINITIONS,
+  radarDefinitionToSummary
+} from '../../network/NeteaseHomeRecommendations';
 import { NetworkStatus } from '../../util/NetworkStatus';
 import { Logger } from '../../app/Logger';
 import { PlayerManager } from '../../player/PlayerManager';
@@ -39,6 +43,8 @@ export struct HomePage {
   @State localPlaylists: Playlist[] = [];
   @State recentSongs: SongItem[] = [];
   @State neteaseRecommend: NeteasePlaylistSummary[] = [];
+  // 雷达歌单（F-5）：静态定义兜底 + 并发元数据升级（上游 #319/#338）。
+  @State radarPlaylists: NeteasePlaylistSummary[] = [];
   @State loading: boolean = true;
   @State offline: boolean = false;
   /** 每日推荐 FAB 开播进行中：按钮转圈并禁触，防止重复拉歌单。 */
@@ -106,6 +112,37 @@ export struct HomePage {
       .catch(() => {
         this.neteaseRecommend = [];
       });
+    this.loadRadarPlaylists();
+  }
+
+  /**
+   * 雷达歌单（上游 #319/#338）：5 个官方雷达歌单，静态定义先上屏（无网也有
+   * 入口），随后并发拉各自详情摘要升级封面/曲目数；单曲元数据失败保留
+   * 静态定义（上游 loadNeteaseRadarPlaylistSummaries 语义）。
+   */
+  private loadRadarPlaylists(): void {
+    const fallback: NeteasePlaylistSummary[] = [];
+    for (const definition of NETEASE_RADAR_PLAYLIST_DEFINITIONS) {
+      fallback.push(radarDefinitionToSummary(definition));
+    }
+    this.radarPlaylists = fallback;
+    const fetches: Promise<NeteasePlaylistSummary | null>[] = [];
+    for (const definition of NETEASE_RADAR_PLAYLIST_DEFINITIONS) {
+      const id = definition.id;
+      fetches.push(NeteaseApi.getPlaylistSummary(id)
+        .then((summary: NeteasePlaylistSummary | null): NeteasePlaylistSummary | null =>
+          summary !== null && summary.id === id ? summary : null)
+        .catch((): NeteasePlaylistSummary | null => null));
+    }
+    Promise.all(fetches).then((results: (NeteasePlaylistSummary | null)[]) => {
+      const merged: NeteasePlaylistSummary[] = [];
+      for (let i = 0; i < results.length; i++) {
+        merged.push(results[i] !== null ? results[i] as NeteasePlaylistSummary : fallback[i]);
+      }
+      this.radarPlaylists = merged;
+    }).catch(() => {
+      // 全军覆没时保留静态定义。
+    });
   }
 
   private openEntry(entry: UsageEntry): void {
@@ -456,6 +493,53 @@ export struct HomePage {
                 .scrollBar(BarState.Off)
                 .width('100%')
               }
+            }
+
+            // F-5：雷达歌单（时光/宝藏/新歌/乐迷/神秘）。静态定义先上屏，
+            // 元数据到位后原地升级封面/曲目数（宽屏也保持横滑：只有 5 张）。
+            if (this.radarPlaylists.length > 0) {
+              SectionHeader({ title: '雷达歌单', icon: '◎' })
+              Scroll() {
+                Row({ space: 12 }) {
+                  ForEach(this.radarPlaylists, (item: NeteasePlaylistSummary) => {
+                    Column({ space: 6 }) {
+                      if (item.coverUrl.length > 0) {
+                        Image(coverThumbnailUrl(item.coverUrl, 300))
+                          .autoResize(true)
+                          .width(112)
+                          .height(112)
+                          .borderRadius(16)
+                          .objectFit(ImageFit.Cover)
+                          .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+                      } else {
+                        Image($r('app.media.ic_music_note_24'))
+                          .width(36)
+                          .height(36)
+                          .fillColor(this.accentPrimary(Theme.isDark()))
+                          .margin({ left: 38, right: 38, top: 38, bottom: 38 })
+                          .backgroundColor(this.accentSurfaceVariant(Theme.isDark()))
+                          .borderRadius(16)
+                      }
+                      Text(item.name)
+                        .fontSize(13)
+                        .fontWeight(FontWeight.Medium)
+                        .fontColor(Theme.textPrimary(Theme.isDark()))
+                        .maxLines(1)
+                        .textOverflow({ overflow: TextOverflow.Ellipsis })
+                        .width(112)
+                      Text(item.trackCount > 0 ? `${item.trackCount} 首` : '网易云歌单')
+                        .fontSize(11)
+                        .fontColor(Theme.textSecondary(Theme.isDark()))
+                        .width(112)
+                    }
+                    .onClick(() => Router.push(Router.NETEASE_PLAYLIST, `${item.id}`))
+                  }, (item: NeteasePlaylistSummary) => `${item.id}_${item.coverUrl}`)
+                }
+                .padding({ left: 4, right: 4 })
+              }
+              .scrollable(ScrollDirection.Horizontal)
+              .scrollBar(BarState.Off)
+              .width('100%')
             }
 
             if (this.localPlaylists.length > 0 || !this.offline) {

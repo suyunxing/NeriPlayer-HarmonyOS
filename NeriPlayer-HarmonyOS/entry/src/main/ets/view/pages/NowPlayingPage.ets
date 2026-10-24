@@ -3,6 +3,7 @@
 import { curves, SymbolGlyphModifier, LengthMetrics, window } from '@kit.ArkUI';
 import { SongItem } from '../../model/SongItem';
 import { MusicPlatform } from '../../model/MusicPlatform';
+import { BiliApi } from '../../network/BiliApi';
 import { stableKeyOf } from '../../model/SongIdentity';
 import { LyricLine } from '../../model/LyricLine';
 import { QueueState } from '../../model/QueueState';
@@ -12,10 +13,22 @@ import { PlayerManager } from '../../player/PlayerManager';
 import { PlaybackStatus, RepeatMode } from '../../player/PlaybackConstants';
 import { Theme } from '../Theme';
 import { DynamicTheme } from '../theme/DynamicTheme';
+import { CommentSource } from '../../model/CommentModels';
+import { resolveCommentSource } from '../../network/comments/CommentSourceResolver';
+import { CommentSourceCodec } from '../components/comment/CommentCodec';
+import { CommentSheetContent } from '../components/comment/CommentSheetContent';
 import { AccentScheme, SchemeMode } from '../theme/AccentScheme';
 import { ColorScience } from '../theme/ColorScience';
 import { LyricView } from '../components/LyricView';
 import { WaveformSlider } from '../components/WaveformSlider';
+import {
+  MainControlsLayout,
+  playbackControlScale,
+  parsePlaybackControlSize,
+  scaleButtonSize,
+  scaleIconSize,
+  resolveMainControlsLayout
+} from '../components/PlaybackControlSizing';
 import { MarqueeText } from '../components/MarqueeText';
 import { LyricShareSheet } from '../components/LyricShareSheet';
 import { MatchSongInfoSheet } from '../components/MatchSongInfoSheet';
@@ -63,6 +76,9 @@ export struct NowPlayingPage {
   @StorageLink('player.favorite') favorite: boolean = false;
 
   @State lyrics: LyricLine[] = [];
+  // 当前歌词的来源（LyricSourceTag 值）：'lrclib' 时 LyricView 额外叠加
+  // LRCLIB 源基准偏移（F-2，上游 #417）。
+  @State lyricSource: string = '';
   // 播放页↔歌词页横向分页：0 = 封面页，1 = 歌词页。默认停在封面页（设计稿
   // 行为，取代旧的 showLyrics=true 一进页面就是歌词）。
   @State pageIndex: number = 0;
@@ -72,6 +88,8 @@ export struct NowPlayingPage {
   @State showQueue: boolean = false;
   // 「词」按钮拉起的歌词设置半模态面板（原生 bindSheet，与播放列表同规格）。
   @State showLyricSettings: boolean = false;
+  // 评论面板（F-3）：入口在封面页顶栏，仅当前歌曲的音源支持评论时显示。
+  @State showCommentSheet: boolean = false;
   @State showSleep: boolean = false;
   @State showShare: boolean = false;
   // ⋯ menu action sheets (the queue keeps its dedicated bottom-right button).
@@ -83,6 +101,16 @@ export struct NowPlayingPage {
   @State sleepLabel: string = '关闭';
   @StorageLink('player.sleepActive') sleepActive: boolean = false;
   @StorageLink('player.sleepRemainingMin') sleepRemainingMin: number = 0;
+  // 上游 #359：一起听听友路由丢失静音时，播放键变「恢复音量」（点击恢复
+  // 捕获音量而非暂停，PlayerManager.togglePlayPause 内短路）。
+  @StorageProp('player.ltMuteSuppressed') ltMuteSuppressed: boolean = false;
+  // 播放页/歌词页控件大小档位（PlaybackControlSize 序数，上游 2644267f）：
+  // 顶栏/传输行/底部工具行与歌词页胶囊按档位缩放，触控下限 40vp。
+  @StorageProp('np.nowplaying_control_size') nowPlayingControlSizeRaw: number = 1;
+  @StorageProp('np.lyric_control_size') lyricControlSizeRaw: number = 1;
+  // 传输行可用宽度（onAreaChange 采集），窄窗（分屏/折叠态）下按
+  // resolveMainControlsLayout 比例压缩主控组防溢出。
+  @State controlRowWidth: number = 0;
   /** 底部控件行的上抬量，由 util/WindowMetrics.ets 按真实避让区发布。 */
   @StorageProp('ui.bottomLiftVp') bottomLift: number = Theme.bottomBarLift();
   /**
@@ -233,6 +261,16 @@ export struct NowPlayingPage {
     if (stableKeyOf(this.song()) !== this.lyricsSongKey) {
       void this.reloadSongData();
     }
+    // 评论面板打开期间切歌：@Watch 绑定的是 currentSongJson 而非来源，需在
+    // 此重写 ui.commentSource 让面板换绑到新歌；新歌不支持评论则关闭面板。
+    if (this.showCommentSheet) {
+      const source = this.commentSource();
+      if (source === null) {
+        this.showCommentSheet = false;
+      } else {
+        AppStorage.setOrCreate('ui.commentSource', CommentSourceCodec.toJson(source));
+      }
+    }
     this.transitionCover(this.song().effectiveCoverUrl);
   }
 
@@ -330,18 +368,34 @@ export struct NowPlayingPage {
     const generation = ++this.lyricsGeneration;
     const song = this.song();
     this.lyricsSongKey = stableKeyOf(song);
-    this.lyrics = [];
-    LyricLineTracker.getInstance().setLines([]);
     // matched* lyrics from「匹配歌曲信息」(manual sheet or the automatic
     // matcher) need no audioId — the dispatcher resolves them before any
     // platform branch, which is how local songs get lyrics at all.
-    if (song.audioId.length > 0 || song.matchedLyric.trim().length > 0) {
+    const canLoadLyrics = song.audioId.length > 0 || song.matchedLyric.trim().length > 0;
+    // The remembered entry is keyed by stable key, not by lyric identity: a
+    // song whose matched lyric was just cleared keeps its old cache hit, and
+    // the resolve below is skipped, so the stale lines would stay forever.
+    const remembered = canLoadLyrics ? LyricDispatcher.peekResolvedLyrics(song) : null;
+    if (remembered !== null) {
+      // Seed the remembered lyric synchronously so a page reopen never
+      // flashes an empty view; the async resolve below lands on the same
+      // content (audit A-21).
+      this.lyrics = remembered.lines;
+      this.lyricSource = remembered.source;
+      LyricLineTracker.getInstance().setLines(remembered.lines);
+    } else {
+      this.lyrics = [];
+      this.lyricSource = '';
+      LyricLineTracker.getInstance().setLines([]);
+    }
+    if (canLoadLyrics) {
       try {
-        const lines = await LyricDispatcher.loadLyrics(song);
+        const result = await LyricDispatcher.loadLyricsResolved(song);
         if (generation !== this.lyricsGeneration) {
           return;
         }
-        this.lyrics = lines;
+        this.lyrics = result.lines;
+        this.lyricSource = result.source;
         LyricLineTracker.getInstance().setLines(this.lyrics);
       } catch (error) {
         const e = error as Error;
@@ -414,6 +468,55 @@ export struct NowPlayingPage {
     });
   }
 
+  // ---- 播放控件大小档位（上游 2644267f，np.nowplaying_control_size）----
+
+  /** 播放页控件缩放系数（小 0.9 / 中 1.0 / 大 1.2）。 */
+  private controlScale(): number {
+    return playbackControlScale(parsePlaybackControlSize(this.nowPlayingControlSizeRaw));
+  }
+
+  /** 歌词页胶囊缩放系数（np.lyric_control_size）。 */
+  private lyricControlScale(): number {
+    return playbackControlScale(parsePlaybackControlSize(this.lyricControlSizeRaw));
+  }
+
+  /**
+   * 传输行（上一首/播放/下一首）布局：基准 58/30 次键 + 64/34 主键按档位
+   * 缩放（触控下限 40），可用宽度不足时整体同比压缩（间距仍交给
+   * SpaceEvenly 分配，preferredSpacing 传 0）。
+   */
+  private transportLayout(): MainControlsLayout {
+    const scale = this.controlScale();
+    return resolveMainControlsLayout(this.controlRowWidth,
+      scaleButtonSize(58, scale), scaleButtonSize(64, scale), 2, 0);
+  }
+
+  /** 传输行图标：跟随按钮压缩比，下限 18vp。 */
+  private transportIconSize(baseVp: number, layout: MainControlsLayout): number {
+    return Math.max(18, Math.round(scaleIconSize(baseVp, this.controlScale()) * layout.buttonScale));
+  }
+
+  /** 底部工具行/顶栏按钮热区：44/40 基准按档位缩放，下限 40。 */
+  private controlButtonSize(baseVp: number): number {
+    return scaleButtonSize(baseVp, this.controlScale());
+  }
+
+  /** 底部工具行/顶栏图标：24/22 基准按档位缩放，下限 18。 */
+  private controlIconSize(baseVp: number): number {
+    return scaleIconSize(baseVp, this.controlScale());
+  }
+
+  /** 歌词页胶囊按钮热区（44 基准）。 */
+  private lyricButtonSize(baseVp: number): number {
+    return scaleButtonSize(baseVp, this.lyricControlScale());
+  }
+
+  /** 歌词页胶囊图标（25/32/22 基准）。 */
+  private lyricIconSize(baseVp: number): number {
+    return scaleIconSize(baseVp, this.lyricControlScale());
+  }
+
+
   private setSleep(option: [string, number]): void {    this.sleepLabel = option[0];
     this.showSleep = false;
     if (option[1] > 0) {
@@ -452,6 +555,25 @@ export struct NowPlayingPage {
     if (song.platform === MusicPlatform.NETEASE && song.artistId > 0) {
       Router.push(Router.ARTIST, JSON.stringify({ artist: song.displayArtist, artistId: song.artistId }));
       return;
+    }
+    // B 站歌曲的「艺人」是 UP 主：audioId 即 bvid，ownerMid 从视频摘要反查
+    // 后进 UP 主空间页（上游 e95b2ef9 的 artist 导航）。
+    if (song.platform === MusicPlatform.BILIBILI && song.audioId.length > 0) {
+      this.openBiliUploaderSpace(song.audioId);
+      return;
+    }
+    this.getUIContext().getPromptAction().showToast({ message: '暂无艺人信息', duration: 2000 });
+  }
+
+  private async openBiliUploaderSpace(bvid: string): Promise<void> {
+    try {
+      const info = await BiliApi.getVideoInfo(bvid);
+      if (info.ownerMid > 0) {
+        Router.push(Router.BILI_UPLOADER, JSON.stringify({ mid: info.ownerMid, name: info.ownerName }));
+        return;
+      }
+    } catch (_error) {
+      // 网络失败落到通用提示。
     }
     this.getUIContext().getPromptAction().showToast({ message: '暂无艺人信息', duration: 2000 });
   }
@@ -600,13 +722,13 @@ export struct NowPlayingPage {
                 .fontColor([this.im().textPrimary])
             } else {
               Image($r('app.media.ic_arrow_back_24'))
-                .width(22)
-                .height(22)
+                .width(this.controlIconSize(22))
+                .height(this.controlIconSize(22))
                 .fillColor(this.im().textPrimary)
             }
           }
-          .width(40)
-          .height(40)
+          .width(this.controlButtonSize(40))
+          .height(this.controlButtonSize(40))
           .type(ButtonType.Circle)
           .backgroundColor(Theme.tagBg(Theme.isDark()))
           .accessibilityText(this.lyricsMode ? '收起歌词' : '返回')
@@ -629,16 +751,31 @@ export struct NowPlayingPage {
               .textAlign(TextAlign.Center)
             Button() {
               Image($r('app.media.ic_group_24'))
-                .width(20)
-                .height(20)
+                .width(this.controlIconSize(20))
+                .height(this.controlIconSize(20))
                 .fillColor(this.im().textPrimary)
             }
-            .width(40)
-            .height(40)
+            .width(this.controlButtonSize(40))
+            .height(this.controlButtonSize(40))
             .type(ButtonType.Circle)
             .backgroundColor(Theme.tagBg(Theme.isDark()))
             .accessibilityText('一起听')
             .onClick(() => Router.push(Router.LISTEN_TOGETHER))
+          }
+          // 评论入口（F-3）：仅封面模式且当前音源支持评论时出现（上游
+          // NowPlayingCoverTopBar 的评论按钮等价位）。
+          if (!this.lyricsMode && this.commentSource() !== null) {
+            Button() {
+              SymbolGlyph($r('sys.symbol.text_bubble_left_2'))
+                .fontSize(this.controlIconSize(20))
+                .fontColor([this.im().textPrimary])
+            }
+            .width(this.controlButtonSize(40))
+            .height(this.controlButtonSize(40))
+            .type(ButtonType.Circle)
+            .backgroundColor(Theme.tagBg(Theme.isDark()))
+            .accessibilityText('查看评论')
+            .onClick(() => this.openCommentSheet())
           }
           Button('⋯')
             .width(40)
@@ -701,12 +838,12 @@ export struct NowPlayingPage {
                   Image(this.favorite
                     ? $r('app.media.ic_baseline_favorite_24')
                     : $r('app.media.ic_outline_favorite_24'))
-                    .width(24)
-                    .height(24)
+                    .width(this.controlIconSize(24))
+                    .height(this.controlIconSize(24))
                     .fillColor(this.favorite ? Theme.danger(false) : this.im().textSecondary)
                 }
-                .width(44)
-                .height(44)
+                .width(this.controlButtonSize(44))
+                .height(this.controlButtonSize(44))
                 .justifyContent(FlexAlign.Center)
                 .accessibilityText(this.favorite ? '取消收藏' : '收藏')
                 .onClick(() => this.toggleFavorite())
@@ -738,6 +875,7 @@ export struct NowPlayingPage {
             LyricView({
               lyrics: this.lyrics,
               lyricPlatform: this.song().platform,
+              lyricSource: this.lyricSource,
               onSeek: (timeMs: number) => PlayerManager.seekTo(timeMs),
               // Lyric scrubbing previews the centered line's time in the shared
               // label channel (same previewMs the waveform drag uses); playback
@@ -775,6 +913,8 @@ export struct NowPlayingPage {
                 durationMs: this.durationMs,
                 playing: this.status === PlaybackStatus.PLAYING,
                 loading: this.status === PlaybackStatus.LOADING,
+                // 进度预测外推用的实际播放速率（含一起听同步率）。
+                playbackSpeed: this.speed,
                 // 未播放段用取色 scheme 的主色系（secondary），已播放段用
                 // 强调色（primary，与主页 FAB 同源）——M7.4：在页面表达式里
                 // 直读被跟踪的 coverScheme，取色变化即时重染。
@@ -806,34 +946,39 @@ export struct NowPlayingPage {
               .animation({ duration: 130, curve: Curve.EaseOut, delay: this.rowDelay(3) })
 
               // 传输行只保留上一曲/播放暂停/下一曲；播放模式收进下方控件行。
-              // 上一曲/下一曲放大到 58/30，与 64/34 的主播放键形成尺寸梯度。
+              // 上一曲/下一曲放大到 58/30，与 64/34 的主播放键形成尺寸梯度；
+              // 三钮随控件大小档位缩放（上游 2644267f），宽度不足时同比压缩。
               Row() {
                 PlayerControlButton({
                   icon: $r('app.media.round_skip_previous_24'),
                   tintOn: this.im().textPrimary,
                   tintOff: this.im().textSecondary,
-                  buttonSize: 58,
-                  iconSize: 30,
+                  buttonSize: this.transportLayout().secondaryButtonSize,
+                  iconSize: this.transportIconSize(30, this.transportLayout()),
                   label: '上一首',
                   onTap: () => PlayerManager.previous()
                 })
                 PlayerControlButton({
-                  icon: this.status === PlaybackStatus.PLAYING
-                    ? $r('app.media.round_pause_24')
-                    : $r('app.media.round_play_arrow_24'),
+                  icon: this.ltMuteSuppressed
+                    ? $r('app.media.round_volume_up_24')
+                    : (this.status === PlaybackStatus.PLAYING
+                      ? $r('app.media.round_pause_24')
+                      : $r('app.media.round_play_arrow_24')),
                   tintOn: this.im().onPrimary,
                   active: true,
-                  buttonSize: 64,
-                  iconSize: 34,
-                  label: this.status === PlaybackStatus.PLAYING ? '暂停' : '播放',
+                  buttonSize: this.transportLayout().primaryButtonSize,
+                  iconSize: this.transportIconSize(34, this.transportLayout()),
+                  label: this.ltMuteSuppressed
+                    ? '恢复音量'
+                    : (this.status === PlaybackStatus.PLAYING ? '暂停' : '播放'),
                   onTap: () => PlayerManager.togglePlayPause()
                 })
                 PlayerControlButton({
                   icon: $r('app.media.round_skip_next_24'),
                   tintOn: this.im().textPrimary,
                   tintOff: this.im().textSecondary,
-                  buttonSize: 58,
-                  iconSize: 30,
+                  buttonSize: this.transportLayout().secondaryButtonSize,
+                  iconSize: this.transportIconSize(30, this.transportLayout()),
                   label: '下一首',
                   onTap: () => PlayerManager.next(false)
                 })
@@ -841,6 +986,9 @@ export struct NowPlayingPage {
               .width('100%')
               .padding({ top: 6 })
               .justifyContent(FlexAlign.SpaceEvenly)
+              .onAreaChange((_oldArea: Area, newArea: Area) => {
+                this.controlRowWidth = Number(newArea.width);
+              })
               .translate({ y: NowPlayingMotion.rowOffset(this.transitionProgress, 4) })
               .animation({ duration: this.rowDuration(), curve: ROW_CURVE, delay: this.rowDelay(4) })
               .opacity(NowPlayingMotion.rowOpacity(this.transitionProgress, 4))
@@ -854,34 +1002,34 @@ export struct NowPlayingPage {
                 // 与整行裸图标保持同一灰阶，档位信息由无障碍文案补偿。
                 Column() {
                   Image(this.playModeIcon())
-                    .width(24)
-                    .height(24)
+                    .width(this.controlIconSize(24))
+                    .height(this.controlIconSize(24))
                     .fillColor(this.im().textSecondary)
                 }
-                .width(44)
-                .height(44)
+                .width(this.controlButtonSize(44))
+                .height(this.controlButtonSize(44))
                 .justifyContent(FlexAlign.Center)
                 .accessibilityText(this.playModeLabel())
                 .onClick(() => PlayerManager.cyclePlayMode())
 
                 Column() {
                   SymbolGlyph($r('sys.symbol.speed_multiple'))
-                    .fontSize(24)
+                    .fontSize(this.controlIconSize(24))
                     .fontColor([this.speed !== 1.0 ? this.im().textPrimary : this.im().textSecondary])
                 }
-                .width(44)
-                .height(44)
+                .width(this.controlButtonSize(44))
+                .height(this.controlButtonSize(44))
                 .justifyContent(FlexAlign.Center)
                 .accessibilityText(`播放速度 ${this.speed} 倍，点击选择`)
                 .bindMenu(this.speedMenuBuilder)
 
                 Column() {
                   SymbolGlyph($r('sys.symbol.timer'))
-                    .fontSize(24)
+                    .fontSize(this.controlIconSize(24))
                     .fontColor([this.sleepActive ? this.im().textPrimary : this.im().textSecondary])
                 }
-                .width(44)
-                .height(44)
+                .width(this.controlButtonSize(44))
+                .height(this.controlButtonSize(44))
                 .justifyContent(FlexAlign.Center)
                 .accessibilityText(this.sleepButtonText())
                 .onClick(() => {
@@ -890,11 +1038,11 @@ export struct NowPlayingPage {
 
                 Column() {
                   SymbolGlyph($r('sys.symbol.share'))
-                    .fontSize(24)
+                    .fontSize(this.controlIconSize(24))
                     .fontColor([this.im().textSecondary])
                 }
-                .width(44)
-                .height(44)
+                .width(this.controlButtonSize(44))
+                .height(this.controlButtonSize(44))
                 .justifyContent(FlexAlign.Center)
                 .accessibilityText('分享歌词')
                 .onClick(() => {
@@ -903,11 +1051,11 @@ export struct NowPlayingPage {
 
                 Column() {
                   SymbolGlyph($r('sys.symbol.music_note_list'))
-                    .fontSize(24)
+                    .fontSize(this.controlIconSize(24))
                     .fontColor([this.im().textSecondary])
                 }
-                .width(44)
-                .height(44)
+                .width(this.controlButtonSize(44))
+                .height(this.controlButtonSize(44))
                 .justifyContent(FlexAlign.Center)
                 .accessibilityText('播放列表')
                 .onClick(() => {
@@ -932,12 +1080,12 @@ export struct NowPlayingPage {
             Row() {
               Button() {
                 Image($r('app.media.ic_lyricon'))
-                  .width(25)
-                  .height(25)
+                  .width(this.lyricIconSize(25))
+                  .height(this.lyricIconSize(25))
                   .fillColor(this.im().textSecondary)
               }
-              .width(44)
-              .height(44)
+              .width(this.lyricButtonSize(44))
+              .height(this.lyricButtonSize(44))
               .type(ButtonType.Circle)
               .backgroundColor(Color.Transparent)
               .accessibilityText('歌词设置')
@@ -965,27 +1113,35 @@ export struct NowPlayingPage {
                 icon: $r('app.media.round_skip_previous_24'),
                 tintOn: this.im().textPrimary,
                 tintOff: this.im().textSecondary,
+                buttonSize: this.lyricButtonSize(48),
+                iconSize: this.lyricIconSize(24),
                 label: '上一首',
                 onTap: () => PlayerManager.previous()
               })
               Button() {
-                Image(this.status === PlaybackStatus.PLAYING
-                  ? $r('app.media.round_pause_24')
-                  : $r('app.media.round_play_arrow_24'))
-                  .width(32)
-                  .height(32)
+                Image(this.ltMuteSuppressed
+                  ? $r('app.media.round_volume_up_24')
+                  : (this.status === PlaybackStatus.PLAYING
+                    ? $r('app.media.round_pause_24')
+                    : $r('app.media.round_play_arrow_24')))
+                  .width(this.lyricIconSize(32))
+                  .height(this.lyricIconSize(32))
                   .fillColor(this.im().textSecondary)
               }
-              .width(44)
-              .height(44)
+              .width(this.lyricButtonSize(44))
+              .height(this.lyricButtonSize(44))
               .type(ButtonType.Circle)
               .backgroundColor(Color.Transparent)
-              .accessibilityText(this.status === PlaybackStatus.PLAYING ? '暂停' : '播放')
+              .accessibilityText(this.ltMuteSuppressed
+                ? '恢复音量'
+                : (this.status === PlaybackStatus.PLAYING ? '暂停' : '播放'))
               .onClick(() => PlayerManager.togglePlayPause())
               PlayerControlButton({
                 icon: $r('app.media.round_skip_next_24'),
                 tintOn: this.im().textPrimary,
                 tintOff: this.im().textSecondary,
+                buttonSize: this.lyricButtonSize(48),
+                iconSize: this.lyricIconSize(24),
                 label: '下一首',
                 onTap: () => PlayerManager.next(false)
               })
@@ -994,12 +1150,12 @@ export struct NowPlayingPage {
                 Image(this.favorite
                   ? $r('app.media.ic_baseline_favorite_24')
                   : $r('app.media.ic_outline_favorite_24'))
-                  .width(22)
-                  .height(22)
+                  .width(this.lyricIconSize(22))
+                  .height(this.lyricIconSize(22))
                   .fillColor(this.favorite ? Theme.danger(false) : this.im().textSecondary)
               }
-              .width(44)
-              .height(44)
+              .width(this.lyricButtonSize(44))
+              .height(this.lyricButtonSize(44))
               .type(ButtonType.Circle)
               .backgroundColor(Color.Transparent)
               .accessibilityText(this.favorite ? '取消收藏' : '收藏')
@@ -1141,6 +1297,34 @@ export struct NowPlayingPage {
         this.showQueue = false;
       }
     })
+    // 评论面板与播放列表同规格；来源 JSON 先行写入 AppStorage，面板组件
+    // aboutToAppear 即读（打开期间切歌经 @Watch 换绑）。
+    .bindSheet($$this.showCommentSheet, this.commentSheetBuilder(), {
+      detents: [SheetSize.MEDIUM, SheetSize.LARGE],
+      dragBar: true,
+      showClose: false,
+      onDisappear: () => {
+        this.showCommentSheet = false;
+      }
+    })
+  }
+
+  private commentSource(): CommentSource | null {
+    return resolveCommentSource(this.song());
+  }
+
+  private openCommentSheet(): void {
+    const source = this.commentSource();
+    if (source === null) {
+      return;
+    }
+    AppStorage.setOrCreate('ui.commentSource', CommentSourceCodec.toJson(source));
+    this.showCommentSheet = true;
+  }
+
+  @Builder
+  commentSheetBuilder() {
+    CommentSheetContent()
   }
 
   @Builder
@@ -1311,12 +1495,48 @@ struct QueueSheetContent {
               Text(formatDuration(song.durationMs))
                 .fontSize(11)
                 .fontColor(Theme.textDisabled(Theme.isDark()))
+              // F-1：行尾 ⋮ 拉起单曲操作（下一首播放/加入队列末尾/移除），
+              // 数组式 bindMenu 逐行捕获 song/index，无需子组件转参。
+              Image($r('app.media.ic_more_horiz_24'))
+                .width(36)
+                .height(36)
+                .fillColor(Theme.textSecondary(Theme.isDark()))
+                .padding(9)
+                .accessibilityText(`更多操作：${song.displayName}`)
+                .bindMenu([
+                  {
+                    value: '下一首播放',
+                    symbolIcon: new SymbolGlyphModifier($r('sys.symbol.play_fill')).fontSize(22),
+                    action: () => {
+                      void PlayerManager.insertNext(song);
+                    }
+                  },
+                  {
+                    value: '加入队列末尾',
+                    symbolIcon: new SymbolGlyphModifier($r('sys.symbol.music_note_list')).fontSize(22),
+                    action: () => {
+                      void PlayerManager.addToQueueEnd(song);
+                    }
+                  },
+                  {
+                    value: '移除',
+                    symbolIcon: new SymbolGlyphModifier($r('sys.symbol.trash')).fontSize(22),
+                    action: () => {
+                      void PlayerManager.removeQueueItem(index);
+                    }
+                  }
+                ])
             }
             .width('100%')
             .padding(8)
             .onClick(() => this.onPlay(index))
           }
-        }, (song: SongItem) => `${song.platform}_${song.audioId}_${song.id}`)
+        }, (song: SongItem, index: number) => `${song.platform}_${song.audioId}_${song.id}_${index}`)
+          // F-1：原生长按拖拽排序（List 内 ForEach 使能 onMove，框架负责长按、
+          // 让位与边缘自动滚动）；key 带序号，移动后强制行重建对齐新位置。
+          .onMove((from: number, to: number) => {
+            PlayerManager.moveQueueItem(from, to);
+          })
       }
       .layoutWeight(1)
       .scrollBar(BarState.Off)

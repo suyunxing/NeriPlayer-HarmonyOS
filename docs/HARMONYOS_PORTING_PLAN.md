@@ -6,7 +6,7 @@
 
 目标是把 NeriPlayer 迁移为 HarmonyOS 普通应用，主语言 ArkTS、UI 使用 ArkUI、应用模型使用 Stage 模型。迁移以行为兼容和可测试性为目标，不逐行翻译 Kotlin，也不把 ASCF 元服务当成主实现。
 
-工程基线现为 `26.0.0`（API 26；2026-09-07 自 `6.1.1(24)` 全量迁移，见 `hm.md` §7.12）。官方版本映射已于 2026-08-14 复核（[所有 HarmonyOS 开发套件版本](https://developer.huawei.com/consumer/cn/doc/harmonyos-releases/overview-allversion)）：HarmonyOS 6.0.0→API 20、6.0.1→21、6.0.2→22、6.1.0→23、6.1.1→24（当前最新稳定 Release），HarmonyOS 7.0→开发套件 26.0.0（API 26，Beta；版本号自 26.0.0 起改用 SemVer）。本机两套 SDK 均已安装：API 24 Release 位于 `D:\HarmonyOS\Tools\command-line-tools\sdk`，API 26 Beta2 随 DevEco Studio 26.0.0.621。各模块迁移前仍须按官方 API 差异页逐项确认废弃接口与行为变化，不能凭目录名或记忆推断。
+工程基线现为 `26.0.0`（API 26；2026-09-07 自 `6.1.1(24)` 全量迁移，见 `docs/archive/HM_HISTORY.md` §7.12）。官方版本映射已于 2026-08-14 复核（[所有 HarmonyOS 开发套件版本](https://developer.huawei.com/consumer/cn/doc/harmonyos-releases/overview-allversion)）：HarmonyOS 6.0.0→API 20、6.0.1→21、6.0.2→22、6.1.0→23、6.1.1→24（当前最新稳定 Release），HarmonyOS 7.0→开发套件 26.0.0（API 26，Beta；版本号自 26.0.0 起改用 SemVer）。本机两套 SDK 均已安装：API 24 Release 位于 `D:\HarmonyOS\Tools\command-line-tools\sdk`，API 26 Beta2 随 DevEco Studio 26.0.0.621。**2026-10-22 复核**：CI 与服务器侧现统一使用 **CLT 26.0.0.821**（SDK 26.0.0.105 / API 26），`ErBWs/setup-ohos@v2` version `26.0.0.821`；工程 `compatibleSdkVersion`/`targetSdkVersion` 均为 `26.0.0`。各模块迁移前仍须按官方 API 差异页逐项确认废弃接口与行为变化，不能凭目录名或记忆推断。
 
 ## 建议架构
 
@@ -129,8 +129,9 @@ entry/src/main/ets/
 
 ## 近期优先级
 
-> 2026-08-14 复核：第 1 项已于 2026-08-13 完成（干净构建 + 单测 + 签名 + 模拟器 smoke test，见 `hm.md` §7.4；工具链迁至 `D:\HarmonyOS\Tools` 后需重跑一次确认）；第 3 项部分完成（已建 `entry/src/test/` 并通过 LRC 3 用例，其余模块待补）。
+> 2026-08-14 复核：第 1 项已于 2026-08-13 完成（干净构建 + 单测 + 签名 + 模拟器 smoke test，见 `docs/archive/HM_HISTORY.md` §7.4；工具链迁至 `D:\HarmonyOS\Tools` 后需重跑一次确认）；第 3 项部分完成（已建 `entry/src/test/` 并通过 LRC 3 用例，其余模块待补）。
 > 2026-08-31 复核：第 1～3 项均已完成（单测已累积至 874 用例，`ohosTest` 设备测试族已建立），任务级进度以 `PORTING_EXECUTION_PLAN.md` §6/§8 为准。
+> **2026-10-22 复核：本节 5 项已全部完成**——①干净构建与签名在服务器 CLT 26.0.0.105/821 常规执行；②上游基线已定并完成首轮大规模同步（`UPSTREAM_SYNC_PLAN.md`，F-1~F-13 完成）；③测试目录已扩充至 128 文件 / 1334 用例（最近一次真实全量执行 874/874，2026-08-29）；④`PlayerManager` 已拆出可测试状态机与 AVPlayer 适配层；⑤播放闭环与三平台联调均已落地（真机主路径回归待补）。后续优先级见 `UPSTREAM_SYNC_PLAN.md` 与 `FEATURE_MATRIX.md` 待验证项。
 
 1. 恢复可用 DevEco SDK 并做干净构建。
 2. 获取上游 commit/子模块基线。

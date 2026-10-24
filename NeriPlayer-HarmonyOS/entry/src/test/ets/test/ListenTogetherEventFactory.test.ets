@@ -28,7 +28,6 @@ import {
   ListenTogetherTrack,
   createListenTogetherTrack
 } from '../../../main/ets/listentogether/protocol/ListenTogetherTrack';
-import { MAX_LISTEN_TOGETHER_STREAM_URL_CANDIDATES } from '../../../main/ets/listentogether/mapping/ListenTogetherStreamUrlPolicy';
 
 const CLOCK_MS: number = 1_700_000_000_000;
 const CLIENT_INSTANCE_ID: string = 'client-1';
@@ -144,7 +143,7 @@ export default function listenTogetherEventFactoryTest() {
       expect(second.clientSequence).assertEqual(2);
     });
 
-    it('builds SET_TRACK with the controller resolved url folded in', 0, () => {
+    it('builds SET_TRACK without any resolved url (LINK_READY only)', 0, () => {
       const harness = new FactoryHarness();
       const queue = harness.loadQueue([neteaseSong('1001'), neteaseSong('1002'), neteaseSong('1003')], 1);
       harness.playback.shareableStreamUrls = [TRUSTED_URL_A];
@@ -160,16 +159,17 @@ export default function listenTogetherEventFactoryTest() {
       expect(track === null).assertFalse();
       if (track !== null) {
         expect(track.stableKey).assertEqual('netease:1002');
-        expect(track.streamUrl).assertEqual(TRUSTED_URL_A);
-        expect(track.streamUrls.length).assertEqual(1);
+        // Upstream #359: queue snapshots never carry urls — the player-side
+        // resolution stays private and LINK_READY is the only publish path.
+        expect(track.streamUrl === null).assertTrue();
+        expect(track.streamUrls.length).assertEqual(0);
       }
       const wireQueue = event.queue;
       expect(wireQueue === null).assertFalse();
       if (wireQueue !== null) {
         expect(wireQueue.length).assertEqual(3);
-        // Only the playing track carries a url: the others have not been resolved.
         expect(wireQueue[0].streamUrls.length).assertEqual(0);
-        expect(wireQueue[1].streamUrls.length).assertEqual(1);
+        expect(wireQueue[1].streamUrls.length).assertEqual(0);
       }
     });
 
@@ -401,12 +401,10 @@ export default function listenTogetherEventFactoryTest() {
         const track = event.track;
         expect(track === null).assertFalse();
         if (track !== null) {
-          // Candidate order is the trust order: what the caller just resolved, then
-          // its single-url form, then what the player holds.
+          // A non-empty resolved list is the complete candidate set: no
+          // merging with the single-url form or the player-held urls.
           expect(track.streamUrls[0]).assertEqual(TRUSTED_URL_B);
-          expect(track.streamUrls[1]).assertEqual(TRUSTED_URL_C);
-          expect(track.streamUrls[2]).assertEqual(TRUSTED_URL_A);
-          expect(track.streamUrls.length).assertEqual(MAX_LISTEN_TOGETHER_STREAM_URL_CANDIDATES);
+          expect(track.streamUrls.length).assertEqual(1);
           expect(track.streamUrl).assertEqual(TRUSTED_URL_B);
         }
       }
@@ -705,6 +703,97 @@ export default function listenTogetherEventFactoryTest() {
         .assertTrue();
       expect(harness.factory.buildEventForPlaybackCommand(playbackCommand('')) === null)
         .assertTrue();
+    });
+
+    // ---- 上游 89a8694c：SET_QUEUE 全量队列同步事件族 ----
+
+    it('builds SET_QUEUE as a snapshot for a legacy room', 0, () => {
+      const harness = new FactoryHarness();
+      harness.loadQueue([neteaseSong('1001'), neteaseSong('1002'), neteaseSong('1003')], 1);
+      harness.roomState = createListenTogetherRoomState('ROOM1', 4);
+
+      const event = harness.factory.buildSetQueueEvent(harness.playback.queue, 1, 5000);
+      expect(event === null).assertFalse();
+      expect(event!.type).assertEqual('SET_QUEUE');
+      expect(event!.queue === null).assertFalse();
+      expect(event!.queue!.length).assertEqual(3);
+      expect(event!.currentIndex).assertEqual(1);
+      expect(event!.track!.stableKey).assertEqual('netease:1002');
+      expect(event!.shouldPlay).assertFalse();
+      expect(event!.state).assertEqual('paused');
+      expect(event!.queueMutation).assertNull();
+      expect(event!.requestTrackStableKey).assertEqual('netease:1002');
+    });
+
+    it('builds SET_QUEUE as a mutation against a schema-V2 room', 0, () => {
+      const harness = new FactoryHarness();
+      const queue = harness.loadQueue([neteaseSong('1001'), neteaseSong('1002'), neteaseSong('1003')], 0);
+      const room = createListenTogetherRoomState('ROOM1', 6);
+      room.schemaVersion = 2;
+      room.queue = [
+        createListenTogetherTrack('netease:1001', ListenTogetherChannels.NETEASE, '1001', 'Song 1001', 'Artist'),
+        createListenTogetherTrack('netease:1002', ListenTogetherChannels.NETEASE, '1002', 'Song 1002', 'Artist'),
+        createListenTogetherTrack('netease:1003', ListenTogetherChannels.NETEASE, '1003', 'Song 1003', 'Artist')
+      ];
+      room.currentIndex = 0;
+      harness.roomState = room;
+
+      // Swapping the first two slots is exactly one move operation.
+      const swapped = [queue[1], queue[0], queue[2]];
+      const event = harness.factory.buildSetQueueEvent(swapped, 0, 0);
+      expect(event === null).assertFalse();
+      expect(event!.queue).assertNull();
+      expect(event!.queueMutation === null).assertFalse();
+      expect(event!.queueMutation!.baseRoomVersion).assertEqual(6);
+      expect(event!.queueMutation!.operations.length).assertEqual(1);
+      expect(event!.queueMutation!.operations[0].type).assertEqual('move');
+      expect(event!.legacyQueueSnapshot!.length).assertEqual(3);
+    });
+
+    it('emits the empty-room signal and requests as a member', 0, () => {
+      const harness = new FactoryHarness();
+      harness.loadQueue([neteaseSong('1001')], 0);
+
+      const emptied = harness.factory.buildSetQueueEvent([], 0, 4000);
+      expect(emptied === null).assertFalse();
+      expect(emptied!.type).assertEqual('SET_QUEUE');
+      expect(emptied!.queue!.length).assertEqual(0);
+      expect(emptied!.currentIndex).assertEqual(-1);
+      expect(emptied!.shouldPlay).assertFalse();
+      expect(emptied!.state).assertEqual('paused');
+
+      harness.isController = false;
+      const request = harness.factory.buildSetQueueEvent([neteaseSong('1001')], 0, 0, true);
+      expect(request!.type).assertEqual('REQUEST_SET_QUEUE');
+      expect(request!.shouldPlay).assertTrue();
+      expect(request!.state).assertEqual('playing');
+    });
+
+    it('routes local SET_QUEUE commands and keeps an empty command queue', 0, () => {
+      const harness = new FactoryHarness();
+      const queue = harness.loadQueue([neteaseSong('1001'), neteaseSong('1002')], 0);
+      harness.playback.transportActive = true;
+
+      const update = playbackCommand('SET_QUEUE');
+      update.queue = [queue[1], queue[0]];
+      update.currentIndex = 1;
+      const event = harness.factory.buildEventForPlaybackCommand(update);
+      expect(event === null).assertFalse();
+      expect(event!.type).assertEqual('SET_QUEUE');
+      expect(event!.currentIndex).assertEqual(1);
+      // transportActive drives shouldPlay when the command stays silent.
+      expect(event!.shouldPlay).assertTrue();
+
+      // An explicitly empty command queue is the room-cleared signal — it must
+      // not fall back to the still-loaded playback queue.
+      const clear = playbackCommand('SET_QUEUE');
+      clear.queue = [];
+      clear.currentIndex = -1;
+      const cleared = harness.factory.buildEventForPlaybackCommand(clear);
+      expect(cleared === null).assertFalse();
+      expect(cleared!.queue!.length).assertEqual(0);
+      expect(cleared!.currentIndex).assertEqual(-1);
+      expect(cleared!.shouldPlay).assertFalse();
     });
   });
 }

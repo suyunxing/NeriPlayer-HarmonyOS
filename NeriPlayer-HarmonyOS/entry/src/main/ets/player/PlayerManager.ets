@@ -29,9 +29,10 @@ import { CoverArtColorCache } from '../view/theme/CoverArtColorCache';
 import { LyricLineTracker } from '../lyrics/LyricLineTracker';
 import { LyricLine } from '../model/LyricLine';
 import { LocalPlaylistRepository } from '../data/LocalPlaylistRepository';
+import { LocalDirectoryScanner } from '../data/LocalDirectoryScanner';
 import { SettingsRepository } from '../data/SettingsRepository';
 import { QueueEngine, TrackEndAction } from './queue/QueueEngine';
-import { AudioInterruptPolicy, InterruptAction } from './AudioInterruptPolicy';
+import { AudioInterruptPolicy, InterruptAction, InterruptValues } from './AudioInterruptPolicy';
 import { SleepTimer, SleepTimerMode } from './SleepTimer';
 import { PlaybackConstants, PlaybackStatus, RepeatMode } from './PlaybackConstants';
 import { effectivePlaybackRate, toPlaybackSpeedStep } from './PlaybackSpeedMap';
@@ -39,13 +40,23 @@ import { VolumeFader, FADE_IN_DURATION_MS, FADE_OUT_DURATION_MS } from './Volume
 import { AvPlaylistBridge } from './AvPlaylistBridge';
 import { advanceForceFor, peekNextIndex, shouldPrimeNext } from './AvPlaylistPolicy';
 import { decideLoadFailureAction, LoadFailureAction } from './PlaybackFailurePolicy';
+import { PlaybackStallDetector } from './PlaybackStallPolicy';
 import { PlaybackCacheManager } from './PlaybackCacheManager';
+import {
+  resolveSongUrlOrWaitForAuthoritativeStream,
+  retrySongUrlResolution
+} from './SongUrlResolutionRetry';
 import {
   ListenTogetherPlaybackCommand,
   ListenTogetherPlaybackCommandSource,
   createListenTogetherPlaybackCommand
 } from '../listentogether/control/ListenTogetherPlaybackCommand';
 import { shouldHoldListenTogetherPlaybackForSafetyPause } from '../listentogether/playback/ListenTogetherListenerSafetyPausePolicy';
+import {
+  shouldMuteListenTogetherListenerForAudioRouteLoss,
+  shouldRestoreListenTogetherRouteMuteVolume,
+  volumeWhileListenTogetherRouteMuted
+} from '../listentogether/playback/ListenTogetherListenerSafetyPausePolicy';
 
 /**
  * Reconciliation slack for the AVPlayer's reported duration: VBR/late-demux
@@ -68,6 +79,12 @@ export interface PlayerListener {
 interface ResolvedStream {
   url: string;
   catalogKey: string;
+  /**
+   * Upstream 89a8694c `SongUrlResult.WaitingForAuthoritativeStream`: a
+   * listener waiting for the room link resolves to nothing — the load stays
+   * pending until LINK_READY / the authoritative room state lands.
+   */
+  waitingForAuthoritativeStream?: boolean;
 }
 
 /** Bridges AutoSongMatcher back into the queue without a circular import at
@@ -108,10 +125,20 @@ export interface ListenTogetherPlaybackDelegate {
   /** Upstream `shouldWaitForListenTogetherAuthoritativeStream(song)`. */
   shouldWaitForAuthoritativeStream(song: SongItem): boolean;
   resolveAuthoritativeStreamUrls(song: SongItem): string[];
+  /**
+   * Upstream #359 `isListenTogetherAuthoritativeStreamConfirmedUnavailable(song)`:
+   * the controller confirmed twice it cannot share a link for this track.
+   */
+  isAuthoritativeStreamConfirmedUnavailable(song: SongItem): boolean;
 }
 
 class PlayerControlListener implements SessionControlListener {
   onPlay(): void {
+    // Upstream #359: the notification's play control restores the captured
+    // volume when the listener is route-muted, mirroring the play button.
+    if (PlayerManager.isListenTogetherAudioRouteMuteSuppressed()) {
+      PlayerManager.restoreListenTogetherAudioRouteMute();
+    }
     PlayerManager.play();
   }
 
@@ -287,6 +314,12 @@ export class PlayerManager {
   }
 
   static setListenTogetherDelegate(delegate: ListenTogetherPlaybackDelegate | null): void {
+    // 会话结束（delegate 置空）时解除路由丢失静音（含 #359 的显式恢复态）：
+    // 强制清理并回放捕获音量（上游无此清理，属鸿蒙侧补强——否则退出房间
+    // 后一直哑音）。
+    if (delegate === null && PlayerManager.audioRouteMuteRestoreVolume >= 0) {
+      PlayerManager.clearListenTogetherAudioRouteMute('session_end');
+    }
     PlayerManager.listenTogetherDelegate = delegate;
   }
 
@@ -442,6 +475,35 @@ export class PlayerManager {
     return delegate !== null && delegate.shouldWaitForAuthoritativeStream(song);
   }
 
+  /**
+   * Upstream #359: the player is still resolving this very track — an
+   * authoritative-stream verdict racing that load must neither reload nor hold
+   * playback (the local resolution may be about to land on the same url).
+   */
+  static isListenTogetherLocalResolutionPendingFor(song: SongItem): boolean {
+    if (PlayerManager.status !== PlaybackStatus.LOADING) {
+      return false;
+    }
+    const current = PlayerManager.getCurrentSong();
+    return current !== null && stableKeyOf(current) === stableKeyOf(song);
+  }
+
+  /** Upstream #359: the controller twice-confirmed no shareable link. */
+  static isListenTogetherAuthoritativeStreamConfirmedUnavailable(song: SongItem): boolean {
+    const delegate = PlayerManager.listenTogetherDelegate;
+    return delegate !== null && delegate.isAuthoritativeStreamConfirmedUnavailable(song);
+  }
+
+  /**
+   * Upstream #359: the current playback depends on the room's link — the local
+   * media url is missing (or, upstream, only a preview clip). This port has no
+   * preview-clip tier, so a missing/blank url is the whole condition.
+   */
+  static currentPlaybackRequiresListenTogetherAuthoritativeStream(): boolean {
+    const url = PlayerManager.currentMediaUrl;
+    return url === null || url.trim().length === 0;
+  }
+
   /** Upstream `isTransportActive()` mapped onto this port's state model. */
   static isTransportActive(): boolean {
     return PlayerManager.getCurrentSong() !== null &&
@@ -495,7 +557,13 @@ export class PlayerManager {
     if (authoritativeUrls.length > 0) {
       return PlayerManager.httpShareableOnly(authoritativeUrls[0]);
     }
-    return PlayerManager.httpShareableOnly(await StreamResolver.resolveWithNeteaseAutoFallback(song));
+    // Upstream 89a8694c: the controller's shareable-link resolution retries on
+    // transient failures (5x, 250ms·n) before publishing LINK_UNAVAILABLE.
+    const resolvedUrl = await retrySongUrlResolution<string>(
+      (): Promise<string> => StreamResolver.resolveWithNeteaseAutoFallback(song),
+      (url: string): boolean => url.length === 0
+    );
+    return PlayerManager.httpShareableOnly(resolvedUrl);
   }
 
   private static httpShareableOnly(url: string): string[] {
@@ -635,6 +703,13 @@ export class PlayerManager {
       await PlayerManager.loadSong(resumeMs);
       return;
     }
+    if (PlayerManager.status === PlaybackStatus.ERROR) {
+      // ERROR 是播放键的死角：下方分支只处理 PAUSED/COMPLETED，队列加
+      // 载全失败停下后（如本地文件授权失效导致整队列跳完）点播放键会
+      // 直接穿帮返回。重载当前曲，把播放键恢复成「失败后可重试」。
+      await PlayerManager.loadSong();
+      return;
+    }
     if (PlayerManager.status === PlaybackStatus.COMPLETED) {
       await PlayerManager.seekTo(0, source);
       await PlayerManager.resumeIfPrepared();
@@ -683,6 +758,12 @@ export class PlayerManager {
   }
 
   static async togglePlayPause(): Promise<void> {
+    // Upstream #359 `togglePlayPauseImpl`: while the listener is route-muted,
+    // the button restores the captured volume instead of pausing the room.
+    if (PlayerManager.isListenTogetherAudioRouteMuteSuppressed()) {
+      PlayerManager.restoreListenTogetherAudioRouteMute();
+      return;
+    }
     if (PlayerManager.status === PlaybackStatus.PLAYING) {
       await PlayerManager.pause();
     } else {
@@ -794,6 +875,197 @@ export class PlayerManager {
     PlayerManager.publishDefaults();
     PlayerManager.publishStatus(PlaybackStatus.IDLE);
     PlayerManager.persistNow();
+  }
+
+  // --------------------------------------------------------------------------
+  // Queue edits（UPSTREAM_SYNC_PLAN F-1：下一首播放 / 加入队列 / 拖拽排序 / 移除，
+  // 语义镜像上游 addToQueueNextImpl/addToQueueEndImpl 与 PlayerQueueEditOwner）
+  // --------------------------------------------------------------------------
+
+  /**
+   * 「下一首播放」：插入到当前曲目之后（已在队列中的同身份曲目先移除再
+   * 前移，去重语义），并把新位置压入 shuffle future 栈顶——随机模式下也
+   * 严格作为下一首播出。空队列回退为直接播放（上游 addToQueueNextImpl
+   * 同款行为）。
+   */
+  static async insertNext(song: SongItem): Promise<boolean> {
+    if (PlayerManager.queue.length === 0) {
+      await PlayerManager.playPlaylist([song], 0);
+      return true;
+    }
+    const currentSong = PlayerManager.getCurrentSong();
+    const existingIndex = PlayerManager.indexOfQueueSong(song);
+    let insertIndex = Math.min(Math.max(PlayerManager.engine.getCurrentQueueIndex() + 1, 0), PlayerManager.queue.length);
+    if (existingIndex >= 0) {
+      if (existingIndex < insertIndex) {
+        insertIndex -= 1;
+      }
+      PlayerManager.queue.splice(existingIndex, 1);
+    }
+    insertIndex = Math.min(Math.max(insertIndex, 0), PlayerManager.queue.length);
+    PlayerManager.queue.splice(insertIndex, 0, song);
+    PlayerManager.engine.applyQueueEdit(
+      existingIndex, insertIndex, insertIndex,
+      PlayerManager.queue.length,
+      PlayerManager.resolveCurrentIndexAfterEdit(currentSong),
+      false
+    );
+    PlayerManager.publishQueue();
+    PlayerManager.emitQueueUpdateCommand();
+    return true;
+  }
+
+  /**
+   * 「加入队列末尾」：去重后追加到队尾；随机模式下重建 shuffle 袋（上游
+   * addToQueueEndImpl 行为）。空队列回退为直接播放。
+   */
+  static async addToQueueEnd(song: SongItem): Promise<boolean> {
+    if (PlayerManager.queue.length === 0) {
+      await PlayerManager.playPlaylist([song], 0);
+      return true;
+    }
+    const currentSong = PlayerManager.getCurrentSong();
+    const existingIndex = PlayerManager.indexOfQueueSong(song);
+    if (existingIndex >= 0) {
+      PlayerManager.queue.splice(existingIndex, 1);
+    }
+    PlayerManager.queue.push(song);
+    PlayerManager.engine.applyQueueEdit(
+      existingIndex, -1, -1,
+      PlayerManager.queue.length,
+      PlayerManager.resolveCurrentIndexAfterEdit(currentSong),
+      true
+    );
+    PlayerManager.publishQueue();
+    PlayerManager.emitQueueUpdateCommand();
+    return true;
+  }
+
+  /**
+   * 队列面板拖拽排序：把 fromIndex 项移动到 toIndex，引擎当前下标经
+   * currentIndexAfterMove 重解析后仍指向同一首歌。
+   */
+  static moveQueueItem(fromIndex: number, toIndex: number): void {
+    const size = PlayerManager.queue.length;
+    if (size < 2 || fromIndex < 0 || fromIndex >= size || toIndex < 0 || toIndex >= size || fromIndex === toIndex) {
+      return;
+    }
+    const moved = PlayerManager.queue.splice(fromIndex, 1)[0];
+    PlayerManager.queue.splice(toIndex, 0, moved);
+    PlayerManager.engine.applyQueueEdit(
+      fromIndex, toIndex, -1, size,
+      QueueEngine.currentIndexAfterMove(size, PlayerManager.engine.getCurrentQueueIndex(), fromIndex, toIndex),
+      false
+    );
+    PlayerManager.publishQueue();
+    PlayerManager.emitQueueUpdateCommand();
+  }
+
+  /**
+   * 队列面板移除单项。移除非当前曲不影响播放；移除当前曲则把播放推进到
+   * 补位歌曲（上游 RemovedQueuePlaybackAction：队列清空时 STOP，否则
+   * PLAY_NEXT；暂停态移除当前曲同样装载补位曲以保持引擎与播放器一致）。
+   */
+  static async removeQueueItem(index: number): Promise<void> {
+    const size = PlayerManager.queue.length;
+    if (index < 0 || index >= size) {
+      return;
+    }
+    const wasCurrent = index === PlayerManager.engine.getCurrentQueueIndex();
+    // Upstream 89a8694c: removing the current track tells the room whether
+    // playback continues onto the replacement (true) or stops (false).
+    const continuePlayback = wasCurrent &&
+      (PlayerManager.playWhenReady || PlayerManager.status === PlaybackStatus.PLAYING);
+    PlayerManager.queue.splice(index, 1);
+    if (PlayerManager.queue.length === 0) {
+      await PlayerManager.clearQueue();
+      PlayerManager.emitQueueUpdateCommand(false);
+      return;
+    }
+    PlayerManager.engine.applyQueueEdit(
+      index, -1, -1, size,
+      QueueEngine.currentIndexAfterRemoval(size, PlayerManager.engine.getCurrentQueueIndex(), index),
+      false
+    );
+    PlayerManager.publishQueue();
+    if (wasCurrent) {
+      // 补位曲成为新的当前曲：走一次正常装载（保持 playWhenReady，暂停态
+      // 移除则装载后停在暂停）。
+      await PlayerManager.loadSong();
+    }
+    PlayerManager.emitQueueUpdateCommand(wasCurrent ? continuePlayback : null);
+  }
+
+  /** 队列内同身份曲目下标（stableKeyOf），无则 -1。 */
+  private static indexOfQueueSong(song: SongItem): number {
+    const key = stableKeyOf(song);
+    for (let i = 0; i < PlayerManager.queue.length; i++) {
+      if (stableKeyOf(PlayerManager.queue[i]) === key) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  // --------------------------------------------------------------------------
+  // 一起听全量队列同步（上游 89a8694c）
+  // --------------------------------------------------------------------------
+
+  /**
+   * Upstream `emitQueueUpdateCommand`: every local queue edit publishes a
+   * SET_QUEUE command so the room mirrors the full queue (the event factory
+   * turns it into a V2 mutation or a legacy snapshot as the server allows).
+   */
+  private static emitQueueUpdateCommand(shouldPlay: boolean | null = null): void {
+    const command = createListenTogetherPlaybackCommand(
+      'SET_QUEUE', ListenTogetherPlaybackCommandSource.LOCAL, Date.now());
+    command.queue = PlayerManager.queue.slice();
+    command.currentIndex = PlayerManager.engine.getCurrentQueueIndex();
+    command.positionMs = Math.max(0, PlayerManager.positionMs);
+    command.shouldPlay = shouldPlay;
+    PlayerManager.emitPlaybackCommand(command);
+  }
+
+  /**
+   * Upstream `applyRemoteQueueUpdateImpl`: replace the queue from an
+   * authoritative room state without reloading the current track — the
+   * listener's player keeps playing while the queue lands around it. An empty
+   * queue stops playback and clears the engine.
+   */
+  static applyRemoteListenTogetherQueueUpdate(queue: SongItem[], currentIndexInQueue: number): void {
+    if (queue.length === 0) {
+      // Reuses the queue-clear path (stop + engine reset + defaults); the
+      // extra media-url drop matches upstream clearMediaUrl=true.
+      PlayerManager.setCurrentMediaUrl(null);
+      PlayerManager.clearQueue().catch((error: Object): void => {
+        Logger.warn(`applyRemoteQueueUpdate clear failed: ${(error as Error).message}`);
+      });
+      return;
+    }
+    PlayerManager.queue = queue.slice();
+    const clamped = Math.min(Math.max(currentIndexInQueue, 0), queue.length - 1);
+    PlayerManager.engine.setQueueSize(queue.length);
+    PlayerManager.engine.start(clamped, PlayerManager.engine.shuffle, PlayerManager.engine.repeatMode);
+    PlayerManager.publishQueue();
+    PlayerManager.persistNow();
+  }
+
+  /**
+   * 队列结构编辑后按身份重解析当前下标（上游 queueIndexOf(currentSong)
+   * 回退 coerceIn 的同款逻辑）：当前曲还在队列中就指回它，否则夹取到
+   * 合法区间。
+   */
+  private static resolveCurrentIndexAfterEdit(currentSong: SongItem | null): number {
+    if (currentSong !== null) {
+      const key = stableKeyOf(currentSong);
+      for (let i = 0; i < PlayerManager.queue.length; i++) {
+        if (stableKeyOf(PlayerManager.queue[i]) === key) {
+          return i;
+        }
+      }
+    }
+    const previous = PlayerManager.engine.getCurrentQueueIndex();
+    return Math.min(Math.max(previous, 0), Math.max(PlayerManager.queue.length - 1, 0));
   }
 
   static async seekTo(
@@ -972,8 +1244,12 @@ export class PlayerManager {
     if (player === null) {
       return;
     }
+    // 一起听听友路由丢失静音期间，一切音量施加（滑条/淡入淡出/恢复快照）
+    // 都被压到 0，静音不被旁路（上游 #318 volumeWhileAudioRouteMuted）。
+    const effective = volumeWhileListenTogetherRouteMuted(volume,
+      PlayerManager.audioRouteMuteRestoreVolume >= 0);
     try {
-      player.setVolume(volume);
+      player.setVolume(effective);
     } catch (error) {
       const e = error as Error;
       Logger.debug(`apply fade volume failed: ${e.message}`);
@@ -1076,7 +1352,14 @@ export class PlayerManager {
     return PlayerManager.durationMs;
   }
 
-  static flushPlaybackStatsAsync(): void {
+  /**
+   * Flushes the listened-time increment since the last flush. Terminal
+   * flushes (track change/completion, countPlay=true) also count the play;
+   * checkpoint flushes (pause/interrupt, countPlay=false) persist listenMs
+   * only so pause/resume cycles on one track count as a single play and a
+   * crash still cannot lose the listened window (upstream #499).
+   */
+  static flushPlaybackStatsAsync(countPlay: boolean = true): void {
     const song = PlayerManager.getCurrentSong();
     if (song === null || PlayerManager.listenedMs <= 0) {
       return;
@@ -1084,7 +1367,7 @@ export class PlayerManager {
     const key = stableKeyOf(song);
     const listenMs = PlayerManager.listenedMs;
     PlayerManager.listenedMs = 0;
-    PlaybackStatsRepository.recordPlay(key, listenMs);
+    PlaybackStatsRepository.recordPlay(key, listenMs, countPlay);
   }
 
   // -------------------------------------------------------------------------
@@ -1234,6 +1517,12 @@ export class PlayerManager {
           // *current* chain must not see this chain's key).
           return;
         }
+        if (resolved.waitingForAuthoritativeStream === true) {
+          // Upstream 89a8694c: the load stays pending (LOADING) — the room
+          // link or authoritative state will trigger the reload that lands it.
+          Logger.debug(`PlayerManager: awaiting authoritative stream for ${song.displayName}`);
+          return;
+        }
         if (resolved.url.length === 0) {
           throw new Error(`No playable stream for ${song.displayName}`);
         }
@@ -1326,8 +1615,10 @@ export class PlayerManager {
       if (startPositionMs > 0) {
         try {
           // AVPlayer.seek has no promise overload on API 24; AVPlayer applies
-          // the pending seek before playback starts.
-          player.seek(startPositionMs, media.SeekMode.SEEK_PREV_SYNC);
+          // the pending seek before playback starts. The clamp matters for
+          // restored positions: a stale persisted value past the real stream
+          // end would complete the track the moment playback starts.
+          player.seek(PlayerManager.clampSeekTarget(startPositionMs), media.SeekMode.SEEK_PREV_SYNC);
         } catch (error) {
           const e = error as Error;
           Logger.warn(`seek to restored position failed: ${e.message}`);
@@ -1395,6 +1686,20 @@ export class PlayerManager {
   }
 
   private static async resolveStreamUrl(song: SongItem): Promise<ResolvedStream> {
+    // Upstream 89a8694c `resolveSongUrlOrWaitForAuthoritativeStream`: a
+    // listener waiting for the room's link must not resolve on its own — the
+    // waiting sentinel keeps the load pending (no error churn) until
+    // LINK_READY or the room state triggers the reload that lands the link.
+    const delegate = PlayerManager.listenTogetherDelegate;
+    const waiting = delegate !== null && delegate.shouldWaitForAuthoritativeStream(song);
+    return resolveSongUrlOrWaitForAuthoritativeStream<ResolvedStream>(
+      waiting,
+      (): ResolvedStream => ({ url: '', catalogKey: '', waitingForAuthoritativeStream: true }),
+      async (): Promise<ResolvedStream> => PlayerManager.resolveLocalStreamUrl(song)
+    );
+  }
+
+  private static async resolveLocalStreamUrl(song: SongItem): Promise<ResolvedStream> {
     const resolved: ResolvedStream = { url: '', catalogKey: '' };
     if (song.platform !== MusicPlatform.LOCAL) {
       // A completed download short-circuits network resolution so catalog
@@ -1416,13 +1721,46 @@ export class PlayerManager {
         return resolved;
       }
       // NetEase songs fall back to a matched Bilibili source when the direct
-      // stream is unavailable and the setting is on.
-      resolved.url = await StreamResolver.resolveWithNeteaseAutoFallback(song);
+      // stream is unavailable and the setting is on. Upstream 89a8694c: a
+      // transient resolution failure retries (5x, 250ms·n) before giving up.
+      resolved.url = await retrySongUrlResolution<string>(
+        (): Promise<string> => StreamResolver.resolveWithNeteaseAutoFallback(song),
+        (url: string): boolean => url.length === 0
+      );
       return resolved;
     }
-    const uri = song.localFilePath.length > 0 ? song.localFilePath : song.mediaUri;
-    resolved.url = PlayerManager.openLocalFd(uri);
+    // LOCAL：本地文件直开 fd。localFilePath 与 mediaUri 形态可能不同
+    // （目录扫描=沙箱路径，选择器导入=file:// URI），逐候选尝试；全部打
+    // 不开时激活扫描目录的持久授权后重试一轮——系统可能已回收目录权限
+    // （2026-10-13 真机反馈本地歌单无法播放的兜底链）。
+    const localCandidates: string[] = [];
+    if (song.localFilePath.length > 0) {
+      localCandidates.push(song.localFilePath);
+    }
+    if (song.mediaUri.length > 0 && song.mediaUri !== song.localFilePath) {
+      localCandidates.push(song.mediaUri);
+    }
+    resolved.url = PlayerManager.openFirstLocalFd(localCandidates);
+    if (resolved.url.length === 0 && localCandidates.length > 0) {
+      const scanDirUri = SettingsRepository.getString(
+        SettingsRepository.KEY_LOCAL_SCAN_DIRECTORY_URI, '');
+      if (scanDirUri.length > 0
+        && await LocalDirectoryScanner.ensureReadPermission(scanDirUri)) {
+        resolved.url = PlayerManager.openFirstLocalFd(localCandidates);
+      }
+    }
     return resolved;
+  }
+
+  /** Tries each candidate path in order; '' when none can be opened. */
+  private static openFirstLocalFd(candidates: string[]): string {
+    for (const candidate of candidates) {
+      const url = PlayerManager.openLocalFd(candidate);
+      if (url.length > 0) {
+        return url;
+      }
+    }
+    return '';
   }
 
   /** Opens a sandbox audio file for AVPlayer; '' when unreadable. */
@@ -1466,7 +1804,8 @@ export class PlayerManager {
     }
   }
 
-  private static async handleLoadFailure(): Promise<void> {
+  private static async handleLoadFailure(resumeMs: number = 0,
+    dropCorruptDownload: boolean = true): Promise<void> {
     if (PlayerManager.failureGeneration === PlayerManager.loadGeneration) {
       return;
     }
@@ -1480,7 +1819,13 @@ export class PlayerManager {
     // the current media still is the exact fd:// URL the key was committed
     // with — a late error from a superseded load must not delete the newer
     // song's catalog row.
-    if (PlayerManager.catalogSourceKey.length > 0
+    //
+    // A silent stall is NOT evidence of corruption: the transport froze, the
+    // file was never read to an error. Deleting a good offline copy because
+    // of one transient stall is strictly worse than retrying, so the stall
+    // recovery path passes dropCorruptDownload=false.
+    if (dropCorruptDownload
+      && PlayerManager.catalogSourceKey.length > 0
       && PlayerManager.catalogSourceUrl.length > 0
       && PlayerManager.catalogSourceUrl === PlayerManager.currentMediaUrl) {
       const staleKey = PlayerManager.catalogSourceKey;
@@ -1513,7 +1858,7 @@ export class PlayerManager {
       StreamResolver.invalidateResolvedUrl(song);
       Logger.warn(`Retrying playback with a fresh stream for ${song.displayName} `
         + `(attempt ${PlayerManager.errorAttempts})`);
-      await PlayerManager.loadSong(0, true);
+      await PlayerManager.loadSong(resumeMs, true);
       return;
     }
     if (action === LoadFailureAction.SKIP_NEXT) {
@@ -1580,7 +1925,9 @@ export class PlayerManager {
         break;
       case 'paused':
         PlayerManager.publishStatus(PlaybackStatus.PAUSED);
-        PlayerManager.flushPlaybackStatsAsync();
+        // Checkpoint, not a play: resuming the same track continues the
+        // session and must not count twice.
+        PlayerManager.flushPlaybackStatsAsync(false);
         PlayerManager.schedulePersist(0);
         PlayerManager.stopContinuousTask();
         break;
@@ -1628,6 +1975,7 @@ export class PlayerManager {
           // before the play() below starts (same contract as in loadSong).
           player.seek(0, media.SeekMode.SEEK_PREV_SYNC);
           await player.play();
+          PlayerManager.publishStatus(PlaybackStatus.PLAYING);
           return;
         } catch (error) {
           const e = error as Error;
@@ -1718,6 +2066,7 @@ export class PlayerManager {
       }
       try {
         await player.play();
+        PlayerManager.publishStatus(PlaybackStatus.PLAYING);
       } catch (error) {
         const e = error as Error;
         Logger.warn(`native advance play failed: ${e.message}`);
@@ -1785,6 +2134,7 @@ export class PlayerManager {
     PlayerManager.lastTimeMs = timeMs;
     PlayerManager.positionMs = timeMs;
     const now = Date.now();
+    PlayerManager.stallDetector.observe(now, timeMs);
     if (now - PlayerManager.lastPublishMs > 500) {
       PlayerManager.lastPublishMs = now;
       PlayerManager.publishPosition();
@@ -1841,6 +2191,33 @@ export class PlayerManager {
 
   private static onOutputDeviceChange(info: audio.AudioStreamDeviceChangeInfo): void {
     const action = AudioInterruptPolicy.decideForDeviceChange(info.changeReason);
+    // Upstream #318/#359: a listener losing its output device keeps playing
+    // muted instead of pausing — a local pause would desync the room, and the
+    // safety resume can only catch up whole segments. #359 extends this to
+    // every listener and makes the mute explicit-restore: the captured volume
+    // only comes back when the user asks for it (play button / notification),
+    // not merely because a new device appeared.
+    const delegate = PlayerManager.listenTogetherDelegate;
+    const listenerRouteLossMute = delegate !== null &&
+      shouldMuteListenTogetherListenerForAudioRouteLoss(
+        delegate.isListenTogetherActive(),
+        delegate.isCurrentUserController()
+      );
+    const wasPlaying = PlayerManager.status === PlaybackStatus.PLAYING;
+    if (action === InterruptAction.PAUSE_PERMANENT && listenerRouteLossMute) {
+      PlayerManager.suppressPlaybackForListenTogetherRouteLoss('output_disconnect');
+      return;
+    }
+    if (info.changeReason === InterruptValues.REASON_NEW_DEVICE_AVAILABLE
+      && PlayerManager.audioRouteMuteRestoreVolume >= 0) {
+      if (PlayerManager.audioRouteMuteRequiresExplicitRestore) {
+        Logger.debug('listen-together route-loss mute kept until explicit restore (new device)');
+        return;
+      }
+      PlayerManager.restorePlaybackAfterListenTogetherRouteMute(
+        shouldRestoreListenTogetherRouteMuteVolume(true, wasPlaying), 'device_connected');
+      return;
+    }
     // Upstream `pauseForAudioRouteLoss`: a pinned listener losing its output
     // device arms the safety pause instead of the ordinary auto-resume intent,
     // because resuming locally would desync the room.
@@ -1850,6 +2227,93 @@ export class PlayerManager {
       PlayerManager.markListenTogetherSafetyPausePendingResume();
     }
     PlayerManager.applyInterruptAction(action);
+  }
+
+  // ---- 一起听听友路由丢失静音（上游 #318 suppress/clear/restore，#359 显式恢复） ----
+
+  /** -1 = 未抑制；其余为待恢复音量（0..1）。 */
+  private static audioRouteMuteRestoreVolume: number = -1;
+  /** 上游 #359 `audioRouteMuteRequiresExplicitRestore`：静音只等用户显式恢复。 */
+  private static audioRouteMuteRequiresExplicitRestore: boolean = false;
+
+  /** 静音抑制是否生效（UI 播放按钮据此显示「恢复音量」）。 */
+  static isListenTogetherAudioRouteMuteSuppressed(): boolean {
+    return PlayerManager.audioRouteMuteRestoreVolume >= 0;
+  }
+
+  /** 抑制状态变化时发布给 UI（播放按钮图标随 suppress/restore 切换）。 */
+  private static publishListenTogetherMuteSuppressed(): void {
+    AppStorage.setOrCreate(
+      PlaybackConstants.KEY_LT_MUTE_SUPPRESSED,
+      PlayerManager.audioRouteMuteRestoreVolume >= 0
+    );
+  }
+
+  /** 捕获当前音量并静音继续播（不暂停、不写设置，捕获值只记一次）。 */
+  private static suppressPlaybackForListenTogetherRouteLoss(reason: string): void {
+    if (PlayerManager.player === null) {
+      return;
+    }
+    PlayerManager.volumeFader.cancel();
+    if (PlayerManager.audioRouteMuteRestoreVolume < 0) {
+      PlayerManager.audioRouteMuteRestoreVolume =
+        SettingsRepository.getNumber(SettingsRepository.KEY_PLAYBACK_VOLUME, 1.0);
+    }
+    PlayerManager.audioRouteMuteRequiresExplicitRestore = true;
+    PlayerManager.applyPlayerVolume(0);
+    PlayerManager.publishListenTogetherMuteSuppressed();
+    Logger.info(`listen-together listener muted for audio route loss (${reason})`);
+  }
+
+  /**
+   * 显式恢复（上游 #359 `restoreAudioRouteMuteImpl`）：播放按钮/通知栏在静音态
+   * 点击时恢复被捕获的音量而不是切换播放。
+   */
+  static restoreListenTogetherAudioRouteMute(): void {
+    const captured = PlayerManager.audioRouteMuteRestoreVolume;
+    if (captured < 0) {
+      PlayerManager.audioRouteMuteRequiresExplicitRestore = false;
+      return;
+    }
+    PlayerManager.audioRouteMuteRestoreVolume = -1;
+    PlayerManager.audioRouteMuteRequiresExplicitRestore = false;
+    PlayerManager.publishListenTogetherMuteSuppressed();
+    Logger.info(`listen-together route-loss mute explicitly restored (captured=${captured})`);
+    PlayerManager.volumeFader.snapTo(captured);
+  }
+
+  /** 解除静音抑制：仍在播放则恢复捕获音量，否则只解除（音量交给后续播放）。 */
+  private static restorePlaybackAfterListenTogetherRouteMute(restoreVolume: boolean,
+    reason: string): void {
+    const captured = PlayerManager.audioRouteMuteRestoreVolume;
+    if (captured < 0) {
+      return;
+    }
+    // #359：听友的显式静音不随自动路径（如既有会话结束清理）静默恢复。
+    if (PlayerManager.audioRouteMuteRequiresExplicitRestore && restoreVolume) {
+      Logger.debug(`listen-together mute kept for explicit restore (${reason})`);
+      return;
+    }
+    PlayerManager.audioRouteMuteRestoreVolume = -1;
+    PlayerManager.audioRouteMuteRequiresExplicitRestore = false;
+    PlayerManager.publishListenTogetherMuteSuppressed();
+    Logger.info(`listen-together route-loss mute ${restoreVolume ? 'restored' : 'cleared'} `
+      + `(${reason}, captured=${captured})`);
+    if (restoreVolume) {
+      PlayerManager.volumeFader.snapTo(captured);
+    }
+  }
+
+  /** 会话结束/解除抑制的强制清理（不保留显式恢复意图）。 */
+  static clearListenTogetherAudioRouteMute(reason: string): void {
+    const captured = PlayerManager.audioRouteMuteRestoreVolume;
+    PlayerManager.audioRouteMuteRestoreVolume = -1;
+    PlayerManager.audioRouteMuteRequiresExplicitRestore = false;
+    PlayerManager.publishListenTogetherMuteSuppressed();
+    if (captured >= 0) {
+      Logger.info(`listen-together route-loss mute cleared (${reason}, captured=${captured})`);
+      PlayerManager.volumeFader.snapTo(captured);
+    }
   }
 
   private static applyInterruptAction(action: InterruptAction): void {
@@ -1862,7 +2326,8 @@ export class PlayerManager {
         // ticks instead of racing its volume handling.
         PlayerManager.volumeFader.cancel();
         PlayerManager.publishStatus(PlaybackStatus.PAUSED);
-        PlayerManager.flushPlaybackStatsAsync();
+        // System-owned transient pause; focus regain resumes the same session.
+        PlayerManager.flushPlaybackStatsAsync(false);
         break;
       case InterruptAction.PAUSE_PERMANENT:
         PlayerManager.resumeOnFocusRegain = false;
@@ -1882,7 +2347,9 @@ export class PlayerManager {
           });
         }
         PlayerManager.publishStatus(PlaybackStatus.PAUSED);
-        PlayerManager.flushPlaybackStatsAsync();
+        // Device-loss pause is still the same listening session if the user
+        // presses play again: persist the time without counting a play.
+        PlayerManager.flushPlaybackStatsAsync(false);
         PlayerManager.persistNow();
         break;
       case InterruptAction.RESUME:
@@ -1909,6 +2376,10 @@ export class PlayerManager {
   private static waitingResolve: (() => void) | null = null;
   private static waitingReject: ((reason: Error) => void) | null = null;
   private static waitingTimer: number = -1;
+  // Silent-stall watchdog (audit A-3): detects PLAYING with a frozen
+  // timeUpdate and routes it through the bounded load-failure recovery.
+  private static readonly stallDetector: PlaybackStallDetector = new PlaybackStallDetector();
+  private static stallCheckTimer: number = -1;
 
   private static waitForState(targets: string[], timeoutMs: number = 20000): Promise<void> {
     const player = PlayerManager.player;
@@ -1973,6 +2444,10 @@ export class PlayerManager {
     }
     try {
       await player.play();
+      // Publish immediately: the async stateChange event can lag behind the
+      // resolved play() and the UI would keep showing the old status
+      // (audit A-20, completed->playing silent transition).
+      PlayerManager.publishStatus(PlaybackStatus.PLAYING);
     } catch (error) {
       const e = error as Error;
       Logger.warn(`resumeIfPrepared failed: ${e.message}`);
@@ -1987,8 +2462,42 @@ export class PlayerManager {
     PlayerManager.notify();
   }
 
+  private static updateStallWatchdog(status: PlaybackStatus): void {
+    if (status === PlaybackStatus.PLAYING) {
+      PlayerManager.stallDetector.reset();
+      if (PlayerManager.stallCheckTimer < 0) {
+        // Seed a baseline from the moment the watchdog starts: without it
+        // isStalled() stays false until the first timeUpdate arrives, so a
+        // transport that never emits one would never be recovered.
+        PlayerManager.stallDetector.observe(Date.now(), PlayerManager.positionMs);
+        PlayerManager.stallCheckTimer = setInterval((): void => {
+          PlayerManager.checkPlaybackStall();
+        }, 5000);
+      }
+      return;
+    }
+    if (PlayerManager.stallCheckTimer >= 0) {
+      clearInterval(PlayerManager.stallCheckTimer);
+      PlayerManager.stallCheckTimer = -1;
+    }
+  }
+
+  private static checkPlaybackStall(): void {
+    if (PlayerManager.status !== PlaybackStatus.PLAYING || PlayerManager.player === null) {
+      return;
+    }
+    if (!PlayerManager.stallDetector.isStalled(Date.now())) {
+      return;
+    }
+    const stallAtMs = Math.max(0, PlayerManager.positionMs);
+    Logger.warn(`PlayerManager: playback stalled (position frozen), recovering from ${stallAtMs}ms`);
+    PlayerManager.stallDetector.reset();
+    void PlayerManager.handleLoadFailure(stallAtMs, false);
+  }
+
   private static publishStatus(status: PlaybackStatus): void {
     PlayerManager.status = status;
+    PlayerManager.updateStallWatchdog(status);
     AppStorage.setOrCreate(PlaybackConstants.KEY_STATUS, status);
     PlayerManager.publishSessionPlaybackState();
     if (status !== PlaybackStatus.PLAYING && status !== PlaybackStatus.LOADING) {

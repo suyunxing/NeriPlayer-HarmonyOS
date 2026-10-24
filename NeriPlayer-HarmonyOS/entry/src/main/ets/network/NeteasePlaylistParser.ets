@@ -21,6 +21,10 @@ export class NeteasePlaylistSummary {
   coverUrl: string = '';
   playCount: number = 0;
   trackCount: number = 0;
+  /** 创建者 uid（user/playlist 响应的 creator.userId，0 = 未携带）；写回
+   * 选择器用它过滤出自建歌单（上游 #322 parseNeteaseRemotePlaylists 的
+   * ownerUserId 过滤）。 */
+  creatorUserId: number = 0;
 }
 
 /** Parse outcome: non-200 codes are surfaced so callers can apply fallbacks. */
@@ -76,6 +80,10 @@ export function parseUserPlaylistsResponse(raw: string): ParsedNeteasePlaylists 
     summary.coverUrl = toHttps(readString(record, 'coverImgUrl'));
     summary.playCount = readNumber(record, 'playCount');
     summary.trackCount = readNumber(record, 'trackCount');
+    const creator = record['creator'];
+    if (creator instanceof Object) {
+      summary.creatorUserId = readNumber(creator as Record<string, Object>, 'userId');
+    }
     if (summary.id !== 0 && summary.name.trim().length > 0) {
       out.items.push(summary);
     }

@@ -226,6 +226,16 @@ export struct BiliWebLoginPage {
     .titleBar(subPageTitleBar('Bilibili 网页登录', this.titleMenu()))
     .backgroundColor(Color.Transparent)
     .ignoreLayoutSafeArea([LayoutSafeAreaType.SYSTEM], [LayoutSafeAreaEdge.TOP, LayoutSafeAreaEdge.BOTTOM])
+    .onHidden(() => {
+      // Cookie polling only makes sense while the login page is visible
+      // (audit A-8).
+      this.stopPolling();
+    })
+    .onShown(() => {
+      if (!this.hasReturned) {
+        this.startPolling();
+      }
+    })
     .onWillDisappear(() => {
       Router.notifyReturned();
     })

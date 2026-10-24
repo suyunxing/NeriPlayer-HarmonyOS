@@ -5,7 +5,6 @@ import { bundleManager, common } from '@kit.AbilityKit';
 import { SettingsRepository } from '../../data/SettingsRepository';
 import { AppColorMode } from '../../util/AppColorMode';
 import { SystemBars } from '../../util/SystemBars';
-import { DownloadStorage } from '../../download/DownloadStorage';
 import { DownloadEngine } from '../../download/DownloadEngine';
 import { DownloadDirectory } from '../../download/DownloadDirectory';
 import { PlaylistBackupManager } from '../../data/PlaylistBackupManager';
@@ -14,7 +13,13 @@ import {
   DownloadDirectoryPickCode
 } from '../../download/DownloadDirectoryManager';
 import { PlayerManager } from '../../player/PlayerManager';
+import { PlaybackCacheManager } from '../../player/PlaybackCacheManager';
+import { LyricDispatcher } from '../../lyrics/LyricDispatcher';
+import { DiagnosticsStore } from '../../app/diagnostics/DiagnosticsStore';
+import { analyzeStorageUsage, StorageUsageSummary, StorageUsageCategory } from '../../data/StorageUsageAnalyzer';
+import { formatStorageBytes } from '../../util/StorageBytes';
 import { NeteaseCookieRepository } from '../../data/auth/NeteaseCookieRepository';
+import { MAX_PASTE_COOKIE_TEXT_LENGTH } from '../../data/auth/RawCookieTextParser';
 import { BiliCookieRepository } from '../../data/auth/BiliCookieRepository';
 import {
   NeteaseQrLoginClient,
@@ -76,7 +81,7 @@ import {
   WebDavTransport
 } from '../../sync/webdav/WebDavTransport';
 import { OhosWebDavExecutor } from '../../sync/webdav/OhosWebDavExecutor';
-import { WebDavError, WebDavErrorKind } from '../../sync/webdav/WebDavErrors';
+import { WebDavError, WebDavErrorKind, describeWebDavErrorForUser } from '../../sync/webdav/WebDavErrors';
 import { SyncService } from '../../sync/SyncService';
 import { SyncReport } from '../../sync/SyncReport';
 import { ListenTogetherApi } from '../../listentogether/network/ListenTogetherApi';
@@ -133,6 +138,9 @@ export struct SettingsDetailPage {
   @StorageProp('np.dynamic_color') dynamicColor: boolean = true;
   @StorageProp('np.circular_cover') circularCover: boolean = false;
   @StorageProp('np.lyric_page_controls') lyricPageControls: boolean = true;
+  // 播放页/歌词页控件大小档位（PlaybackControlSize 序数，上游 2644267f）。
+  @StorageProp('np.nowplaying_control_size') nowPlayingControlSize: number = 1;
+  @StorageProp('np.lyric_control_size') lyricControlSize: number = 1;
   @StorageProp('np.mini_next_button') miniNextButton: boolean = true;
   @StorageProp('np.mini_show_lyric') miniShowLyric: boolean = true;
   @StorageProp('np.mini_expand_autoplay') miniExpandAutoplay: boolean = false;
@@ -149,6 +157,7 @@ export struct SettingsDetailPage {
   @StorageProp('np.download_concurrency') downloadConcurrency: number = 6;
   @StorageProp('np.download_match_lyrics') downloadMatchLyrics: boolean = true;
   @StorageProp('np.playback_cache') playbackCache: boolean = false;
+  @StorageProp('np.playback_cache_max_entries') playbackCacheMaxEntries: number = 24;
   @StorageProp('np.download_directory_uri') downloadDirectoryUri: string = '';
   @StorageProp('np.download_directory_label') downloadDirectoryLabel: string = '';
   @StorageProp('np.save_traffic') saveTraffic: boolean = false;
@@ -202,6 +211,10 @@ export struct SettingsDetailPage {
   @StorageProp('np.listen_together_share_audio_links') ltShareAudioLinks: boolean = true;
 
   @State cacheBytes: number = 0;
+  /** F-8 存储空间分析：分桶占用 + 总量；null = 尚未完成首次扫描。 */
+  @State storageSummary: StorageUsageSummary | null = null;
+  /** F-10：备份导出/导入进行中（双击防抖，upstream b4075e10）。 */
+  @State backupBusy: boolean = false;
   /** 关于页版本行文案；版本号运行时读包信息，避免与 app.json5 / 发布 tag 脱节。 */
   @State aboutVersionLine: string = '';
 
@@ -285,17 +298,30 @@ export struct SettingsDetailPage {
 
   async aboutToAppear(): Promise<void> {
     this.aboutVersionLine = this.resolveAboutVersionLine();
-    const catalog = await DownloadStorage.getCatalog();
-    let bytes = 0;
-    for (const entry of catalog) {
-      bytes += DownloadStorage.fileSize(entry.audioPath);
-    }
-    this.cacheBytes = bytes;
+    await this.refreshStorageUsage();
     await GitHubConfigRepository.init();
     this.githubTokenSaved = GitHubConfigRepository.tokenPreview().length > 0;
     await WebDavConfigRepository.init();
     this.webdavCredentialsSaved = WebDavConfigRepository.isConfigured();
     await this.reloadMirrorList();
+  }
+
+  /** F-8：重扫各存储桶（下载/暂存/播放缓存/歌词缓存/诊断/应用数据）。 */
+  private async refreshStorageUsage(): Promise<void> {
+    try {
+      const summary = await analyzeStorageUsage();
+      let downloads = 0;
+      for (const category of summary.categories) {
+        if (category.key === 'downloads') {
+          downloads = category.bytes;
+        }
+      }
+      this.storageSummary = summary;
+      this.cacheBytes = downloads;
+    } catch (error) {
+      const e = error as Error;
+      promptAction.openToast({ message: `存储分析失败: ${e.message}` });
+    }
   }
 
   onSourceSyncTick(): void {
@@ -628,8 +654,16 @@ export struct SettingsDetailPage {
     return saved;
   }
 
-  /** Exports playlists + history to a user-picked JSON file. */
+  /**
+   * Exports playlists + history to a user-picked JSON file. Guarded against
+   * double taps (upstream b4075e10): a second tap while the picker is up must
+   * not fire another save dialog / file write.
+   */
   private async exportPlaylistBackup(): Promise<void> {
+    if (this.backupBusy) {
+      return;
+    }
+    this.backupBusy = true;
     try {
       const message = await PlaylistBackupManager.exportViaPicker();
       if (message.length > 0) {
@@ -637,11 +671,17 @@ export struct SettingsDetailPage {
       }
     } catch (error) {
       promptAction.openToast({ message: `导出失败：${(error as Error).message}` });
+    } finally {
+      this.backupBusy = false;
     }
   }
 
-  /** Imports playlists + history from a picked backup JSON. */
+  /** Imports playlists + history from a picked backup JSON (same guard). */
   private async importPlaylistBackup(): Promise<void> {
+    if (this.backupBusy) {
+      return;
+    }
+    this.backupBusy = true;
     try {
       const result = await PlaylistBackupManager.importViaPicker();
       if (result.message.length > 0) {
@@ -649,6 +689,8 @@ export struct SettingsDetailPage {
       }
     } catch (error) {
       promptAction.openToast({ message: `导入失败：${(error as Error).message}` });
+    } finally {
+      this.backupBusy = false;
     }
   }
 
@@ -995,23 +1037,7 @@ export struct SettingsDetailPage {
   }
 
   private webdavErrorText(error: Error): string {
-    const apiError = error as WebDavError;
-    if (apiError instanceof WebDavError) {
-      if (apiError.kind === WebDavErrorKind.AUTH) {
-        return 'WebDAV 用户名或密码错误';
-      }
-      if (apiError.kind === WebDavErrorKind.FILE_NOT_FOUND) {
-        return '远端暂无备份文件（首次同步时将创建）';
-      }
-      if (apiError.kind === WebDavErrorKind.CONTENT_CONFLICT) {
-        return '远端文件已被其他设备修改，请重新拉取后同步';
-      }
-      if (apiError.kind === WebDavErrorKind.NETWORK) {
-        return `网络错误：${apiError.message}`;
-      }
-      return apiError.message;
-    }
-    return error.message;
+    return describeWebDavErrorForUser(error);
   }
 
   private async beginWebDavAction(): Promise<WebDavActionContext | null> {
@@ -1053,6 +1079,9 @@ export struct SettingsDetailPage {
       return;
     }
     try {
+      // Probe the collection first: a wrong directory must surface as a
+      // configuration error, not as "no backup file yet".
+      await context.transport.validateConnection(context.serverUrl, context.basePath);
       const snapshot = await new WebDavSyncClient(context.transport)
         .fetchRemoteSnapshot(context.remoteFileUrl);
       if (snapshot === null) {
@@ -1149,6 +1178,26 @@ export struct SettingsDetailPage {
     for (const qualityValue of QUALITIES) {
       options.push({ value: qualityValue, label: qualityLabel(qualityValue) });
     }
+    return options;
+  }
+
+  // 播放控件大小档位（小 0.9 / 中 1.0 / 大 1.2，触控热区下限 40vp）。
+  private controlSizeOptions(): OptionEntry[] {
+    return [
+      { value: '0', label: '小' },
+      { value: '1', label: '中' },
+      { value: '2', label: '大' }
+    ];
+  }
+
+  private playbackCacheCapacityOptions(): OptionEntry[] {
+    const options: OptionEntry[] = [
+      { value: '0', label: '无上限' },
+      { value: '12', label: '12 首' },
+      { value: '24', label: '24 首（默认）' },
+      { value: '48', label: '48 首' },
+      { value: '96', label: '96 首' }
+    ];
     return options;
   }
 
@@ -1511,6 +1560,28 @@ export struct SettingsDetailPage {
             })
 
             OptionRow({
+              title: '播放页控件大小',
+              subtitle: '调整播放页顶栏、传输行与底部工具行的控件大小',
+              icon: '🎚',
+              options: this.controlSizeOptions(),
+              current: `${this.nowPlayingControlSize}`,
+              onPick: (value: string) =>
+                SettingsRepository.setNumber(SettingsRepository.KEY_NOW_PLAYING_CONTROL_SIZE,
+                  Number(value))
+            })
+
+            OptionRow({
+              title: '歌词页控件大小',
+              subtitle: '调整歌词页底部控制胶囊的控件大小',
+              icon: '🎚',
+              options: this.controlSizeOptions(),
+              current: `${this.lyricControlSize}`,
+              onPick: (value: string) =>
+                SettingsRepository.setNumber(SettingsRepository.KEY_LYRIC_CONTROL_SIZE,
+                  Number(value))
+            })
+
+            OptionRow({
               title: 'Wi-Fi 网络音质',
               icon: '📶',
               options: this.qualityOptions(),
@@ -1619,6 +1690,19 @@ export struct SettingsDetailPage {
               value: this.playbackCache,
               onChange: (on: boolean) =>
                 SettingsRepository.setBoolean(SettingsRepository.KEY_PLAYBACK_CACHE, on)
+            })
+
+            OptionRow({
+              title: '播放缓存容量',
+              subtitle: '按最少重播优先逐出；无上限档会持续占用存储',
+              icon: '🗄',
+              options: this.playbackCacheCapacityOptions(),
+              current: `${this.playbackCacheMaxEntries}`,
+              onPick: (value: string) => {
+                SettingsRepository.setNumber(SettingsRepository.KEY_PLAYBACK_CACHE_MAX_ENTRIES,
+                  Number(value));
+                PlaybackCacheManager.applyCapacityNow();
+              }
             })
           } else if (this.section === SETTING_DOWNLOAD) {
             OptionRow({
@@ -1849,11 +1933,56 @@ export struct SettingsDetailPage {
             }
           } else if (this.section === SETTING_STORAGE) {
             SettingRow({
-              title: '缓存占用',
-              subtitle: this.cacheBytes > 0 ? `${(this.cacheBytes / 1024 / 1024).toFixed(1)} MB` : '暂无下载缓存',
-              icon: '🗄',
+              title: '存储空间分析',
+              subtitle: this.storageSummary === null
+                ? '扫描中…'
+                : `总计 ${formatStorageBytes(this.storageSummary.totalBytes)}，点击重新扫描`,
+              icon: '📊',
               showArrow: false,
-              onTap: () => {
+              onTap: async () => {
+                await this.refreshStorageUsage();
+              }
+            })
+            if (this.storageSummary !== null) {
+              ForEach(this.storageSummary.categories, (category: StorageUsageCategory) => {
+                SettingRow({
+                  title: category.label,
+                  subtitle: category.detail,
+                  icon: '·',
+                  showArrow: false,
+                  onTap: () => {
+                  }
+                })
+              }, (category: StorageUsageCategory) => category.key)
+            }
+            SettingRow({
+              title: '清除播放缓存',
+              subtitle: '删除系统托管的离线播放副本（不影响下载的音乐）',
+              icon: '⚡',
+              onTap: async () => {
+                const removed = await PlaybackCacheManager.clearAllCache();
+                promptAction.openToast({ message: removed > 0 ? `已清除 ${removed} 首缓存` : '暂无可清除的缓存' });
+                await this.refreshStorageUsage();
+              }
+            })
+            SettingRow({
+              title: '清除歌词缓存',
+              subtitle: '删除已缓存的歌词，下次播放重新获取',
+              icon: '📝',
+              onTap: async () => {
+                await LyricDispatcher.clearPersistentCache();
+                promptAction.openToast({ message: '已清除歌词缓存' });
+                await this.refreshStorageUsage();
+              }
+            })
+            SettingRow({
+              title: '清空诊断记录',
+              subtitle: '删除崩溃与故障诊断明细文件',
+              icon: '🩺',
+              onTap: async () => {
+                await DiagnosticsStore.clearAll();
+                promptAction.openToast({ message: '已清空诊断记录' });
+                await this.refreshStorageUsage();
               }
             })
             SettingRow({
@@ -1863,7 +1992,7 @@ export struct SettingsDetailPage {
               onTap: async () => {
                 DownloadEngine.clearFinished();
                 promptAction.openToast({ message: '已清除已完成任务' });
-                await this.aboutToAppear();
+                await this.refreshStorageUsage();
               }
             })
           } else if (this.section === SETTING_ACCOUNTS) {
@@ -2224,6 +2353,16 @@ export struct SettingsDetailPage {
     .bindToScrollable([this.scroller])
     .backgroundColor(Color.Transparent)
     .ignoreLayoutSafeArea([LayoutSafeAreaType.SYSTEM], [LayoutSafeAreaEdge.TOP, LayoutSafeAreaEdge.BOTTOM])
+    .onHidden(() => {
+      // Covered by another destination: QR login polling must stop until the
+      // page is visible again (audit A-8).
+      this.neteaseQrController.pausePolling();
+      this.biliQrController.pausePolling();
+    })
+    .onShown(() => {
+      this.neteaseQrController.resumePolling();
+      this.biliQrController.resumePolling();
+    })
     .onWillDisappear(() => {
       Router.notifyReturned();
     })
@@ -2268,6 +2407,7 @@ struct PasteCookieDialog {
       TextArea({ placeholder: this.placeholder, text: this.cookieText })
         .height(110)
         .fontSize(13)
+        .maxLength(MAX_PASTE_COOKIE_TEXT_LENGTH)
         .onChange((value: string) => {
           this.cookieText = value;
         })
@@ -2288,6 +2428,10 @@ struct PasteCookieDialog {
           .backgroundColor(Theme.primary(Theme.isDark()))
           .fontColor(Theme.onPrimary(Theme.isDark()))
           .onClick(() => {
+            if (this.cookieText.length > MAX_PASTE_COOKIE_TEXT_LENGTH) {
+              promptAction.openToast({ message: '内容过长，请检查是否粘贴了整页内容' });
+              return;
+            }
             this.onConfirm(this.cookieText);
             this.controller?.close();
           })
@@ -2364,6 +2508,7 @@ struct GitHubConfigDialog {
       TextArea({ placeholder: 'ghp_… / github_pat_…', text: this.tokenText })
         .height(84)
         .fontSize(13)
+        .maxLength(1024)
         .onChange((value: string) => {
           this.tokenText = value;
         })
@@ -2453,7 +2598,7 @@ struct WebDavConfigDialog {
       if (e instanceof WebDavError && e.kind === WebDavErrorKind.AUTH) {
         promptAction.openToast({ message: '验证失败：用户名或密码错误' });
       } else {
-        promptAction.openToast({ message: `验证失败：${(error as Error).message}` });
+        promptAction.openToast({ message: `验证失败：${describeWebDavErrorForUser(error as Error)}` });
       }
     } finally {
       this.saving = false;

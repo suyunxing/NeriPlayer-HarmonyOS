@@ -25,6 +25,19 @@ export class PlaybackCacheEntry {
   }
 }
 
+/** Default LRU capacity; 0 in settings selects the unlimited tier. */
+export const DEFAULT_PLAYBACK_CACHE_ENTRIES: number = 24;
+/** Capacity used for the "unlimited" tier; bounded so arithmetic stays sane. */
+export const UNLIMITED_PLAYBACK_CACHE_ENTRIES: number = 100000;
+
+/** Clamps a raw settings value into a usable capacity (0/NaN -> unlimited). */
+export function clampPlaybackCacheCapacity(raw: number): number {
+  if (!Number.isFinite(raw) || raw <= 0) {
+    return UNLIMITED_PLAYBACK_CACHE_ENTRIES;
+  }
+  return Math.min(Math.floor(raw), UNLIMITED_PLAYBACK_CACHE_ENTRIES);
+}
+
 export class PlaybackCacheLedger {
   private entries: PlaybackCacheEntry[] = [];
 
@@ -64,6 +77,11 @@ export class PlaybackCacheLedger {
 
   size(): number {
     return this.entries.length;
+  }
+
+  /** Positional access for the capacity-shrink loop; entries stay private. */
+  findAt(index: number): PlaybackCacheEntry {
+    return this.entries[index];
   }
 
   find(stableKey: string): PlaybackCacheEntry | null {

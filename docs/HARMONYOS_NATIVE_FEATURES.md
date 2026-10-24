@@ -1,10 +1,32 @@
 # HarmonyOS 原生特性与设计规范落地需求（NeriPlayer）
 
 > 成文日期：2026年08月24日
-> 工程基线：HarmonyOS 6.1.1 Release / **API 24**（`build-profile.json5` 的 `compatibleSdkVersion` 与 `targetSdkVersion` 均为 `6.1.1(24)`）
+> 工程基线：**HarmonyOS 26.0.0 / API 26**（`build-profile.json5` 的 `compatibleSdkVersion` 与 `targetSdkVersion` 均为 `26.0.0`）。**成文时为 `6.1.1(24)`，2026-09-07 已全量迁移**（见下方 2026-09-17 修订说明与 `docs/archive/HM_HISTORY.md` §7.12）；正文中凡以「API 24 基线」为前提的判断，均已按 API 26 重新核对（见 2026-10-22 修订）。
 >
 > **2026年08月26日修订**：本文最初编制时的四项 P1 现状描述已过时，按实际落地情况回填。受影响章节：§1 摘要表（`Navigation` 迁移、分层图标、多语言资源三行）、§6（`Navigation` 迁移已落地，并记录「`NavigationMode.Auto` 分栏被主动放弃」与「M9.3 回归作废」两条与原预期不符的实际结果）、§7.2（tablet/2in1 已回归 + 11 条大屏密度问题已整改）、§8.1（分层图标已落地）、§8.2（多语言部分落地）、§11 决策表、§12 M10.4/M10.5 里程碑。原文内容以「迁移前的现状（保留以备复查）」形式保留，不删除。改造与验证的一手数字见 `UX_COMPLIANCE_AUDIT.md` §10.2/§11.5 与 `RELEASE_CHECKLIST.md` §7.3。
-> **2026年09月17日修订**：工程基线已于 2026-09-07 自 `6.1.1(24)` 全量迁移为 `26.0.0`（API 26，纯 SemVer；`build-profile.json5` 的 `compatibleSdkVersion`/`targetSdkVersion` 均为 `26.0.0`），上文「6.1.1(24)」为成文时点基线，迁移记录见 `hm.md` §7.12。
+> **2026年09月17日修订**：工程基线已于 2026-09-07 自 `6.1.1(24)` 全量迁移为 `26.0.0`（API 26，纯 SemVer；`build-profile.json5` 的 `compatibleSdkVersion`/`targetSdkVersion` 均为 `26.0.0`），上文「6.1.1(24)」为成文时点基线，迁移记录见 `docs/archive/HM_HISTORY.md` §7.12。
+> **2026年10月22日修订（dev HEAD `72059b1`）**：按当前代码复核，本文多处「未实现/零命中/基线不可用」的结论已失效，逐节回填——① §5/§12 桌面服务卡片**已由 F-12 落地**（`widget/pages/PlaybackCard.ets`、`widget/PlaybackCardState.ets`、`player/PlaybackCardBridge.ets`、`entryformability/EntryFormAbility.ets`、`form_config.json`）；② 权限清单 `READ_AUDIO` 已于 2026-08-25 删除，现为 4 项 normal 权限；③ `setVolume` 已存在于 `PlayerManager.ets`（`:1232`）并有设置页音量滑条，§4.2「音量完全交给系统」的论据失效；④ `FormExtensionAbility`/`postCardAction` 不再「零命中」；⑤ 行数规模、`accessibilityText` 处数、`string.json` 条数按当前源码更新；⑥ 基线已为 API 26，原文「API 26 不可用 / M9.4 阻塞」类判断作废。
+
+## 阅读索引（先看这里，避免通读）
+
+> 本文 81 KB / ~41k token，是一份**能力调研清单**（P0~P3 逐项论证）。多数条目已随 2026-08~10 的开发落地或作废，只在需要复查某项能力时按节读。
+
+| 我想知道 | 读这里 |
+| --- | --- |
+| **结论摘要表：P0~P3 各项当前是否已做** | **§1** |
+| 播控（AVSession）：歌词字段、跳转、收藏、置灰 | §2 |
+| 系统级桌面歌词 | §3 |
+| 音频低功耗与音质（含 `setVolume` 现状） | §4 |
+| **服务卡片（已由 F-12 实现）** | **§5** |
+| Navigation 迁移（已落地）、一多与设计规范 | §6~§7 |
+| 投播、实况窗、意图框架、基线不可用项 | §9~§10 |
+| 明确不建议做的项 | §11 |
+| **里程碑编排 M10.1~M10.6 的完成状态** | **§12** |
+| 官方文档依据、未核实项 | §13~§14 |
+
+**当前状态速览（2026-10-22）**：§1 表中多数 P0 项已于 2026-08-24/25 完成（M10.1/M10.3）；服务卡片已由 F-12（2026-10-12）实现，**原文「无 extensionAbilities / 零命中」的判断已作废**；桌面歌词主代码仍未接入，但已有 `ohosTest` 探针。§10.4 类「基线 24 不可用」的判断随 API 26 迁移全部作废，需重新评估。
+
+---
 
 ## 0. 本文定位
 
@@ -18,7 +40,7 @@
 
 | 级别 | 含义 |
 | --- | --- |
-| **SDK 确认** | 直接来自本机 API 24 SDK 的 `.d.ts` 声明（含 `@since` / `@permission` / `@systemapi` 标记）。这是关于「基线上能不能调」的最强证据，强于官网网页。 |
+| **SDK 确认** | 直接来自本机 API 26 SDK 的 `.d.ts` 声明（含 `@since` / `@permission` / `@systemapi` 标记）。这是关于「基线上能不能调」的最强证据，强于官网网页。 |
 | **文档确认** | 来自 `devecocli docs` 本地文档库或官网页面正文，标注文档 ID 以便复查。 |
 | **已静态确认** | 直接来自本工程当前文件内容或 grep 计数。 |
 | **待设备验证** | API 存在且基线可用，但本轮**未在设备/模拟器上实际调用**，行为未观测。 |
@@ -33,7 +55,7 @@ SDK 路径：`D:\HarmonyOS\Tools\command-line-tools\sdk\default\openharmony\ets\
 
 ## 1. 结论摘要
 
-优先级判据（三者同时看）：① 是否在 API 24 基线内可用；② 是否需要 AGC 审批或受限开放；③ 是否属官方明文要求 / 修正既有 hack，而非纯增量。
+优先级判据（三者同时看）：① 是否在当前基线（API 26 / `26.0.0`）内可用；② 是否需要 AGC 审批或受限开放；③ 是否属官方明文要求 / 修正既有 hack，而非纯增量。
 
 P0 的定义是：**基线内可用 + 零审批 + 属官方明文要求或修正现有 hack**。这批的共同特点是改动小、风险低、收益确定。
 
@@ -42,9 +64,9 @@ P0 的定义是：**基线内可用 + 零审批 + 属官方明文要求或修正
 | **P0** | 歌词改用 `AVMetadata.lyric` / `singleLyricText` 正规字段 | ✅ @since 10 / 17 | 否 | 用 `title` 蹭位 | §2.1 |
 | **P0** | `setLaunchAbility` 播控卡片点击跳转 | ✅ @since 9 | 否 | 零命中 | §2.2 |
 | **P0** | `on('toggleFavorite')` 播控收藏 | ✅ @since 10 | 否 | 未注册 | §2.3 |
-| **P0** | 系统级桌面歌词（`enableDesktopLyric` 全套） | ✅ @since 23 | 否 | 零命中，且被 D4 误判为「无平台对应」 | §3 |
+| **P0** | 系统级桌面歌词（`enableDesktopLyric` 全套） | ✅ @since 23 | 否 | 主代码零命中；`ohosTest` 已有 `DesktopLyricProbe.test.ets` 探针（M10.2），生产未接入 | §3 |
 | **P0** | 音频低功耗加固（显式 `usage` + 静音 `EFFECT_NONE`） | ✅ @since 12 | 否 | 只设了 `audioInterruptMode` | §4 |
-| **P1** | 服务卡片（音乐播控卡片） | ✅ @since 9 | 否 | 无 `extensionAbilities` | §5 |
+| **P1** | 服务卡片（音乐播控卡片） | ✅ @since 9 | 否 | **已实现（F-12，2026-10-12）**：`EntryFormAbility` + `widget/pages/PlaybackCard.ets`；真机未验证 | §5 |
 | **P1** | `Navigation` 迁移（官方已将 `router` 标为不推荐） | ✅ | 否 | **已落地（2026-08-26）**，原为「自研 Router + 单页」 | §6 |
 | **P1** | 折叠屏悬停态（官方点名「听歌」场景） | ✅ | 否 | 未适配 | §7.1 |
 | **P1** | 分层图标 | ✅ | 否 | **已落地（2026-08-25）**，原为「只有 `app_icon.png`」 | §8.1 |
@@ -66,7 +88,7 @@ P0 的定义是：**基线内可用 + 零审批 + 属官方明文要求或修正
 
 官方为音乐类应用提供了明确的接入自检表（文档 ID `开发指南/AVSession_Kit_音视频播控服务/应用接入播控自检/应用接入播控自检表/playback-control-access-checklist`），逐项列出音乐应用的必接项。
 
-工程现状（**已静态确认**，`entry/src/main/ets/player/AVSessionManager.ets`，共 244 行）：
+工程现状（**已静态确认**，`entry/src/main/ets/player/AVSessionManager.ets`，共 **366 行**；2026-10-22 复核）：
 
 - 第 37 行 `createAVSession(context, 'NeriPlayer', 'audio')`，第 39 行 `activate()`
 - 第 40–61 行共注册 **8 个**命令：`play` / `pause` / `stop` / `playNext` / `playPrevious` / `seek` / `setSpeed` / `setLoopMode`
@@ -226,7 +248,7 @@ FAQ `FAQ/音频和视频/音视频播控_AVSession/为什么接入播控后_播�
 
 配套错误码：`6600110`（本应用未启用桌面歌词）、`6600111`（设备不支持桌面歌词）。
 
-**已静态确认**：全工程 `DesktopLyric` grep **零命中**。
+**已静态确认（成文时）**：全工程 `DesktopLyric` grep 零命中。**2026-10-22 复核**：`entry/src/main/ets` 仍零命中（生产未接入），但 `entry/src/ohosTest/ets/test/DesktopLyricProbe.test.ets` 已存在探针（M10.2 spike），用于在真机上验证 `isDesktopLyricSupported` / `enableDesktopLyric` / `setDesktopLyricVisible` / `isDesktopLyricVisible` 的可达性与行为。D4 的「无平台对应」判断已据此改写。
 
 ### 3.1 这意味着什么
 
@@ -277,7 +299,7 @@ FAQ `FAQ/音频和视频/音视频播控_AVSession/为什么接入播控后_播�
 2. `audioRendererInfo.usage = audio.StreamUsage.STREAM_USAGE_MUSIC` 才能走系统音乐低功耗方案
 3. 后台播放只需向 AVSession 上报 duration / 播放状态 / position / 倍速，**不要实时刷进度**（避免 binder 负载）
 
-工程现状（**已静态确认**，`player/PlayerManager.ets`，共 1318 行）：
+工程现状（**已静态确认**，`player/PlayerManager.ets`，共 **2724 行**；2026-10-22 复核）：
 
 ```
 803: player.audioInterruptMode = audio.InterruptMode.SHARE_MODE;
@@ -338,7 +360,7 @@ SDK 原文补充了一条**容易踩的坑**：
 
 **M10.3 结论：不适用，未实施（2026年08月25日）**。落地时才发现前提不成立 —— **工程根本没有静音这个场景**：
 
-- `setVolume` 在 `entry/src/main` 下 **零命中**（AVPlayer 的音量 API 一次都没调用，音量完全交给系统音量键）
+- ~~`setVolume` 在 `entry/src/main` 下零命中~~ → **2026-10-22 复核：已实现**。`PlayerManager.setVolume`（`player/PlayerManager.ets:1232`）已存在并调用 `player.setVolume(effective)`，配套设置页「播放音量」滑条（`np.playback_volume`）。因此下文「工程没有静音场景」的论据**已失效**，§4.2 相关结论需按现状重新论证（静音入口仍无，但音量调节已有）
 - `mute` / `Mute` 的全部命中都是色彩术语（`Palette` 的 `muted` 色板）与一处无关注释，没有任何静音开关
 - `audioEffectMode` 在 `main` 下零命中（这本来就是缺口的定义）
 
@@ -435,10 +457,10 @@ AudioRendererProbe setLoudnessGain(0.0)=hung(>10000ms)
 "mainElement": "EntryAbility",
 "pages": "$profile:main_pages",
 "abilities": [{ "name": "EntryAbility", ... "backgroundModes": ["audioPlayback"] }],
-"requestPermissions": [ INTERNET, GET_NETWORK_INFO, KEEP_BACKGROUND_RUNNING, READ_AUDIO ]
+"requestPermissions": [ INTERNET, GET_NETWORK_INFO, FILE_ACCESS_PERSIST, KEEP_BACKGROUND_RUNNING ]
 ```
 
-`FormExtensionAbility` / `formBindingData` / `postCardAction` grep 全部零命中。桌面上没有任何 NeriPlayer 卡片。
+~~`FormExtensionAbility` / `formBindingData` / `postCardAction` grep 全部零命中。桌面上没有任何 NeriPlayer 卡片。~~ → **2026-10-22 复核：桌面卡片已落地（F-12，2026-10-12）**。现存在 `widget/pages/PlaybackCard.ets`（2*2 + 2*4 双规格 ArkTS 卡片）、`widget/PlaybackCardState.ets`（快照/JSON/payload 纯逻辑）、`player/PlaybackCardBridge.ets`（call 事件控制 + `formProvider.updateForm` 主动推送 + cacheDir 快照）、`entryformability/EntryFormAbility.ets`（FormExtensionAbility）、`resources/base/profile/form_config.json`。真机加卡/控制/推送未验证（2026-10-13 已修「call 事件 method 须在 params 内」的按钮无响应缺陷，待复验）。
 
 ### 5.2 SDK 可用性
 
@@ -552,7 +574,7 @@ AudioRendererProbe setLoudnessGain(0.0)=hung(>10000ms)
 - 硬编码的 `BOTTOM_BAR_LIFT_VP = 28` 改由 `TYPE_NAVIGATION_INDICATOR` 避让区动态求值（新增 `util/WindowMetrics.ets`，一次订阅同时发布 `ui.widthVp`/`ui.breakpoint`/`ui.bottomLiftVp`）；
 - 断点常量收在 `util/Breakpoint.ets`（`BP_MD=600`/`BP_LG=840`，与 `GridRow` 默认断点 `['320vp','600vp','840vp']` 同源），配 5 条单测。
 
-**残余缺口（如实标注）**：改后的复测只覆盖 **tablet 一档 7 页**；phone 与 2in1 的改后回归未跑，2in1 上「自由窗口避让区 0 → 抬升量 0，死区消失」这一核心验收点仍无实测；**动态跨断点切换未验证**；这两个形态跑的是 **API 26 Beta 而非目标 6.1.1(24)**（本机无 6.1.1 的 tablet/pc 镜像）。
+**残余缺口（如实标注）**：改后的复测只覆盖 **tablet 一档 7 页**；phone 与 2in1 的改后回归未跑，2in1 上「自由窗口避让区 0 → 抬升量 0，死区消失」这一核心验收点仍无实测；**动态跨断点切换未验证**；这两个形态跑的是 **API 26 Beta**（工程 2026-09-07 起目标即 26.0.0，故属目标档位的 Beta 镜像，非 Public 版）。**2026-10-22 补记**：phone 与 2in1 的改后复测已于 2026-08-27 完成（见 `UX_COMPLIANCE_AUDIT.md` §11.6/§11.7），上述「未跑」为本文成文时点状态。
 
 迁移前的记录（保留以备复查）：`FEATURE_MATRIX.md` 第 13 行曾记 tablet / 2in1「镜像未下载，见执行计划 M9.3a」，并指出「`deviceTypes` 声明支持而未验证，比不声明更糟」。该阻塞已于 2026-08-25/26 通过在 DevEco GUI 下载 Beta 镜像解除（`Emulator.bat -imageList/-install` 在无 GUI 会话下退出码 0、零输出、无副作用，这是工具链行为而非镜像不存在）。
 
@@ -592,7 +614,7 @@ AudioRendererProbe setLoudnessGain(0.0)=hung(>10000ms)
 
 **已落地的部分**：`entry/src/main/resources/zh_CN/element/string.json` 已存在，覆盖 **4 条**（`module_desc`、`EntryAbility_desc`、`EntryAbility_label`、`keep_background_running_reason`）—— 即**只做了系统可见的元数据**（应用名、Ability 描述、后台运行申请理由）。这是上架必需项：AGC 与系统设置页会按语言限定词读这些字段。
 
-**仍未做的部分**：`base/element/string.json` 共 9 条，其余 5 条未加限定词版本；**应用内 UI 文案没有任何外化**（全部硬编码在 `.ets` 里），因此设置页的语言切换仍是占位（`SettingsDetailPage.ets:897`/`:899`「简体中文（更多语言待移植）」）。
+**仍未做的部分**：`base/element/string.json` 现共 **10 条**（2026-10-22 复核；`zh_CN` 仍 4 条），除 `KEEP_BACKGROUND_RUNNING` 的 reason 外其余未加限定词版本；**应用内 UI 文案没有任何外化**（全部硬编码在 `.ets` 里），因此设置页的语言切换仍是占位（`SettingsDetailPage.ets:1858`「更多语言待移植」）。
 
 **文档确认**：`最佳实践/多设备资源文件/bpta-multi-device-resource`。
 
@@ -689,9 +711,9 @@ AudioRendererProbe setLoudnessGain(0.0)=hung(>10000ms)
 
 **文档确认**（文档 ID `开发指南/AVSession_Kit_音视频播控服务/自定义播控中心控制按钮显示布局/avsession-mediacentercontroltype-scene`）：`setMediaCenterControlType` + `setSupportedLoopModes` + `setSupportedPlaySpeeds` 三者配合，可自定义播控中心的三元组/五元组按钮布局。文档标注 **API 26.0.0 起**。
 
-**SDK 确认（反向证据）**：在本机 API 24 SDK 的 `@ohos.multimedia.avsession.d.ts` 中 grep `setMediaCenterControlType` / `setSupportedLoopModes` / `setSupportedPlaySpeeds` **全部零命中**，与文档标注的 API 26 一致。
+**SDK 确认（反向证据，成文于 API 24 基线）**：在当时的 API 24 SDK 的 `@ohos.multimedia.avsession.d.ts` 中 grep `setMediaCenterControlType` / `setSupportedLoopModes` / `setSupportedPlaySpeeds` 全部零命中，与文档标注的 API 26 一致。**2026-10-22 复核：工程基线已于 2026-09-07 迁移到 API 26（`26.0.0`），这些 API 现已在基线上可用**，原「基线 24 不可用」判断作废，应重新评估是否接入。
 
-**结论**：**基线 24 不可用**。且 `PORTING_EXECUTION_PLAN.md` M9.4（API 26 前瞻）当前**阻塞**——无 API 26 SDK/镜像，HarmonyOS 7 以 Developer Beta 招募形式分发。此项归入 M9.4 待办，不在当前基线规划。
+**结论（成文于 API 24 基线）**：当时基线 24 不可用，M9.4（API 26 前瞻）因无 API 26 SDK/镜像而阻塞。**2026-10-22 复核：该阻塞已解除**——工程 2026-09-07 全量迁移 API 26，CLT 26.0.0.821 / SDK 26.0.0.105 与 CI 同源，这些 API 已在基线上可用。原「不在当前基线规划」的结论作废，转为可选增强项。
 
 ### 10.5 `AVMusicTemplate`：形态不适用
 
@@ -765,7 +787,7 @@ AudioRendererProbe setLoudnessGain(0.0)=hung(>10000ms)
 **完成记录（逐项证据见 §4.1 / §4.2 / §4.3 / §4.4）。四项的结果差异很大，如实分列：**
 
 - 第 1 项 ✅ 已实施，**但定性下调为纯防御**：设备探针实测 `defaultUsage=1` / `defaultWasAlreadyMusic=true` / `effectiveUsage=1`，即 SDK 的「纯音频源默认 `STREAM_USAGE_MUSIC`」声明在本设备成立，**这次改动对今天的所有音源都不改变行为**。记为加固与 §4.4 的前置条件，**不记为修复缺陷**（代码注释同样写明 `It is not a bug fix`）。
-- 第 2 项 ⛔ **不适用，未实施**：落地时才确认工程**没有静音场景**（`setVolume` 零命中，`mute` 命中全是 `Palette` 的色彩术语）。规则 1 的条件是「静音时」，没有静音入口就没有挂钩点；无条件关音效属产品决策，不能借合规名义做。原「真实缺口」判断作废。
+- 第 2 项 ⛔ **不适用，未实施**：落地时确认工程**没有静音场景**（当时 `setVolume` 零命中，`mute` 命中全是 `Palette` 的色彩术语）。规则 1 的条件是「静音时」，没有静音入口就没有挂钩点；无条件关音效属产品决策，不能借合规名义做。原「真实缺口」判断作废。**2026-10-22 补记**：`PlayerManager.setVolume` 现已存在（音量滑条），但**仍无独立静音入口**，本项结论维持。
 - 第 3 项 ✅ 走查完毕，**频率本身早已合规，但反向抓出两个真缺陷并已修复**：`onTimeUpdate` 无 `setInterval`，500ms 那级节流只写 `AppStorage` 从不进 AVSession（设备实测 176 秒播放期间 AVSession 基准一次未变）。问题不在推太多而在漏推 —— ① `seekTo` 从不回灌 AVSession，播控中心会从 seek 前的旧基准继续数；② 上报请求倍速而非量化后的实际倍速，外推斜率必然漂移。抽出 `publishSessionPlaybackState()` 统一入口修复，三次 seek + 一次改倍速的 dump 对比取证（表格见 §4.3）。
 - 第 4 项 ⛔ **已否决，不接入**：`setLoudnessGain` 四次调用全部 `hung(>10000ms)`，连越界的 `100.0` 都不返回 `401`，判为该设备类上的永久挂起桩。接入的后果是吊死调用链而非无效果。
 - 额外产出（原清单未列）：单测抓出倍速量化边界用档位值而非中点，`0.75 × 1.05 = 0.7875` 静默落到 1.00x，即一起听的 5% 漂移修正被放大成 **33% 加速**。量化逻辑抽到 `player/PlaybackSpeedMap.ets` 并改用中点边界。
@@ -776,7 +798,7 @@ AudioRendererProbe setLoudnessGain(0.0)=hung(>10000ms)
 
 ### M10.4 一多适配（合并里程碑）—— **第 1、2 项已于 2026-08-26 完成**
 
-**原前置阻塞已解除**：`tablet_x86` 与 `pc_all_x86` 镜像已在 DevEco GUI 下载完成（下到的是 HarmonyOS 7.0.0 Beta / API 26，不是目标 6.1.1(24)）；悬停态仍需真机。
+**原前置阻塞已解除**：`tablet_x86` 与 `pc_all_x86` 镜像已在 DevEco GUI 下载完成（下到的是 HarmonyOS 7.0.0 Beta / API 26；工程 2026-09-07 起目标即 API 26，故现落在目标档位，仍为 Beta 非 Public）；悬停态仍需真机。
 
 合并以下五项，共享一次布局回归：
 

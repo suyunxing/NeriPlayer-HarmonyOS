@@ -45,6 +45,11 @@ export class DiagnosticsStore {
    */
   private static mutations: Promise<void> = Promise.resolve();
 
+  /** F-8 存储分析：明细文件目录（init 前为空串，调用方按 0 处理）。 */
+  static directory(): string {
+    return DiagnosticsStore.dir;
+  }
+
   static init(context: common.Context): void {
     if (DiagnosticsStore.initialized) {
       return;

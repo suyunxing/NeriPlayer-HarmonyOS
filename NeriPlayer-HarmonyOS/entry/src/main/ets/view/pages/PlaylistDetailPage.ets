@@ -5,11 +5,19 @@ import { Playlist } from '../../model/Playlist';
 import { SongItem } from '../../model/SongItem';
 import { MusicPlatform } from '../../model/MusicPlatform';
 import { LocalPlaylistRepository } from '../../data/LocalPlaylistRepository';
+import { PlaylistSongDeleteSnapshot, PlaylistUndoOffer } from '../../data/LocalPlaylistRepository';
+import { UndoBanner } from '../components/UndoBanner';
 import { HistoryRepository } from '../../data/HistoryRepository';
+import { LocalDirectoryScanner } from '../../data/LocalDirectoryScanner';
+import { LocalMediaScanner } from '../../data/LocalMediaScanner';
 import { stableKeyOf } from '../../model/SongIdentity';
 import { PlayerManager } from '../../player/PlayerManager';
 import { resolvePlaylistPlaybackStartIndex } from '../../player/queue/QueueEngine';
 import { SourceSyncCoordinator } from '../../sourcesync/SourceSyncCoordinator';
+import { NeteaseApi } from '../../network/NeteaseApi';
+import { NeteasePlaylistSummary } from '../../network/NeteasePlaylistParser';
+import { NeteaseCookieRepository } from '../../data/auth/NeteaseCookieRepository';
+import { NeteaseWritebackDeps, syncSongsToNeteasePlaylist } from '../../network/NeteasePlaylistWriteback';
 import { Theme } from '../Theme';
 import { AccentScheme } from '../theme/AccentScheme';
 import { SongRow } from '../components/SongRow';
@@ -19,6 +27,23 @@ import { PlaylistHeader, HeaderPill } from '../components/PlaylistHeader';
 import { Router } from '../Router';
 import { HdsNavDestination } from '@kit.UIDesignKit';
 import { subPageTitleBar, SubPageBottomFade, SubPageMenuEntry, SUB_TITLEBAR_SPACE_VP, SUB_BOTTOM_CLEARANCE_VP } from '../components/HdsSubPage';
+import { SearchValue, PreparedSearchEntries } from '../../util/search/SearchTextMatcher';
+import { songSearchValues } from '../../util/search/SongSearchValues';
+
+/** 生产环境写回适配：把纯编排流程接到 NeteaseApi 的真实网络实现上。 */
+class LiveNeteaseWritebackDeps extends NeteaseWritebackDeps {
+  async fetchTargetTrackIds(playlistId: number): Promise<Set<number> | null> {
+    return NeteaseApi.playlistTrackIdSet(playlistId);
+  }
+
+  async addBatch(playlistId: number, ids: number[]): Promise<boolean> {
+    return NeteaseApi.addSongsToPlaylist(playlistId, ids);
+  }
+
+  async resolveSongIds(ids: number[]): Promise<Set<number> | null> {
+    return NeteaseApi.resolvableNeteaseSongIds(ids);
+  }
+}
 
 @Component
 export struct PlaylistDetailPage {
@@ -38,6 +63,10 @@ export struct PlaylistDetailPage {
   @State showAddDialog: boolean = false;
   @State showRenameDialog: boolean = false;
   @State renameValue: string = '';
+  /** F-10：单曲移除撤销横幅（6 秒）。 */
+  @State songUndoVisible: boolean = false;
+  @State songUndoMessage: string = '';
+  private songUndoSnapshot: PlaylistSongDeleteSnapshot | null = null;
   /** 供 HdsNavDestination.bindToScrollable 绑定的歌曲列表控制器。 */
   private scroller: Scroller = new Scroller();
 
@@ -48,17 +77,84 @@ export struct PlaylistDetailPage {
   private songsDs: SongListDataSource = new SongListDataSource();
   private historyDs: SongListDataSource = new SongListDataSource();
 
+  /** F-9（上游 dfa37db0）：歌单内搜索词；非空时列表为过滤+重排视图。 */
+  @State filterQuery: string = '';
+  /**
+   * 搜索候选预计算索引：NFKD 归一与拼音解析只依赖歌曲本身，随歌单整体
+   * 重建一次；此前每 keystroke 全量重建候选导致长歌单搜索卡顿
+   * （2026-10-13 真机反馈）。配 200ms 输入防抖（scheduleFilterApply）。
+   */
+  private searchIndex: PreparedSearchEntries<SongItem> | null = null;
+  private filterApplyTimer: number = -1;
+
   onPlaylistChanged(): void {
-    this.songsDs.reset(this.playlist?.songs ?? []);
+    const songs = this.playlist?.songs ?? [];
+    this.searchIndex = new PreparedSearchEntries<SongItem>(songs,
+      (song: SongItem): SearchValue[] => songSearchValues(song));
+    this.applySongFilter();
+  }
+
+  /**
+   * 过滤视图点歌：按歌曲身份回原歌单定位起播（队列保持全歌单，与上游
+   * 歌单搜索行为一致）；定位失败（理论不可达）退化为只播当前列表。
+   */
+  private playFromFiltered(song: SongItem): void {
+    if (this.playlist !== null) {
+      // 用稳定键定位：platform/audioId/id 三元组对本地歌全部相同
+      // （LOCAL/''/0），三元组匹配永远命中第 0 首——「本地音乐」歌单点
+      // 哪首都播第一首的根因（2026-10-13 真机反馈）；stableKeyOf 含
+      // mediaUri，本地歌互不相同。
+      const key = stableKeyOf(song);
+      let index = -1;
+      for (let i = 0; i < this.playlist.songs.length; i++) {
+        if (stableKeyOf(this.playlist.songs[i]) === key) {
+          index = i;
+          break;
+        }
+      }
+      if (index >= 0) {
+        PlayerManager.playPlaylist(this.playlist.songs, index);
+        Router.push(Router.NOW_PLAYING);
+        return;
+      }
+    }
+  }
+
+  /** 过滤视图：SearchTextMatcher 按词重排（标题命中 > 艺人 > 专辑…，含拼音）。 */
+  private applySongFilter(): void {
+    const index = this.searchIndex;
+    if (index === null) {
+      this.songsDs.reset([]);
+      return;
+    }
+    this.songsDs.reset(index.filterAndRank(this.filterQuery));
+  }
+
+  /** 输入防抖：停顿 200ms 才过滤重排，快速连续输入不逐键打分重排列表。 */
+  private scheduleFilterApply(): void {
+    if (this.filterApplyTimer >= 0) {
+      clearTimeout(this.filterApplyTimer);
+    }
+    this.filterApplyTimer = setTimeout(() => {
+      this.filterApplyTimer = -1;
+      this.applySongFilter();
+    }, 200);
+  }
+
+  private cancelPendingFilterApply(): void {
+    if (this.filterApplyTimer >= 0) {
+      clearTimeout(this.filterApplyTimer);
+      this.filterApplyTimer = -1;
+    }
   }
 
   onHistoryChanged(): void {
     this.historyDs.reset(this.history);
   }
 
-  /** 标题栏菜单：歌单管理（重命名/删除，原页内「⋯」按钮迁入；收藏夹不可改）。 */
+  /** 标题栏菜单：歌单管理（重命名/删除，原页内「⋯」按钮迁入；系统歌单不可改）。 */
   private titleMenu(): SubPageMenuEntry[] | undefined {
-    if (this.isFavorites()) {
+    if (this.isFavorites() || this.isLocalMusic()) {
       return undefined;
     }
     return [{
@@ -68,7 +164,78 @@ export struct PlaylistDetailPage {
         this.renameValue = this.playlist?.name ?? '';
         this.showRenameDialog = true;
       }
+    }, {
+      // F-4（上游 #322）：整单写回自建网易云歌单。
+      label: '同步到网易云歌单',
+      icon: $r('app.media.ic_music_note_24'),
+      action: (): void => {
+        void this.openNeteasePicker();
+      }
     }];
+  }
+
+  // ---- F-4 网易云歌单写回（选择器 + 执行） ----
+  @State showNeteasePicker: boolean = false;
+  @State neteasePickerLoading: boolean = false;
+  @State neteasePickerError: string = '';
+  @State neteaseTargets: NeteasePlaylistSummary[] = [];
+  @State neteaseWritebackBusy: boolean = false;
+
+  private async openNeteasePicker(): Promise<void> {
+    if (this.neteasePickerLoading || this.neteaseWritebackBusy) {
+      return;
+    }
+    if (!NeteaseCookieRepository.isLoggedIn()) {
+      promptAction.openToast({ message: '请先在设置中登录网易云音乐' });
+      return;
+    }
+    if (this.playlist === null || this.playlist.songs.length === 0) {
+      promptAction.openToast({ message: '歌单为空，没有可同步的歌曲' });
+      return;
+    }
+    this.showNeteasePicker = true;
+    this.neteasePickerLoading = true;
+    this.neteasePickerError = '';
+    this.neteaseTargets = [];
+    try {
+      const uid = await NeteaseApi.getCurrentUserId();
+      const playlists = await NeteaseApi.getUserPlaylists(0, 100);
+      // 只列自建歌单（creator.userId === 当前 uid）：收藏/他人歌单多数账号
+      // 无写权限，写回接口对它们会整批失败。
+      const targets: NeteasePlaylistSummary[] = [];
+      for (const item of playlists) {
+        if (uid > 0 && item.creatorUserId === uid) {
+          targets.push(item);
+        }
+      }
+      if (targets.length === 0) {
+        this.neteasePickerError = '没有找到你的自建歌单';
+      } else {
+        this.neteaseTargets = targets;
+      }
+    } catch (error) {
+      this.neteasePickerError = `获取歌单失败：${(error as Error).message}`;
+    } finally {
+      this.neteasePickerLoading = false;
+    }
+  }
+
+  private async runNeteaseWriteback(target: NeteasePlaylistSummary): Promise<void> {
+    const playlist = this.playlist;
+    if (playlist === null || this.neteaseWritebackBusy) {
+      return;
+    }
+    this.neteaseWritebackBusy = true;
+    this.showNeteasePicker = false;
+    try {
+      const result = await syncSongsToNeteasePlaylist(playlist.songs, target.id,
+        new LiveNeteaseWritebackDeps());
+      promptAction.openToast({ message: `「${target.name}」：${result.message}`, duration: 3000 });
+    } catch (error) {
+      promptAction.openToast({ message: `同步失败：${(error as Error).message}` });
+    } finally {
+      this.neteaseWritebackBusy = false;
+    }
   }
 
   @State syncingMirror: boolean = false;
@@ -77,6 +244,11 @@ export struct PlaylistDetailPage {
 
   private isFavorites(): boolean {
     return this.playlistId === LocalPlaylistRepository.FAVORITES_ID;
+  }
+
+  /** 系统歌单「本地音乐」：由扫描缓存装配的只读视图，成员随扫描刷新。 */
+  private isLocalMusic(): boolean {
+    return this.playlistId === LocalPlaylistRepository.LOCAL_MUSIC_ID;
   }
 
   onRefreshTick(): void {
@@ -118,7 +290,21 @@ export struct PlaylistDetailPage {
     this.history = await HistoryRepository.getRecent();
   }
 
+  aboutToDisappear(): void {
+    this.cancelPendingFilterApply();
+  }
+
   private async reload(): Promise<void> {
+    // 系统歌单「本地音乐」不落歌单库：优先目录扫描缓存（持久），回退
+    // 选择器导入缓存（进程内）；两处都没有时给空视图（入口行也不会显示）。
+    if (this.isLocalMusic()) {
+      let songs = await LocalDirectoryScanner.loadCached();
+      if (songs.length === 0) {
+        songs = await LocalMediaScanner.loadCached();
+      }
+      this.playlist = LocalPlaylistRepository.buildLocalMusicPlaylist(songs);
+      return;
+    }
     const playlists = await LocalPlaylistRepository.loadAll();
     this.playlist = playlists.find((item: Playlist) => item.id === this.playlistId) ?? null;
   }
@@ -145,8 +331,37 @@ export struct PlaylistDetailPage {
   }
 
   private async removeSong(songKey: string): Promise<void> {
-    await LocalPlaylistRepository.removeSong(this.playlistId, songKey);
+    // F-10：捕获移除快照供 6 秒撤销横幅回退（skipKeys/跨端墓碑由仓库侧恢复）。
+    const snapshot = await LocalPlaylistRepository.removeSongForUndo(this.playlistId, songKey);
     await this.reload();
+    if (snapshot !== null) {
+      let displayName = '歌曲';
+      try {
+        displayName = SongItem.fromJson(snapshot.songJson).displayName;
+      } catch (error) {
+        // 展示名解析失败就用兜底文案，不影响撤销本身。
+      }
+      this.songUndoSnapshot = snapshot;
+      this.songUndoMessage = `已移除「${displayName}」`;
+      this.songUndoVisible = true;
+    }
+  }
+
+  private async undoRemoveSong(): Promise<void> {
+    const snapshot = this.songUndoSnapshot;
+    this.dismissSongUndo();
+    if (snapshot === null) {
+      return;
+    }
+    const restored = await LocalPlaylistRepository.restoreRemovedSong(snapshot);
+    promptAction.openToast({ message: restored ? '已恢复' : '恢复失败，该歌曲可能已重新加入' });
+    await this.reload();
+  }
+
+  private dismissSongUndo(): void {
+    this.songUndoVisible = false;
+    this.songUndoMessage = '';
+    this.songUndoSnapshot = null;
   }
 
   private async confirmRename(): Promise<void> {
@@ -161,10 +376,19 @@ export struct PlaylistDetailPage {
   }
 
   private async deletePlaylist(): Promise<void> {
-    if (this.isFavorites()) {
+    if (this.isFavorites() || this.isLocalMusic()) {
       return;
     }
+    // F-10：删除前把快照塞进 AppStorage，返回资料库页后由其撤销横幅恢复。
+    const snapshot = await LocalPlaylistRepository.snapshotPlaylistForUndo(this.playlistId);
     await LocalPlaylistRepository.removePlaylist(this.playlistId);
+    if (snapshot !== null) {
+      const offer = new PlaylistUndoOffer();
+      offer.snapshotJson = snapshot.toJson();
+      offer.name = this.playlist?.name ?? '歌单';
+      offer.offeredAt = Date.now();
+      AppStorage.setOrCreate('ui.playlistUndoPending', offer.toJson());
+    }
     Router.pop();
   }
 
@@ -225,16 +449,63 @@ export struct PlaylistDetailPage {
                   .fontWeight(FontWeight.Bold)
                   .fontColor(Theme.textPrimary(Theme.isDark()))
                   .layoutWeight(1)
-                Button('＋ 添加')
-                  .height(40)
-                  .fontSize(12)
-                  .backgroundColor(Theme.surface(Theme.isDark()))
-                  .fontColor(Theme.primary(Theme.isDark()))
-                  .onClick(() => {
-                    this.showAddDialog = true;
-                  })
+                if (!this.isLocalMusic()) {
+                  // 「本地音乐」成员由扫描刷新，不开手动添加入口。
+                  Button('＋ 添加')
+                    .height(40)
+                    .fontSize(12)
+                    .backgroundColor(Theme.surface(Theme.isDark()))
+                    .fontColor(Theme.primary(Theme.isDark()))
+                    .onClick(() => {
+                      this.showAddDialog = true;
+                    })
+                }
               }
               .width('100%')
+            }
+
+            if (this.playlist.songs.length > 0) {
+              // F-9：歌单内搜索（上游歌单现代搜索的去动效形态）。
+              ListItem() {
+                Row({ space: 8 }) {
+                  SymbolGlyph($r('sys.symbol.magnifyingglass'))
+                    .fontSize(15)
+                    .fontColor([Theme.textSecondary(Theme.isDark())])
+                  TextInput({ placeholder: '在歌单内搜索' })
+                    .layoutWeight(1)
+                    .height(38)
+                    .fontSize(13)
+                    .padding({ left: 0, right: 0 })
+                    .backgroundColor(Color.Transparent)
+                    .onChange((value: string) => {
+                      this.filterQuery = value;
+                      this.scheduleFilterApply();
+                    })
+                  if (this.filterQuery.length > 0) {
+                    Button() {
+                      Image($r('app.media.ic_close_24'))
+                        .width(14)
+                        .height(14)
+                        .fillColor(Theme.textSecondary(Theme.isDark()))
+                    }
+                    .width(30)
+                    .height(30)
+                    .type(ButtonType.Circle)
+                    .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+                    .accessibilityText('清除搜索')
+                    .onClick(() => {
+                      this.filterQuery = '';
+                      this.cancelPendingFilterApply();
+                      this.applySongFilter();
+                    })
+                  }
+                }
+                .width('100%')
+                .height(44)
+                .padding({ left: 12, right: 8 })
+                .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+                .borderRadius(22)
+              }
             }
 
             if (this.playlist.songs.length === 0) {
@@ -242,8 +513,18 @@ export struct PlaylistDetailPage {
                 EmptyState({
                   icon: '♪',
                   title: '歌单为空',
-                  subtitle: this.isFavorites() ? '在歌曲列表点 ♡ 收藏歌曲' :
-                    (this.isMirrored() ? '等待自动同步从来源拉取歌曲，也可点「立即同步」' : '点击「添加」从播放历史选歌')
+                  subtitle: this.isLocalMusic()
+                    ? '所选目录里没有音频文件，回资料库重新选择或扫描'
+                    : (this.isFavorites() ? '在歌曲列表点 ♡ 收藏歌曲' :
+                      (this.isMirrored() ? '等待自动同步从来源拉取歌曲，也可点「立即同步」' : '点击「添加」从播放历史选歌'))
+                })
+              }
+            } else if (this.songsDs.totalCount() === 0) {
+              ListItem() {
+                EmptyState({
+                  icon: '🔍',
+                  title: '没有匹配的歌曲',
+                  subtitle: '换个关键词试试（支持拼音/首字母）'
                 })
               }
             } else {
@@ -254,24 +535,24 @@ export struct PlaylistDetailPage {
                       songJson: song.toJson(),
                       index: index,
                       onPlay: () => {
-                        if (this.playlist !== null) {
-                          PlayerManager.playPlaylist(this.playlist.songs, index);
-                          Router.push(Router.NOW_PLAYING);
-                        }
+                        this.playFromFiltered(song);
                       }
                     })
-                    Button() {
-                      Image($r('app.media.ic_close_24'))
-                        .width(16)
-                        .height(16)
-                        .fillColor(Theme.textDisabled(Theme.isDark()))
+                    if (!this.isLocalMusic()) {
+                      // 「本地音乐」成员随扫描刷新，不支持单曲移除。
+                      Button() {
+                        Image($r('app.media.ic_close_24'))
+                          .width(16)
+                          .height(16)
+                          .fillColor(Theme.textDisabled(Theme.isDark()))
+                      }
+                      .width(40)
+                      .height(40)
+                      .type(ButtonType.Circle)
+                      .backgroundColor(Color.Transparent)
+                      .accessibilityText('从歌单移除')
+                      .onClick(() => this.removeSong(stableKeyOf(song)))
                     }
-                    .width(40)
-                    .height(40)
-                    .type(ButtonType.Circle)
-                    .backgroundColor(Color.Transparent)
-                    .accessibilityText('从歌单移除')
-                    .onClick(() => this.removeSong(stableKeyOf(song)))
                   }
                   .width('100%')
                 }
@@ -415,6 +696,110 @@ export struct PlaylistDetailPage {
           this.showRenameDialog = false;
         })
       }
+
+      // F-4：网易云自建歌单选择器（写回目标）。样式与重命名弹层同族。
+      if (this.showNeteasePicker) {
+        Column() {
+          Column({ space: 12 }) {
+            Text('同步到网易云歌单')
+              .fontSize(17)
+              .fontWeight(FontWeight.Bold)
+              .fontColor(Theme.textPrimary(Theme.isDark()))
+            Text(this.neteaseWritebackBusy ? '正在同步…'
+              : '选择一个自建歌单，把本歌单中可写回的歌曲（网易云曲目与已匹配网易源的歌曲）添加进去；已存在的会跳过。')
+              .fontSize(12)
+              .fontColor(Theme.textSecondary(Theme.isDark()))
+              .width('100%')
+            if (this.neteasePickerLoading) {
+              Column({ space: 8 }) {
+                LoadingProgress().width(28).height(28)
+                Text('正在获取自建歌单…')
+                  .fontSize(13)
+                  .fontColor(Theme.textSecondary(Theme.isDark()))
+              }
+              .width('100%')
+              .padding({ top: 18, bottom: 18 })
+            } else if (this.neteasePickerError.length > 0) {
+              Text(this.neteasePickerError)
+                .fontSize(13)
+                .fontColor(Theme.danger(Theme.isDark()))
+                .width('100%')
+                .padding({ top: 12, bottom: 12 })
+            } else {
+              List({ space: 2 }) {
+                ForEach(this.neteaseTargets, (target: NeteasePlaylistSummary) => {
+                  ListItem() {
+                    Row({ space: 10 }) {
+                      Column({ space: 2 }) {
+                        Text(target.name)
+                          .fontSize(15)
+                          .fontColor(Theme.textPrimary(Theme.isDark()))
+                          .maxLines(1)
+                          .textOverflow({ overflow: TextOverflow.Ellipsis })
+                        Text(`${target.trackCount} 首`)
+                          .fontSize(11)
+                          .fontColor(Theme.textSecondary(Theme.isDark()))
+                      }
+                      .layoutWeight(1)
+                      .alignItems(HorizontalAlign.Start)
+                      Text('同步')
+                        .fontSize(13)
+                        .fontColor(Theme.primary(Theme.isDark()))
+                        .padding({ left: 10, right: 10, top: 6, bottom: 6 })
+                        .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+                        .borderRadius(14)
+                    }
+                    .width('100%')
+                    .padding({ top: 8, bottom: 8 })
+                    .onClick(() => {
+                      void this.runNeteaseWriteback(target);
+                    })
+                  }
+                }, (target: NeteasePlaylistSummary) => `${target.id}`)
+              }
+              .width('100%')
+              .height(Math.min(320, this.neteaseTargets.length * 56 + 8))
+              .scrollBar(BarState.Auto)
+            }
+            Button('取消')
+              .width('100%')
+              .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+              .fontColor(Theme.textPrimary(Theme.isDark()))
+              .onClick(() => {
+                this.showNeteasePicker = false;
+              })
+          }
+          .width('86%')
+          .padding(20)
+          .backgroundColor(Theme.surface(Theme.isDark()))
+          .borderRadius(18)
+        }
+        .width('100%')
+        .height('100%')
+        .justifyContent(FlexAlign.Center)
+        .backgroundColor(Theme.scrim(Theme.isDark()))
+        .onClick(() => {
+          this.showNeteasePicker = false;
+        })
+      }
+
+      // F-10：单曲移除撤销横幅（底部浮层；外层透明不拦截列表触控）。
+      Column() {
+        Blank()
+        UndoBanner({
+          message: this.songUndoMessage,
+          visible: this.songUndoVisible,
+          onUndo: () => {
+            void this.undoRemoveSong();
+          },
+          onExpire: () => {
+            this.dismissSongUndo();
+          }
+        })
+      }
+      .width('100%')
+      .height('100%')
+      .hitTestBehavior(HitTestMode.Transparent)
     }
     .width('100%')
     .height('100%')
