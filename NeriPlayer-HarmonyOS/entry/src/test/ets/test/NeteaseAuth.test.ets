@@ -8,6 +8,7 @@ import {
   buildNeteaseCookieHeader,
   cookieKeysForLog
 } from '../../../main/ets/data/auth/NeteaseAuth';
+import { MAX_PASTE_COOKIE_TEXT_LENGTH } from '../../../main/ets/data/auth/RawCookieTextParser';
 import {
   AssetErrorKind,
   classifyAssetError,
@@ -27,6 +28,20 @@ function mapOf(pairs: string[][]): Map<string, string> {
 }
 
 export default function neteaseAuthTest(): void {
+  describe('RawCookieTextPasteGuard', () => {
+    it('oversizedPasteParsesToEmptyMap', 0, () => {
+      expect(MAX_PASTE_COOKIE_TEXT_LENGTH).assertEqual(32768);
+      const huge = 'k=v; '.repeat(Math.ceil(MAX_PASTE_COOKIE_TEXT_LENGTH / 5) + 10);
+      expect(huge.length > MAX_PASTE_COOKIE_TEXT_LENGTH).assertTrue();
+      expect(parseRawCookieText(huge).size).assertEqual(0);
+      // Right below the cap still parses normally.
+      const ok = 'MUSIC_U=abc; os=pc';
+      const parsed = parseRawCookieText(ok);
+      expect(parsed.get('MUSIC_U')).assertEqual('abc');
+      expect(parsed.get('os')).assertEqual('pc');
+    });
+  });
+
   describe('NeteaseAuth', () => {
     it('sanitizeAddsFallbackCookiesAndKeepsValid', 0, () => {
       const result = validateAndSanitizeNeteaseCookies(mapOf([['MUSIC_U', 'token-value'], ['__csrf', 'abc']]));

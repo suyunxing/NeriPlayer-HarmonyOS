@@ -29,6 +29,15 @@ import { ListenTogetherChannels, normalizedListenTogetherChannelId } from '../pr
 
 export const MAX_LISTEN_TOGETHER_STREAM_URL_CANDIDATES: number = 3;
 
+/**
+ * Upstream #359: per-platform candidate caps. A Bilibili stream url is signed
+ * per-quality and rotates quickly, so extra candidates just waste payload; a
+ * YouTube direct link is only ever one representation.
+ */
+const MAX_NETEASE_STREAM_URL_CANDIDATES: number = 3;
+const MAX_BILI_STREAM_URL_CANDIDATES: number = 2;
+const MAX_YOUTUBE_STREAM_URL_CANDIDATES: number = 1;
+
 /** `(channelId, host)`; mirrors the Android warning without the URL itself. */
 export type ListenTogetherBlockedStreamUrlListener = (channelId: string, host: string) => void;
 
@@ -96,7 +105,8 @@ function isTrustedStreamUrlHost(channelId: string, host: string): boolean {
   if (channel === ListenTogetherChannels.BILIBILI) {
     return matchesHost(host, 'bilivideo.com') ||
       matchesHost(host, 'bilivideo.cn') ||
-      matchesHost(host, 'hdslb.com');
+      matchesHost(host, 'hdslb.com') ||
+      matchesHost(host, 'mountaintoys.cn');
   }
   if (channel === ListenTogetherChannels.YOUTUBE_MUSIC) {
     return matchesHost(host, 'googlevideo.com') ||
@@ -140,6 +150,16 @@ export function trustedListenTogetherStreamUrls(
   if (maxCount <= 0) {
     return [];
   }
+  const channel = normalizedListenTogetherChannelId(channelId);
+  let platformMax = maxCount;
+  if (channel === ListenTogetherChannels.BILIBILI) {
+    platformMax = MAX_BILI_STREAM_URL_CANDIDATES;
+  } else if (channel === ListenTogetherChannels.YOUTUBE_MUSIC) {
+    platformMax = MAX_YOUTUBE_STREAM_URL_CANDIDATES;
+  } else if (channel === ListenTogetherChannels.NETEASE) {
+    platformMax = MAX_NETEASE_STREAM_URL_CANDIDATES;
+  }
+  const effectiveMax = Math.min(maxCount, platformMax);
   const candidates: string[] = [];
   if (streamUrls !== null) {
     for (const candidate of streamUrls) {
@@ -157,7 +177,7 @@ export function trustedListenTogetherStreamUrls(
   for (const candidate of candidates) {
     if (distinct.indexOf(candidate) < 0) {
       distinct.push(candidate);
-      if (distinct.length >= maxCount) {
+      if (distinct.length >= effectiveMax) {
         break;
       }
     }

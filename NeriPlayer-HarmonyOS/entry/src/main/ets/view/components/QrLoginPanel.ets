@@ -34,6 +34,10 @@ export class QrLoginPanelController {
   };
   close: () => void = () => {
   };
+  pausePolling: () => void = () => {
+  };
+  resumePolling: () => void = () => {
+  };
 }
 
 /**
@@ -63,9 +67,21 @@ export struct QrLoginPanel {
   @State status: string = '';
   @State busy: boolean = false;
   @State matrix: QrMatrix | null = null;
+  // App-background pause (audit A-8): polling only makes sense while the
+  // user can actually look at the QR code.
+  @StorageLink('app_foreground') @Watch('onAppForegroundChanged')
+  appForeground: boolean = true;
 
   private session: QrLoginSessionRef | null = null;
   private timerId: number = -1;
+  // Two independent reasons to poll, combined in updatePolling(): the app must
+  // be in the foreground AND the host page must be visible. Tracking them
+  // separately keeps an app-foreground event from restarting polling for a
+  // page that is still hidden (audit A-8).
+  private pageVisible: boolean = true;
+  // A QR session is being created; updatePolling() must not start an interval
+  // against the previous session while the new one is still in flight.
+  private creating: boolean = false;
   private canvasCtx: CanvasRenderingContext2D =
     new CanvasRenderingContext2D(new RenderingContextSettings(true));
 
@@ -76,6 +92,12 @@ export struct QrLoginPanel {
       };
       this.controller.close = (): void => {
         this.cancel();
+      };
+      this.controller.pausePolling = (): void => {
+        this.pausePolling();
+      };
+      this.controller.resumePolling = (): void => {
+        this.resumePolling();
       };
     }
   }
@@ -94,6 +116,10 @@ export struct QrLoginPanel {
   }
 
   private async createQrSession(): Promise<void> {
+    if (this.busy || this.creating) {
+      return;
+    }
+    this.creating = true;
     this.busy = true;
     this.stopPolling();
     try {
@@ -102,15 +128,23 @@ export struct QrLoginPanel {
       this.matrix = encodeQr(session.qrContent).matrix;
       this.status = this.scanHint;
       this.drawQr();
-      this.timerId = setInterval(() => {
-        this.pollOnce();
-      }, this.pollIntervalMs);
     } catch (error) {
       const e = error as Error;
       this.status = `二维码创建失败：${e.message}`;
       promptAction.openToast({ message: '二维码创建失败' });
+      // Never keep polling a session the refresh was meant to replace: the
+      // old handle may still be non-null (e.g. an expired one), and
+      // updatePolling() below would happily restart its interval. Clearing it
+      // leaves the manual 「刷新」 button as the retry entry.
+      this.session = null;
     }
+    // The new session is in place (or the creation failed); either way the
+    // interval decision now belongs to updatePolling(), which sees the real
+    // foreground/visibility state. Starting it inside the try would race with
+    // a foreground/visibility flip that happened while awaiting the network.
+    this.creating = false;
     this.busy = false;
+    this.updatePolling();
   }
 
   private async pollOnce(): Promise<void> {
@@ -137,13 +171,51 @@ export struct QrLoginPanel {
       } else if (outcome.code === QrPollOutcomeCode.EXPIRED) {
         this.status = this.expiredText;
         this.stopPolling();
-        this.createQrSession();
+        // Release the poll's busy flag first: the refresh below re-enters
+        // createQrSession, whose busy gate would otherwise no-op it. The
+        // await keeps the refresh serialized with this poll, so the clearing
+        // of busy at the end of this method cannot race the new creation.
+        this.busy = false;
+        await this.createQrSession();
+        return;
       }
     } catch (error) {
       const e = error as Error;
       this.status = `轮询失败：${e.message}`;
     }
     this.busy = false;
+  }
+
+  onAppForegroundChanged(): void {
+    this.updatePolling();
+  }
+
+  pausePolling(): void {
+    this.pageVisible = false;
+    this.updatePolling();
+  }
+
+  resumePolling(): void {
+    this.pageVisible = true;
+    this.updatePolling();
+  }
+
+  /** Single owner of the interval: poll only when foreground + visible. */
+  private updatePolling(): void {
+    if (!this.appForeground || !this.pageVisible) {
+      this.stopPolling();
+      return;
+    }
+    if (this.creating || !this.panelOpen || this.session === null) {
+      // While a session is being created the creation itself will call back
+      // here; starting a timer against the stale session would leak it.
+      return;
+    }
+    if (this.timerId < 0) {
+      this.timerId = setInterval(() => {
+        this.pollOnce();
+      }, this.pollIntervalMs);
+    }
   }
 
   private stopPolling(): void {

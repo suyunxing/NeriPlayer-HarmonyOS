@@ -11,6 +11,7 @@ import { coverThumbnailUrl } from '../../util/CoverUrls';
 import { AccentScheme, SchemeMode } from '../theme/AccentScheme';
 import { HdsLight } from '../theme/HdsLight';
 import { MarqueeText } from './MarqueeText';
+import { MiniPlayerTextSizing, MiniPlayerTextAutoSizeRange } from './MiniPlayerTextSizing';
 
 @Component
 export struct MiniPlayer {
@@ -39,6 +40,9 @@ export struct MiniPlayer {
   onMeasured: (area: Area) => void = (_area: Area): void => {};
   @StorageLink('player.currentSong') currentSongJson: string = '';
   @StorageLink('player.status') @Watch('onStatusChanged') status: number = PlaybackStatus.IDLE;
+  // 上游 #359：一起听听友路由丢失静音时，播放键变「恢复音量」符号（点击
+  // 恢复捕获音量而非暂停）；@Watch 复用 onStatusChanged 让符号替换动效生效。
+  @StorageProp('player.ltMuteSuppressed') @Watch('onStatusChanged') ltMuteSuppressed: boolean = false;
   /**
    * ReplaceSymbolEffect 触发计数：播放/暂停切换时 +1 驱动交叉淡入。初值必须
    * 为 -1（官方语义：triggerValue 变更才触发动效，「首次不希望触发动效，
@@ -72,6 +76,9 @@ export struct MiniPlayer {
   // visual offset eased with exponential resistance peaking at 52vp).
   @State swipeOffset: number = 0;
   @State swiping: boolean = false;
+  // 系统字体缩放（上游 #357）：标题/副行字号按行高上限封顶，防止大字体
+  // 设置下两行文字撑破固定行高的迷你条。EntryAbility 播种并随配置更新。
+  @StorageProp('systemFontScale') systemFontScale: number = 1;
 
   private static readonly SWIPE_TRIGGER_VP = 72;
   private static readonly SWIPE_MAX_OFFSET_VP = 52;
@@ -146,8 +153,25 @@ export struct MiniPlayer {
   }
 
   /**
+   * 标题字号（fp）：正常字体档就是基础值 14；系统字体放大时按 24vp 视觉
+   * 行高封顶（字号 × fontScale × 1.5 ≤ 24），超宽仍由跑马灯承接。
+   */
+  private titleFontSize(): number {
+    return MiniPlayerTextSizing.titleFontSize(14, this.systemFontScale);
+  }
+
+  /**
+   * 副行（歌词/歌手）字号范围：上限按 20vp 视觉行高封顶，下限保 9 视觉
+   * 字号——宽度不足时 minFontSize/maxFontSize 让 Text 向下自适应，仍不够
+   * 才省略号（上游 AutoSizingMiniPlayerText）。
+   */
+  private subLineFontRange(): MiniPlayerTextAutoSizeRange {
+    return MiniPlayerTextSizing.subLineRange(11, this.systemFontScale);
+  }
+
+  /**
    * row 形态内容行高（40 = 展开态药丸内容区高度，2026-10-02 真机红框调试
-   * 定案，hm.md §7.20 修订七/八）：展开态 builder 盒零高度、内容顶部对齐、
+   * 定案，docs/archive/HM_HISTORY.md §7.20 修订七/八）：展开态 builder 盒零高度、内容顶部对齐、
    * 超出内容区的部分被药丸底部裁切。builder 无法实测该值（盒零高度），
    * 取堆叠态药丸同高 40（真机验证：40 内容完整落于药丸内，两行文字/进度
    * 环/同心封面全部恢复）。文字块在行内垂直居中，中线与药丸中线齐平。
@@ -158,7 +182,7 @@ export struct MiniPlayer {
 
   /**
    * row 形态封面左缩进（同心）：像素标定 2026-10-02（九轮截图，ffmpeg 解码
-   * + 亮度/饱和分类测量，hm.md §7.20 修订十）——展开药丸高≈191px≈55-56vp、
+   * + 亮度/饱和分类测量，docs/archive/HM_HISTORY.md §7.20 修订十）——展开药丸高≈191px≈55-56vp、
    * 封面 168px≈48vp，同心间隙 = (H-48)/2 ≈ 3.3vp；此前 inset 0（贴边）左缘
    * 0 间隙 vs 上缘 15px 间隙，即用户所见「歪」。取 3.5。
    */
@@ -288,7 +312,7 @@ export struct MiniPlayer {
           }
         }
         // row 形态：封面圆心对准药丸左端半圆圆心（三轮像素标定 2026-10-03，
-        // hm.md §7.20 修订十二：药丸真中线改由玻璃上/下边白色高光线直接测得
+        // docs/archive/HM_HISTORY.md §7.20 修订十二：药丸真中线改由玻璃上/下边白色高光线直接测得
         // （y=430.5/624.5 → 中线 527.5，修订十一的旋钮图标中心 529.5 系估计量
         // 偏高 2px）；圆心 530.0 仍偏低 2.5px≈0.7vp，offset 0.5 → -0.2 上移
         // 0.7vp，残差 ≈0.2px。横向同心不变（x=403.5 vs 帽心 ≈404）。
@@ -303,7 +327,7 @@ export struct MiniPlayer {
             // 需求在 MarqueeText 上统一，不再按形态分叉。
             MarqueeText({
               text: this.song().displayName,
-              fontSize: 14,
+              fontSize: this.titleFontSize(),
               fontWeight: FontWeight.Medium,
               fontColor: Theme.textPrimary(Theme.isDark())
             })
@@ -315,14 +339,18 @@ export struct MiniPlayer {
             // 药丸）不受影响。
             if (this.showLyricLine()) {
               Text(this.lyricLineText)
-                .fontSize(11)
+                .fontSize(this.subLineFontRange().maxFontSize)
+                .minFontSize(this.subLineFontRange().minFontSize)
+                .maxFontSize(this.subLineFontRange().maxFontSize)
                 .fontColor(Theme.primary(Theme.isDark()))
                 .maxLines(1)
                 .textOverflow({ overflow: TextOverflow.Ellipsis })
                 .width('100%')
             } else if (!this.embedded) {
               Text(this.song().displayArtist)
-                .fontSize(11)
+                .fontSize(this.subLineFontRange().maxFontSize)
+                .minFontSize(this.subLineFontRange().minFontSize)
+                .maxFontSize(this.subLineFontRange().maxFontSize)
                 .fontColor(Theme.textSecondary(Theme.isDark()))
                 .maxLines(1)
                 .textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -349,9 +377,11 @@ export struct MiniPlayer {
           Button() {
             Stack({ alignContent: Alignment.Center }) {
               // S6: 官方符号替换动效（CROSS_FADE），播放/暂停切换不再是硬切。
-              SymbolGlyph(this.status === PlaybackStatus.PLAYING
-                ? $r('sys.symbol.pause_fill')
-                : $r('sys.symbol.play_fill'))
+              SymbolGlyph(this.ltMuteSuppressed
+                ? $r('sys.symbol.speaker_wave_2_fill')
+                : (this.status === PlaybackStatus.PLAYING
+                  ? $r('sys.symbol.pause_fill')
+                  : $r('sys.symbol.play_fill')))
                 .fontSize(this.compact ? 15 : (this.row ? 16 : 22))
                 .fontColor([this.compact || this.row ? this.scheme().primary : '#FFFFFF'])
                 .symbolEffect(this.replaceEffect, this.symbolTrigger)
@@ -363,7 +393,9 @@ export struct MiniPlayer {
           .backgroundColor(this.compact || this.row ? Color.Transparent : this.playBackground())
           // Icon-only control: without an explicit label a screen reader reads
           // nothing at all (device audit 2026-08-24 found 9 such buttons).
-          .accessibilityText(this.status === PlaybackStatus.PLAYING ? '暂停' : '播放')
+          .accessibilityText(this.ltMuteSuppressed
+            ? '恢复音量'
+            : (this.status === PlaybackStatus.PLAYING ? '暂停' : '播放'))
           .onClick(() => {
             PlayerManager.togglePlayPause();
           })

@@ -17,6 +17,7 @@ import { OhosGhExecutor } from './github/OhosGhExecutor';
 import { WebDavConfigRepository } from './webdav/WebDavConfigRepository';
 import { OhosWebDavExecutor } from './webdav/OhosWebDavExecutor';
 import { WebDavSyncClient, WebDavTransport } from './webdav/WebDavTransport';
+import { describeWebDavErrorForUser } from './webdav/WebDavErrors';
 
 /**
  * Upload serializer per the sync data-saver switch (backlog §1.3): JSON bytes
@@ -49,6 +50,12 @@ export class SyncService {
     if (config === null) {
       return failure('请先配置 GitHub 仓库与令牌');
     }
+    // Merge checkpoint = the moment the remote was observed (upstream #506
+    // `checkpoint merges at the remote observation time`): a local change made
+    // while the merge/upload was still running keeps modifiedAt > checkpoint
+    // and is re-detected on the next sync instead of being silently swallowed
+    // by a completion-time checkpoint.
+    const observedAtMs = Date.now();
     const local = new SyncAppLocalStore();
     const backend = new GitHubSyncBackend(
       new GitHubTransport(new OhosGhExecutor(), config.token),
@@ -63,9 +70,7 @@ export class SyncService {
       if (report.remoteVersion.length > 0) {
         await GitHubConfigRepository.saveLastRemoteSha(report.remoteVersion);
       }
-      if (!report.localChangedDuringSync) {
-        await GitHubConfigRepository.saveLastSyncTime(Date.now());
-      }
+      await GitHubConfigRepository.saveLastSyncTime(observedAtMs);
     }
     return report;
   }
@@ -75,8 +80,17 @@ export class SyncService {
     if (config === null) {
       return failure('请先配置 WebDAV 服务器与凭据');
     }
+    // Same observation-time merge checkpoint as syncGitHub (upstream #506).
+    const observedAtMs = Date.now();
     const local = new SyncAppLocalStore();
     const transport = new WebDavTransport(new OhosWebDavExecutor(), config.username, config.password);
+    // Directory pre-flight: a wrong path must fail as a config error here,
+    // otherwise the upload PUT would surface it as a misleading 409 conflict.
+    try {
+      await transport.validateConnection(config.serverUrl, config.basePath);
+    } catch (error) {
+      return failure(describeWebDavErrorForUser(error as Error));
+    }
     const backend = new WebDavSyncBackend(new WebDavSyncClient(transport), config.remoteFileUrl());
     const options = new SyncCoordinatorOptions();
     // Android treats data-saver as one global switch shared by GitHub/WebDAV;
@@ -91,9 +105,7 @@ export class SyncService {
       if (report.remoteVersion.length > 0) {
         await WebDavConfigRepository.saveLastRemoteFingerprint(report.remoteVersion);
       }
-      if (!report.localChangedDuringSync) {
-        await WebDavConfigRepository.saveLastSyncTime(Date.now());
-      }
+      await WebDavConfigRepository.saveLastSyncTime(observedAtMs);
     }
     return report;
   }

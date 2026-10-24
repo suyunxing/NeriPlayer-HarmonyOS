@@ -13,6 +13,21 @@ export class HttpFormResult {
 }
 
 /**
+ * Records every redirect hop of a request (REDIRECTION interceptor, API 22+).
+ * Always returns true so the redirect chain keeps following; the last entry
+ * of `hops` is the final URL the platform landed on.
+ */
+class RedirectHopCollector implements http.HttpInterceptor {
+  readonly interceptorType: http.InterceptorType = http.InterceptorType.REDIRECTION;
+  hops: string[] = [];
+
+  interceptorHandle(reqContext: http.HttpRequestContext, _rspContext: http.HttpResponse): Promise<boolean> {
+    this.hops.push(reqContext.url);
+    return Promise.resolve(true);
+  }
+}
+
+/**
  * Shared HTTP client (equivalent of the shared OkHttpClient in the Android app).
  */
 export class HttpClient {
@@ -101,6 +116,45 @@ export class HttpClient {
       const e = error as Error;
       Logger.warn(`HttpClient.getText failed: ${e.message}`);
       throw e;
+    } finally {
+      request.destroy();
+    }
+  }
+
+  /**
+   * Resolves a short link (b23.tv / 163cn.tv) to its final URL.
+   *
+   * @ohos.net.http always follows redirects (libcurl FOLLOWLOCATION, default
+   * 30 hops) and never reports the effective URL, so we attach a REDIRECTION
+   * interceptor (API 22+) that records every hop's resolved target; the last
+   * record is the final URL. Interceptors work on request() only — this
+   * method must not be reused for streaming paths.
+   */
+  static async expandRedirectUrl(url: string, timeoutMs: number = 10000): Promise<string> {
+    const watcher = new RedirectHopCollector();
+    const chain = new http.HttpInterceptorChain();
+    chain.addChain([watcher]);
+    const request = http.createHttp();
+    try {
+      // addChain 只把拦截器装进链对象，必须再 apply 到请求实例才生效（SDK
+      // d.ts：apply「Adds an interceptor chain to the target HTTP request」）。
+      // 漏掉 apply 时 hops 恒为空、原样返回短链，表现为「短链解析失败」
+      // （2026-10-13 真机反馈实证）。
+      try {
+        chain.apply(request);
+      } catch (chainError) {
+        Logger.warn(`HttpClient.expandRedirectUrl chain.apply failed: ${(chainError as Error).message}`);
+      }
+      await request.request(url, {
+        method: http.RequestMethod.GET,
+        header: { 'User-Agent': HttpClient.DEFAULT_UA } as Record<string, string>,
+        connectTimeout: timeoutMs,
+        readTimeout: timeoutMs,
+        expectDataType: http.HttpDataType.STRING,
+        usingCache: false,
+        usingProxy: HttpClient.usingProxyValue()
+      });
+      return watcher.hops.length > 0 ? watcher.hops[watcher.hops.length - 1] : url;
     } finally {
       request.destroy();
     }

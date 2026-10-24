@@ -2,7 +2,7 @@
 
 > 2026-09-14 编制，基于对 HarmonyOS 26（API 26，对应本工程 `targetSdkVersion 26.0.0`）公开 API 的调研：传感器与硬件交互（`@ohos.sensor` / `@ohos.vibrator` / NFC / BLE）、端侧 AI（`@kit.CoreSpeechKit` / `@kit.VisionKit` / `@kit.AREngineKit` / MindSpore Lite）、系统体验（智慧手势 / 实况窗 / 卡片 / 防窥）、分布式跨设备（`abilityConnectionManager` / 分布式相机 / 接续 / 分布式数据）与 ArkUI 动效（粒子扰动场 / `effectKit` / 可变字体）。全部条目均与本机 SDK（`/opt/command-line-tools/sdk/default`，API 26）声明文件核对过模块存在性。
 >
-> **定位**：本清单是「NeriPlayer 已经是全功能播放器之后，用鸿蒙独有的 API 做出别人做不了的体验」的规划，与 `ANDROID_PARITY_BACKLOG.md`（把基础功能补齐到 Android 对齐）互补，不设时间承诺、不阻塞开源发布。工程当前 `targetSdkVersion 26.0.0`，清单内所有 API 均可用，无需升级 SDK。
+> **定位**：本清单是「NeriPlayer 已经是全功能播放器之后，用鸿蒙独有的 API 做出别人做不了的体验」的规划，与 `ANDROID_PARITY_BACKLOG.md`（把基础功能补齐到 Android 对齐）互补，不设时间承诺、不阻塞已发布版本的分发。工程当前 `targetSdkVersion 26.0.0`，清单内所有 API 均可用，无需升级 SDK。
 >
 > **调研边界**：模块存在性以本地 SDK 声明文件为准；具体接口签名、行为与权限以真机验证为准。文中「完成状态」均为文档级调研结论，未经真机验证，需在 Windows 工作站真机执行。
 
@@ -42,8 +42,8 @@
 - **功能名**：正在播放桌面卡片
 - **效果**：2×2 / 2×4 桌面常驻磁贴：旋转封面 + 歌名歌手 + 播放/暂停/切歌按钮，封面主色动态染色背景，glass_ui 美学延伸到桌面。
 - **实现理论基础**：`FormExtensionAbility`（`@kit.FormKit`，API 12+ 全量开放）+ `postCardAction` 的 `call` 模式（后台拉起 UIAbility 静默控制 `PlayerManager`，用户无感）+ `formBindingData` 按事件刷新。关键约束：卡片与主应用是**两个进程**，不能依赖 `AppStorage`——封面取色结果与播放状态需落 preferences（或 `@ohos.data.distributedKVStore` 单机模式），卡片侧读快照渲染。
-- **完成状态**：📋 已规划，未实现。
-- **工程量**：中。新增 FormExtensionAbility + 卡片 UI + 跨进程数据桥；卡片内 ArkTS 动画（封面旋转）支持有限，需真机验证效果。
+- **完成状态**：**✅ 已实现（2026-10-12，F-12）**——`widget/pages/PlaybackCard.ets`（2×2 + 2×4 双规格共用一页自适应布局）、`widget/PlaybackCardState.ets`（快照/JSON/payload 纯逻辑，5 单测）、`player/PlaybackCardBridge.ets`（call 事件控制 + `formProvider.updateForm` 主动推送 + cacheDir 快照）、`entryformability/EntryFormAbility.ets`、`resources/base/profile/form_config.json`。**与规划的偏差（实际实现）**：跨进程数据不走 preferences/distributedKVStore，改用 cacheDir 纯文件快照 + 封面 fd 下载换代；刷新不用定时器，走 `updateForm` 主动推送（官方对三方应用禁止秒级刷新）；`updateEnabled: false`。2026-10-13 修复真机反馈的「按钮全无响应」——`call` 的 `method` 须在 `params` 内，放顶层被系统静默丢弃。**真机加卡/控制/推送全链路未验证**。
+- **工程量**：中（实际约等于预估）。
 - **风险与注意**：低。普通卡片无资质门槛；卡片刷新频率受系统管控（定时刷新有最小间隔限制），播放状态变化建议走 `formProvider` 主动推送。
 
 ## 4. P1：audioHaptic 节奏触感（Music-Driven Haptics）
@@ -185,5 +185,5 @@
 
 - **权限现状**：工程已声明 `INTERNET` / `GET_NETWORK_INFO` / `FILE_ACCESS_PERSIST` / `KEEP_BACKGROUND_RUNNING`；清单内新增权限均为 normal 级（`VIBRATE` / `ACCELEROMETER` / `NFC_TAG` / `DISTRIBUTED_DATASYNC`）或 user_grant 弹窗（`MICROPHONE`），无 restricted 级。
 - **资质门槛**：仅 §8 实况窗与 §13 待机屏保需 AGC 申请；其余全部零门槛。
-- **推进建议**：§1 波形震感（半天爽点）→ §2 隔空手势（API 26 独占卖点，先真机 spike）→ §3 桌面卡片（用户留存利器）；三项互不依赖、均无需资质。
+- **推进建议**：§1 波形震感（半天爽点）→ §2 隔空手势（API 26 独占卖点，先真机 spike）。§3 桌面卡片**已于 2026-10-12 实现**（见上），余真机验证；三项互不依赖、均无需资质。
 - **验证边界**：本文档所有「实现理论基础」为 API 文档级调研，未经真机验证；涉及传感器、马达、投屏、PiP、跨端的行为均需在 Windows 工作站真机执行后回填状态。

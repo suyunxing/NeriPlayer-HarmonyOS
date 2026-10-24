@@ -5,6 +5,8 @@ import { common } from '@kit.AbilityKit';
 import { picker, fileShare } from '@kit.CoreFileKit';
 import { Playlist } from '../../model/Playlist';
 import { LocalPlaylistRepository } from '../../data/LocalPlaylistRepository';
+import { PlaylistDeleteSnapshot, PlaylistUndoOffer } from '../../data/LocalPlaylistRepository';
+import { UndoBanner } from '../components/UndoBanner';
 import { DownloadStorage } from '../../download/DownloadStorage';
 import { PlaybackStatsRepository } from '../../data/PlaybackStatsRepository';
 import { LocalMediaScanner } from '../../data/LocalMediaScanner';
@@ -60,6 +62,7 @@ export struct LibraryPage {
   private paneScrollers: Scroller[] = [new Scroller(), new Scroller(), new Scroller()];
   @State playlists: Playlist[] = [];
   @State favorites: Playlist | null = null;
+  @State localMusic: Playlist | null = null;
   @State downloadCount: number = 0;
   @State localSongCount: number = 0;
   @State scanning: boolean = false;
@@ -101,6 +104,58 @@ export struct LibraryPage {
     }).catch(() => {});
   }
 
+  /**
+   * F-10 歌单删除撤销：PlaylistDetailPage 删除时写入的快照载荷
+   * （ui.playlistUndoPending），返回本页后以底部横幅提供 6 秒撤销。
+   */
+  @StorageProp('ui.playlistUndoPending') @Watch('onPlaylistUndoOffered') playlistUndoJson: string = '';
+  @State playlistUndoVisible: boolean = false;
+  @State playlistUndoMessage: string = '';
+  private playlistUndoSnapshot: PlaylistDeleteSnapshot | null = null;
+
+  private onPlaylistUndoOffered(): void {
+    if (this.playlistUndoJson.length === 0) {
+      this.playlistUndoVisible = false;
+      return;
+    }
+    const offer = PlaylistUndoOffer.fromJson(this.playlistUndoJson);
+    if (offer === null) {
+      this.dismissPlaylistUndo();
+      return;
+    }
+    // 陈旧载荷（页面重建重放）不弹横幅。
+    if (Date.now() - offer.offeredAt > 15000) {
+      this.dismissPlaylistUndo();
+      return;
+    }
+    const snapshot = PlaylistDeleteSnapshot.fromJson(offer.snapshotJson);
+    if (snapshot === null) {
+      this.dismissPlaylistUndo();
+      return;
+    }
+    this.playlistUndoSnapshot = snapshot;
+    this.playlistUndoMessage = `已删除「${offer.name.length > 0 ? offer.name : '歌单'}」`;
+    this.playlistUndoVisible = true;
+  }
+
+  private async undoPlaylistDelete(): Promise<void> {
+    const snapshot = this.playlistUndoSnapshot;
+    this.dismissPlaylistUndo();
+    if (snapshot === null) {
+      return;
+    }
+    const restored = await LocalPlaylistRepository.restorePlaylistFromUndo(snapshot);
+    promptAction.openToast({ message: restored ? '已恢复歌单' : '恢复失败，同 ID 歌单可能已存在' });
+    await this.reload();
+  }
+
+  private dismissPlaylistUndo(): void {
+    this.playlistUndoVisible = false;
+    this.playlistUndoMessage = '';
+    this.playlistUndoSnapshot = null;
+    AppStorage.setOrCreate('ui.playlistUndoPending', '');
+  }
+
   async aboutToAppear(): Promise<void> {
     // 首个激活窗格的滚动器先于任何滚动上报壳层，标题栏模糊换绑才不落后一拍。
     this.onPaneScroller(this.paneScrollers[this.platformTab]);
@@ -128,10 +183,15 @@ export struct LibraryPage {
     const catalog = await DownloadStorage.getCatalog();
     this.downloadCount = catalog.length;
     // Directory library cache (persisted) wins; picker imports stay in the
-    // session memory cache as before.
-    const persisted = await LocalDirectoryScanner.loadCached();
-    this.localSongCount = persisted.length > 0 ? persisted.length
-      : (await LocalMediaScanner.loadCached()).length;
+    // session memory cache as before. The cache also feeds the fixed
+    // 「本地音乐」 system playlist view (scan → browse → play, never persisted).
+    let localSongs = await LocalDirectoryScanner.loadCached();
+    if (localSongs.length === 0) {
+      localSongs = await LocalMediaScanner.loadCached();
+    }
+    this.localSongCount = localSongs.length;
+    this.localMusic = localSongs.length > 0
+      ? LocalPlaylistRepository.buildLocalMusicPlaylist(localSongs) : null;
     this.playCount = await PlaybackStatsRepository.getTotalPlayCount();
     const listenMs = await PlaybackStatsRepository.getTotalListenMs();
     this.listenHours = Math.floor(listenMs / 3600000);
@@ -422,6 +482,42 @@ export struct LibraryPage {
           .padding({ left: 14, right: 14, top: 10, bottom: 10 })
           .backgroundColor(Theme.surface(Theme.isDark()))
           .onClick(() => Router.push(Router.PLAYLIST_DETAIL, LocalPlaylistRepository.FAVORITES_ID))
+        }
+        if (this.localMusic !== null) {
+          // 系统歌单「本地音乐」：扫描缓存装配的只读视图，点进详情即可
+          // 浏览/搜索/整单播放（此前扫描后无处可看，2026-10-13 真机反馈）。
+          Row({ space: 12 }) {
+            Image($r('app.media.ic_library_music_24'))
+              .width(22)
+              .height(22)
+              .fillColor(this.accentPrimary(Theme.isDark()))
+              .margin({ left: 11, right: 11, top: 11, bottom: 11 })
+              .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+              .borderRadius(8)
+            Column({ space: 2 }) {
+              Text('本地音乐')
+                .fontSize(15)
+                .fontWeight(FontWeight.Medium)
+                .fontColor(Theme.textPrimary(Theme.isDark()))
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+              Text(this.localMusic.songKeys.length > 0
+                ? `${this.localMusic.songKeys.length} 首` : '空')
+                .fontSize(12)
+                .fontColor(Theme.textSecondary(Theme.isDark()))
+            }
+            .layoutWeight(1)
+            .alignItems(HorizontalAlign.Start)
+            Image($r('app.media.ic_chevron_right_24'))
+              .width(18)
+              .height(18)
+              .fillColor(Theme.textDisabled(Theme.isDark()))
+          }
+          .width('100%')
+          .padding({ left: 14, right: 14, top: 10, bottom: 10 })
+          .backgroundColor(Theme.surface(Theme.isDark()))
+          .onClick(() => Router.push(Router.PLAYLIST_DETAIL,
+            LocalPlaylistRepository.LOCAL_MUSIC_ID))
         }
         ForEach(this.localUserPlaylists(), (playlist: Playlist) => {
           Row({ space: 12 }) {
@@ -783,6 +879,24 @@ export struct LibraryPage {
       .width('100%')
       .height('100%')
       .padding({ top: TITLEBAR_SPACE_VP })
+
+      // F-10：歌单删除撤销横幅（底部浮层；外层透明不拦截列表触控）。
+      Column() {
+        Blank()
+        UndoBanner({
+          message: this.playlistUndoMessage,
+          visible: this.playlistUndoVisible,
+          onUndo: () => {
+            void this.undoPlaylistDelete();
+          },
+          onExpire: () => {
+            this.dismissPlaylistUndo();
+          }
+        })
+      }
+      .width('100%')
+      .height('100%')
+      .hitTestBehavior(HitTestMode.Transparent)
 
       if (this.showCreateDialog) {
         Column() {

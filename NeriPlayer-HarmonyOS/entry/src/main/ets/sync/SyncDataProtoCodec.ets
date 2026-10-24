@@ -253,6 +253,47 @@ function decodeSyncSong(r: ProtoReader): SyncSong | null {
   );
 }
 
+/**
+ * True when a song payload uses the legacy (pre-mediaUri) schema. The two
+ * schemas disagree on several fields' wire types, not just tag 8:
+ *
+ *   current varint / legacy length: 9, 14
+ *   current length / legacy varint: 8, 13
+ *
+ * A legacy song may omit tag 8 entirely (no addedAt) while still carrying
+ * tag 9 or 13, so the probe must check every disagreeing field, not just 8.
+ * A current-schema member that merely fails to decode is not legacy. This
+ * probe keeps the skip-undecodable policy from turning a legacy playlist
+ * into a "successfully decoded" song-less one, which would suppress the
+ * legacy fallback in decodeProtoSyncDataWithLegacyFallback().
+ */
+const CURRENT_VARINT_SONG_FIELDS: Set<number> = SONG_VARINT;
+const CURRENT_LEN_SONG_FIELDS: Set<number> = SONG_LEN;
+
+function looksLikeLegacySong(reader: ProtoReader): boolean {
+  const probe = reader.duplicate();
+  while (!probe.atEnd()) {
+    const tag = probe.readTag();
+    if (tag === -1) {
+      return false;
+    }
+    const field = tag >>> 3;
+    const wireType = tag & 0x07;
+    const currentWantsVarint = CURRENT_VARINT_SONG_FIELDS.has(field);
+    const currentWantsLen = CURRENT_LEN_SONG_FIELDS.has(field);
+    if (currentWantsVarint && wireType !== WIRE_VARINT) {
+      return true;
+    }
+    if (currentWantsLen && wireType !== WIRE_LEN) {
+      return true;
+    }
+    if (!probe.skip(wireType)) {
+      return false;
+    }
+  }
+  return false;
+}
+
 function decodeSyncPlaylist(r: ProtoReader): SyncPlaylist | null {
   const f = RawFields.parse(r, PLAYLIST_VARINT, PLAYLIST_LEN);
   if (f === null) {
@@ -260,9 +301,19 @@ function decodeSyncPlaylist(r: ProtoReader): SyncPlaylist | null {
   }
   const songs: SyncSong[] = [];
   for (const nested of f.readers(3)) {
+    // Probe before decoding: RawFields.parse consumes the reader.
+    const legacyEncoded = looksLikeLegacySong(nested);
     const song = decodeSyncSong(nested);
     if (song === null) {
-      return null;
+      if (legacyEncoded) {
+        // Legacy bytes must fail this decode so the caller falls back to
+        // decodeLegacySyncData and reads the songs properly.
+        return null;
+      }
+      // Skip undecodable members instead of failing every playlist
+      // (upstream #506 `skip undecodable playlist members`): one corrupt
+      // song entry costs that entry, not the whole snapshot.
+      continue;
     }
     songs.push(song);
   }

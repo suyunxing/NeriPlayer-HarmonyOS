@@ -16,6 +16,11 @@ import { encodeBase64 } from '../../util/Base64';
 import { utf8Decode, utf8EncodeText } from '../SyncDataJsonCodec';
 import { sha256ByteArray } from '../SyncModels';
 import {
+  UPSTREAM_ARCHIVE_MANIFEST_FILE_NAME,
+  describeUpstreamArchiveProtocolForUser,
+  upstreamArchiveProtocolVersion
+} from '../UpstreamArchiveGuard';
+import {
   WebDavError,
   WebDavErrorKind,
   classifyWebDavFailure,
@@ -139,6 +144,15 @@ export function buildWebDavRemoteFileUrl(serverUrl: string, basePath: string): s
   return `${buildWebDavCollectionUrl(serverUrl, basePath)}${WEBDAV_REMOTE_FILE_NAME}`;
 }
 
+/** Replaces the last path segment of a file URL (temp names, sibling probes). */
+export function webDavSiblingFileUrl(remoteUrl: string, fileName: string): string {
+  const index = remoteUrl.lastIndexOf('/');
+  if (index < 0) {
+    return `${remoteUrl}/${fileName}`;
+  }
+  return `${remoteUrl.substring(0, index + 1)}${fileName}`;
+}
+
 export class WebDavTransport {
   private readonly executor: WebDavExecutor;
   private readonly authorization: string;
@@ -154,7 +168,24 @@ export class WebDavTransport {
     request.headers.set('Depth', '0');
     request.headers.set('Content-Type', 'application/xml; charset=utf-8');
     request.bodyBytes = utf8EncodeText(PROPFIND_BODY);
-    await this.executeSuccess('validateConnection', request);
+    await this.executeSuccess('validateConnection', request, true);
+  }
+
+  /** RFC 4918 MOVE with an absolute Destination URI; servers may reject with 405/501. */
+  async moveFile(sourceUrl: string, destinationUrl: string, overwrite: boolean): Promise<WebDavResponse> {
+    const request = this.newRequest('MOVE', sourceUrl);
+    request.headers.set('Destination', destinationUrl);
+    request.headers.set('Overwrite', overwrite ? 'T' : 'F');
+    return this.executeSuccess('moveFile', request);
+  }
+
+  /** Best-effort cleanup of leftover upload workspace files; never throws. */
+  async tryDeleteFile(remoteUrl: string): Promise<void> {
+    try {
+      await this.executeSuccess('deleteFile', this.newRequest('DELETE', remoteUrl));
+    } catch (_error) {
+      // Leftover temp files are cosmetic garbage; cleanup failures must not mask the real error.
+    }
   }
 
   async getFileContentStrict(remoteUrl: string): Promise<WebDavRemoteFileSnapshot> {
@@ -213,7 +244,8 @@ export class WebDavTransport {
     return request;
   }
 
-  private async executeSuccess(operation: string, request: WebDavRequest): Promise<WebDavResponse> {
+  private async executeSuccess(operation: string, request: WebDavRequest,
+    dirProbe: boolean = false): Promise<WebDavResponse> {
     let response: WebDavResponse;
     try {
       response = await this.executor.execute(request);
@@ -222,7 +254,7 @@ export class WebDavTransport {
       throw new WebDavError(WebDavErrorKind.NETWORK, 0, `${operation} network error: ${e.message}`);
     }
     if (response.status < 200 || response.status >= 300) {
-      throw classifyWebDavFailure(operation, response.status, response.bodyText());
+      throw classifyWebDavFailure(operation, response.status, response.bodyText(), dirProbe);
     }
     return response;
   }
@@ -236,6 +268,7 @@ export class WebDavSyncClient {
   }
 
   async fetchRemoteSnapshot(remoteUrl: string): Promise<WebDavSyncSnapshot | null> {
+    await this.rejectUpstreamArchiveManifest(remoteUrl);
     let remote: WebDavRemoteFileSnapshot;
     try {
       remote = await this.transport.getFileContentStrict(remoteUrl);
@@ -261,8 +294,159 @@ export class WebDavSyncClient {
     return snapshot;
   }
 
-  /** Conditional upload plus Android's fingerprint-revalidation fallback. */
+  /**
+   * Upstream #475 archive guard: once Android migrates the collection to the
+   * ZSTD archive layout, the legacy file at `remoteUrl` is never read or
+   * written again by new Android builds — syncing through it would fork the
+   * dataset. Refuse instead of touching the stale legacy file.
+   */
+  private async rejectUpstreamArchiveManifest(remoteUrl: string): Promise<void> {
+    let manifest: WebDavRemoteFileSnapshot;
+    try {
+      manifest = await this.transport.getFileContentStrict(
+        webDavSiblingFileUrl(remoteUrl, UPSTREAM_ARCHIVE_MANIFEST_FILE_NAME));
+    } catch (error) {
+      const e = error as WebDavError;
+      if (e instanceof WebDavError && e.kind === WebDavErrorKind.FILE_NOT_FOUND) {
+        return;
+      }
+      throw e;
+    }
+    const protocol = upstreamArchiveProtocolVersion(manifest.content);
+    if (protocol > 0) {
+      throw new WebDavError(WebDavErrorKind.UNSUPPORTED_ARCHIVE_PROTOCOL, 0,
+        describeUpstreamArchiveProtocolForUser(protocol));
+    }
+  }
+
+  /**
+   * Atomic publish (Android upstream #495 semantics): upload to a per-call temp
+   * name inside the target collection, verify the remote still matches the
+   * version we merged from, then MOVE over the final name so an interrupted
+   * transfer can never leave a truncated backup. Servers without MOVE support
+   * (403/405/501) fall back to the legacy direct conditional PUT.
+   */
   async uploadBackup(remoteUrl: string, content: Uint8Array, mediaType: string,
+    version: WebDavRemoteVersion): Promise<WebDavWriteResult> {
+    await this.verifyRemoteStateForUpload(remoteUrl, version);
+    const tempUrl = await this.uploadToTempFile(remoteUrl, content, mediaType);
+    // Re-check the archive guard immediately before publishing. WebDAV has no
+    // transaction that could span verify→MOVE, so this cannot be made
+    // strictly atomic; it does shrink the exposure from "the whole payload
+    // transfer" to "the MOVE round-trip". A migration that lands in between
+    // is caught here and the temp file is discarded instead of being
+    // published into a collection the upstream no longer reads.
+    try {
+      await this.rejectUpstreamArchiveManifest(remoteUrl);
+    } catch (error) {
+      await this.transport.tryDeleteFile(tempUrl);
+      const e = error as Error;
+      if (e instanceof Error) {
+        throw e;
+      }
+      throw new WebDavError(WebDavErrorKind.API, 0, 'Unknown WebDAV publish failure');
+    }
+    let moveResponse: WebDavResponse;
+    try {
+      moveResponse = await this.transport.moveFile(tempUrl, remoteUrl, !version.createOnly);
+    } catch (error) {
+      await this.transport.tryDeleteFile(tempUrl);
+      const e = error as WebDavError;
+      if (e instanceof WebDavError && !version.createOnly &&
+        (e.statusCode === 403 || e.statusCode === 405 || e.statusCode === 501)) {
+        return this.directConditionalUpload(remoteUrl, content, mediaType, version);
+      }
+      if (e instanceof Error) {
+        throw e;
+      }
+      throw new WebDavError(WebDavErrorKind.API, 0, 'Unknown WebDAV publish failure');
+    }
+    const result = new WebDavWriteResult();
+    result.fingerprint = calculateWebDavFingerprint(content);
+    result.version = extractConcurrencyToken(moveResponse.headers);
+    return result;
+  }
+
+  /**
+   * Pre-publish guard replacing the old If-Match/If-None-Match headers: the
+   * final resource must still be exactly the state we merged from. Unlike a
+   * conditional PUT, this check runs before the payload transfer, so the
+   * residual race window spans verify→MOVE instead of blocking the upload.
+   */
+  private async verifyRemoteStateForUpload(remoteUrl: string,
+    version: WebDavRemoteVersion): Promise<void> {
+    const hasToken = version.token !== null && version.token.hasConditionToken();
+    const hasFingerprint = version.lastKnownFingerprint !== null &&
+      version.lastKnownFingerprint.trim().length > 0;
+    if (!version.createOnly && !hasToken && !hasFingerprint) {
+      throw new WebDavError(WebDavErrorKind.CONTENT_CONFLICT, 412,
+        'WebDAV upload rejected: no fingerprint or concurrency token to verify against');
+    }
+    await this.rejectUpstreamArchiveManifest(remoteUrl);
+    let remote: WebDavRemoteFileSnapshot;
+    try {
+      remote = await this.transport.getFileContentStrict(remoteUrl);
+    } catch (error) {
+      const e = error as WebDavError;
+      if (e instanceof WebDavError && e.kind === WebDavErrorKind.FILE_NOT_FOUND) {
+        if (version.createOnly) {
+          return;
+        }
+        // A vanished backup cannot be condition-overwritten either; the
+        // coordinator refetches, sees null and retries as create-only.
+        throw new WebDavError(WebDavErrorKind.CONTENT_CONFLICT, 412,
+          'WebDAV remote backup vanished while syncing');
+      }
+      if (e instanceof Error) {
+        throw e;
+      }
+      throw new WebDavError(WebDavErrorKind.API, 0, 'Unknown WebDAV read failure');
+    }
+    if (version.createOnly) {
+      throw new WebDavError(WebDavErrorKind.CONTENT_CONFLICT, 412,
+        'WebDAV remote backup already exists (create-only upload)');
+    }
+    if (hasFingerprint && remote.fingerprint !== version.lastKnownFingerprint) {
+      throw new WebDavError(WebDavErrorKind.CONTENT_CONFLICT, 412,
+        'WebDAV remote content changed while syncing');
+    }
+    if (hasToken && !sameConcurrencyToken(remote.version, version.token as WebDavConcurrencyToken)) {
+      throw new WebDavError(WebDavErrorKind.CONTENT_CONFLICT, 412,
+        'WebDAV remote version token changed while syncing');
+    }
+  }
+
+  /** Uploads the payload to a unique temp sibling of the final URL. */
+  private async uploadToTempFile(remoteUrl: string, content: Uint8Array,
+    mediaType: string): Promise<string> {
+    const prefix = calculateWebDavFingerprint(content).substring(0, 12);
+    let attempt = 0;
+    while (true) {
+      const tempUrl = `${remoteUrl}.tmp-${prefix}-${nextTempCounter()}`;
+      try {
+        await this.transport.updateFileContent(tempUrl, content, mediaType, null, true);
+        return tempUrl;
+      } catch (error) {
+        const e = error as WebDavError;
+        if (!(e instanceof WebDavError) || e.kind !== WebDavErrorKind.CONTENT_CONFLICT) {
+          if (e instanceof Error) {
+            throw e;
+          }
+          throw new WebDavError(WebDavErrorKind.API, 0, 'Unknown WebDAV temp upload failure');
+        }
+        attempt += 1;
+        if (attempt >= 2) {
+          // Temp-name collision with an in-flight upload that persisted across
+          // one regenerated name; bail out as a plain API failure.
+          throw new WebDavError(WebDavErrorKind.API, 412,
+            'WebDAV temp upload name collision');
+        }
+      }
+    }
+  }
+
+  /** Legacy single-request path for servers that reject MOVE. */
+  private async directConditionalUpload(remoteUrl: string, content: Uint8Array, mediaType: string,
     version: WebDavRemoteVersion): Promise<WebDavWriteResult> {
     try {
       return await this.transport.updateFileContent(remoteUrl, content, mediaType,
@@ -284,6 +468,24 @@ export class WebDavSyncClient {
     }
     return this.transport.updateFileContent(remoteUrl, content, mediaType, null, false, true);
   }
+}
+
+let webDavTempCounter: number = 0;
+
+function nextTempCounter(): number {
+  webDavTempCounter += 1;
+  return webDavTempCounter;
+}
+
+function sameConcurrencyToken(actual: WebDavConcurrencyToken,
+  expected: WebDavConcurrencyToken): boolean {
+  if (expected.etag !== null && expected.etag.length > 0) {
+    return actual.etag === expected.etag;
+  }
+  if (expected.lastModified !== null && expected.lastModified.length > 0) {
+    return actual.lastModified === expected.lastModified;
+  }
+  return true;
 }
 
 function extractConcurrencyToken(headers: Map<string, string>): WebDavConcurrencyToken {

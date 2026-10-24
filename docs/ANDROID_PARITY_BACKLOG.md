@@ -1,10 +1,24 @@
 # Android 原版功能对齐待办（ANDROID_PARITY_BACKLOG）
 
-> 2026-09-14 编制，基于当日对 Android 快照（`NeriPlayer-master/`，约 126 个设置键、285 个 JVM 测试文件）与 HarmonyOS 主线（257 个源文件、69 个 `np.*` 设置键）的**代码级逐子系统对比审计**。所有「缺失」结论均经两侧源码路径核实（2026-09-14 定点 grep 复核），不采信文档声明。
+> 2026-09-14 编制，基于当日对 Android 快照（`NeriPlayer-master/`，约 126 个设置键、285 个 JVM 测试文件）与 HarmonyOS 主线（257 个源文件、69 个 `np.*` 设置键）的**代码级逐子系统对比审计**。**2026-10-22 复核**：HarmonyOS 主线已增至 335 个 `.ets` / 81,505 行、`np.*` 设置键约 92 个；本清单各项完成情况以 `UPSTREAM_SYNC_PLAN.md` §4（F-1~F-13 已完成）与 `FEATURE_MATRIX.md` 为准，本文保留为长期对齐 backlog。所有「缺失」结论均经两侧源码路径核实（2026-09-14 定点 grep 复核），不采信文档声明。
 >
-> **定位**：本 backlog 是「把 HarmonyOS 版做成与 Android 原版功能等价」的完整工程缺口清单，**不设时间承诺、不阻塞开源发布**（发布门槛见 `OPEN_SOURCE_RELEASE_PREPARATION.md`）。执行时按 `PORTING_EXECUTION_PLAN.md` §1 的单任务工作循环（定位参照 → 核对 API → 实现 → 测试 → 验证 → 收尾）逐项推进。
+> **定位**：本 backlog 是「把 HarmonyOS 版做成与 Android 原版功能等价」的完整工程缺口清单，**不设时间承诺、不阻塞已发布版本的分发**（开源版本已发布 `v1.4.0-rc.4`；发布门槛见 `OPEN_SOURCE_RELEASE_PREPARATION.md`）。执行时按 `PORTING_EXECUTION_PLAN.md` §1 的单任务工作循环（定位参照 → 核对 API → 实现 → 测试 → 验证 → 收尾）逐项推进。
 >
-> **基线数字**：第三方音源完整度约 Android 的 55-60%；设置键 69/126；子系统 9 项中 8 项「部分」、1 项「缺」（本地音乐库）。
+> **基线数字（2026-09-14）**：第三方音源完整度约 Android 的 55-60%；设置键 69/126；子系统 9 项中 8 项「部分」、1 项「缺」（本地音乐库）。**2026-10-22 复核**：设置键已增至约 92 个；本地音乐库不再是「缺」——`LocalDirectoryScanner`（目录授权扫描 + 同级 .lrc 读取）与系统歌单「本地音乐」（`LocalPlaylistRepository.LOCAL_MUSIC_ID`）已落地，详见 §8 复核注。
+
+---
+
+## 阅读索引（先看这里，避免通读）
+
+> 本文 15 KB / ~5k token，是长期对齐 backlog，**不属于发布门槛**。第一波/第二波所列项已全部完成，当前焦点在 `UPSTREAM_SYNC_PLAN.md`。
+
+| 我想知道 | 读这里 |
+| --- | --- |
+| 缺口总览与优先级（P0/P1/P2） | 开头「基线数字」与优先级段 |
+| 逐子系统差距（播放/数据/下载/同步/登录/一起听） | 各子系统节 |
+| 设置键缺口对照 | §7 |
+| 本地音乐库（已大幅推进） | §8 |
+| 排期建议 | §10 |
 
 ---
 
@@ -173,7 +187,7 @@
 
 ## 7. 设置项补全（P2，共约 19 键可移植）
 
-Android 126 键 vs HarmonyOS 69 键，其中约 30 键属平台限制不可移植（USB 13 键、均衡器/音效 8 键、悬浮歌词 16 键中的大部分、音频律动等）。**可移植的工程缺口**（分散于上文各节）：
+Android 126 键 vs HarmonyOS **约 92 键**（2026-10-22 复核，原 69 键为 2026-09-14 数字），其中约 30 键属平台限制不可移植（USB 13 键、均衡器/音效 8 键、悬浮歌词 16 键中的大部分、音频律动等）。**可移植的工程缺口**（分散于上文各节）：
 
 | 键（Android 名） | 归属任务 |
 |---|---|
@@ -190,7 +204,8 @@ Android 126 键 vs HarmonyOS 69 键，其中约 30 键属平台限制不可移�
 
 ### 8.1 现状与差距
 
-- **现状**：`LocalMediaScanner.ets` 仅 `AudioViewPicker` 手动多选（限 500 文件），`AVMetadataExtractor` 只读 title/artist/album/duration，**封面字段置空**，不找同级歌词/封面文件。
+- **现状（2026-09-14）**：`LocalMediaScanner.ets` 仅 `AudioViewPicker` 手动多选（限 500 文件），`AVMetadataExtractor` 只读 title/artist/album/duration，**封面字段置空**，不找同级歌词/封面文件。
+- **2026-10-22 复核（已大幅推进）**：新增 `data/LocalDirectoryScanner.ets`——经 `DocumentViewPicker` 选目录 + `FILE_ACCESS_PERSIST` 持久授权遍历（含 `activatePersistedPermission` 与可等待变体），并实现**同级 `.lrc` 歌词读取**（`siblingLyricPath`）；扫描结果持久缓存 `local_music_catalog`。另新增系统歌单「本地音乐」（`LocalPlaylistRepository.LOCAL_MUSIC_ID`，注入式装配不落库、不进跨端同步）与资料库本地窗格入口。**仍缺**：内嵌封面提取（`AVMetadataExtractor` 封面字段仍为空）、目录级增量观察者刷新、黑名单/时长过滤。
 - **Android**：SAF/MediaStore 全盘扫描、TagLib 精读 ID3/FLAC/MP4 标签与内嵌封面、同级 `.lrc`/`folder.jpg` 匹配、黑名单/时长过滤、MediaStore 观察者增量刷新。
 
 ### 8.2 平台可行性（先 spike 再承诺）
@@ -225,5 +240,7 @@ Android 126 键 vs HarmonyOS 69 键，其中约 30 键属平台限制不可移�
 
 1. **第一波（跨端价值）**：1.1 SongIdentity → 1.2 sourceStableKey → 1.4 日桶扩容 → 1.3 Protobuf 写出。这一波做完，「GitHub/WebDAV 跨端同步」这个核心卖点才真正成立。
 2. **第二波（体验补齐）**：3.2 YRC → 2.1 URL 重签 → 5.1 统计页 → 3.5 下载歌词 sidecar → 4.1/4.2 一起听房间管理。
-3. **第三波（长尾）**：3.6 B 站高阶 → 3.3/3.4 网易云补全 → §7 设置键 → §8 本地音乐库（含 spike）→ i18n。
+3. **第三波（长尾）**：3.6 B 站高阶 → 3.3/3.4 网易云补全 → §7 设置键 → §8 本地音乐库（**目录扫描已落地，余内嵌封面/增量刷新**）→ i18n。
+
+> **2026-10-22 复核**：第一波（1.1~1.4）与第二波（3.2/2.1/5.1/3.5/4.1/4.2）所列各项均已于 2026-09-14 波次完成（见 `UPSTREAM_SYNC_PLAN.md` 与 `PROJECT_AUDIT.md` 2026-09-14 勘误节）；当前执行焦点已转为 `UPSTREAM_SYNC_PLAN.md` 的 F 系列与真机验证。
 4. 每项完成按 `PORTING_EXECUTION_PLAN.md` §6 惯例登记证据行，`docs/FEATURE_MATRIX.md` 同步更新状态。

@@ -28,6 +28,10 @@ export struct LyricSettingsRows {
   @StorageProp('np.lyric_blur') lyricBlur: boolean = true;
   @StorageProp('np.floating_lyric') floatingLyric: boolean = false;
   @StorageProp('np.bt_lyric') btLyric: boolean = false;
+  // F-2：优先源偏好与歌词持久缓存（上游 #417/#349）。
+  @StorageProp('np.lyric_source_preference') lyricSourcePreference: string = 'lrclib_first';
+  @StorageProp('np.lrclib_lyric_offset_ms') lrclibOffsetMs: number = 0;
+  @StorageProp('np.lyric_cache_enabled') lyricCacheEnabled: boolean = true;
 
   private offsetText(value: number): string {
     if (value === 0) {
@@ -80,6 +84,49 @@ export struct LyricSettingsRows {
         .layoutWeight(1)
       this.secondaryLinePill('translation', '中文')
       this.secondaryLinePill('phonetic', '发音')
+    }
+    .width('100%')
+    .padding({ left: 16, right: 16, top: 10, bottom: 10 })
+    .backgroundColor(this.transparentBg ? Color.Transparent : Theme.surface(Theme.isDark()))
+    .borderRadius(this.transparentBg ? 0 : Theme.cardRadius())
+  }
+
+  /** F-2：「优先歌词源」分段胶囊（非网易云歌曲的在线取词顺序）。 */
+  @Builder
+  lyricSourcePill(value: string, label: string) {
+    Text(label)
+      .fontSize(13)
+      .fontColor(this.lyricSourcePreference === value
+        ? Theme.onPrimary(Theme.isDark()) : Theme.textSecondary(Theme.isDark()))
+      .padding({ left: 16, right: 16, top: 7, bottom: 7 })
+      .backgroundColor(this.lyricSourcePreference === value
+        ? Theme.primary(Theme.isDark()) : Theme.surfaceVariant(Theme.isDark()))
+      .borderRadius(16)
+      .onClick(() => {
+        SettingsRepository.setString(SettingsRepository.KEY_LYRIC_SOURCE_PREFERENCE, value);
+      })
+  }
+
+  @Builder
+  lyricSourceRow() {
+    Row({ space: 12 }) {
+      Image(iconForLegacy('🎼', $r('app.media.ic_info_24')))
+        .width(20)
+        .height(20)
+        .fillColor(Theme.primary(Theme.isDark()))
+      Column({ space: 2 }) {
+        Text('优先歌词源')
+          .fontSize(15)
+          .fontColor(Theme.textPrimary(Theme.isDark()))
+        Text('非网易云歌曲取词顺序，网易云优先自带翻译')
+          .fontSize(11)
+          .fontColor(Theme.textSecondary(Theme.isDark()))
+          .maxLines(2)
+      }
+      .layoutWeight(1)
+      .alignItems(HorizontalAlign.Start)
+      this.lyricSourcePill('lrclib_first', 'LRCLIB')
+      this.lyricSourcePill('netease_first', '网易云')
     }
     .width('100%')
     .padding({ left: 16, right: 16, top: 10, bottom: 10 })
@@ -181,7 +228,28 @@ export struct LyricSettingsRows {
         onPick: (value: number) =>
           SettingsRepository.setNumber(SettingsRepository.KEY_YOUTUBE_LYRIC_OFFSET_MS, Math.round(value))
       })
+      SliderRow({
+        title: 'LRCLIB 基准偏移',
+        icon: '🇱',
+        transparentBg: this.transparentBg,
+        min: -1000,
+        max: 1000,
+        step: 50,
+        value: this.lrclibOffsetMs,
+        format: (value: number) => this.offsetText(Math.round(value)),
+        onPick: (value: number) =>
+          SettingsRepository.setNumber(SettingsRepository.KEY_LRCLIB_LYRIC_OFFSET_MS, Math.round(value))
+      })
+      this.lyricSourceRow()
       this.secondaryLineRow()
+      ToggleRow({
+        title: '歌词离线缓存',
+        subtitle: '歌词载入后离线可看，重播不再重复请求',
+        icon: '📥',
+        transparentBg: this.transparentBg,
+        value: this.lyricCacheEnabled,
+        onChange: (on: boolean) => SettingsRepository.setBoolean(SettingsRepository.KEY_LYRIC_CACHE_ENABLED, on)
+      })
       ToggleRow({
         title: '歌词模糊效果',
         icon: '🌫',

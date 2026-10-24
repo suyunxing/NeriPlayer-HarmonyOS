@@ -184,6 +184,11 @@ export class ProtoReader {
   endOffset(): number {
     return this.end;
   }
+
+  /** An independent reader over this same byte range, for re-parsing. */
+  duplicate(): ProtoReader {
+    return new ProtoReader(this.bytes, this.pos, this.end);
+  }
 }
 
 // ---------------------------------------------------------------------------

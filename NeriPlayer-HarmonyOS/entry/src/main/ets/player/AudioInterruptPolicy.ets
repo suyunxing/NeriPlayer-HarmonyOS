@@ -32,6 +32,8 @@ export class InterruptValues {
   static readonly HINT_UNDUCK = 5;
 
   static readonly REASON_OLD_DEVICE_UNAVAILABLE = 2;
+  /** audio.StreamChangeReason.REASON_NEW_DEVICE_AVAILABLE（路由丢失静音恢复触发）。 */
+  static readonly REASON_NEW_DEVICE_AVAILABLE = 1;
 }
 
 /**

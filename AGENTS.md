@@ -22,7 +22,8 @@
 
 1. 当前源码、构建配置、可重复执行的测试结果。
 2. 本机可用的官方 HarmonyOS 文档（本机配置了 DevEco CLI 时使用 `devecocli docs search` / `devecocli docs read`，命中后读取完整 `documentId`，不要仅凭 snippet 或模型记忆下结论；本机没有文档工具时访问华为官方在线文档，并记录缺口）。涉及 ArkTS、ArkUI、Kit、权限、系统能力、SDK 或构建参数时，编码前必须先查。
-3. `docs/hm.md`（HarmonyOS 开发与迁移指南：版本矩阵、构建命令、2026-08-13 验证记录）、`docs/PROJECT_AUDIT.md`、`docs/FEATURE_MATRIX.md`、`docs/HARMONYOS_PORTING_PLAN.md`、`docs/PORTING_EXECUTION_PLAN.md`（任务级执行计划与进度看板，开始移植任务前先读其 §1/§6）。
+3. `docs/hm.md`（HarmonyOS 开发与迁移指南：版本矩阵、构建命令、当前工程基线）、`docs/PROJECT_AUDIT.md`、`docs/FEATURE_MATRIX.md`、`docs/HARMONYOS_PORTING_PLAN.md`、`docs/PORTING_EXECUTION_PLAN.md`（任务级执行计划与进度看板，开始移植任务前先读其 §1/§6）。
+   - **历史验证记录已归档**：`docs/hm.md` 的 §7.4~§7.23 与 `docs/PORTING_EXECUTION_PLAN.md` 的 S 阶段/缺陷修复轮次已移至 `docs/archive/HM_HISTORY.md` 与 `docs/archive/PORTING_HISTORY.md`（2026-10-22，为控制主线文档体积）。需要复查某轮取证细节时读归档文件；主线文档的 § 编号未变。
 4. 根目录 `README.md`。
 5. 各原型目录中的 `README.md`、`PORTING.md` 和历史日志。
 
@@ -105,7 +106,7 @@
 
 ### HarmonyOS 主线
 
-工程基线为 SDK `26.0.0`（API 26；2026-09-07 从 `6.1.1(24)` 全量迁移，迁移记录见 `docs/hm.md` §7.12）。版本号自 26.0.0 起改用纯 SemVer，配置中**不带 `(26)` 括号后缀**；`compatibleSdkVersion` 已抬至 `26.0.0`，26 以下设备不再可安装。版本映射以官方[所有 HarmonyOS 开发套件版本](https://developer.huawei.com/consumer/cn/doc/harmonyos-releases/overview-allversion)页为准，不得凭目录名推断。
+工程基线为 SDK `26.0.0`（API 26；2026-09-07 从 `6.1.1(24)` 全量迁移，迁移记录见 `docs/archive/HM_HISTORY.md` §7.12）。版本号自 26.0.0 起改用纯 SemVer，配置中**不带 `(26)` 括号后缀**；`compatibleSdkVersion` 已抬至 `26.0.0`，26 以下设备不再可安装。版本映射以官方[所有 HarmonyOS 开发套件版本](https://developer.huawei.com/consumer/cn/doc/harmonyos-releases/overview-allversion)页为准，不得凭目录名推断。
 
 - 本工程不自带项目级 hvigor wrapper；构建工具链随 DevEco Studio / command-line-tools 分发，调用入口以各机器全局配置为准。
 - 依赖同步由构建入口自动处理（ohpm 安装/同步），不要在每轮构建前重复手动 `ohpm install --all`；只有需要证明干净状态可重现时才先 clean，普通局部迭代保留增量缓存。

@@ -175,4 +175,51 @@ export default function lrcParserTest(): void {
       expect(LrcParser.serialize([])).assertEqual('');
     });
   });
+
+  describe('SameTimestampFolding', () => {
+    it('foldsPlainFollowerOfWordTimedLineIntoTranslation', 0, () => {
+      const lines = LrcParser.parse(
+        '[00:01.00]君<00:01.00>は<00:01.50>どこ\n[00:01.00]君はどこ');
+      expect(lines.length).assertEqual(1);
+      expect(lines[0].words.length).assertEqual(2);
+      expect(lines[0].translated).assertEqual('君はどこ');
+    });
+
+    it('keepsPlainSameTimestampPairsUnfolded', 0, () => {
+      const lines = LrcParser.parse('[00:01.00]日本語\n[00:01.00]中文');
+      expect(lines.length).assertEqual(2);
+      expect(lines[0].translated.length).assertEqual(0);
+    });
+
+    it('keepsDifferentTimestampFollowerUnfolded', 0, () => {
+      const lines = LrcParser.parse(
+        '[00:01.00]a<00:01.00>b\n[00:01.60]translation');
+      expect(lines.length).assertEqual(2);
+      expect(lines[0].translated.length).assertEqual(0);
+    });
+
+    it('doesNotOverwriteExistingTranslation', 0, () => {
+      const lines = LrcParser.parse(
+        '[00:01.00]a<00:01.00>b\n[00:01.00]follower');
+      lines[0].translated = '已有翻译';
+      // 再解析一份同内容验证折叠只在 translated 为空时发生。
+      const fresh = LrcParser.parse(
+        '[00:01.00]a<00:01.00>b\n[00:01.00]follower');
+      expect(fresh[0].translated).assertEqual('follower');
+      expect(lines[0].translated).assertEqual('已有翻译');
+    });
+  });
+
+  describe('KanaReadingDetection', () => {
+    it('detectsHiraganaAndKatakana', 0, () => {
+      expect(LrcParser.containsKanaReading('こんにちは')).assertTrue();
+      expect(LrcParser.containsKanaReading('カタカナ')).assertTrue();
+    });
+
+    it('rejectsLatinRomajiChineseAndEmpty', 0, () => {
+      expect(LrcParser.containsKanaReading('kon nichi wa')).assertFalse();
+      expect(LrcParser.containsKanaReading('你好世界')).assertFalse();
+      expect(LrcParser.containsKanaReading('')).assertFalse();
+    });
+  });
 }

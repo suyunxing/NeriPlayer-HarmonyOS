@@ -2,6 +2,7 @@
 
 import { SchemaStore } from './schema/SchemaStore';
 import { util } from '@kit.ArkTS';
+import { KeyedMutex } from '../util/KeyedMutex';
 import { SyncDeletionStore } from '../sync/SyncDeletionStore';
 import { AutoSyncScheduler } from '../sync/AutoSyncScheduler';
 import {
@@ -26,29 +27,48 @@ export class DailyTrackStats extends TrackStats {
 
 export class PlaybackStatsRepository {
   private static readonly KEY: string = 'playback_stats';
+  // recordPlay is fired from many machine-paced flush points (pause, track
+  // change, foreground/background, teardown); two interleaved
+  // load-stats-modify-save runs lose one increment (audit A-25), so the whole
+  // read-modify-write runs under a per-key FIFO chain.
+  private static readonly WRITE_LOCK: KeyedMutex = new KeyedMutex();
   // Android PlaybackStatsDailyBuckets: a 400-day sliding window plus a hard
   // cap of 8000 (day, song) buckets, so multi-year listening reports survive
   // while the preferences payload stays bounded.
   static readonly RETENTION_DAYS: number = 400;
   static readonly MAX_DAILY_BUCKETS: number = 8000;
 
-  static async recordPlay(songKey: string, listenMs: number): Promise<void> {
+  /**
+   * Records one listened-time increment. `countPlay` distinguishes a
+   * mid-track checkpoint flush (pause/interrupt: listenMs only, so a crash
+   * cannot lose the window) from the terminal flush of a continuous
+   * listening session (track change/completion), which is the only moment a
+   * play is counted — pause/resume cycles on the same track must not
+   * inflate playCount (upstream #499 semantics).
+   */
+  static async recordPlay(songKey: string, listenMs: number, countPlay: boolean = true): Promise<void> {
+    return PlaybackStatsRepository.WRITE_LOCK.run(PlaybackStatsRepository.KEY,
+      (): Promise<void> => PlaybackStatsRepository.recordPlayLocked(songKey, listenMs, countPlay));
+  }
+
+  private static async recordPlayLocked(songKey: string, listenMs: number, countPlay: boolean): Promise<void> {
     const all = await PlaybackStatsRepository.loadStats();
     const now = Date.now();
     const today = PlaybackStatsRepository.dayKey(now);
     const deviceId = await SyncDeletionStore.getOrCreateDeviceId(
       (): string => util.generateRandomUUID(false));
+    const playDelta = countPlay ? 1 : 0;
     let track = all.tracks[songKey];
     if (track === undefined) {
       track = new TrackStats();
       track.firstPlayedAt = now;
       all.tracks[songKey] = track;
     }
-    track.playCount += 1;
+    track.playCount += playDelta;
     track.listenMs += listenMs;
     track.lastPlayedAt = now;
     track.counterShards = PlaybackStatsRepository.recordCounterDelta(
-      track.counterShards, deviceId, all.clearedAt, listenMs, 1, now);
+      track.counterShards, deviceId, all.clearedAt, listenMs, playDelta, now);
     if (all.daily[today] === undefined) {
       all.daily[today] = {};
     }
@@ -58,11 +78,11 @@ export class PlaybackStatsRepository {
       daily.firstPlayedAt = now;
       all.daily[today][songKey] = daily;
     }
-    daily.playCount += 1;
+    daily.playCount += playDelta;
     daily.listenMs += listenMs;
     daily.lastPlayedAt = now;
     daily.counterShards = PlaybackStatsRepository.recordCounterDelta(
-      daily.counterShards, deviceId, all.clearedAt, listenMs, 1, now);
+      daily.counterShards, deviceId, all.clearedAt, listenMs, playDelta, now);
     all.daily = PlaybackStatsRepository.trimDailyBuckets(all.daily);
     const json = JSON.stringify(all);
     await SchemaStore.save(PlaybackStatsRepository.KEY, json, (value: string) => value);
@@ -172,8 +192,14 @@ export class PlaybackStatsRepository {
   }
 
   static async replaceFromSync(root: StatsRoot): Promise<void> {
-    await SchemaStore.save(PlaybackStatsRepository.KEY, JSON.stringify(root),
-      (value: string) => value);
+    // Same lock as recordPlay: a stats snapshot merged from the remote must
+    // not overwrite (or be overwritten by) an in-flight increment, and
+    // clear() goes through here so it inherits the serialization too.
+    return PlaybackStatsRepository.WRITE_LOCK.run(PlaybackStatsRepository.KEY,
+      async (): Promise<void> => {
+        await SchemaStore.save(PlaybackStatsRepository.KEY, JSON.stringify(root),
+          (value: string) => value);
+      });
   }
 
   static parseJson(json: string): StatsRoot | null {

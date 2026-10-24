@@ -43,6 +43,20 @@
         "srcEntry": "./ets/sync/SyncWorkSchedulerAbility.ets",
         "type": "workScheduler",
         "exported": false
+      },
+      {
+        "name": "EntryFormAbility",
+        "srcEntry": "./ets/entryformability/EntryFormAbility.ets",
+        "description": "$string:EntryFormAbility_desc",
+        "label": "$string:EntryFormAbility_label",
+        "type": "form",
+        "exported": false,
+        "metadata": [
+          {
+            "name": "ohos.extension.form",
+            "resource": "$profile:form_config"
+          }
+        ]
       }
     ],
     "requestPermissions": [

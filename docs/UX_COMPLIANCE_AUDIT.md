@@ -8,6 +8,24 @@
 
 ---
 
+## 0. 阅读索引（先看这里，避免通读）
+
+> 本文 82 KB / ~42k token。**绝大多数场景只需要 §1 结论摘要 + §12 遗留项**；§2~§8 是逐条自查取证（每条含实测坐标/像素），只在复查某条规范时读。
+
+| 我想知道 | 读这里 |
+| --- | --- |
+| **结论：哪些规范已满足、哪些还没** | **§1** |
+| 分层图标 / 启动页 / 沉浸式 / 触控目标 / 深色模式 | §2~§6 |
+| 折叠屏与大屏适配（含 11 条密度问题整改） | §8（§8.2 最详细） |
+| **隐私与权限（上架红线）、账号注销、华为登录、IAP** | **§9** |
+| 各轮改动文件清单 | §10 |
+| 设备实测证据（tablet / phone / 2in1 逐形态数字） | §11（§11.5~§11.7 最详细） |
+| **还没做完的事** | **§12** |
+
+**当前状态速览（2026-10-22）**：三大形态（phone/tablet/2in1）响应式布局已收口；法务已于 2026-09-20 定稿 v1.0.0 且版本门控 2026-09-23 落地（§9.1、§12 两条已办结）；剩余主要是真机朗读听读、熄屏功耗、横屏与折叠外屏等未验证项。
+
+---
+
 ## 1. 结论摘要
 
 指南第一章共 7 项硬性必备/检查项、4 项「标准组件自动满足」项、折叠屏与大屏适配要求，以及生态规则（隐私、权限、账号、支付）。本轮自查 22 条，其中：
@@ -366,7 +384,7 @@ tablet 上追加的大屏密度问题（#6~#11），逐条附整改后实测：
 
    **每一条陈述都对着代码核过**，不是模板套话：退出登录入口确认存在于 `SettingsDetailPage.ets:209`/`:291`，GitHub/WebDAV 清除配置存在，无任何统计 SDK，诊断导出经 `sanitizeDiagnosticText` 脱敏。
 
-   两份文档都盖了 `legal_draft_notice`：「草案 · 待作者复核。上架前须定稿，并在 AppGallery Connect 同步上传同一版本。」并标 `版本：v1.0.0-draft`、`生效日期：待定`。**这是待办，不是完成项**——AGC 同步上传是上架动作，本轮不做。
+   两份文档当时都盖了 `legal_draft_notice`：「草案 · 待作者复核。上架前须定稿，并在 AppGallery Connect 同步上传同一版本。」并标 `版本：v1.0.0-draft`、`生效日期：待定`。**该状态已于 2026-09-20 解除**——两份正文定稿为 v1.0.0（生效日期 2026-09-20，`d3eadb3`），「草案 · 待作者复核」横幅与 `legal_draft_notice` 键于 2026-09-22 删除（`ee8bbfb`）。**剩余未办仅 AGC 同步上传**（商业上架动作，本开源项目不做）。
 
 3. **重写 `DisclaimerPage.ets`**：
    - 新增「不同意」按钮——真实可见、可点，不做成禁用态或藏起来。点击弹二次确认（沿用项目既有的 `getUIContext().showAlertDialog` 写法），确认后 `context.terminateSelf()`。
@@ -378,7 +396,7 @@ tablet 上追加的大屏密度问题（#6~#11），逐条附整改后实测：
 
 5. **`Router.ets` 新增 `LEGAL_DOC`**，`MainShell` 新增对应分支（带 `ROUTE_TRANSITION`）。
 
-**重大政策变更重新征得同意**：现有机制是 `KEY_DISCLAIMER_ACCEPTED` 布尔标记，改了政策版本号**不会**重新弹窗。已在文案中承诺「重大变更启动时重新征得同意」，但**代码未实现版本号比对**——登记为遗留项（见 §12）。
+**重大政策变更重新征得同意**：当时机制是 `KEY_DISCLAIMER_ACCEPTED` 布尔标记，改政策版本号不会重新弹窗。**已于 2026-09-23 实现**（`9d56a07`）：新增 `util/DisclaimerConsentPolicy.ets`（`CURRENT_DISCLAIMER_VERSION = '2'`），`Index.ets` 启动状态机比对偏好键 `np.disclaimer_accepted_version`，低于当前版本即重新进入合规页；此前只记录布尔同意的老安装（该键为空串）同样被要求确认一次。真机升级重弹路径未验证。
 
 ### 9.2 权限
 
@@ -394,7 +412,7 @@ tablet 上追加的大屏密度问题（#6~#11），逐条附整改后实测：
 
 #### 整改
 
-- 删除 `READ_AUDIO` 声明及其孤立的 `read_audio_reason` 字符串。删除后**全项目不再申请任何 user_grant 权限**，剩下三个全是 normal 级（安装时授予）。
+- 删除 `READ_AUDIO` 声明及其孤立的 `read_audio_reason` 字符串。删除后**全项目不再申请任何 user_grant 权限**，剩下四个全是 normal 级（含后来引入的 `FILE_ACCESS_PERSIST`；2026-10-22 复核 `module.json5`）。
 - 重写 `keep_background_running_reason`，交代场景+动作+目的：「用于在你切换到其他应用或息屏后继续播放当前歌曲，并在通知栏与锁屏保留播放控制。」
 - 新建 `entry/src/main/resources/zh_CN/element/string.json`（本轮新增目录），提供 `module_desc` / `EntryAbility_desc` / `EntryAbility_label` / `keep_background_running_reason` 的中文版。
 
@@ -506,10 +524,10 @@ tablet 上追加的大屏密度问题（#6~#11），逐条附整改后实测：
 | 构建 | `hvigorw.bat assembleHap --mode module -p module=entry@default -p product=default -p buildMode=debug --no-daemon`（命令行工具链，非 DevEco 26 Beta2） | **BUILD SUCCESSFUL in 22 s** | **BUILD SUCCESSFUL in 17 s 235 ms** |
 | 静态检查 | `codelinter.bat ./entry` | **warn 25 / suggestion 2 / error 0** | **Defects 28；error 0 / warn 26 / suggestion 2** |
 | 本地单测 | `hvigorw.bat test --mode module -p module=entry@default -p product=default --no-daemon` | 未运行（基线文档声称 798 pass） | **Tests run: 819, Failure: 0, Error: 0, Pass: 819, Ignore: 0**；行覆盖 60.24%（11135/18485）、函数 53.92%、分支 56.51% |
-| 设备侧测试 | `aa test -b moe.ouom.neriplayer -m entry_test -s unittest /ets/testrunner/OpenHarmonyTestRunner -s timeout 300000` | 未运行 | **Tests run: 49, Failure: 10, Error: 10, Pass: 29**，`TestFinished-ResultCode: 0` |
+| 设备侧测试 | `aa test -b com.sc.neriplayer -m entry_test -s unittest /ets/testrunner/OpenHarmonyTestRunner -s timeout 300000`（bundleName 于 2026-10-05 定稿为 `com.sc.neriplayer`；本表历史结果的 `-b` 当时传的是旧名） | 未运行 | **Tests run: 49, Failure: 10, Error: 10, Pass: 29**，`TestFinished-ResultCode: 0` |
 | 图标资源复核 | 纯标准库 PNG 解码器逐像素统计 | 前景层 1024² RGBA，透明 79.81%/不透明 19.03%/过渡带 1.17%；背景层 1024² colorType 2（无 alpha 通道），**distinct colors = 1**，值 `(30,41,58)`；`startIcon.png` alpha 全 255 | 未改动图标资源，不复跑 |
 
-**两套测试是不同的东西，不能混记**：`entry/src/test/`（819 条，`List.test.ets` 注册 162 个 `describe`）是本地单测，由 `hvigorw test` 构建成 testability HAP 后执行，结果落在 `entry/.test/default/intermediates/test/coverage_data/test_result.txt`；`entry/src/ohosTest/`（49 条，模块 `entry_test`）是设备侧测试，须单独 `assembleHap --mode module -p module=entry@ohosTest` + 签名 + 安装后用 `aa test` 跑。**文档此前记的 798 是历史声称值，从未在本机取得过**；819 是本轮首次实测数，两者不可作差解读。
+**两套测试是不同的东西，不能混记**：`entry/src/test/`（819 条，`List.test.ets` 注册 162 个 `describe`；**2026-10-22 补记**：当前静态清点 1334 例 / 128 文件 / 248 describe，最近一次真实全量执行仍是 2026-08-29 的 874/874，此后新增未执行）是本地单测，由 `hvigorw test` 构建成 testability HAP 后执行，结果落在 `entry/.test/default/intermediates/test/coverage_data/test_result.txt`；`entry/src/ohosTest/`（49 条，模块 `entry_test`）是设备侧测试，须单独 `assembleHap --mode module -p module=entry@ohosTest` + 签名 + 安装后用 `aa test` 跑。**文档此前记的 798 是历史声称值，从未在本机取得过**；819 是本轮首次实测数，两者不可作差解读。
 
 本轮对测试代码的改动是：`RouteStack.test.ets` **删 2 条、余 4 条按新签名重写**（被删的是 `serialize/parse round trips` 与依赖数组语义的那部分——`route.stack` AppStorage 镜像随 `NavPathStack` 迁移一起删除，被测行为不存在了，不是为了让测试通过而删）；**新增 `Breakpoint.test.ets` 5 条**（断点映射、与 `GridRow` 默认阈值同源、宽度缺失不误判为大屏、只有 lg 算宽屏布局、只在有导航指示器时抬升底部控件）。
 
@@ -545,7 +563,7 @@ codelinter 从基线 25 增到 26 warn，**新增的一条**是 `Ui.ets` 里新�
 | 分层图标落地 | 桌面截图 | 启动器上显示为分层图标，前景居中、无裁切 |
 | 底部 Tab 几何 | `dumpLayout` 量 `origBounds` | phone 单格 97.8vp；2in1 窗口态 275vp、最大化 410vp；tablet 360vp |
 | 导航指示器避让区实高 | `hidumper -s WindowManagerService -a -a` 读系统窗口矩形 | tablet `SCBGestureNavBar18 [0,1864,2880,56]` → 28vp，与 `BOTTOM_BAR_LIFT_VP` 吻合；2in1 自由窗口内为 0，同一常量成为死区 |
-| 应用内法务入口 | tablet 上从「设置 → 隐私与协议」逐个打开 | 「隐私政策」「用户协议」两个入口存在且可打开，`LegalDocPage` 正常渲染（含「草案 · 待作者复核」横幅），返回按钮 40×40vp |
+| 应用内法务入口 | tablet 上从「设置 → 隐私与协议」逐个打开 | 「隐私政策」「用户协议」两个入口存在且可打开，`LegalDocPage` 正常渲染，返回按钮 40×40vp（**2026-10-22 补记**：当时渲染含「草案 · 待作者复核」横幅，该横幅已于 2026-09-22 随定稿删除，现渲染 v1.0.0 定稿正文） |
 
 **实测发现并已修复的缺陷（深色模式，指南检查项⑦）**：
 
@@ -649,7 +667,7 @@ codelinter 从基线 25 增到 26 warn，**新增的一条**是 `Ui.ets` 里新�
 
 ArkUI 改造轮的最后一份设备证据。设备 `MateBook Pro` 模拟器（3120×2080，1.9 px/vp；**API 26 Beta 向上兼容，非目标 API**），证据前缀 `tools/.m9/wb*`。
 
-**先记录一个排查过程序（下次换机会再遇到）**：本轮开始时应用渲染的是底部栏、四格 275vp、Tab 区高 90vp（62+28）——全是旧版 UI。排查发现**模拟器上并存两个同图标应用**：旧 bundle 名 `moe.ouom.neriplayer`（历史安装残留，运行的是旧代码）与 `moe.ouom.neriplayer.hmos`（当前包——bundleName 已于 08-27 上午在工作树中改为 `.hmos`，晚于当日 08:25 的提交，属未提交变更）。`aa start -b` 一直用旧名，启动的是残留应用；新包首次启动（pid 2909）的 hilog 即正确输出 `width=1074~1089vp bp=lg lift=0vp`。用 `aa dump -l` 看到两个 bundle 的 mission、`pidof` 对照、`app.json5` mtime 与 git 对照后定位。**教训：bundleName 变更后，模拟器上的旧包要先卸载，`aa start`/`aa test` 命令里的 `-b` 参数要跟着改**（`hm.md` 中现存的 `moe.ouom.neriplayer` 命令已过时）。
+**先记录一个排查过程序（下次换机会再遇到）**：本轮开始时应用渲染的是底部栏、四格 275vp、Tab 区高 90vp（62+28）——全是旧版 UI。排查发现**模拟器上并存两个同图标应用**：旧 bundle 名 `moe.ouom.neriplayer`（历史安装残留，运行的是旧代码）与 `moe.ouom.neriplayer.hmos`（当前包——bundleName 已于 08-27 上午在工作树中改为 `.hmos`，晚于当日 08:25 的提交，属未提交变更）。`aa start -b` 一直用旧名，启动的是残留应用；新包首次启动（pid 2909）的 hilog 即正确输出 `width=1074~1089vp bp=lg lift=0vp`。用 `aa dump -l` 看到两个 bundle 的 mission、`pidof` 对照、`app.json5` mtime 与 git 对照后定位。**教训：bundleName 变更后，模拟器上的旧包要先卸载，`aa start`/`aa test` 命令里的 `-b` 参数要跟着改**。**2026-10-22 补记**：bundleName 后又于 2026-10-05 定稿为 `com.sc.neriplayer`（`5c75691`），`.hmos` 与无后缀名均已作废，现所有 `-b` 参数应传 `com.sc.neriplayer`。
 
 对正确包（`.hmos`）的验收结果（全部通过）：
 
@@ -671,9 +689,9 @@ ArkUI 改造轮的最后一份设备证据。设备 `MateBook Pro` 模拟器（3
 
 按优先级排列。前三项是上架前必须处理的。
 
-1. **法务文案定稿并同步 AGC**。当前是我起草的 `v1.0.0-draft`，两份文档都带「草案 · 待作者复核」横幅。上架前须由作者定稿、填写生效日期，并在 AppGallery Connect 上传**同一版本**（应用内与 AGC 不一致是驳回项）。
-2. **重大政策变更重新征得同意**：文案里已承诺，代码里**未实现**。现有 `KEY_DISCLAIMER_ACCEPTED` 是布尔标记，改政策版本号不会重新弹窗。建议改为存已同意的版本号，与当前版本比对。
-3. **大屏三档响应式布局**（§8.2）——**已整改，三形态复测全部完成（2026-08-26 tablet / 08-27 phone 与 2in1）**。整改内容见 §11.5/§11.6/§11.7：`Tabs` 侧边导航栏、`GridRow`/`GridCol` 分列、`ContentBand` 栏宽三档、`WindowMetrics` 断点发布。逐形态数字：tablet（lg/侧边栏分支，Tab 单格 360→96vp、设置行 1412→716vp、法务 1408→568vp、按钮 1296→360vp）；phone（sm/底部栏分支，唯一 API 24，Tab 单格 97.8vp 与改造前逐像素一致，网格 2 卡/行）；2in1（自由窗口 1100vp 侧边栏 96.3vp + 最大化 1642vp 保持 + **跨断点 809↔1101vp 双向换栏**、设置行 716.8vp、每日推荐 6 卡/行）。**残留小项**：2in1 空态竖向空白（#3）未专项度量（tablet 已收口同源结构）；跑的是 API 26 Beta，目标 API 24 上的 tablet/2in1 无镜像可用。另注意 §11.7 的 bundleName 变更记录——对外表述「三档响应式布局已验证」目前成立。
+1. **法务文案定稿并同步 AGC**。~~当前是 `v1.0.0-draft`~~ → **定稿已完成**：2026-09-20 定稿 v1.0.0（生效日期 2026-09-20，`d3eadb3`），草案横幅 09-22 删除（`ee8bbfb`）。**仅剩 AGC 上传同一版本**这一商业上架动作（应用内与 AGC 不一致是驳回项），本开源项目不做。
+2. ~~**重大政策变更重新征得同意**：文案里已承诺，代码里未实现~~ → **已实现（2026-09-23，`9d56a07`）**：`util/DisclaimerConsentPolicy.ets` + 偏好键 `np.disclaimer_accepted_version`，版本比对不匹配即重弹合规页。
+3. **大屏三档响应式布局**（§8.2）——**已整改，三形态复测全部完成（2026-08-26 tablet / 08-27 phone 与 2in1）**。整改内容见 §11.5/§11.6/§11.7：`Tabs` 侧边导航栏、`GridRow`/`GridCol` 分列、`ContentBand` 栏宽三档、`WindowMetrics` 断点发布。逐形态数字：tablet（lg/侧边栏分支，Tab 单格 360→96vp、设置行 1412→716vp、法务 1408→568vp、按钮 1296→360vp）；phone（sm/底部栏分支，唯一 API 24，Tab 单格 97.8vp 与改造前逐像素一致，网格 2 卡/行）；2in1（自由窗口 1100vp 侧边栏 96.3vp + 最大化 1642vp 保持 + **跨断点 809↔1101vp 双向换栏**、设置行 716.8vp、每日推荐 6 卡/行）。**残留小项**：2in1 空态竖向空白（#3）未专项度量（tablet 已收口同源结构）；跑的是 API 26 Beta，目标 API 24 上的 tablet/2in1 无镜像可用。另注意 §11.7 的 bundleName 变更记录（现名 `com.sc.neriplayer`，2026-10-05 定稿）——对外表述「三档响应式布局已验证」目前成立。
 4. **`BOTTOM_BAR_LIFT_VP` 动态求值**——**已实现，三形态全部实测（2026-08-27 收口）**。`util/WindowMetrics.ets` 订阅 `windowSizeChange` + `avoidAreaChange`，按 `TYPE_NAVIGATION_INDICATOR` 的 `bottomRect.height > 0` 决定给 `Theme.bottomBarLift()`（28）还是 0，经 AppStorage `ui.bottomLiftVp` 发布。实测：tablet 避让区 28vp、Tab 底边与指示器上沿重合；phone（API 24）避让区 27.85vp、同样重合；**2in1 自由窗口避让区 0 → 抬升 0，死区消失**（TabBar 底边距窗口底 0.0vp，S2 的核心验收点通过）。`Theme.bottomBarLift()` 保留为指南常量与冷启动 fallback。
 5. **全屏路由页的列表行没有栏宽约束**（本轮新发现）。整改表只覆盖了 4 个 Tab 页与 3 个正文页；歌单详情（`NeteasePlaylistPage`）歌曲行副标题 tablet 实测宽 **1244vp**，与整改前的设置行（1412vp）是同一类密度问题。同类未改的还有 `PlaylistDetailPage`、`BiliFavPage`、`RecentPage`、`DownloadsPage`、`StatsPage`。改法与已改页面一致（套 `ContentBand(840)`），需逐页复测，本轮未纳入批准范围。
 6. **`NavigationMode.Stack` 下全屏页会盖住侧边栏**，导致从 Tab 页 push 到全屏页时内容中心从 1536px 移到 1440px（**48vp 的横向位移**）。这是 Stack 模式的固有行为（destination 铺满整个 `Navigation` 区域，包括 navBar 占的 96vp），不是缺陷；记录在此是因为它在大屏上是可感知的视觉跳动。若要消除，须让全屏页也留出侧栏宽度，或改用 Split 模式——后者与本项目 navBar 承载整个 Tab 骨架的结构不匹配（见计划的「明确不做」）。

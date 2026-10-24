@@ -107,6 +107,18 @@ export class DownloadTaskStore {
     return true;
   }
 
+  /** Terminal failure with a user-visible reason, guarded by attempt id. */
+  failTask(songKey: string, expectedAttemptId: number, reason: string): boolean {
+    const task = this.tasks.get(songKey);
+    if (task === undefined || !shouldApplyTaskMutation(task, expectedAttemptId)) {
+      return false;
+    }
+    task.status = DownloadStatus.FAILED;
+    task.progress = null;
+    task.failureReason = reason;
+    return true;
+  }
+
   updateProgress(songKey: string, expectedAttemptId: number, progress: DownloadProgress): boolean {
     const task = this.tasks.get(songKey);
     if (task === undefined || !shouldApplyTaskMutation(task, expectedAttemptId)) {
