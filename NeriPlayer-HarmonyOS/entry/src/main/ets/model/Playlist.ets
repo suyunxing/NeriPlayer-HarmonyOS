@@ -3,7 +3,7 @@
 import { MusicPlatform } from './MusicPlatform';
 import { SongItem } from './SongItem';
 import { stableKeyOf } from './SongIdentity';
-import { PlaylistSyncSource } from '../sourcesync/SourceSyncModels';
+import { PlaylistSyncSource, sourceKeyOf } from '../sourcesync/SourceSyncModels';
 
 /**
  * Playlist model shared by local playlists, favorites, and remote platform playlists.
@@ -26,6 +26,10 @@ export class Playlist {
    * null, so the addition needs no storage migration.
    */
   syncSource: PlaylistSyncSource | null;
+  /** Canonical multi-source bindings; syncSource remains the first-source alias. */
+  syncSources: PlaylistSyncSource[];
+  manualSongKeys: string[];
+  manualOwnershipKnown: boolean;
 
   constructor(id: string = '', name: string = '', source: MusicPlatform = MusicPlatform.LOCAL) {
     this.id = id;
@@ -38,6 +42,9 @@ export class Playlist {
     this.createdAt = Date.now();
     this.updatedAt = Date.now();
     this.syncSource = null;
+    this.syncSources = [];
+    this.manualSongKeys = [];
+    this.manualOwnershipKnown = false;
   }
 
   /**
@@ -57,8 +64,29 @@ export class Playlist {
     return this.coverUrl;
   }
 
+  getSyncSources(): PlaylistSyncSource[] {
+    if (this.syncSources.length === 0 && this.syncSource !== null) {
+      this.syncSources.push(this.syncSource);
+    }
+    const seen = new Set<string>();
+    this.syncSources = this.syncSources.filter((source: PlaylistSyncSource): boolean => {
+      const key = sourceKeyOf(source);
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+    this.syncSource = this.syncSources.length > 0 ? this.syncSources[0] : null;
+    return this.syncSources;
+  }
+
   toJson(): string {
-    return JSON.stringify(this);
+    this.getSyncSources();
+    // Omit the nullable legacy alias on plain lists; both absent and null parse identically.
+    return JSON.stringify(this, (key: string, value: Object | null): Object | null | undefined => {
+      return key === 'syncSource' && value === null ? undefined : value;
+    });
   }
 
   static fromJson(json: string): Playlist {
@@ -83,7 +111,23 @@ export class Playlist {
     } else {
       playlist.songs = [];
     }
-    playlist.syncSource = PlaylistSyncSource.fromJson(raw['syncSource'] ?? null);
+    const sources = raw['syncSources'];
+    if (sources instanceof Array) {
+      for (const value of sources as Object[]) {
+        const source = PlaylistSyncSource.fromJson(value as Object);
+        if (source !== null) {
+          playlist.syncSources.push(source);
+        }
+      }
+    } else {
+      playlist.syncSource = PlaylistSyncSource.fromJson(raw['syncSource'] ?? null);
+    }
+    const manualKeys = raw['manualSongKeys'];
+    if (manualKeys instanceof Array) {
+      playlist.manualSongKeys = manualKeys.map((key: Object): string => String(key));
+    }
+    playlist.manualOwnershipKnown = Boolean(raw['manualOwnershipKnown'] ?? false);
+    playlist.getSyncSources();
     return playlist;
   }
 }

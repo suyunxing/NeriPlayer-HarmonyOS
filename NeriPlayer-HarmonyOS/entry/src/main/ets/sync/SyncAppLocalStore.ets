@@ -19,7 +19,6 @@ import {
 import { FavoritePlaylistRepository } from '../data/FavoritePlaylistRepository';
 import { Playlist } from '../model/Playlist';
 import { SongItem } from '../model/SongItem';
-import { MusicPlatform } from '../model/MusicPlatform';
 import { stableKeyOf } from '../model/SongIdentity';
 import { SyncLocalStore } from './SyncCoordinator';
 import { SyncData, SyncPlaylist, sha256ByteArray } from './SyncModels';
@@ -39,6 +38,7 @@ import {
   syncPlaylistIdToLocal
 } from './SyncSongConvert';
 import { SyncDeletionState, SyncDeletionStore } from './SyncDeletionStore';
+import { restorePlaylistFromSync } from './SyncPlaylistRestore';
 import {
   deserializeSyncContent,
   serializeSyncDataJson,
@@ -201,34 +201,7 @@ export class SyncAppLocalStore implements SyncLocalStore {
   }
 
   private playlistFromSync(syncPlaylist: SyncPlaylist, existing: Playlist | undefined): Playlist {
-    // Keep the id string shape the local store already uses for this playlist
-    // (both "local_<ts>" and plain numeric Android-imported ids round-trip to
-    // the same sync id); rewriting the shape would orphan existing references.
-    const id = syncPlaylist.id === FAVORITES_SYNC_ID
-      ? LocalPlaylistRepository.FAVORITES_ID
-      : (existing !== undefined ? existing.id : syncPlaylistIdToLocal(syncPlaylist.id));
-    const playlist = new Playlist(id, syncPlaylist.name, MusicPlatform.LOCAL);
-    playlist.createdAt = syncPlaylist.createdAt;
-    playlist.updatedAt = syncPlaylist.modifiedAt;
-    if (existing !== undefined) {
-      playlist.coverUrl = existing.coverUrl;
-      playlist.description = existing.description;
-      playlist.source = existing.source;
-    }
-    for (const syncSong of syncPlaylist.songs) {
-      const song = songItemFromSyncSong(syncSong);
-      playlist.songs.push(song);
-      playlist.songKeys.push(stableKeyOf(song));
-    }
-    if (existing !== undefined) {
-      for (const song of existing.songs) {
-        if (isLocalSongItem(song) && playlist.songKeys.indexOf(stableKeyOf(song)) < 0) {
-          playlist.songs.push(song);
-          playlist.songKeys.push(stableKeyOf(song));
-        }
-      }
-    }
-    return playlist;
+    return restorePlaylistFromSync(syncPlaylist, existing, LocalPlaylistRepository.FAVORITES_ID);
   }
 
   private statsRootFromSync(data: SyncData): StatsRoot {

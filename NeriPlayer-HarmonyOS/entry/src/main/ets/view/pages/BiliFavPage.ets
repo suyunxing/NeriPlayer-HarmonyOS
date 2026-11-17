@@ -3,9 +3,12 @@
 import { promptAction } from '@kit.ArkUI';
 import { SongItem } from '../../model/SongItem';
 import { MusicPlatform } from '../../model/MusicPlatform';
-import { LocalPlaylistRepository } from '../../data/LocalPlaylistRepository';
+import { PlaylistSyncSource, SOURCE_SYNC_MODE_APPEND } from '../../sourcesync/SourceSyncModels';
+import { PlaylistImportDialog } from '../components/PlaylistImportDialog';
+import { importPlaylistSelection } from '../components/PlaylistImportActions';
+
 import { BiliApi } from '../../network/BiliApi';
-import { BiliFavFolderSummary, biliFavMediaToSongItem } from '../../network/BiliFavParser';
+import { BiliFavFolderSummary, BiliFavMedia, biliFavMediaToSongItem } from '../../network/BiliFavParser';
 import { PlayerManager } from '../../player/PlayerManager';
 import { resolvePlaylistPlaybackStartIndex } from '../../player/queue/QueueEngine';
 import { Theme } from '../Theme';
@@ -142,7 +145,7 @@ export struct BiliFavPage {
   }
 
   private openImportDialog(): void {
-    if (this.songs.length === 0 && this.totalCount === 0) {
+    if (this.importing || this.mediaId() <= 0) {
       return;
     }
     const info = this.info;
@@ -150,37 +153,35 @@ export struct BiliFavPage {
     this.showImportDialog = true;
   }
 
-  private async confirmImport(): Promise<void> {
+  private async confirmImport(targetId: string, name: string, bind: boolean): Promise<void> {
     if (this.importing) {
       return;
     }
-    const trimmed = this.importName.trim();
-    if (trimmed.length === 0) {
-      promptAction.openToast({ message: '请输入歌单名称' });
+    const trimmed = name.trim();
+    if (targetId.length === 0 && trimmed.length === 0) {
+      this.getUIContext().getPromptAction().openToast({ message: '请输入歌单名称' });
       return;
     }
     this.importing = true;
     try {
       const mediaItems = await BiliApi.getAllFavFolderItems(this.mediaId());
-      const songs = mediaItems.map((media) => biliFavMediaToSongItem(media));
-      if (songs.length === 0) {
-        promptAction.openToast({ message: '收藏夹没有可导入的内容' });
-      } else {
-        const playlist = await LocalPlaylistRepository.createPlaylistWithSongs(
-          trimmed,
-          songs,
-          MusicPlatform.LOCAL
-        );
-        promptAction.openToast({ message: `已导入「${playlist.name}」${playlist.songKeys.length} 首` });
-        this.showImportDialog = false;
-      }
+      const songs: SongItem[] = mediaItems.map((media: BiliFavMedia): SongItem => biliFavMediaToSongItem(media));
+      const source = new PlaylistSyncSource(MusicPlatform.BILIBILI, String(this.mediaId()),
+        this.info?.title ?? this.importName, SOURCE_SYNC_MODE_APPEND);
+      const result = await importPlaylistSelection(targetId, trimmed, bind, source, songs);
+      this.getUIContext().getPromptAction().openToast({ message: bind ?
+        $r('app.string.playlist_import_bound_done', result.playlistName, result.addedCount) :
+        $r('app.string.playlist_import_done', result.playlistName, result.addedCount) });
+      this.showImportDialog = false;
+      Router.notifyReturned();
     } catch (error) {
-      const e = error as Error;
-      promptAction.openToast({ message: `导入失败：${e.message}` });
+      this.getUIContext().getPromptAction().openToast({
+        message: $r('app.string.playlist_import_failed', (error as Error).message)
+      });
+    } finally {
+      this.importing = false;
     }
-    this.importing = false;
   }
-
 
 
   /** build 里直读被跟踪成员注册依赖；颜色本身仍由 Theme 统一决策。 */
@@ -307,47 +308,16 @@ export struct BiliFavPage {
         SubPageBottomFade()
 
         if (this.showImportDialog) {
-        Column() {
-          Column({ space: 12 }) {
-            Text('导入到本地歌单')
-              .fontSize(17)
-              .fontWeight(FontWeight.Bold)
-              .fontColor(Theme.textPrimary(Theme.isDark()))
-            Text(`将全量拉取收藏夹内容并复制到新建的本地歌单（共 ${this.totalCount} 条）`)
-              .fontSize(12)
-              .fontColor(Theme.textSecondary(Theme.isDark()))
-            TextInput({ placeholder: '输入歌单名称', text: this.importName })
-              .onChange((value: string) => {
-                this.importName = value;
-              })
-            Row({ space: 12 }) {
-              Button('取消')
-                .layoutWeight(1)
-                .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
-                .fontColor(Theme.textPrimary(Theme.isDark()))
-                .onClick(() => {
-                  this.showImportDialog = false;
-                })
-              Button(this.importing ? '导入中…' : '导入')
-                .layoutWeight(1)
-                .backgroundColor(Theme.primary(Theme.isDark()))
-                .onClick(() => this.confirmImport())
+          PlaylistImportDialog({
+            suggestedName: this.importName,
+            itemCount: this.totalCount,
+            importing: this.importing,
+            onCancel: (): void => { this.showImportDialog = false; },
+            onConfirm: (targetId: string, name: string, bind: boolean): void => {
+              void this.confirmImport(targetId, name, bind);
             }
-            .width('100%')
-          }
-          .width('86%')
-          .padding(20)
-          .backgroundColor(Theme.surface(Theme.isDark()))
-          .borderRadius(18)
+          })
         }
-        .width('100%')
-        .height('100%')
-        .justifyContent(FlexAlign.Center)
-        .backgroundColor(Theme.scrim(Theme.isDark()))
-        .onClick(() => {
-          this.showImportDialog = false;
-        })
-      }
     }
     .width('100%')
     .height('100%')
