@@ -126,6 +126,10 @@ import nowPlayingMotionTest from './ets/test/NowPlayingMotion.test';
 import disclaimerConsentPolicyTest from './ets/test/DisclaimerConsentPolicy.test';
 import lruCacheTest from './ets/test/LruCache.test';
 import sourceSyncTest from './ets/test/SourceSync.test';
+import multiSourcePlaylistTest from './ets/test/MultiSourcePlaylist.test';
+import sourceSyncCoordinatorTest from './ets/test/SourceSyncCoordinator.test';
+import syncPlaylistRestoreTest from './ets/test/SyncPlaylistRestore.test';
+import playlistImportActionsTest from './ets/test/PlaylistImportActions.test';
 
 export default function testsuite(): void {
   lrcParserTest();
@@ -256,4 +260,8 @@ export default function testsuite(): void {
   neteasePhoneLoginSeedTest();
   neteaseWebLoginTest();
   sourceSyncTest();
+  multiSourcePlaylistTest();
+  sourceSyncCoordinatorTest();
+  syncPlaylistRestoreTest();
+  playlistImportActionsTest();
 }
