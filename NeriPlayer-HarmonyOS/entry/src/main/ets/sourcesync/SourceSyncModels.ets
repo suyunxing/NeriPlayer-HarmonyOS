@@ -39,6 +39,12 @@ export class PlaylistSyncSource {
    * never re-adds them (both modes) until the sync state is reset.
    */
   skipKeys: string[];
+  /** Remote membership, including skipped keys; tracked per folder, not per platform. */
+  ownedSongKeys: string[];
+  ownershipKnown: boolean;
+  /** Binding generation guards responses from a removed/replaced binding. */
+  bindingId: string;
+  bindingRevision: number;
 
   constructor(platform: MusicPlatform = MusicPlatform.NETEASE, remoteId: string = '',
     remoteName: string = '', mode: string = SOURCE_SYNC_MODE_MIRROR) {
@@ -51,6 +57,10 @@ export class PlaylistSyncSource {
     this.lastCheckedAt = 0;
     this.lastFingerprint = '';
     this.skipKeys = [];
+    this.ownedSongKeys = [];
+    this.ownershipKnown = false;
+    this.bindingId = '';
+    this.bindingRevision = 0;
   }
 
   toJson(): string {
@@ -78,12 +88,28 @@ export class PlaylistSyncSource {
     } else {
       source.skipKeys = [];
     }
+    const owned = raw['ownedSongKeys'];
+    if (owned instanceof Array) {
+      source.ownedSongKeys = owned.map((key: Object): string => String(key));
+    }
+    source.ownershipKnown = Boolean(raw['ownershipKnown'] ?? false);
+    source.bindingId = String(raw['bindingId'] ?? '');
+    source.bindingRevision = Number(raw['bindingRevision'] ?? 0);
     if (source.remoteId.length === 0) {
       // Corrupt/legacy binding without a remote id is not a usable source.
       return null;
     }
     return source;
   }
+}
+
+/** Stable binding identity: different folders on the same platform stay isolated. */
+export function sourceKeyOf(source: PlaylistSyncSource): string {
+  return `${syncSourceChannel(source.platform)}:${source.remoteId}`;
+}
+
+export function sourceBindingTokenOf(source: PlaylistSyncSource): string {
+  return `${source.bindingId}|${source.bindingRevision}|${source.mode}|${source.enabled}`;
 }
 
 /** Channel token used inside mirror playlist ids (matches channelId style). */

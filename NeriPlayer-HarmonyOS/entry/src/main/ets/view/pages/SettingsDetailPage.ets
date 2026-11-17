@@ -65,9 +65,10 @@ import {
   PlaylistSyncSource,
   SOURCE_SYNC_MODE_APPEND,
   SOURCE_SYNC_MODE_MIRROR,
-  mirrorPlaylistId
+  sourceKeyOf
 } from '../../sourcesync/SourceSyncModels';
 import { SourceSyncCoordinator } from '../../sourcesync/SourceSyncCoordinator';
+import { PlaylistSourcesPanel } from '../components/PlaylistSourcesPanel';
 import { Router } from '../Router';
 import { GitHubConfigRepository } from '../../sync/github/GitHubConfigRepository';
 import { GitHubTransport, isValidGitHubName } from '../../sync/github/GitHubTransport';
@@ -189,6 +190,9 @@ export struct SettingsDetailPage {
   @StorageProp('np.source_sync_throttle_minutes') sourceSyncThrottleMinutes: number = 30;
   @State mirrorPlaylists: Playlist[] = [];
   @State sourceSyncBusy: boolean = false;
+  @State sourceBindBusy: boolean = false;
+  @State bindTargetsLoading: boolean = false;
+  @State bindTargetsError: string = '';
   @State showAddSource: boolean = false;
   @State addSourcePlatform: MusicPlatform = MusicPlatform.NETEASE;
   @State remoteNeteasePlaylists: NeteasePlaylistSummary[] = [];
@@ -325,18 +329,20 @@ export struct SettingsDetailPage {
   }
 
   onSourceSyncTick(): void {
-    this.reloadMirrorList();
+    void this.reloadMirrorList().catch((error: Error): void => {
+      this.getUIContext().getPromptAction().openToast({ message: '来源列表刷新失败：' + error.message });
+    });
   }
 
   // ---- 歌单同步（镜像歌单） ----------------------------------------------
 
   private async reloadMirrorList(): Promise<void> {
     const playlists = await LocalPlaylistRepository.loadAll();
-    this.mirrorPlaylists = playlists.filter((item: Playlist): boolean => item.syncSource !== null);
+    this.mirrorPlaylists = playlists.filter((item: Playlist): boolean => item.getSyncSources().length > 0);
   }
 
   private async runSyncAll(): Promise<void> {
-    if (this.sourceSyncBusy) {
+    if (this.sourceSyncBusy || this.sourceBindBusy) {
       return;
     }
     this.sourceSyncBusy = true;
@@ -351,79 +357,10 @@ export struct SettingsDetailPage {
     }
   }
 
-  private async setMirrorEnabled(playlist: Playlist, enabled: boolean): Promise<void> {
-    await LocalPlaylistRepository.setMirrorEnabled(playlist.id, enabled);
-    await this.reloadMirrorList();
-  }
-
-  private confirmResetMirrorSkips(playlist: Playlist): void {
-    this.getUIContext().showAlertDialog({
-      title: '重置删除记忆',
-      message: `将清除「${playlist.name}」中手动删除歌曲的记忆，下次自动同步时这些歌曲会被重新加入。`,
-      primaryButton: {
-        value: '取消',
-        action: () => {
-        }
-      },
-      secondaryButton: {
-        value: '重置',
-        action: () => {
-          LocalPlaylistRepository.resetMirrorSkips(playlist.id)
-            .then((): Promise<void> => this.reloadMirrorList());
-        }
-      }
-    });
-  }
-
-  private confirmUnbindMirror(playlist: Playlist): void {
-    this.getUIContext().showAlertDialog({
-      title: '解除绑定',
-      message: `解除后「${playlist.name}」变回普通歌单：歌曲保留，但不再自动同步。`,
-      primaryButton: {
-        value: '取消',
-        action: () => {
-        }
-      },
-      secondaryButton: {
-        value: '解除',
-        action: () => {
-          LocalPlaylistRepository.unbindMirrorSource(playlist.id)
-            .then((): Promise<void> => this.reloadMirrorList());
-        }
-      }
-    });
-  }
-
-  private sourcePlatformLabel(platform: MusicPlatform): string {
-    return platform === MusicPlatform.BILIBILI ? 'B站收藏夹' : '网易云歌单';
-  }
-
-  private modeLabel(mode: string): string {
-    return mode === SOURCE_SYNC_MODE_APPEND ? '仅追加' : '跟随远端';
-  }
-
-  private mirrorEnabled(playlist: Playlist): boolean {
-    const source = playlist.syncSource;
-    return source !== null && source.enabled;
-  }
-
-  private formatSyncTime(ts: number): string {
-    const date = new Date(ts);
-    const pad = (value: number): string => value < 10 ? `0${value}` : `${value}`;
-    return `${date.getMonth() + 1}-${date.getDate()} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
-  }
-
-  private mirrorSubtitle(playlist: Playlist): string {
-    const source = playlist.syncSource;
-    if (source === null) {
-      return '';
-    }
-    const state = source.lastSyncAt > 0 ? `最近同步 ${this.formatSyncTime(source.lastSyncAt)}`
-      : (source.lastCheckedAt > 0 ? `上次检查 ${this.formatSyncTime(source.lastCheckedAt)}` : '尚未同步');
-    return `${this.sourcePlatformLabel(source.platform)} · ${this.modeLabel(source.mode)} · ${state}`;
-  }
-
   private toggleAddSource(): void {
+    if (this.sourceBindBusy) {
+      return;
+    }
     this.showAddSource = !this.showAddSource;
     if (this.showAddSource) {
       this.resetPendingSource();
@@ -439,7 +376,7 @@ export struct SettingsDetailPage {
   }
 
   private switchAddPlatform(platform: MusicPlatform): void {
-    if (this.addSourcePlatform === platform) {
+    if (this.sourceBindBusy || this.addSourcePlatform === platform) {
       return;
     }
     this.addSourcePlatform = platform;
@@ -481,36 +418,57 @@ export struct SettingsDetailPage {
   }
 
   private async loadBindTargets(): Promise<void> {
-    const playlists = await LocalPlaylistRepository.loadAll();
-    this.localBindTargets = playlists.filter((item: Playlist): boolean =>
-      item.syncSource === null && item.id !== LocalPlaylistRepository.FAVORITES_ID);
-  }
-
-  private isAlreadyMirrored(remoteId: string): boolean {
-    const id = mirrorPlaylistId(this.addSourcePlatform, remoteId);
-    return this.mirrorPlaylists.some((item: Playlist): boolean => item.id === id);
+    this.bindTargetsLoading = true;
+    this.bindTargetsError = '';
+    try {
+      const playlists = await LocalPlaylistRepository.loadAll();
+      this.localBindTargets = playlists.filter((item: Playlist): boolean =>
+        item.id !== LocalPlaylistRepository.FAVORITES_ID && item.id !== LocalPlaylistRepository.LOCAL_MUSIC_ID);
+    } catch (error) {
+      this.localBindTargets = [];
+      this.bindTargetsError = (error as Error).message;
+      this.getUIContext().getPromptAction().openToast({ message: '目标歌单加载失败：' + this.bindTargetsError });
+    } finally {
+      this.bindTargetsLoading = false;
+    }
   }
 
   private async confirmAddSource(): Promise<void> {
-    if (this.pendingRemoteId.length === 0) {
+    if (this.pendingRemoteId.length === 0 || this.sourceBindBusy || this.sourceSyncBusy ||
+      this.bindTargetsLoading || this.bindTargetsError.length > 0) {
       return;
     }
+    this.sourceBindBusy = true;
     const source = new PlaylistSyncSource(this.addSourcePlatform, this.pendingRemoteId,
       this.pendingRemoteName, this.pendingMode);
+    let targetId = this.pendingTargetId;
+    let bindingSaved = false;
     try {
-      if (this.pendingTargetId.length === 0) {
-        await LocalPlaylistRepository.createOrGetMirrorPlaylist(source, []);
-        promptAction.openToast({ message: '已添加来源，首次同步将在后台进行' });
-      } else {
-        await LocalPlaylistRepository.bindMirrorSource(this.pendingTargetId, source);
-        promptAction.openToast({ message: '已绑定，首次同步将在后台进行' });
+      if (targetId.length === 0) {
+        const created = await LocalPlaylistRepository.createOrGetMirrorPlaylist(source, []);
+        targetId = created.id;
+      } else if (!await LocalPlaylistRepository.bindMirrorSource(targetId, source)) {
+        throw new Error('目标歌单已变更，请重新选择');
       }
+      bindingSaved = true;
       this.resetPendingSource();
       this.showAddSource = false;
       await this.reloadMirrorList();
-      SourceSyncCoordinator.runNow();
+      await SourceSyncCoordinator.runNow(targetId, sourceKeyOf(source));
+      await this.reloadMirrorList();
+      this.getUIContext().getPromptAction().openToast({ message: '已添加来源并完成首次同步' });
     } catch (error) {
-      promptAction.openToast({ message: `添加失败：${(error as Error).message}` });
+      this.getUIContext().getPromptAction().openToast({ message: bindingSaved ?
+        `来源已绑定，首次同步未完成：${(error as Error).message}` : `添加失败：${(error as Error).message}` });
+      try {
+        await this.reloadMirrorList();
+      } catch (refreshError) {
+        this.getUIContext().getPromptAction().openToast({
+          message: '来源列表刷新失败：' + (refreshError as Error).message
+        });
+      }
+    } finally {
+      this.sourceBindBusy = false;
     }
   }
 
@@ -1311,35 +1269,12 @@ export struct SettingsDetailPage {
     }
     Column({ space: 12 }) {
       ForEach(this.mirrorPlaylists, (playlist: Playlist) => {
-        Column({ space: 8 }) {
-          ToggleRow({
-            title: playlist.name,
-            subtitle: this.mirrorSubtitle(playlist),
-            icon: '🔁',
-            value: this.mirrorEnabled(playlist),
-            onChange: (on: boolean) => {
-              this.setMirrorEnabled(playlist, on);
-            }
-          })
-          Row({ space: 10 }) {
-            Button('重置删除记忆')
-              .height(32)
-              .fontSize(12)
-              .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
-              .fontColor(Theme.textPrimary(Theme.isDark()))
-              .onClick(() => this.confirmResetMirrorSkips(playlist))
-            Button('解除绑定')
-              .height(32)
-              .fontSize(12)
-              .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
-              .fontColor(Theme.danger(Theme.isDark()))
-              .onClick(() => this.confirmUnbindMirror(playlist))
-          }
-          .width('100%')
-        }
-        .width('100%')
-      }, (playlist: Playlist) =>
-        `${playlist.id}_${this.mirrorEnabled(playlist) ? 'on' : 'off'}`)
+        PlaylistSourcesPanel({
+          playlistJson: playlist.toJson(),
+          globalBusy: this.sourceSyncBusy || this.sourceBindBusy,
+          onChanged: (): void => { this.onSourceSyncTick(); }
+        })
+      }, (playlist: Playlist): string => playlist.id)
     }
     .width('100%')
 
@@ -1431,13 +1366,15 @@ export struct SettingsDetailPage {
             }
             .width('100%')
             Text(this.pendingMode === SOURCE_SYNC_MODE_MIRROR ?
-              '跟随远端：以远端列表为准增删与排序；你手动删除的歌会被记住，不会自动加回。' :
+              '跟随远端：本来源的歌曲按远端增删；手动添加和其他来源歌曲保留。手动删除的歌会被记住。' :
               '仅追加：远端新增的歌曲会加入本地，远端删除的歌本地保留。')
               .fontSize(12)
               .fontColor(Theme.textSecondary(Theme.isDark()))
               .width('100%')
             OptionRow({
               title: '同步目标',
+              subtitle: this.bindTargetsLoading ? '正在加载歌单…' :
+                (this.bindTargetsError.length > 0 ? this.bindTargetsError : '可继续绑定到已有来源的歌单'),
               options: this.bindTargetOptions(),
               current: this.pendingTargetId,
               onPick: (value: string) => {
@@ -1445,7 +1382,7 @@ export struct SettingsDetailPage {
               }
             })
             if (this.pendingTargetId.length > 0 && this.pendingMode === SOURCE_SYNC_MODE_MIRROR) {
-              Text('绑定后该歌单内容将按远端对齐（远端没有的歌会被移出），请确认。')
+              Text('仅对本来源拥有的歌曲跟随远端；手动添加与其他绑定来源的歌曲会保留。')
                 .fontSize(12)
                 .fontColor(Theme.danger(Theme.isDark()))
                 .width('100%')
@@ -1453,14 +1390,17 @@ export struct SettingsDetailPage {
             Row({ space: 10 }) {
               Button('取消')
                 .layoutWeight(1)
-                .height(36)
+                .enabled(!this.sourceBindBusy)
+                .height(40)
                 .fontSize(13)
                 .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
                 .fontColor(Theme.textPrimary(Theme.isDark()))
                 .onClick(() => this.resetPendingSource())
-              Button('确认添加')
+              Button(this.sourceBindBusy ? '正在添加…' : '确认添加')
                 .layoutWeight(1)
-                .height(36)
+                .enabled(!this.sourceBindBusy && !this.sourceSyncBusy && !this.bindTargetsLoading &&
+                  this.bindTargetsError.length === 0)
+                .height(40)
                 .fontSize(13)
                 .backgroundColor(Theme.primary(Theme.isDark()))
                 .fontColor(Theme.onPrimary(Theme.isDark()))
@@ -1488,17 +1428,16 @@ export struct SettingsDetailPage {
               }
               .layoutWeight(1)
               .alignItems(HorizontalAlign.Start)
-              Text(this.isAlreadyMirrored(`${item.id}`) ? '已同步' : '选择')
+              Text('选择')
                 .fontSize(12)
-                .fontColor(this.isAlreadyMirrored(`${item.id}`) ?
-                  Theme.textDisabled(Theme.isDark()) : Theme.primary(Theme.isDark()))
+                .fontColor(Theme.primary(Theme.isDark()))
             }
             .width('100%')
             .padding(12)
             .backgroundColor(Theme.surface(Theme.isDark()))
             .borderRadius(Theme.cardRadius())
             .onClick(() => {
-              if (!this.isAlreadyMirrored(`${item.id}`)) {
+              if (!this.sourceBindBusy) {
                 this.selectRemoteSource(`${item.id}`, item.name);
               }
             })
@@ -1518,17 +1457,16 @@ export struct SettingsDetailPage {
               }
               .layoutWeight(1)
               .alignItems(HorizontalAlign.Start)
-              Text(this.isAlreadyMirrored(`${item.mediaId}`) ? '已同步' : '选择')
+              Text('选择')
                 .fontSize(12)
-                .fontColor(this.isAlreadyMirrored(`${item.mediaId}`) ?
-                  Theme.textDisabled(Theme.isDark()) : Theme.primary(Theme.isDark()))
+                .fontColor(Theme.primary(Theme.isDark()))
             }
             .width('100%')
             .padding(12)
             .backgroundColor(Theme.surface(Theme.isDark()))
             .borderRadius(Theme.cardRadius())
             .onClick(() => {
-              if (!this.isAlreadyMirrored(`${item.mediaId}`)) {
+              if (!this.sourceBindBusy) {
                 this.selectRemoteSource(`${item.mediaId}`, item.title);
               }
             })

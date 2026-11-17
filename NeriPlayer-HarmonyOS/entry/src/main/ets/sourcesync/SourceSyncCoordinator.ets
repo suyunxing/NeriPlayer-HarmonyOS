@@ -9,12 +9,13 @@ import { NetworkStatus } from '../util/NetworkStatus';
 import { KEY_REFRESH_TICK } from '../util/Breakpoint';
 import { SyncCoordinator } from '../sync/SyncCoordinator';
 import { MusicPlatform } from '../model/MusicPlatform';
-import { Playlist } from '../model/Playlist';
+import { SongItem } from '../model/SongItem';
 import { PlaylistSyncSource } from './SourceSyncModels';
 import { SyncSourceAdapter } from './SyncSourceAdapter';
 import { NeteaseSyncSource } from './NeteaseSyncSource';
 import { BiliSyncSource } from './BiliSyncSource';
 import { Logger } from '../app/Logger';
+import { SourceSyncDependencies, runSourceSync } from './SourceSyncRunner';
 
 /**
  * Source playlist auto sync (网易云歌单/B站收藏夹 → 本地镜像歌单).
@@ -35,7 +36,6 @@ export class SourceSyncCoordinator {
   private static readonly DEFAULT_THROTTLE_MINUTES: number = 30;
   private static readonly STARTUP_DELAY_MS: number = 15000;
   /** Full remote fetch at least once a day even when the fingerprint is unchanged. */
-  private static readonly FULL_CHECK_INTERVAL_MS: number = 24 * 3600 * 1000;
   private static running: boolean = false;
   private static startupTimer: number = -1;
 
@@ -52,8 +52,8 @@ export class SourceSyncCoordinator {
   }
 
   /** Manual entry (settings / playlist detail): ignores the throttle window. */
-  static async runNow(): Promise<void> {
-    await SourceSyncCoordinator.run('manual');
+  static async runNow(playlistId: string = '', sourceKey: string = ''): Promise<void> {
+    await SourceSyncCoordinator.run('manual', playlistId, sourceKey);
   }
 
   static isRunning(): boolean {
@@ -83,70 +83,57 @@ export class SourceSyncCoordinator {
     }
   }
 
-  private static async run(trigger: string): Promise<void> {
+  private static async run(trigger: string, playlistId: string = '', sourceKey: string = ''): Promise<void> {
+    const targeted = playlistId.length > 0 || sourceKey.length > 0;
     if (SourceSyncCoordinator.running) {
+      if (targeted) {
+        throw new Error('Source sync is already running');
+      }
       return;
     }
     SourceSyncCoordinator.running = true;
+    let changedAny = false;
     try {
       if (!await NetworkStatus.hasNetwork()) {
+        if (targeted) {
+          throw new Error('Source sync is offline');
+        }
         Logger.info(`source sync (${trigger}) skipped: offline`);
         return;
       }
       if (SyncCoordinator.isRunning()) {
+        if (targeted) {
+          throw new Error('Cross-device sync is already running');
+        }
         // The cross-device sync reads/writes the same playlist store; yield
         // and wait for the next trigger instead of racing it.
         Logger.info(`source sync (${trigger}) skipped: cross-device sync running`);
         return;
       }
       const playlists = await LocalPlaylistRepository.loadAll();
-      let changedAny = false;
-      for (const playlist of playlists) {
-        const source = playlist.syncSource;
-        if (source === null || !source.enabled) {
-          continue;
-        }
-        try {
-          const changed = await SourceSyncCoordinator.syncOne(playlist);
+      const dependencies: SourceSyncDependencies = {
+        adapterFor: (source: PlaylistSyncSource): SyncSourceAdapter | null => SourceSyncCoordinator.adapterFor(source),
+        isLoggedIn: (platform: MusicPlatform): boolean => SourceSyncCoordinator.isLoggedIn(platform),
+        now: (): number => Date.now(),
+        apply: async (id: string, songs: SongItem[], fingerprint: string, key: string, token: string): Promise<boolean> => {
+          const changed = await LocalPlaylistRepository.applyMirrorSync(id, songs, fingerprint, key, token);
           changedAny = changedAny || changed;
-        } catch (error) {
-          Logger.warn(`source sync (${trigger}) failed for ${source.remoteName}: ${(error as Error).message}`);
+          return changed;
+        },
+        onFailure: (source: PlaylistSyncSource, error: Error): void => {
+          Logger.warn(`source sync (${trigger}) failed for ${source.remoteName}: ${error.message}`);
         }
-      }
+      };
+      await runSourceSync(playlists, dependencies, playlistId, sourceKey, trigger === 'manual');
+    } finally {
       if (changedAny) {
         // Data-layer changes do not push UI by themselves: bump the shared
         // refresh tick so the home/library tabs reload their local data.
         const current = AppStorage.get<number>(KEY_REFRESH_TICK);
         AppStorage.setOrCreate(KEY_REFRESH_TICK, (current ?? 0) + 1);
       }
-    } finally {
       SourceSyncCoordinator.running = false;
     }
-  }
-
-  private static async syncOne(playlist: Playlist): Promise<boolean> {
-    const source = playlist.syncSource;
-    if (source === null) {
-      return false;
-    }
-    const adapter = SourceSyncCoordinator.adapterFor(source);
-    if (adapter === null || !SourceSyncCoordinator.isLoggedIn(source.platform)) {
-      return false;
-    }
-    const fingerprint = await adapter.peekFingerprint();
-    if (fingerprint === source.lastFingerprint
-      && Date.now() - source.lastCheckedAt < SourceSyncCoordinator.FULL_CHECK_INTERVAL_MS) {
-      return false;
-    }
-    const songs = await adapter.fetchSongs();
-    if (songs.length === 0) {
-      // A transient failure can surface as an empty list (the Bilibili parser
-      // swallows business codes); never wipe a mirror playlist on it. A truly
-      // emptied remote folder stays until the user unbinds or resets sync.
-      Logger.warn(`source sync empty snapshot, skipped: ${source.remoteName}`);
-      return false;
-    }
-    return LocalPlaylistRepository.applyMirrorSync(playlist.id, songs, fingerprint);
   }
 
   private static adapterFor(source: PlaylistSyncSource): SyncSourceAdapter | null {

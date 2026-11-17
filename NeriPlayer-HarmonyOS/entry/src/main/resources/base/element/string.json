@@ -39,6 +39,158 @@
     {
       "name": "playback_card_desc",
       "value": "显示当前歌曲并提供上一首/播放暂停/下一首控制"
+    },
+    {
+      "name": "playlist_import_title",
+      "value": "导入到本地歌单"
+    },
+    {
+      "name": "playlist_import_description",
+      "value": "将复制 %d 项到所选歌单；重复歌曲会自动跳过。可新建，也可选择已有目标。"
+    },
+    {
+      "name": "playlist_targets_loading",
+      "value": "正在读取本地歌单…"
+    },
+    {
+      "name": "playlist_retry",
+      "value": "重试"
+    },
+    {
+      "name": "playlist_name_placeholder",
+      "value": "输入歌单名称"
+    },
+    {
+      "name": "playlist_import_bind",
+      "value": "绑定此来源并持续同步（仅追加）"
+    },
+    {
+      "name": "playlist_import_bind_hint",
+      "value": "默认只导入一次。开启后将把此来源追加到目标的已有绑定中，远端删除不会移除本地歌曲。空来源也可绑定。"
+    },
+    {
+      "name": "playlist_cancel",
+      "value": "取消"
+    },
+    {
+      "name": "playlist_import_busy",
+      "value": "导入中…"
+    },
+    {
+      "name": "playlist_import_action",
+      "value": "导入"
+    },
+    {
+      "name": "playlist_import_done",
+      "value": "已导入「%s」，新增 %d 首"
+    },
+    {
+      "name": "playlist_import_bound_done",
+      "value": "已导入「%s」，新增 %d 首，来源已绑定"
+    },
+    {
+      "name": "playlist_import_failed",
+      "value": "导入失败：%s"
+    },
+    {
+      "name": "playlist_merge_entry",
+      "value": "合并"
+    },
+    {
+      "name": "playlist_merge_target_accessibility",
+      "value": "将其他歌单合入%s"
+    },
+    {
+      "name": "playlist_merge_title",
+      "value": "合并其他歌单"
+    },
+    {
+      "name": "playlist_merge_description",
+      "value": "将选中的歌单歌曲及来源绑定合入「%s」。重复歌曲和来源会跳过，原歌单全部保留。"
+    },
+    {
+      "name": "playlist_merge_empty",
+      "value": "暂无其他可合并的内部歌单。收藏和本地音乐系统歌单不参与合并。"
+    },
+    {
+      "name": "playlist_merge_candidate",
+      "value": "%d 首 · %d 个来源"
+    },
+    {
+      "name": "playlist_merge_busy",
+      "value": "合并中…"
+    },
+    {
+      "name": "playlist_merge_confirm",
+      "value": "合并（%d）"
+    },
+    {
+      "name": "playlist_merge_done",
+      "value": "合并完成，新增 %d 首；原歌单已保留"
+    },
+    {
+      "name": "playlist_merge_failed",
+      "value": "合并失败：%s"
+    },
+    {
+      "name": "playlist_source_sync_busy",
+      "value": "其他来源正在同步，请稍后重试"
+    },
+    {
+      "name": "playlist_source_sync_done",
+      "value": "此来源同步完成"
+    },
+    {
+      "name": "playlist_source_updated",
+      "value": "来源设置已更新"
+    },
+    {
+      "name": "playlist_source_failed",
+      "value": "来源操作失败：%s"
+    },
+    {
+      "name": "playlist_source_reset",
+      "value": "重置跳过记录"
+    },
+    {
+      "name": "playlist_source_reset_hint",
+      "value": "仅清除「%s」的跳过记录，下次同步可重新加入手动移除的歌曲。其他来源的记录保持。"
+    },
+    {
+      "name": "playlist_source_unbind",
+      "value": "解除绑定"
+    },
+    {
+      "name": "playlist_source_unbind_hint",
+      "value": "仅解除「%s」。已经导入的歌曲保留，其他来源继续同步。"
+    },
+    {
+      "name": "playlist_source_skip_count",
+      "value": "已跳过 %d 首"
+    },
+    {
+      "name": "playlist_source_enabled",
+      "value": "自动同步已启用"
+    },
+    {
+      "name": "playlist_source_paused",
+      "value": "自动同步已暂停"
+    },
+    {
+      "name": "playlist_source_working",
+      "value": "处理中…"
+    },
+    {
+      "name": "playlist_source_sync",
+      "value": "立即同步"
+    },
+    {
+      "name": "playlist_sources_title",
+      "value": "绑定来源"
+    },
+    {
+      "name": "playlist_merge_action",
+      "value": "合并"
     }
   ]
 }

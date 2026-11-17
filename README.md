@@ -100,6 +100,9 @@ NeriPlayer for HarmonyOS
   多任务受控并发调度，支持 DIRECT / RANGE（`.part` 偏移与 ETag 校验）与 HLS 分片多级恢复；采用**两阶段事务提交机制**（Staging 临时落盘校验 $\to$ 原子重命名归档 $\to$ 编目更新），彻底杜绝异常中断产生的损坏脏文件；支持脱机环境直读 fd 极速离线音频解码。
 - **双端互通的因果一致性云同步**：
   与 Android 上游数据协议保持二进制级完全兼容，支持 Protobuf Wire 紧凑流、GZIP 压缩与 JSON 的双向编解码（省流模式上传写 Gzip Protobuf，约 JSON 的 15% 体积）；内置基于逻辑时钟的三路因果合并（Three-way Merge）与删除墓碑（Tombstone）机制，彻底消除“一端删除、另一端同步后又复活”的顽疾；支持 GitHub Git Data API（树/提交/分支原子更新防冲突）与 WebDAV。WebDAV 发布走「临时文件 $\to$ 校验 $\to$ MOVE 原子顶替」两阶段流程，传输中断不会留下半个坏备份；同步基线时间取远端观察时刻，同步进行中产生的本地改动必然在下次同步重新检出，不会被完成时刻的检查点吞掉。
+- **合并歌单与多来源同步 / Merged playlists and multiple sources**：
+  一个内部歌单可合并多个内部歌单，或导入并绑定多个网易云歌单、B站收藏夹；每个来源独立同步，保留手动歌曲与原歌单。显示和播放继续使用原有内部歌单。详细规则与复测命令见 [多来源歌单说明 / Guide](docs/MULTISOURCE_PLAYLISTS.md)。
+  Merge internal playlists or bind multiple external sources to one playlist. Each source syncs independently; originals and manual entries are retained. Device UI/network verification is tracked in the guide.
 - **「一起听」**：
   自研纯 ArkTS WebSocket 长连接客户端，实时估算网络 RTT 与服务端时钟漂移，动态平滑将端到端时钟对齐压制在 300ms 黄金同步窗口；支持房间主持权流转与受信任直链共享，房主音源直链经权威端点分发，避免听众端触发二次解析风控。
 - **全形态响应式与无障碍关怀**：

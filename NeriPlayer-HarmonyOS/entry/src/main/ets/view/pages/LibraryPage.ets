@@ -7,6 +7,7 @@ import { Playlist } from '../../model/Playlist';
 import { LocalPlaylistRepository } from '../../data/LocalPlaylistRepository';
 import { PlaylistDeleteSnapshot, PlaylistUndoOffer } from '../../data/LocalPlaylistRepository';
 import { UndoBanner } from '../components/UndoBanner';
+import { PlaylistMergeDialog } from '../components/PlaylistMergeDialog';
 import { DownloadStorage } from '../../download/DownloadStorage';
 import { PlaybackStatsRepository } from '../../data/PlaybackStatsRepository';
 import { LocalMediaScanner } from '../../data/LocalMediaScanner';
@@ -70,6 +71,8 @@ export struct LibraryPage {
   @State listenHours: number = 0;
   @State listenMinutes: number = 0;
   @State showCreateDialog: boolean = false;
+  @State mergeTargetId: string = '';
+  @State mergeTargetName: string = '';
   @State newPlaylistName: string = '';
   @State neteaseLogged: boolean = false;
   @State neteasePlaylists: NeteasePlaylistSummary[] = [];
@@ -541,6 +544,16 @@ export struct LibraryPage {
             }
             .layoutWeight(1)
             .alignItems(HorizontalAlign.Start)
+            Button($r('app.string.playlist_merge_entry'))
+              .constraintSize({ minHeight: 40 })
+              .fontSize(12)
+              .backgroundColor(Theme.surfaceVariant(Theme.isDark()))
+              .fontColor(Theme.textSecondary(Theme.isDark()))
+              .accessibilityText($r('app.string.playlist_merge_target_accessibility', playlist.name))
+              .onClick((): void => {
+                this.mergeTargetId = playlist.id;
+                this.mergeTargetName = playlist.name;
+              })
             Image($r('app.media.ic_chevron_right_24'))
               .width(18)
               .height(18)
@@ -549,7 +562,11 @@ export struct LibraryPage {
           .width('100%')
           .padding({ left: 14, right: 14, top: 10, bottom: 10 })
           .backgroundColor(Theme.surface(Theme.isDark()))
-          .onClick(() => Router.push(Router.PLAYLIST_DETAIL, playlist.id))
+          .onClick((): void => {
+            if (this.mergeTargetId.length === 0) {
+              Router.push(Router.PLAYLIST_DETAIL, playlist.id);
+            }
+          })
         }, (playlist: Playlist) => playlist.id)
       }
       .width('100%')
@@ -935,6 +952,17 @@ export struct LibraryPage {
         .backgroundColor(Theme.scrim(Theme.isDark()))
         .onClick(() => {
           this.showCreateDialog = false;
+        })
+      }
+      if (this.mergeTargetId.length > 0) {
+        PlaylistMergeDialog({
+          targetId: this.mergeTargetId,
+          targetName: this.mergeTargetName,
+          onCancel: (): void => { this.mergeTargetId = ''; },
+          onMerged: (): void => {
+            this.mergeTargetId = '';
+            void this.reload();
+          }
         })
       }
     }

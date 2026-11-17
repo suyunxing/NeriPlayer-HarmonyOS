@@ -24,6 +24,8 @@ import { SongRow } from '../components/SongRow';
 import { SongListDataSource } from '../components/SongListDataSource';
 import { EmptyState } from '../components/Ui';
 import { PlaylistHeader, HeaderPill } from '../components/PlaylistHeader';
+import { PlaylistMergeDialog } from '../components/PlaylistMergeDialog';
+import { PlaylistSourcesPanel } from '../components/PlaylistSourcesPanel';
 import { Router } from '../Router';
 import { HdsNavDestination } from '@kit.UIDesignKit';
 import { subPageTitleBar, SubPageBottomFade, SubPageMenuEntry, SUB_TITLEBAR_SPACE_VP, SUB_BOTTOM_CLEARANCE_VP } from '../components/HdsSubPage';
@@ -62,6 +64,8 @@ export struct PlaylistDetailPage {
   @Watch('onHistoryChanged') @State history: SongItem[] = [];
   @State showAddDialog: boolean = false;
   @State showRenameDialog: boolean = false;
+  @State showMergeDialog: boolean = false;
+  @State sourceCount: number = 0;
   @State renameValue: string = '';
   /** F-10：单曲移除撤销横幅（6 秒）。 */
   @State songUndoVisible: boolean = false;
@@ -89,6 +93,7 @@ export struct PlaylistDetailPage {
 
   onPlaylistChanged(): void {
     const songs = this.playlist?.songs ?? [];
+    this.sourceCount = this.playlist?.getSyncSources().length ?? 0;
     this.searchIndex = new PreparedSearchEntries<SongItem>(songs,
       (song: SongItem): SearchValue[] => songSearchValues(song));
     this.applySongFilter();
@@ -164,6 +169,10 @@ export struct PlaylistDetailPage {
         this.renameValue = this.playlist?.name ?? '';
         this.showRenameDialog = true;
       }
+    }, {
+      label: '合并歌单',
+      icon: $r('app.media.ic_library_music_24'),
+      action: (): void => { this.showMergeDialog = true; }
     }, {
       // F-4（上游 #322）：整单写回自建网易云歌单。
       label: '同步到网易云歌单',
@@ -255,19 +264,7 @@ export struct PlaylistDetailPage {
     this.reload();
   }
 
-  private isMirrored(): boolean {
-    return this.playlist !== null && this.playlist.syncSource !== null;
-  }
 
-  private mirrorSubtitle(): string {
-    const playlist = this.playlist;
-    if (playlist === null || playlist.syncSource === null) {
-      return '';
-    }
-    const platform = playlist.syncSource.platform === MusicPlatform.BILIBILI ? 'B站' : '网易云';
-    const mode = playlist.syncSource.mode === 'append' ? '仅追加' : '跟随远端';
-    return `${platform} · ${mode}`;
-  }
 
   private async syncMirrorNow(): Promise<void> {
     if (this.syncingMirror) {
@@ -275,7 +272,7 @@ export struct PlaylistDetailPage {
     }
     this.syncingMirror = true;
     try {
-      await SourceSyncCoordinator.runNow();
+      await SourceSyncCoordinator.runNow(this.playlistId);
       await this.reload();
       promptAction.openToast({ message: '同步完成' });
     } catch (error) {
@@ -416,8 +413,8 @@ export struct PlaylistDetailPage {
                 PlaylistHeader({
                   coverUrl: this.playlist.displayCoverUrl,
                   title: this.playlist.name,
-                  subtitle: this.isMirrored() ?
-                    `${this.playlist.songKeys.length} 首 · ${this.mirrorSubtitle()}` :
+                  subtitle: this.sourceCount > 0 ?
+                    `${this.playlist.songKeys.length} 首 · ${this.sourceCount} 个来源` :
                     `${this.playlist.songKeys.length} 首`
                 }) {
                   HeaderPill({
@@ -429,7 +426,7 @@ export struct PlaylistDetailPage {
                     label: '随机播放',
                     onTap: (): void => this.playAll(true)
                   })
-                  if (this.isMirrored()) {
+                  if (this.sourceCount > 0) {
                     HeaderPill({
                       label: this.syncingMirror ? '同步中…' : '立即同步',
                       onTap: (): void => {
@@ -440,6 +437,17 @@ export struct PlaylistDetailPage {
                 }
               }
               .padding({ bottom: 10 })
+            }
+
+            if (this.sourceCount > 0) {
+              ListItem() {
+                PlaylistSourcesPanel({
+                  playlistJson: this.playlist.toJson(),
+                  globalBusy: this.syncingMirror,
+                  onChanged: (): void => { void this.reload(); }
+                })
+                  .margin({ left: 16, right: 16, bottom: 14 })
+              }
             }
 
             ListItem() {
@@ -516,7 +524,7 @@ export struct PlaylistDetailPage {
                   subtitle: this.isLocalMusic()
                     ? '所选目录里没有音频文件，回资料库重新选择或扫描'
                     : (this.isFavorites() ? '在歌曲列表点 ♡ 收藏歌曲' :
-                      (this.isMirrored() ? '等待自动同步从来源拉取歌曲，也可点「立即同步」' : '点击「添加」从播放历史选歌'))
+                      (this.sourceCount > 0 ? '等待自动同步从来源拉取歌曲，也可点「立即同步」' : '点击「添加」从播放历史选歌'))
                 })
               }
             } else if (this.songsDs.totalCount() === 0) {
@@ -800,6 +808,18 @@ export struct PlaylistDetailPage {
       .width('100%')
       .height('100%')
       .hitTestBehavior(HitTestMode.Transparent)
+      if (this.showMergeDialog && this.playlist !== null) {
+        PlaylistMergeDialog({
+          targetId: this.playlistId,
+          targetName: this.playlist.name,
+          onCancel: (): void => { this.showMergeDialog = false; },
+          onMerged: (): void => {
+            this.showMergeDialog = false;
+            void this.reload();
+            Router.notifyReturned();
+          }
+        })
+      }
     }
     .width('100%')
     .height('100%')

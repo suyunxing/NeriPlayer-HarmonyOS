@@ -15,10 +15,14 @@ import { SyncPlaylistSongDeletion, songIdKeyText, syncSongIdentity } from '../sy
 import { playlistIdToSync, syncSongFromSongItem } from '../sync/SyncSongConvert';
 import {
   PlaylistSyncSource,
-  SOURCE_SYNC_MODE_APPEND,
-  mirrorPlaylistId
+  mirrorPlaylistId,
+  sourceKeyOf
 } from '../sourcesync/SourceSyncModels';
-import { appendDiff, mirrorDiff } from '../sourcesync/SourceSyncDiff';
+import {
+  ensurePlaylistOwnership, findPlaylistSource, currentSourceForApply, attachPlaylistSource,
+  detachPlaylistSource, markPlaylistSongManual, markPlaylistSongDeleted, clearPlaylistSongSkips,
+  applySourceSnapshot, mergePlaylistContent
+} from '../sourcesync/SourceSyncOwnership';
 
 export class LocalPlaylistTombstone {
   id: string;
@@ -105,6 +109,8 @@ export class PlaylistSongDeleteSnapshot {
   songKey: string = '';
   songJson: string = '';
   index: number = 0;
+  manualOwned: boolean = false;
+  ownershipCaptured: boolean = false;
 }
 
 /**
@@ -126,6 +132,11 @@ export class LocalPlaylistRepository {
   // write-back, sync-coordinator applies) can otherwise interleave with UI
   // edits and one side's change is silently lost (audit A-25).
   private static readonly WRITE_LOCK: KeyedMutex = new KeyedMutex();
+
+  /** Platform random boundary for binding generations; injectable without treating util as an object. */
+  static generateSourceBindingId(): string {
+    return util.generateRandomUUID(false);
+  }
 
   static parseJson(json: string): Playlist[] | null {
     const rawList = JSON.parse(json) as Object[];
@@ -213,6 +224,31 @@ export class LocalPlaylistRepository {
   }
 
   private static async replaceAllFromSyncLocked(playlists: Playlist[]): Promise<void> {
+    // Cross-device snapshot construction runs outside this mutex. Local bindings
+    // are device state: use the latest store, including binds/unbinds since then.
+    const current = await LocalPlaylistRepository.loadAll();
+    for (const incoming of playlists) {
+      const existing = LocalPlaylistRepository.findBySyncId(current, incoming.id);
+      if (existing === undefined) {
+        continue;
+      }
+      ensurePlaylistOwnership(existing);
+      for (const key of existing.songKeys) {
+        if (incoming.songKeys.indexOf(key) < 0) {
+          markPlaylistSongDeleted(existing, key);
+        }
+      }
+      for (const key of incoming.songKeys) {
+        if (existing.songKeys.indexOf(key) < 0) {
+          markPlaylistSongManual(existing, key);
+        }
+      }
+      incoming.syncSources = existing.getSyncSources();
+      incoming.syncSource = incoming.syncSources.length > 0 ? incoming.syncSources[0] : null;
+      incoming.manualSongKeys = existing.manualSongKeys.filter((key: string): boolean =>
+        incoming.songKeys.indexOf(key) >= 0);
+      incoming.manualOwnershipKnown = true;
+    }
     const json = JSON.stringify(playlists.map((item: Playlist) => Playlist.fromJson(item.toJson())));
     await SchemaStore.save(LocalPlaylistRepository.KEY, json, (value: string) => value);
     LocalPlaylistRepository.invalidateFavoriteKeys();
@@ -309,31 +345,26 @@ export class LocalPlaylistRepository {
     const playlists = await LocalPlaylistRepository.loadAll();
     const existing = playlists.find((item: Playlist): boolean => item.id === id);
     if (existing !== undefined) {
-      const bound = existing.syncSource;
-      if (bound === null) {
-        existing.syncSource = source;
-      } else {
-        bound.remoteName = source.remoteName;
-        bound.mode = source.mode;
-        bound.enabled = source.enabled;
-      }
+      attachPlaylistSource(existing, source, LocalPlaylistRepository.generateSourceBindingId());
       await LocalPlaylistRepository.saveAll(playlists, [id]);
       return existing;
     }
     const playlist = new Playlist(id, source.remoteName, MusicPlatform.LOCAL);
-    playlist.syncSource = source;
-    if (songs.length > 0) {
+    attachPlaylistSource(playlist, source, LocalPlaylistRepository.generateSourceBindingId());
+    const bound = findPlaylistSource(playlist, sourceKeyOf(source));
+    if (songs.length > 0 && bound !== null) {
       const seedStamped = await LocalPlaylistRepository.stampSongsForInsert(songs, Date.now());
       const seedMerge = mergePlaylistSongs(playlist.songKeys, playlist.songs, seedStamped);
       playlist.songKeys = seedMerge.keys;
       playlist.songs = seedMerge.songs;
+      bound.ownedSongKeys = seedMerge.keys.slice();
     }
     playlists.unshift(playlist);
     await LocalPlaylistRepository.saveAll(playlists, [playlist.id]);
     return playlist;
   }
 
-  /** Attaches a sync source to an existing local playlist (绑定已有歌单). */
+  /** Appends/idempotently refreshes one source without replacing other bindings. */
   static async bindMirrorSource(playlistId: string, source: PlaylistSyncSource): Promise<boolean> {
     return LocalPlaylistRepository.WRITE_LOCK.run(LocalPlaylistRepository.KEY,
       (): Promise<boolean> => LocalPlaylistRepository.bindMirrorSourceLocked(playlistId, source));
@@ -342,63 +373,81 @@ export class LocalPlaylistRepository {
   private static async bindMirrorSourceLocked(playlistId: string, source: PlaylistSyncSource): Promise<boolean> {
     const playlists = await LocalPlaylistRepository.loadAll();
     const playlist = playlists.find((item: Playlist): boolean => item.id === playlistId);
+    if (playlist === undefined || !attachPlaylistSource(playlist, source, LocalPlaylistRepository.generateSourceBindingId())) {
+      return false;
+    }
+    playlist.updatedAt = Date.now();
+    await LocalPlaylistRepository.saveAll(playlists, [playlistId]);
+    return true;
+  }
+
+  /** Empty key detaches every source; current songs remain manual entries. */
+  static async unbindMirrorSource(playlistId: string, sourceKey: string = ''): Promise<boolean> {
+    return LocalPlaylistRepository.WRITE_LOCK.run(LocalPlaylistRepository.KEY,
+      (): Promise<boolean> => LocalPlaylistRepository.unbindMirrorSourceLocked(playlistId, sourceKey));
+  }
+
+  private static async unbindMirrorSourceLocked(playlistId: string, sourceKey: string): Promise<boolean> {
+    const playlists = await LocalPlaylistRepository.loadAll();
+    const playlist = playlists.find((item: Playlist): boolean => item.id === playlistId);
+    if (playlist === undefined || !detachPlaylistSource(playlist, sourceKey)) {
+      return false;
+    }
+    playlist.updatedAt = Date.now();
+    await LocalPlaylistRepository.saveAll(playlists, [playlistId]);
+    return true;
+  }
+
+  static async resetMirrorSkips(playlistId: string, sourceKey: string = ''): Promise<boolean> {
+    return LocalPlaylistRepository.WRITE_LOCK.run(LocalPlaylistRepository.KEY,
+      (): Promise<boolean> => LocalPlaylistRepository.resetMirrorSkipsLocked(playlistId, sourceKey));
+  }
+
+  private static async resetMirrorSkipsLocked(playlistId: string, sourceKey: string): Promise<boolean> {
+    const playlists = await LocalPlaylistRepository.loadAll();
+    const playlist = playlists.find((item: Playlist): boolean => item.id === playlistId);
     if (playlist === undefined) {
       return false;
     }
-    playlist.syncSource = source;
-    playlist.updatedAt = Date.now();
-    await LocalPlaylistRepository.saveAll(playlists, [playlistId]);
-    return true;
-  }
-
-  /** Detaches the sync source; the playlist itself and its songs stay untouched. */
-  static async unbindMirrorSource(playlistId: string): Promise<boolean> {
-    return LocalPlaylistRepository.WRITE_LOCK.run(LocalPlaylistRepository.KEY,
-      (): Promise<boolean> => LocalPlaylistRepository.unbindMirrorSourceLocked(playlistId));
-  }
-
-  private static async unbindMirrorSourceLocked(playlistId: string): Promise<boolean> {
-    const playlists = await LocalPlaylistRepository.loadAll();
-    const playlist = playlists.find((item: Playlist): boolean => item.id === playlistId);
-    if (playlist === undefined || playlist.syncSource === null) {
+    const sources = playlist.getSyncSources().filter((source: PlaylistSyncSource): boolean =>
+      sourceKey.length === 0 || sourceKeyOf(source) === sourceKey);
+    if (sources.length === 0) {
       return false;
     }
-    playlist.syncSource = null;
-    playlist.updatedAt = Date.now();
-    await LocalPlaylistRepository.saveAll(playlists, [playlistId]);
-    return true;
-  }
-
-  /** Clears the remembered user deletions of a mirror playlist (device-local status). */
-  static async resetMirrorSkips(playlistId: string): Promise<boolean> {
-    return LocalPlaylistRepository.WRITE_LOCK.run(LocalPlaylistRepository.KEY,
-      (): Promise<boolean> => LocalPlaylistRepository.resetMirrorSkipsLocked(playlistId));
-  }
-
-  private static async resetMirrorSkipsLocked(playlistId: string): Promise<boolean> {
-    const playlists = await LocalPlaylistRepository.loadAll();
-    const playlist = playlists.find((item: Playlist): boolean => item.id === playlistId);
-    if (playlist === undefined || playlist.syncSource === null) {
-      return false;
+    for (const source of sources) {
+      source.skipKeys = [];
+      source.lastFingerprint = '';
+      source.lastCheckedAt = 0;
     }
-    playlist.syncSource.skipKeys = [];
     await LocalPlaylistRepository.saveAllSilent(playlists);
     return true;
   }
 
-  /** Enables/disables a mirror source for automatic sync (device-local status). */
-  static async setMirrorEnabled(playlistId: string, enabled: boolean): Promise<boolean> {
+  static async setMirrorEnabled(playlistId: string, enabled: boolean, sourceKey: string = ''): Promise<boolean> {
     return LocalPlaylistRepository.WRITE_LOCK.run(LocalPlaylistRepository.KEY,
-      (): Promise<boolean> => LocalPlaylistRepository.setMirrorEnabledLocked(playlistId, enabled));
+      (): Promise<boolean> => LocalPlaylistRepository.setMirrorEnabledLocked(playlistId, enabled, sourceKey));
   }
 
-  private static async setMirrorEnabledLocked(playlistId: string, enabled: boolean): Promise<boolean> {
+  private static async setMirrorEnabledLocked(playlistId: string, enabled: boolean,
+    sourceKey: string): Promise<boolean> {
     const playlists = await LocalPlaylistRepository.loadAll();
     const playlist = playlists.find((item: Playlist): boolean => item.id === playlistId);
-    if (playlist === undefined || playlist.syncSource === null) {
+    if (playlist === undefined) {
       return false;
     }
-    playlist.syncSource.enabled = enabled;
+    const sources = playlist.getSyncSources().filter((source: PlaylistSyncSource): boolean =>
+      sourceKey.length === 0 || sourceKeyOf(source) === sourceKey);
+    if (sources.length === 0) {
+      return false;
+    }
+    for (const source of sources) {
+      if (source.enabled !== enabled) {
+        source.bindingRevision += 1;
+        source.lastFingerprint = '';
+        source.lastCheckedAt = 0;
+      }
+      source.enabled = enabled;
+    }
     await LocalPlaylistRepository.saveAllSilent(playlists);
     return true;
   }
@@ -415,6 +464,10 @@ export class LocalPlaylistRepository {
     if (playlist === undefined) {
       return 0;
     }
+    ensurePlaylistOwnership(playlist);
+    for (const song of songs) {
+      markPlaylistSongManual(playlist, stableKeyOf(song));
+    }
     const stamped = await LocalPlaylistRepository.stampSongsForInsert(songs,
       Math.max(Date.now(), LocalPlaylistRepository.latestAddedAt(playlist) + 1));
     const merge = mergePlaylistSongs(playlist.songKeys, playlist.songs, stamped);
@@ -422,119 +475,118 @@ export class LocalPlaylistRepository {
     playlist.songs = merge.songs;
     playlist.updatedAt = Date.now();
     await LocalPlaylistRepository.saveAll(playlists, [playlistId]);
+    for (const song of songs) {
+      await LocalPlaylistRepository.clearSongDeletionTombstone(playlistId, song);
+    }
     return merge.addedCount;
   }
 
-  /**
-   * Source-sync: applies one fetched remote snapshot to a mirror playlist in
-   * a single save. Mirror mode aligns membership and order to the remote list
-   * (skipKeys — user deletions — are never resurrected); append mode only adds
-   * missing songs at the tail. Returns true when local content changed.
-   */
-  static async applyMirrorSync(playlistId: string, remoteSongs: SongItem[], fingerprint: string): Promise<boolean> {
+  /** Applies a single source under the table mutex, validating its current binding. */
+  static async applyMirrorSync(playlistId: string, remoteSongs: SongItem[], fingerprint: string,
+    sourceKey: string = '', expectedBindingToken: string = ''): Promise<boolean> {
     return LocalPlaylistRepository.WRITE_LOCK.run(LocalPlaylistRepository.KEY,
-      (): Promise<boolean> => LocalPlaylistRepository.applyMirrorSyncLocked(playlistId, remoteSongs, fingerprint));
+      (): Promise<boolean> => LocalPlaylistRepository.applyMirrorSyncLocked(
+        playlistId, remoteSongs, fingerprint, sourceKey, expectedBindingToken));
   }
 
-  private static async applyMirrorSyncLocked(playlistId: string, remoteSongs: SongItem[], fingerprint: string): Promise<boolean> {
+  private static async applyMirrorSyncLocked(playlistId: string, remoteSongs: SongItem[], fingerprint: string,
+    sourceKey: string, expectedBindingToken: string): Promise<boolean> {
     const playlists = await LocalPlaylistRepository.loadAll();
     const playlist = playlists.find((item: Playlist): boolean => item.id === playlistId);
-    if (playlist === undefined || playlist.syncSource === null) {
+    if (playlist === undefined) {
       return false;
     }
-    const syncSource = playlist.syncSource;
+    const source = currentSourceForApply(playlist, sourceKey, expectedBindingToken);
+    if (source === null) {
+      return false;
+    }
     const now = Date.now();
-    let applied = false;
-    const addedSongs: SongItem[] = [];
-    const removedSongs: SongItem[] = [];
-
-    if (syncSource.mode === SOURCE_SYNC_MODE_APPEND) {
-      const diff = appendDiff(playlist.songKeys, remoteSongs, syncSource.skipKeys);
-      if (diff.toAdd.length > 0) {
-        const stamped = await LocalPlaylistRepository.stampSongsForInsert(diff.toAdd,
-          Math.max(now, LocalPlaylistRepository.latestAddedAt(playlist) + 1));
-        const merge = mergePlaylistSongs(playlist.songKeys, playlist.songs, stamped);
-        playlist.songKeys = merge.keys;
-        playlist.songs = merge.songs;
-        for (const song of stamped) {
-          addedSongs.push(song);
-        }
-        applied = true;
-      }
-    } else {
-      const diff = mirrorDiff(playlist.songKeys, remoteSongs, syncSource.skipKeys);
-      if (diff.changed) {
-        const byKey = new Map<string, SongItem>();
-        for (let i = 0; i < playlist.songs.length; i++) {
-          byKey.set(playlist.songKeys[i], playlist.songs[i]);
-        }
-        const addedByKey = new Map<string, SongItem>();
-        for (const song of diff.toAdd) {
-          addedByKey.set(stableKeyOf(song), song);
-        }
-        for (const key of diff.toRemoveKeys) {
-          const removed = byKey.get(key);
-          if (removed !== undefined) {
-            removedSongs.push(removed);
-          }
-        }
-        const nextSongs: SongItem[] = [];
-        for (const key of diff.finalOrder) {
-          const existingSong = byKey.get(key);
-          if (existingSong !== undefined) {
-            nextSongs.push(existingSong);
-          } else {
-            const addedSong = addedByKey.get(key);
-            if (addedSong !== undefined) {
-              nextSongs.push(addedSong);
-            }
-          }
-        }
-        // Re-stamp addedAt along the remote order: the sync layer displays
-        // songs by addedAt-descending (normalizedForDisplayOrder), so this is
-        // what keeps the remote order intact on every device. Stored metadata
-        // of kept songs is preserved; runs only on actual changes.
-        const newestAt = Math.max(now, LocalPlaylistRepository.latestAddedAt(playlist) + 1);
-        const stamped: SongItem[] = [];
-        for (let index = 0; index < nextSongs.length; index++) {
-          const copy = SongItem.fromJson(nextSongs[index].toJson());
-          copy.addedAt = Math.max(newestAt - index, 1);
-          stamped.push(copy);
-        }
-        playlist.songKeys = diff.finalOrder.slice();
-        playlist.songs = stamped;
-        for (const song of stamped) {
-          if (addedByKey.has(stableKeyOf(song))) {
-            addedSongs.push(song);
-          }
-        }
-        applied = true;
-      }
-    }
-
-    syncSource.lastCheckedAt = now;
-    if (applied) {
-      playlist.updatedAt = now;
-      syncSource.lastSyncAt = now;
-      syncSource.lastFingerprint = fingerprint;
-      await LocalPlaylistRepository.saveAll(playlists, [playlistId]);
-      for (const removed of removedSongs) {
-        await LocalPlaylistRepository.recordSongDeletionTombstone(playlistId, removed);
-      }
-      for (const added of addedSongs) {
-        const syncSong = syncSongFromSongItem(added);
-        if (syncSong !== null) {
-          await SyncDeletionStore.clearPlaylistSongDeletion(
-            playlistIdToSync(playlistId), syncSongIdentity(syncSong).stableKey());
-        }
-      }
-    } else {
-      // No-op check: persist the check bookkeeping silently so cross-device
-      // pending marks (and the upload they trigger) stay untouched.
-      syncSource.lastFingerprint = fingerprint;
+    const diff = applySourceSnapshot(playlist, source, remoteSongs);
+    source.lastCheckedAt = now;
+    source.lastFingerprint = fingerprint;
+    if (!diff.changed) {
       await LocalPlaylistRepository.saveAllSilent(playlists);
+      return false;
     }
-    return applied;
+    const newestAt = Math.max(now, LocalPlaylistRepository.latestAddedAt(playlist) + 1);
+    const stampedAdds = await LocalPlaylistRepository.stampSongsForInsert(diff.toAdd, newestAt);
+    const addedByKey = new Map<string, SongItem>();
+    for (const song of stampedAdds) {
+      addedByKey.set(stableKeyOf(song), song);
+    }
+    const ordered: SongItem[] = [];
+    for (let index = 0; index < diff.songs.length; index++) {
+      const key = diff.keys[index];
+      const copy = SongItem.fromJson((addedByKey.get(key) ?? diff.songs[index]).toJson());
+      copy.addedAt = Math.max(newestAt - index, 1);
+      ordered.push(copy);
+    }
+    playlist.songKeys = diff.keys;
+    playlist.songs = ordered;
+    playlist.updatedAt = now;
+    source.lastSyncAt = now;
+    await LocalPlaylistRepository.saveAll(playlists, [playlistId]);
+    for (const removed of diff.toRemove) {
+      await LocalPlaylistRepository.recordSongDeletionTombstone(playlistId, removed);
+    }
+    for (const added of stampedAdds) {
+      await LocalPlaylistRepository.clearSongDeletionTombstone(playlistId, added);
+    }
+    return true;
+  }
+
+  /** Union songs + provenance/bindings without deleting any original playlist. */
+  static async mergePlaylists(targetId: string, sourceIds: string[]): Promise<number> {
+    return LocalPlaylistRepository.WRITE_LOCK.run(LocalPlaylistRepository.KEY,
+      (): Promise<number> => LocalPlaylistRepository.mergePlaylistsLocked(targetId, sourceIds));
+  }
+
+  private static async mergePlaylistsLocked(targetId: string, sourceIds: string[]): Promise<number> {
+    const playlists = await LocalPlaylistRepository.loadAll();
+    const target = playlists.find((item: Playlist): boolean => item.id === targetId);
+    if (target === undefined || target.id === LocalPlaylistRepository.LOCAL_MUSIC_ID) {
+      return 0;
+    }
+    const originalKeys = new Set<string>(target.songKeys);
+    const seen = new Set<string>();
+    let count = 0;
+    let mergedAny = false;
+    for (const id of sourceIds) {
+      if (id === targetId || seen.has(id)) {
+        continue;
+      }
+      seen.add(id);
+      const source = playlists.find((item: Playlist): boolean => item.id === id);
+      if (source !== undefined) {
+        count += mergePlaylistContent(target, source, LocalPlaylistRepository.generateSourceBindingId());
+        mergedAny = true;
+      }
+    }
+    if (!mergedAny) {
+      return 0;
+    }
+    const additions = target.songs.filter((song: SongItem): boolean => !originalKeys.has(stableKeyOf(song)));
+    const stamped = await LocalPlaylistRepository.stampSongsForInsert(additions,
+      Math.max(Date.now(), LocalPlaylistRepository.latestAddedAt(target) + 1));
+    const addedByKey = new Map<string, SongItem>();
+    for (const song of stamped) {
+      addedByKey.set(stableKeyOf(song), song);
+    }
+    target.songs = target.songs.map((song: SongItem): SongItem => addedByKey.get(stableKeyOf(song)) ?? song);
+    target.updatedAt = Date.now();
+    await LocalPlaylistRepository.saveAll(playlists, [targetId]);
+    for (const added of stamped) {
+      await LocalPlaylistRepository.clearSongDeletionTombstone(targetId, added);
+    }
+    return count;
+  }
+
+  private static async clearSongDeletionTombstone(playlistId: string, song: SongItem): Promise<void> {
+    const syncSong = syncSongFromSongItem(song);
+    if (syncSong !== null) {
+      await SyncDeletionStore.clearPlaylistSongDeletion(
+        playlistIdToSync(playlistId), syncSongIdentity(syncSong).stableKey());
+    }
   }
 
   static async addSong(playlistId: string, song: SongItem): Promise<boolean> {
@@ -549,7 +601,10 @@ export class LocalPlaylistRepository {
       return false;
     }
     const songKey = stableKeyOf(song);
+    markPlaylistSongManual(playlist, songKey);
     if (playlist.songKeys.indexOf(songKey) >= 0) {
+      await LocalPlaylistRepository.saveAll(playlists, [playlistId]);
+      await LocalPlaylistRepository.clearSongDeletionTombstone(playlistId, song);
       return false;
     }
     const stamped = (await LocalPlaylistRepository.stampSongsForInsert([song],
@@ -582,14 +637,11 @@ export class LocalPlaylistRepository {
       return false;
     }
     const removedSong = playlist.songs[index];
+    markPlaylistSongDeleted(playlist, songKey);
     playlist.songKeys.splice(index, 1);
     playlist.songs.splice(index, 1);
     playlist.updatedAt = Date.now();
-    if (playlist.syncSource !== null && playlist.syncSource.skipKeys.indexOf(songKey) < 0) {
-      // Remember user deletions so auto sync never resurrects the song (both
-      // mirror and append modes) until the sync state is reset.
-      playlist.syncSource.skipKeys.push(songKey);
-    }
+
     await LocalPlaylistRepository.saveAll(playlists, [playlistId]);
     await LocalPlaylistRepository.recordSongDeletionTombstone(playlistId, removedSong);
     return true;
@@ -712,7 +764,10 @@ export class LocalPlaylistRepository {
     if (index < 0) {
       return null;
     }
+    ensurePlaylistOwnership(playlist);
     const snapshot = new PlaylistSongDeleteSnapshot();
+    snapshot.manualOwned = playlist.manualSongKeys.indexOf(songKey) >= 0;
+    snapshot.ownershipCaptured = true;
     snapshot.playlistId = playlist.id;
     snapshot.songKey = songKey;
     snapshot.index = index;
@@ -748,16 +803,18 @@ export class LocalPlaylistRepository {
     if (playlist === undefined || playlist.songKeys.indexOf(snapshot.songKey) >= 0) {
       return false;
     }
+    ensurePlaylistOwnership(playlist);
+    clearPlaylistSongSkips(playlist, snapshot.songKey);
+    if (!snapshot.ownershipCaptured || snapshot.manualOwned
+      || !playlist.getSyncSources().some((source: PlaylistSyncSource): boolean =>
+        source.ownedSongKeys.indexOf(snapshot.songKey) >= 0)) {
+      markPlaylistSongManual(playlist, snapshot.songKey);
+    }
     const insertAt = Math.min(Math.max(snapshot.index, 0), playlist.songKeys.length);
     playlist.songKeys.splice(insertAt, 0, snapshot.songKey);
     playlist.songs.splice(insertAt, 0, song);
     playlist.updatedAt = Date.now();
-    if (playlist.syncSource !== null) {
-      const skipIndex = playlist.syncSource.skipKeys.indexOf(snapshot.songKey);
-      if (skipIndex >= 0) {
-        playlist.syncSource.skipKeys.splice(skipIndex, 1);
-      }
-    }
+
     await LocalPlaylistRepository.saveAll(playlists, [playlist.id]);
     const syncSong = syncSongFromSongItem(song);
     if (syncSong !== null) {
